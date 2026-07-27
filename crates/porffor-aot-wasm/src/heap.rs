@@ -247,6 +247,7 @@ pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
 pub(crate) const HEAP_SET_ITERATOR_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE: u64 = 32;
 #[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_REACTION_RECORD_SIZE: u64 = 56;
 #[allow(dead_code)]
@@ -379,6 +380,10 @@ pub(crate) const HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET: u64 = 96;
 pub(crate) const HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 104;
 pub(crate) const HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 112;
 pub(crate) const HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET: u64 = 120;
+pub(crate) const HEAP_DATA_VIEW_VIEWED_BUFFER_OFFSET: u64 = 80;
+pub(crate) const HEAP_DATA_VIEW_BYTE_OFFSET: u64 = 88;
+pub(crate) const HEAP_DATA_VIEW_BYTE_LENGTH_OFFSET: u64 = 96;
+pub(crate) const HEAP_DATA_VIEW_LENGTH_TRACKING_OFFSET: u64 = 104;
 pub(crate) const HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET: u64 = 128;
 pub(crate) const HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET: u64 = 136;
 /// Absolute linear-memory address of an immutable, AOT-compiled RegExp program.
@@ -719,6 +724,10 @@ pub(crate) const HEAP_SET_ITERATOR_SET_PAYLOAD_OFFSET: u64 = 0;
 pub(crate) const HEAP_SET_ITERATOR_NEXT_INDEX_OFFSET: u64 = 8;
 pub(crate) const HEAP_SET_ITERATOR_KIND_OFFSET: u64 = 16;
 pub(crate) const HEAP_SET_ITERATOR_DONE_OFFSET: u64 = 24;
+pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET: u64 = 0;
+pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET: u64 = 8;
+pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET: u64 = 16;
+pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET: u64 = 24;
 pub(crate) const HEAP_PROMISE_REACTION_CAPABILITY_OFFSET: u64 = 0;
 pub(crate) const HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET: u64 = 16;
@@ -795,6 +804,8 @@ pub(crate) const OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER: u64 = 17;
 pub(crate) const OBJECT_INTERNAL_BRAND_GENERATOR: u64 = 18;
 #[allow(dead_code)]
 pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR: u64 = 19;
+pub(crate) const OBJECT_INTERNAL_BRAND_TYPED_ARRAY_ITERATOR: u64 = 20;
+pub(crate) const OBJECT_INTERNAL_BRAND_DATA_VIEW: u64 = 21;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -1006,6 +1017,34 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         record: "typed-array-object-header",
         name: "length_tracking",
         offset: HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "data-view-object-header",
+        name: "viewed_array_buffer",
+        offset: HEAP_DATA_VIEW_VIEWED_BUFFER_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "data-view-object-header",
+        name: "byte_offset",
+        offset: HEAP_DATA_VIEW_BYTE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "data-view-object-header",
+        name: "byte_length",
+        offset: HEAP_DATA_VIEW_BYTE_LENGTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "data-view-object-header",
+        name: "length_tracking",
+        offset: HEAP_DATA_VIEW_LENGTH_TRACKING_OFFSET,
         width: 8,
         pointer: false,
     },
@@ -2944,6 +2983,38 @@ pub(crate) const HEAP_SET_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "typed-array-iterator-record",
+        name: "typed_array_payload",
+        offset: HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-iterator-record",
+        name: "next_index",
+        offset: HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-iterator-record",
+        name: "kind",
+        offset: HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "typed-array-iterator-record",
+        name: "done",
+        offset: HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_REACTION_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "promise-reaction-record",
@@ -4189,6 +4260,7 @@ mod tests {
         assert_eq!(HEAP_SET_RECORD_SIZE, 32);
         assert_eq!(HEAP_SET_ENTRY_SIZE, 24);
         assert_eq!(HEAP_SET_ITERATOR_RECORD_SIZE, 32);
+        assert_eq!(HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE, 32);
     }
 
     #[test]
@@ -4252,6 +4324,10 @@ mod tests {
             HEAP_SET_ITERATOR_RECORD_SIZE,
         );
         assert_layout(
+            HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT,
+            HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE,
+        );
+        assert_layout(
             HEAP_PROMISE_REACTION_LAYOUT,
             HEAP_PROMISE_REACTION_RECORD_SIZE,
         );
@@ -4293,6 +4369,7 @@ mod tests {
             .chain(HEAP_SET_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_ENTRY_LAYOUT.iter())
             .chain(HEAP_SET_ITERATOR_RECORD_LAYOUT.iter())
+            .chain(HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_PROMISE_REACTION_LAYOUT.iter())
             .chain(HEAP_PENDING_JOB_LAYOUT.iter())
             .chain(HEAP_ENVIRONMENT_LAYOUT.iter())
@@ -4545,6 +4622,33 @@ mod tests {
                 | ARRAY_BUFFER_FLAG_DETACHED,
             15
         );
+    }
+
+    #[test]
+    fn data_view_state_uses_a_private_brand_selected_header_record() {
+        let data_view_slots = HEAP_OBJECT_HEADER_LAYOUT
+            .iter()
+            .filter(|slot| slot.record == "data-view-object-header")
+            .collect::<Vec<_>>();
+        assert_eq!(data_view_slots.len(), 4);
+        assert!(data_view_slots.iter().any(|slot| {
+            slot.name == "viewed_array_buffer"
+                && slot.offset == HEAP_DATA_VIEW_VIEWED_BUFFER_OFFSET
+                && slot.pointer
+        }));
+        assert!(data_view_slots.iter().any(|slot| {
+            slot.name == "byte_offset" && slot.offset == HEAP_DATA_VIEW_BYTE_OFFSET && !slot.pointer
+        }));
+        assert!(data_view_slots.iter().any(|slot| {
+            slot.name == "byte_length"
+                && slot.offset == HEAP_DATA_VIEW_BYTE_LENGTH_OFFSET
+                && !slot.pointer
+        }));
+        assert!(data_view_slots.iter().any(|slot| {
+            slot.name == "length_tracking"
+                && slot.offset == HEAP_DATA_VIEW_LENGTH_TRACKING_OFFSET
+                && !slot.pointer
+        }));
     }
 
     #[test]

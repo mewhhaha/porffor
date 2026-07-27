@@ -8998,6 +8998,16 @@ impl<'a> FunctionBuilder<'a> {
                         .contains(&StandardBuiltinId::IteratorPrototypeFind.function_id()),
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
+            let receiver_has_typed_array_find = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "find"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::TypedArrayPrototypeFind.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
             if receiver_is_iterator {
                 let receiver_payload_local = self.reserve_temp_local();
                 let receiver_tag_local = self.reserve_temp_local();
@@ -9040,6 +9050,17 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(receiver_payload_local);
                 return Ok(());
             }
+            if receiver_has_typed_array_find {
+                return self.emit_array_direct_builtin_method_call(
+                    StandardBuiltinId::TypedArrayPrototypeFind,
+                    "TypedArray.prototype.find",
+                    receiver,
+                    args,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
             return self.emit_array_find_method_call(
                 receiver,
                 args,
@@ -9049,6 +9070,27 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findIndex") {
+            let receiver_has_typed_array_find_index = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "findIndex"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::TypedArrayPrototypeFindIndex.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_has_typed_array_find_index {
+                return self.emit_array_direct_builtin_method_call(
+                    StandardBuiltinId::TypedArrayPrototypeFindIndex,
+                    "TypedArray.prototype.findIndex",
+                    receiver,
+                    args,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
             return self.emit_array_find_index_method_call(
                 receiver,
                 args,
@@ -9224,6 +9266,27 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findLast") {
+            let receiver_has_typed_array_find_last = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "findLast"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::TypedArrayPrototypeFindLast.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_has_typed_array_find_last {
+                return self.emit_array_direct_builtin_method_call(
+                    StandardBuiltinId::TypedArrayPrototypeFindLast,
+                    "TypedArray.prototype.findLast",
+                    receiver,
+                    args,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
             return self.emit_array_find_last_method_call(
                 receiver,
                 args,
@@ -9233,6 +9296,27 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findLastIndex") {
+            let receiver_has_typed_array_find_last_index = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "findLastIndex"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info.function_targets.contains(
+                        &StandardBuiltinId::TypedArrayPrototypeFindLastIndex.function_id(),
+                    ),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
+            if receiver_has_typed_array_find_last_index {
+                return self.emit_array_direct_builtin_method_call(
+                    StandardBuiltinId::TypedArrayPrototypeFindLastIndex,
+                    "TypedArray.prototype.findLastIndex",
+                    receiver,
+                    args,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
             return self.emit_array_find_last_index_method_call(
                 receiver,
                 args,

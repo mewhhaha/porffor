@@ -103,6 +103,360 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_typed_array_iterator_create_from_locals(
+        &mut self,
+        typed_array_payload_local: u32,
+        kind: u64,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let iterator_payload_local = self.reserve_temp_local();
+        let iterator_record_local = self.reserve_temp_local();
+        let prototype_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(
+            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_load_function_defining_realm_array_iterator_prototype(
+            self.current_env_local,
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(iterator_payload_local));
+        self.emit_heap_alloc_const(HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(iterator_record_local));
+        self.store_i64_local_at_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET,
+            typed_array_payload_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
+            kind,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            iterator_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_TYPED_ARRAY_ITERATOR,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            iterator_payload_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            BOXED_PRIMITIVE_KIND_NONE,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            iterator_payload_local,
+            HEAP_OBJECT_BOXED_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            iterator_record_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(iterator_payload_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
+        self.release_temp_local(prototype_local);
+        self.release_temp_local(iterator_record_local);
+        self.release_temp_local(iterator_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_typed_array_iterator_next_from_locals(
+        &mut self,
+        this_payload_local: u32,
+        this_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let iterator_brand_local = self.reserve_temp_local();
+        let iterator_record_local = self.reserve_temp_local();
+        let typed_array_payload_local = self.reserve_temp_local();
+        let typed_array_tag_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let kind_local = self.reserve_temp_local();
+        let done_local = self.reserve_temp_local();
+        let buffer_payload_local = self.reserve_temp_local();
+        let byte_offset_local = self.reserve_temp_local();
+        let byte_length_local = self.reserve_temp_local();
+        let bytes_per_element_local = self.reserve_temp_local();
+        let length_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let entry_array_local = self.reserve_temp_local();
+        let entry_index_local = self.reserve_temp_local();
+        let index_payload_local = self.reserve_temp_local();
+        let index_tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(iterator_brand_local));
+        function.instruction(&Instruction::LocalGet(this_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            this_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            iterator_brand_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(iterator_brand_local));
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_TYPED_ARRAY_ITERATOR as i64,
+        ));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Array Iterator next called on incompatible receiver",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            this_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            iterator_record_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
+            done_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(done_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_iterator_result_object_from_locals(
+            value_payload_local,
+            value_tag_local,
+            true,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET,
+            typed_array_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(typed_array_tag_local));
+        self.load_i64_to_local_from_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
+            index_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
+            kind_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
+            buffer_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_BYTE_OFFSET,
+            byte_offset_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
+            byte_length_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            bytes_per_element_local,
+            function,
+        );
+        self.emit_validate_typed_array_current_byte_length(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            buffer_payload_local,
+            byte_offset_local,
+            byte_length_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(byte_length_local));
+        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::LocalSet(length_local));
+
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
+            1,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_iterator_result_object_from_locals(
+            value_payload_local,
+            value_tag_local,
+            true,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(ARRAY_ITERATOR_KIND_KEYS as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        function.instruction(&Instruction::Else);
+        self.emit_typed_array_or_object_index_read_from_locals(
+            typed_array_payload_local,
+            typed_array_tag_local,
+            index_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Const(ARRAY_ITERATOR_KIND_ENTRIES as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::LocalSet(entry_index_local));
+        self.emit_alloc_array_payload_with_length(entry_index_local, entry_array_local, function)?;
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(index_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(index_tag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(entry_index_local));
+        self.emit_array_write(
+            entry_array_local,
+            entry_index_local,
+            index_payload_local,
+            index_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(entry_index_local));
+        self.emit_array_write(
+            entry_array_local,
+            entry_index_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(entry_array_local));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        self.store_i64_local_at_offset(
+            iterator_record_local,
+            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
+            index_local,
+            function,
+        );
+        self.emit_iterator_result_object_from_locals(
+            value_payload_local,
+            value_tag_local,
+            false,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+
+        self.release_temp_local(index_tag_local);
+        self.release_temp_local(index_payload_local);
+        self.release_temp_local(entry_index_local);
+        self.release_temp_local(entry_array_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(length_local);
+        self.release_temp_local(bytes_per_element_local);
+        self.release_temp_local(byte_length_local);
+        self.release_temp_local(byte_offset_local);
+        self.release_temp_local(buffer_payload_local);
+        self.release_temp_local(done_local);
+        self.release_temp_local(kind_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(typed_array_tag_local);
+        self.release_temp_local(typed_array_payload_local);
+        self.release_temp_local(iterator_record_local);
+        self.release_temp_local(iterator_brand_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_iterator_result_object_from_locals(
         &mut self,
         value_payload_local: u32,

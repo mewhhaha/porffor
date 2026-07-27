@@ -29,7 +29,14 @@ function readArgumentsAtSix() {
   return Array.prototype.at.call(arguments, 6);
 }
 
-let ordinaryObject = { 6: "object", length: 7 };
+let ordinaryObject = {
+  6: "object",
+  length: 7,
+  $TypedArrayViewedArrayBuffer: new ArrayBuffer(8),
+  $TypedArrayByteOffset: 0,
+  $TypedArrayByteLength: 1,
+  $TypedArrayBytesPerElement: 1
+};
 function ordinaryFunction() {}
 Object.defineProperty(ordinaryFunction, "length", { value: 7 });
 ordinaryFunction[6] = "function";
@@ -70,7 +77,19 @@ let argumentsValue = readArgumentsAtSix("zero", "one", "two", "three", "four", "
 let objectValue = Array.prototype.at.call(ordinaryObject, 6);
 let functionValue = Array.prototype.at.call(ordinaryFunction, 6);
 let stringValue = Array.prototype.at.call("strings", 6);
-let uint8Value = new Uint8Array([3, 5, 8]).at(-1);
+let uint8 = new Uint8Array([3, 5, 8]);
+uint8.$TypedArrayViewedArrayBuffer = new ArrayBuffer(8);
+uint8.$TypedArrayByteOffset = 0;
+uint8.$TypedArrayByteLength = 0;
+uint8.$TypedArrayBytesPerElement = 1;
+uint8.$TypedArrayLengthTracking = false;
+let uint8Value = uint8.at(-1);
+let spoofedTypedArrayAtThrows = false;
+try {
+  Uint8Array.prototype.at.call(ordinaryObject, 0);
+} catch (error) {
+  spoofedTypedArrayAtThrows = error instanceof TypeError;
+}
 inheritedValue === "inherited"
   && arrayGetterReceiver === inheritedArray
   && inheritedThrow === inheritedSentinel
@@ -79,6 +98,7 @@ inheritedValue === "inherited"
   && functionValue === "function"
   && stringValue === "s"
   && uint8Value === 8
+  && spoofedTypedArrayAtThrows
   && proxyValue === "proxy"
   && proxyLog.join(",") === "length,6"
   && outOfBoundsValue === undefined

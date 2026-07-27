@@ -149,6 +149,53 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_require_shared_array_buffer(
+        &mut self,
+        buffer_payload_local: u32,
+        buffer_tag_local: u32,
+        message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let brand_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(buffer_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            buffer_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            brand_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(brand_local));
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER as i64,
+        ));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(brand_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_load_array_buffer_data(
         &self,
         buffer_payload_local: u32,
@@ -503,7 +550,6 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_throw_if_array_buffer_immutable(
         &mut self,
         receiver_payload_local: u32,
-        _receiver_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let flags_local = self.reserve_temp_local();
@@ -526,19 +572,98 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_validate_data_view_current_byte_length(
+    pub(crate) fn emit_initialize_data_view_private_state(
+        &self,
+        view_payload_local: u32,
+        buffer_payload_local: u32,
+        byte_offset_local: u32,
+        byte_length_local: u32,
+        length_tracking_local: u32,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            view_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_DATA_VIEW,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            view_payload_local,
+            HEAP_DATA_VIEW_VIEWED_BUFFER_OFFSET,
+            buffer_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            view_payload_local,
+            HEAP_DATA_VIEW_BYTE_OFFSET,
+            byte_offset_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            view_payload_local,
+            HEAP_DATA_VIEW_BYTE_LENGTH_OFFSET,
+            byte_length_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            view_payload_local,
+            HEAP_DATA_VIEW_LENGTH_TRACKING_OFFSET,
+            length_tracking_local,
+            function,
+        );
+    }
+
+    pub(crate) fn emit_require_data_view(
         &mut self,
         view_payload_local: u32,
         view_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let brand_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(brand_local));
+        function.instruction(&Instruction::LocalGet(view_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            view_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            brand_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(brand_local));
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_DATA_VIEW as i64,
+        ));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "DataView accessor requires DataView",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(brand_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_validate_data_view_current_byte_length(
+        &mut self,
+        view_payload_local: u32,
+        _view_tag_local: u32,
         buffer_payload_local: u32,
         data_ptr_local: u32,
         byte_offset_local: u32,
         byte_length_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
         let tracking_payload_local = self.reserve_temp_local();
-        let tracking_tag_local = self.reserve_temp_local();
         let buffer_byte_length_local = self.reserve_temp_local();
 
         self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
@@ -560,27 +685,15 @@ impl<'a> FunctionBuilder<'a> {
             buffer_byte_length_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(DATA_VIEW_LENGTH_TRACKING_SLOT),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
+        self.load_i64_to_local_from_offset(
             view_payload_local,
-            view_tag_local,
-            view_payload_local,
-            view_tag_local,
-            key_local,
+            HEAP_DATA_VIEW_LENGTH_TRACKING_OFFSET,
             tracking_payload_local,
-            tracking_tag_local,
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(tracking_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        );
         function.instruction(&Instruction::LocalGet(tracking_payload_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(byte_offset_local));
         function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
@@ -618,9 +731,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(buffer_byte_length_local);
-        self.release_temp_local(tracking_tag_local);
         self.release_temp_local(tracking_payload_local);
-        self.release_temp_local(key_local);
         Ok(())
     }
 
@@ -782,15 +893,13 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_validate_typed_array_current_byte_length(
         &mut self,
         typed_array_payload_local: u32,
-        typed_array_tag_local: u32,
+        _typed_array_tag_local: u32,
         buffer_payload_local: u32,
         byte_offset_local: u32,
         byte_length_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let key_local = self.reserve_temp_local();
         let tracking_payload_local = self.reserve_temp_local();
-        let tracking_tag_local = self.reserve_temp_local();
         let buffer_byte_length_local = self.reserve_temp_local();
         let data_ptr_local = self.reserve_temp_local();
 
@@ -813,27 +922,15 @@ impl<'a> FunctionBuilder<'a> {
             buffer_byte_length_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(TYPED_ARRAY_LENGTH_TRACKING_SLOT),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read(
+        self.load_i64_to_local_from_offset(
             typed_array_payload_local,
-            typed_array_tag_local,
-            typed_array_payload_local,
-            typed_array_tag_local,
-            key_local,
+            HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
             tracking_payload_local,
-            tracking_tag_local,
             function,
-        )?;
-        function.instruction(&Instruction::LocalGet(tracking_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        );
         function.instruction(&Instruction::LocalGet(tracking_payload_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(byte_offset_local));
         function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
@@ -872,9 +969,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(data_ptr_local);
         self.release_temp_local(buffer_byte_length_local);
-        self.release_temp_local(tracking_tag_local);
         self.release_temp_local(tracking_payload_local);
-        self.release_temp_local(key_local);
         Ok(())
     }
 

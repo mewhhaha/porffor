@@ -64,6 +64,55 @@ if (new BigInt64Array()[Symbol.toStringTag] !== "BigInt64Array") throw "bigint t
 if (toStringTagDesc.get.call({}) !== undefined) throw "plain toStringTag";
 if (toStringTagDesc.get.call(undefined) !== undefined) throw "undefined toStringTag";
 
+let ordinaryLengthReads = 0;
+let spoofedSlotReads = 0;
+let ordinaryLength = {
+  get length() {
+    ordinaryLengthReads = ordinaryLengthReads + 1;
+    return 17;
+  },
+  get $TypedArrayByteLength() {
+    spoofedSlotReads = spoofedSlotReads + 1;
+    return 8;
+  }
+};
+if (ordinaryLength.length !== 17) throw "ordinary spoofed length";
+if (ordinaryLengthReads !== 1) throw "ordinary length Get";
+if (spoofedSlotReads !== 0) throw "ordinary spoofed slot observed";
+
+function functionLength(first, second) {}
+Object.defineProperty(functionLength, "$TypedArrayByteLength", {
+  get() {
+    spoofedSlotReads = spoofedSlotReads + 1;
+    return 8;
+  }
+});
+if (functionLength.length !== 2) throw "function spoofed length";
+if (spoofedSlotReads !== 0) throw "function spoofed slot observed";
+
+let proxyLengthReads = "";
+let proxiedLength = new Proxy({
+  length: 23,
+  $TypedArrayByteLength: 8
+}, {
+  get(target, key, receiver) {
+    proxyLengthReads = proxyLengthReads + String(key) + ",";
+    return Reflect.get(target, key, receiver);
+  }
+});
+if (proxiedLength.length !== 23) throw "proxy spoofed length";
+if (proxyLengthReads !== "length,") throw "proxy length Get";
+
+let brandedLength = new Uint8Array(6);
+Object.defineProperty(brandedLength, "$TypedArrayByteLength", {
+  get() {
+    spoofedSlotReads = spoofedSlotReads + 1;
+    return 64;
+  }
+});
+if (brandedLength.length !== 6) throw "branded spoofed length";
+if (spoofedSlotReads !== 0) throw "branded spoofed slot observed";
+
 let inheritedTypedArray = {};
 Object.setPrototypeOf(inheritedTypedArray, fixed);
 __porfAssertThrows(TypeError, function () {

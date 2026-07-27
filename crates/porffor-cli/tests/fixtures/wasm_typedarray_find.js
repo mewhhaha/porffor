@@ -48,9 +48,97 @@ if (changed !== 9) throw "current view value";
 
 let bigint = new BigInt64Array([1n, -2n, 3n]);
 if (bigint.find(function (value) { return value < 0n; }) !== -2n) throw "bigint find";
+if (bigint.find(function (value) { return value == -2; }) !== -2n) {
+  throw "bigint loose number find";
+}
 if (bigint.findIndex(function (value) { return value === 3n; }) !== 2) throw "bigint findIndex";
 if (bigint.findLast(function (value) { return value > 0n; }) !== 3n) throw "bigint findLast";
 if (bigint.findLastIndex(function (value) { return value > 0n; }) !== 2) throw "bigint findLastIndex";
+
+let numericConstructors = [
+  Float64Array,
+  Float32Array,
+  Int32Array,
+  Uint32Array,
+  Int16Array,
+  Uint16Array,
+  Int8Array,
+  Uint8Array,
+  Uint8ClampedArray
+];
+if (typeof Float16Array !== "undefined") {
+  numericConstructors = numericConstructors.concat([Float16Array]);
+}
+for (let NumericArray of numericConstructors) {
+  let values = new NumericArray([1, 2, 3]);
+  if (values.find(function (value) { return value === 2; }) !== 2) {
+    throw NumericArray.name + " find";
+  }
+  if (values.findIndex(function (value) { return value === 3; }) !== 2) {
+    throw NumericArray.name + " findIndex";
+  }
+  if (values.findLast(function (value) { return value < 3; }) !== 2) {
+    throw NumericArray.name + " findLast";
+  }
+  if (values.findLastIndex(function (value) { return value < 3; }) !== 1) {
+    throw NumericArray.name + " findLastIndex";
+  }
+}
+let unsignedBigint = new BigUint64Array([1n, 2n, 3n]);
+if (unsignedBigint.find(function (value) { return value === 2n; }) !== 2n) {
+  throw "BigUint64Array find";
+}
+if (unsignedBigint.find(function (value) { return value == 2; }) !== 2n) {
+  throw "BigUint64Array loose number find";
+}
+if (unsignedBigint.findLastIndex(function (value) { return value < 3n; }) !== 1) {
+  throw "BigUint64Array findLastIndex";
+}
+if (9007199254740993n == 9007199254740992) throw "rounded loose bigint equality";
+if (!(9007199254740992n == 9007199254740992)) throw "exact loose bigint equality";
+if (1n == 1.5 || 1n == Infinity || 1n == NaN) throw "non-integer loose bigint equality";
+if (!(0n == -0) || !(-0 == 0n)) throw "negative zero loose bigint equality";
+if (!(-9223372036854775808n == -9223372036854775808)) {
+  throw "minimum i64 loose bigint equality";
+}
+if (!(9223372036854774784n == 9223372036854774784)) {
+  throw "below i64 upper boundary loose bigint equality";
+}
+if (!(9223372036854775808n == 9223372036854775808)
+    || !(9223372036854775808 == 9223372036854775808n)) {
+  throw "heap bigint loose number symmetry";
+}
+if (9223372036854775809n == 9223372036854775808) {
+  throw "heap bigint rounded inequality";
+}
+if (!(18446744073709551616n == 18446744073709551616)
+    || !(-18446744073709551616 == -18446744073709551616n)) {
+  throw "multi-limb bigint loose number equality";
+}
+
+let wideUnsignedBigint = new BigUint64Array([
+  9223372036854775808n,
+  9223372036854777856n
+]);
+if (wideUnsignedBigint.find(function (value) {
+  return value == 9223372036854775808;
+}) !== 9223372036854775808n) {
+  throw "BigUint64Array 2^63 loose number find";
+}
+if (wideUnsignedBigint.find(function (value) {
+  return 9223372036854777856 == value;
+}) !== 9223372036854777856n) {
+  throw "BigUint64Array 2^63 plus 2048 loose number find";
+}
+
+function abstractlyEqual(left, right) {
+  return left == right;
+}
+if (!abstractlyEqual(1n, true) || !abstractlyEqual(true, 1n)
+    || !abstractlyEqual(0n, false) || !abstractlyEqual(false, 0n)
+    || abstractlyEqual(2n, true) || abstractlyEqual(true, 2n)) {
+  throw "dynamic boolean bigint loose equality";
+}
 
 for (let invalidReceiver of [{}, [], Object.create(sample)]) {
   __porfAssertThrows(TypeError, function () { find.call(invalidReceiver, function () {}); });
@@ -62,6 +150,59 @@ __porfAssertThrows(TypeError, function () { find.call(sample, 1); });
 __porfAssertThrows(TypeError, function () { findIndex.call(sample, {}); });
 __porfAssertThrows(TypeError, function () { findLast.call(sample, 1); });
 __porfAssertThrows(TypeError, function () { findLastIndex.call(sample, {}); });
+
+let privateState = new Uint8Array([3, 4]);
+privateState.$TypedArrayViewedArrayBuffer = new ArrayBuffer(1);
+for (let property of [
+  "$TypedArrayByteOffset",
+  "$TypedArrayByteLength",
+  "$TypedArrayBytesPerElement",
+  "$TypedArrayElementKind",
+  "$TypedArrayLengthTracking",
+  "length"
+]) {
+  Object.defineProperty(privateState, property, {
+    get: function () {
+      throw property + " must not be read";
+    }
+  });
+}
+if (privateState.find(function (value) { return value === 4; }) !== 4) {
+  throw "private header find";
+}
+if (privateState.findIndex(function (value) { return value === 4; }) !== 1) {
+  throw "private header findIndex";
+}
+if (privateState.findLast(function (value) { return value === 3; }) !== 3) {
+  throw "private header findLast";
+}
+if (privateState.findLastIndex(function (value) { return value === 3; }) !== 0) {
+  throw "private header findLastIndex";
+}
+
+let proxyCalls = 0;
+let proxyThis = {};
+let callableProxy = new Proxy(function () {}, {
+  apply: function (target, thisArg, argumentsList) {
+    proxyCalls = proxyCalls + 1;
+    if (thisArg !== proxyThis) throw "proxy thisArg";
+    if (argumentsList[1] !== proxyCalls - 1) throw "proxy index";
+    if (argumentsList[2] !== sample) throw "proxy receiver";
+    return argumentsList[0] === 20;
+  }
+});
+if (sample.findIndex(callableProxy, proxyThis) !== 1 || proxyCalls !== 2) {
+  throw "callable proxy";
+}
+
+let emptyCalls = 0;
+if (new Uint8Array().find(function () { emptyCalls = emptyCalls + 1; }) !== undefined) {
+  throw "empty find result";
+}
+if (new Uint8Array().findLastIndex(function () { emptyCalls = emptyCalls + 1; }) !== -1) {
+  throw "empty findLastIndex result";
+}
+if (emptyCalls !== 0) throw "empty predicate calls";
 
 let detached = new Uint8Array([1, 2, 3]);
 let detachedValues = [];
@@ -121,6 +262,38 @@ if (reverseIndices.length !== 3) throw "findLast reverse count";
 if (reverseIndices[0] !== 3 || reverseIndices[1] !== 2 || reverseIndices[2] !== 1) {
   throw "findLast reverse order";
 }
+
+let reverseGrowBuffer = new ArrayBuffer(2, { maxByteLength: 4 });
+let reverseGrow = new Uint8Array(reverseGrowBuffer);
+reverseGrow[0] = 1;
+reverseGrow[1] = 2;
+let reverseGrowIndices = [];
+reverseGrow.findLastIndex(function (value, index) {
+  reverseGrowIndices.push(index);
+  if (index === 1) {
+    reverseGrowBuffer.resize(4);
+    reverseGrow[2] = 3;
+    reverseGrow[3] = 4;
+  }
+  return false;
+});
+if (
+  reverseGrowIndices.length !== 2 ||
+  reverseGrowIndices[0] !== 1 ||
+  reverseGrowIndices[1] !== 0
+) {
+  throw "findLast grow snapshot";
+}
+
+let reverseDetach = new Uint8Array([1, 2, 3]);
+let reverseDetachedIndex = reverseDetach.findLastIndex(function (value, index) {
+  if (index === 2) {
+    __porfDetachArrayBuffer(reverseDetach.buffer);
+    return false;
+  }
+  return value === undefined;
+});
+if (reverseDetachedIndex !== 1) throw "findLast detach current value";
 
 let marker = {};
 let abrupt = false;

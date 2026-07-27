@@ -2056,6 +2056,77 @@ setterReceiver === receiver;
     }
 
     #[test]
+    fn ordinary_computed_dynamic_property_reads_have_bounded_incremental_body_growth() {
+        let single_read = emit_script(
+            r#"
+function choose(flag) { return flag ? { value: 1 } : null; }
+let object = choose(true);
+let key = "value";
+object[key];
+"#,
+        )
+        .expect("single ordinary computed property read should emit");
+        let repeated_reads = emit_script(
+            r#"
+function choose(flag) { return flag ? { value: 1 } : null; }
+let object = choose(true);
+let key = "value";
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+object[key];
+"#,
+        )
+        .expect("repeated ordinary computed property reads should emit");
+        expect_valid_module(&single_read, 1);
+        expect_valid_module(&repeated_reads, 1);
+
+        let main_body_bytes = |artifact: &WasmArtifact| {
+            Parser::new(0)
+                .parse_all(&artifact.bytes)
+                .find_map(
+                    |payload| match payload.expect("wasm parse should succeed") {
+                        Payload::CodeSectionEntry(body) => Some(body.range().len()),
+                        _ => None,
+                    },
+                )
+                .expect("emitted module should contain a main function")
+        };
+        let single_read_body_bytes = main_body_bytes(&single_read);
+        let repeated_read_body_bytes = main_body_bytes(&repeated_reads);
+        let incremental_body_bytes = repeated_read_body_bytes
+            .checked_sub(single_read_body_bytes)
+            .expect("repeated reads should not shrink the main function");
+        assert!(
+            incremental_body_bytes < 64 * 1024,
+            "eleven additional outlined reads added {incremental_body_bytes} bytes \
+             ({single_read_body_bytes} -> {repeated_read_body_bytes})"
+        );
+    }
+
+    #[test]
+    fn statically_nullish_computed_property_read_emits_after_throw_path() {
+        let artifact = emit_script(
+            r#"
+let calls = 0;
+function key() { calls += 1; return "value"; }
+try { null[key()]; } catch (error) {}
+calls;
+"#,
+        )
+        .expect("statically nullish computed property read should emit");
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
     fn object_and_array_scripts_emit_memory_without_imports() {
         let artifact =
             emit_script("let o = { x: 1 }; let a = [1]; a[2] = 4; o.x;").expect("emit should work");

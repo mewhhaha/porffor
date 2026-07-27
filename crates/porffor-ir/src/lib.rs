@@ -2527,6 +2527,48 @@ mod tests {
     }
 
     #[test]
+    fn captured_var_assignments_share_the_owners_environment_slot() {
+        let program = lower_script(
+            "function outer(TA) { var ta; function read() { return ta.buffer; } ta = new TA(1); return read(); } outer(Float64Array);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let outer = script
+            .functions
+            .iter()
+            .find(|function| function.name == "outer")
+            .expect("outer function should be lowered");
+        let read = script
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("read function should be lowered");
+        let owned = outer
+            .owned_env_bindings
+            .iter()
+            .find(|binding| binding.name == "ta")
+            .expect("outer function should own the captured var");
+        let captured = read
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name == "ta")
+            .expect("read function should capture the var");
+        assert_eq!(captured.slot, owned.slot);
+        let StatementIr::Return(TypedExpr {
+            expr: ExprIr::SpecOperation { operands, .. },
+            ..
+        }) = &read.body.statements[0]
+        else {
+            panic!("captured property read should lower through GetV");
+        };
+        assert_eq!(
+            operands[0].possible_kinds,
+            KindSet::all_runtime_tags(),
+            "a mutable capture must not retain its pre-assignment undefined type"
+        );
+    }
+
+    #[test]
     fn materializes_defaulted_object_var_property_reads_once() {
         let program = lower_script(
             "var getterHits = 0; var receiver = { get value() { getterHits += 1; return undefined; } }; function fallback() { return 1; } var { value = fallback() } = receiver; value;",

@@ -27,44 +27,44 @@
   },
   "slowest_tests": [
     {
-      "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-this-as-symbol.js",
-      "duration_ms": 22870
-    },
-    {
       "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-this.js",
-      "duration_ms": 22570
+      "duration_ms": 22082
     },
     {
       "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-object-pos-to-integer.js",
-      "duration_ms": 22099
-    },
-    {
-      "path": "built-ins/String/prototype/codePointAt/this-is-null-throws.js",
-      "duration_ms": 21107
+      "duration_ms": 21590
     },
     {
       "path": "built-ins/String/prototype/codePointAt/this-is-undefined-throws.js",
-      "duration_ms": 21019
+      "duration_ms": 20751
     },
     {
       "path": "built-ins/String/prototype/codePointAt/not-a-constructor.js",
-      "duration_ms": 20969
+      "duration_ms": 20374
     },
     {
       "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-symbol-pos-to-integer.js",
-      "duration_ms": 20528
+      "duration_ms": 20322
     },
     {
-      "path": "built-ins/String/prototype/codePointAt/return-first-code-unit.js",
-      "duration_ms": 11332
+      "path": "built-ins/String/prototype/codePointAt/return-abrupt-from-this-as-symbol.js",
+      "duration_ms": 19726
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/this-is-null-throws.js",
+      "duration_ms": 19471
+    },
+    {
+      "path": "built-ins/String/prototype/codePointAt/return-utf16-decode.js",
+      "duration_ms": 9915
     },
     {
       "path": "built-ins/String/prototype/codePointAt/return-code-unit-coerced-position.js",
-      "duration_ms": 10036
+      "duration_ms": 9862
     },
     {
-      "path": "built-ins/String/prototype/codePointAt/return-single-code-unit.js",
-      "duration_ms": 9524
+      "path": "built-ins/String/prototype/codePointAt/return-first-code-unit.js",
+      "duration_ms": 9817
     }
   ],
   "timeout_list": [],

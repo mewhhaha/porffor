@@ -1612,6 +1612,10 @@ impl<'a> ScriptLowerer<'a> {
             ("join", StandardBuiltinId::TypedArrayPrototypeJoin),
             ("set", StandardBuiltinId::TypedArrayPrototypeSet),
             ("reverse", StandardBuiltinId::TypedArrayPrototypeReverse),
+            (
+                "copyWithin",
+                StandardBuiltinId::TypedArrayPrototypeCopyWithin,
+            ),
             ("sort", StandardBuiltinId::TypedArrayPrototypeSort),
             (
                 "toReversed",
@@ -3873,6 +3877,7 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::TypedArrayPrototypeReverse
+            | StandardBuiltinId::TypedArrayPrototypeCopyWithin
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray
             | StandardBuiltinId::TypedArrayPrototypeSlice
@@ -10872,7 +10877,14 @@ impl<'a> ScriptLowerer<'a> {
             }
             let source_name = capture.source_name.as_str();
             let mode = capture.mode;
-            let info = if name != source_name || Self::is_tdz_binding_storage_name(name) {
+            let info = if mode != BindingMode::Const {
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                }
+            } else if name != source_name || Self::is_tdz_binding_storage_name(name) {
                 ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -21830,7 +21842,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TypedArrayPrototypeSlice
             | StandardBuiltinId::TypedArrayPrototypeToReversed
             | StandardBuiltinId::TypedArrayPrototypeToSorted
-            | StandardBuiltinId::TypedArrayPrototypeWith => Some(ValueInfo {
+            | StandardBuiltinId::TypedArrayPrototypeWith
+            | StandardBuiltinId::TypedArrayPrototypeCopyWithin => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: None,
@@ -23844,7 +23857,7 @@ impl<'a> ScriptLowerer<'a> {
                         TypedExpr::from_info(
                             ValueInfo {
                                 kind: ValueKind::Dynamic,
-                                possible_kinds: Self::object_like_kind_set(),
+                                possible_kinds: KindSet::from_kind(target.kind),
                                 heap_shape: None,
                                 function_targets: BTreeSet::new(),
                             },

@@ -1,0 +1,136 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9731803590341660978,
+  "run_kind": "resume-case-checkpoint",
+  "total": 50,
+  "passed": 50,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 50
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/resizable-buffer.js",
+      "duration_ms": 16227
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
+      "duration_ms": 16016
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached-prototype.js",
+      "duration_ms": 16006
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached.js",
+      "duration_ms": 15839
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end.js",
+      "duration_ms": 12745
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/undefined-end.js",
+      "duration_ms": 12602
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end-is-symbol.js",
+      "duration_ms": 12563
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start-is-symbol.js",
+      "duration_ms": 12511
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start.js",
+      "duration_ms": 12452
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
+      "duration_ms": 12412
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-target-start-and-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-target-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-this.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/undefined-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/bit-precision.js",
+    "built-ins/TypedArray/prototype/copyWithin/byteoffset.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-end-shrink.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-grow.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached-prototype.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/detached-buffer.js",
+    "built-ins/TypedArray/prototype/copyWithin/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/copyWithin/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/copyWithin/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/copyWithin/length.js",
+    "built-ins/TypedArray/prototype/copyWithin/name.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-out-of-bounds-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-target-start-and-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/copyWithin/prop-desc.js",
+    "built-ins/TypedArray/prototype/copyWithin/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-end-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-start-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-target-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-this.js",
+    "built-ins/TypedArray/prototype/copyWithin/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/copyWithin/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/copyWithin/undefined-end.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

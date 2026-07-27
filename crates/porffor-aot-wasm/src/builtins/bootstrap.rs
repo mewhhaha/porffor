@@ -3809,6 +3809,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TypedArrayPrototypeSlice
             | StandardBuiltinId::TypedArrayPrototypeSet
             | StandardBuiltinId::TypedArrayPrototypeReverse
+            | StandardBuiltinId::TypedArrayPrototypeCopyWithin
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeToReversed
             | StandardBuiltinId::TypedArrayPrototypeToSorted
@@ -4751,6 +4752,21 @@ impl<'a> FunctionBuilder<'a> {
             typed_array_prototype_local,
             "reverse",
             reverse_meta,
+            function,
+        )?;
+
+        let copy_within_meta = self
+            .functions
+            .get(&StandardBuiltinId::TypedArrayPrototypeCopyWithin.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `TypedArray.prototype.copyWithin`",
+                )
+            })?;
+        self.emit_object_define_function_data(
+            typed_array_prototype_local,
+            "copyWithin",
+            copy_within_meta,
             function,
         )?;
 

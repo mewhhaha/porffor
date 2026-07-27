@@ -1,0 +1,178 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9731803590341660978,
+  "run_kind": "full",
+  "total": 64,
+  "passed": 61,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 3,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 3,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 61
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-end.js",
+      "duration_ms": 34767
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/non-negative-out-of-bounds-end.js",
+      "duration_ms": 34533
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-target-and-start.js",
+      "duration_ms": 33368
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/non-negative-out-of-bounds-target-and-start.js",
+      "duration_ms": 33223
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/negative-end.js",
+      "duration_ms": 32533
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-end.js",
+      "duration_ms": 32181
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-start.js",
+      "duration_ms": 32146
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-start.js",
+      "duration_ms": 32127
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-end.js",
+      "duration_ms": 32126
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/negative-start.js",
+      "duration_ms": 32083
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@7768184)",
+      "detail_hash": 15605792961095941884,
+      "duration_ms": 30090
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@7768088)",
+      "detail_hash": 7551811181090407293,
+      "duration_ms": 30155
+    },
+    {
+      "test_path": "built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@7768088)",
+      "detail_hash": 7551811181090407293,
+      "duration_ms": 30081
+    }
+  ],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/coerced-values-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/coerced-values-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/coerced-values-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-target-start-and-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-target-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/return-this.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/undefined-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/bit-precision.js",
+    "built-ins/TypedArray/prototype/copyWithin/byteoffset.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-end-shrink.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-grow.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached-prototype.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-end-detached.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-start-detached.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/coerced-values-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/detached-buffer.js",
+    "built-ins/TypedArray/prototype/copyWithin/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/copyWithin/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/copyWithin/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/copyWithin/length.js",
+    "built-ins/TypedArray/prototype/copyWithin/name.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-out-of-bounds-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/negative-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-out-of-bounds-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/non-negative-target-start-and-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/copyWithin/prop-desc.js",
+    "built-ins/TypedArray/prototype/copyWithin/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-end-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-start-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-target-is-symbol.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/copyWithin/return-this.js",
+    "built-ins/TypedArray/prototype/copyWithin/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/copyWithin/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/copyWithin/undefined-end.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

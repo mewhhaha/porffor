@@ -45,12 +45,77 @@ if (bigint.every(function (value) { return typeof value === "bigint"; }) !== tru
 }
 if (bigint.some(function (value) { return value < 0n; }) !== true) throw "bigint some";
 
+let numericConstructors = [
+  Float64Array,
+  Float32Array,
+  Int32Array,
+  Uint32Array,
+  Int16Array,
+  Uint16Array,
+  Int8Array,
+  Uint8Array,
+  Uint8ClampedArray
+];
+if (typeof Float16Array !== "undefined") {
+  numericConstructors = numericConstructors.concat([Float16Array]);
+}
+for (let NumericArray of numericConstructors) {
+  let values = new NumericArray([0, 1, 2]);
+  if (!values.every(function (value) { return typeof value === "number"; })) {
+    throw NumericArray.name + " every";
+  }
+  if (!values.some(function (value) { return value === 2; })) {
+    throw NumericArray.name + " some";
+  }
+}
+let unsignedBigint = new BigUint64Array([0n, 1n, 2n]);
+if (!unsignedBigint.every(function (value) { return typeof value === "bigint"; })) {
+  throw "BigUint64Array every";
+}
+if (!unsignedBigint.some(function (value) { return value === 2n; })) {
+  throw "BigUint64Array some";
+}
+
 for (let invalidReceiver of [{}, [], Object.create(sample)]) {
   __porfAssertThrows(TypeError, function () { every.call(invalidReceiver, function () {}); });
   __porfAssertThrows(TypeError, function () { some.call(invalidReceiver, function () {}); });
 }
 __porfAssertThrows(TypeError, function () { every.call(sample, 1); });
 __porfAssertThrows(TypeError, function () { some.call(sample, {}); });
+
+let privateState = new Uint8Array([3, 4]);
+privateState.$TypedArrayViewedArrayBuffer = new ArrayBuffer(1);
+for (let property of [
+  "$TypedArrayByteOffset",
+  "$TypedArrayByteLength",
+  "$TypedArrayBytesPerElement",
+  "$TypedArrayElementKind",
+  "$TypedArrayLengthTracking",
+  "length"
+]) {
+  Object.defineProperty(privateState, property, {
+    get: function () {
+      throw property + " must not be read";
+    }
+  });
+}
+if (!privateState.every(function (value, index) { return value === index + 3; })) {
+  throw "private header every";
+}
+if (!privateState.some(function (value) { return value === 4; })) {
+  throw "private header some";
+}
+
+let proxyCalls = 0;
+let callableProxy = new Proxy(function () {}, {
+  apply: function (target, thisArg, argumentsList) {
+    proxyCalls = proxyCalls + 1;
+    if (argumentsList[1] !== proxyCalls - 1) throw "proxy index";
+    if (argumentsList[2] !== sample) throw "proxy receiver";
+    return argumentsList[0] === 20;
+  }
+});
+if (!sample.some(callableProxy) || proxyCalls !== 2) throw "callable proxy";
 
 let mutable = new Uint8Array([1, 2, 3]);
 if (!mutable.every(function (value, index, array) {
@@ -85,6 +150,38 @@ let shrinkResult = shrinkView.every(function (value, index) {
 if (!shrinkResult || shrinkValues.length !== 4) throw "shrink snapshot length";
 if (shrinkValues[2] !== undefined || shrinkValues[3] !== undefined) throw "shrink current view";
 __porfAssertThrows(TypeError, function () { some.call(shrinkView, function () {}); });
+
+let growBuffer = new ArrayBuffer(2, { maxByteLength: 4 });
+let growView = new Uint8Array(growBuffer);
+growView[0] = 1;
+growView[1] = 2;
+let growValues = [];
+if (!growView.every(function (value, index) {
+  growValues.push(value);
+  if (index === 0) {
+    growBuffer.resize(4);
+    growView[2] = 3;
+    growView[3] = 4;
+  }
+  return true;
+})) throw "grow result";
+if (growValues.length !== 2 || growValues[0] !== 1 || growValues[1] !== 2) {
+  throw "grow snapshot length";
+}
+
+let nonInteger = new Uint8Array([7, 8]);
+Object.defineProperty(nonInteger, "1.5x", {
+  get: function () {
+    throw "non-integer property";
+  }
+});
+nonInteger.extra = 9;
+let integerCount = 0;
+nonInteger.every(function (value, index) {
+  integerCount = integerCount + 1;
+  return value === index + 7;
+});
+if (integerCount !== 2) throw "non-integer iteration";
 
 let marker = {};
 let abrupt = false;

@@ -770,6 +770,7 @@ impl RuntimeBootstrapPlan {
                 | StandardBuiltinId::ArrayPrototypeFlatMap
                 | StandardBuiltinId::ArrayPrototypeAt
                 | StandardBuiltinId::TypedArrayPrototypeAt
+                | StandardBuiltinId::TypedArrayPrototypeCopyWithin
                 | StandardBuiltinId::TypedArrayPrototypeIncludes
                 | StandardBuiltinId::TypedArrayPrototypeIndexOf
                 | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
@@ -1282,6 +1283,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TypedArrayPrototypeSlice
             | StandardBuiltinId::TypedArrayPrototypeSet
             | StandardBuiltinId::TypedArrayPrototypeReverse
+            | StandardBuiltinId::TypedArrayPrototypeCopyWithin
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeToReversed
             | StandardBuiltinId::TypedArrayPrototypeToSorted
@@ -2583,6 +2585,7 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::TypedArrayPrototypeSlice
                 | StandardBuiltinId::TypedArrayPrototypeSet
                 | StandardBuiltinId::TypedArrayPrototypeReverse
+                | StandardBuiltinId::TypedArrayPrototypeCopyWithin
                 | StandardBuiltinId::TypedArrayPrototypeSort
                 | StandardBuiltinId::TypedArrayPrototypeToReversed
                 | StandardBuiltinId::TypedArrayPrototypeToSorted
@@ -3220,7 +3223,8 @@ pub(crate) fn optimized_call_method_references_function(
         return StandardBuiltinId::ArrayPrototypeReverse.function_id() == *target;
     }
     if name == "copyWithin" {
-        return StandardBuiltinId::ArrayPrototypeCopyWithin.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeCopyWithin.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeCopyWithin.function_id() == *target;
     }
     if name == "slice" {
         return StandardBuiltinId::ArrayPrototypeSlice.function_id() == *target
@@ -4032,7 +4036,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayPrototypeToSorted => 1,
         StandardBuiltinId::ArrayPrototypeWith => 2,
         StandardBuiltinId::ArrayPrototypeReverse => 0,
-        StandardBuiltinId::ArrayPrototypeCopyWithin => 2,
+        StandardBuiltinId::ArrayPrototypeCopyWithin
+        | StandardBuiltinId::TypedArrayPrototypeCopyWithin => 2,
         StandardBuiltinId::ArrayPrototypeIncludes
         | StandardBuiltinId::TypedArrayPrototypeIncludes => 1,
         StandardBuiltinId::ArrayPrototypeIndexOf

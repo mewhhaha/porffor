@@ -1983,9 +1983,7 @@ impl<'a> FunctionBuilder<'a> {
         let dynamic_receiver = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags()
-                    .without(ValueKind::Undefined)
-                    .without(ValueKind::Null),
+                possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
             },
@@ -1995,8 +1993,9 @@ impl<'a> FunctionBuilder<'a> {
         // Each block is one contiguous short-circuit segment. A grouped call
         // starts a fresh segment so a short in the preceding segment resumes
         // at that call, while a short inside the fresh segment still skips all
-        // of its later operations. In particular, a computed key or optional
-        // call argument is emitted only after its corresponding nullish test.
+        // of its later operations. Optional computed keys are emitted after
+        // their short-circuit test; ordinary computed keys retain the usual
+        // key-evaluation-before-RequireObjectCoercible order.
         function.instruction(&Instruction::Block(BlockType::Empty));
         self.push_control(ControlFrameKind::Block);
         for operation in chain {
@@ -2022,7 +2021,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::Br(1));
                         self.pop_control(ControlFrameKind::If);
                         function.instruction(&Instruction::End);
-                    } else {
+                    } else if !matches!(key, PropertyKeyIr::StringExpr(_)) {
                         // Only `?.` short-circuits. A later ordinary property
                         // access still performs RequireObjectCoercible.
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
@@ -2547,6 +2546,22 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if matches!(
+            expr.expr,
+            ExprIr::Undefined | ExprIr::ArrayHole | ExprIr::Null
+        ) {
+            self.emit_undefined_payload(function);
+            function.instruction(&Instruction::LocalSet(payload_local));
+            let value_kind = if matches!(expr.expr, ExprIr::Null) {
+                ValueKind::Null
+            } else {
+                ValueKind::Undefined
+            };
+            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            return Ok(());
+        }
+
         if let ExprIr::BigInt(value) = &expr.expr {
             if value.requires_arbitrary_precision_storage {
                 self.compile_expr_payload(expr, function)?;
@@ -3111,9 +3126,10 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             _ => {
-                return Err(EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: dynamic expression form",
-                ));
+                return Err(EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: dynamic expression form {:?}",
+                    expr.expr
+                )));
             }
         }
         Ok(())

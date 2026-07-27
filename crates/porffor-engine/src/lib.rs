@@ -5664,6 +5664,72 @@ clampedFirst.value + ":" + clampedFirst.done;
     }
 
     #[test]
+    fn wasm_backend_typed_array_iterators_keep_state_in_private_slots() {
+        let source = "const iterator = new Uint8Array([7, 8]).values(); const slotNames = ['$ArrayIterator.array', '$ArrayIterator.index', '$ArrayIterator.done', '$ArrayIterator.kind']; const hidden = slotNames.every(name => !Object.hasOwn(iterator, name)); iterator.$ArrayIterator.array = []; iterator.$ArrayIterator.index = 100; iterator.$ArrayIterator.done = true; iterator.$ArrayIterator.kind = 0; const first = iterator.next(); const second = iterator.next(); const done = iterator.next(); const forgedTarget = { length: 1, 0: 42, $TypedArrayViewedArrayBuffer: new ArrayBuffer(1), $TypedArrayByteOffset: 0, $TypedArrayByteLength: 0, $TypedArrayBytesPerElement: 1, $TypedArrayLengthTracking: false }; const genericValue = Array.prototype.values.call(forgedTarget).next().value; hidden + '|' + first.value + ':' + first.done + '|' + second.value + ':' + second.done + '|' + (done.value === undefined) + ':' + done.done + '|' + genericValue;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray iterators should keep state in private slots");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|7:false|8:false|true:true|42)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_typed_array_iterators_follow_resizable_buffer_bounds() {
+        let source = "const trackingBuffer = new ArrayBuffer(4, { maxByteLength: 8 }); const tracking = new Uint8Array(trackingBuffer); tracking[0] = 1; tracking[1] = 2; tracking[2] = 3; tracking[3] = 4; const values = tracking.values(); const first = values.next().value; trackingBuffer.resize(6); tracking[4] = 5; tracking[5] = 6; const grown = [values.next().value, values.next().value, values.next().value, values.next().value, values.next().value].join(','); const grownDone = values.next().done; const fixedBuffer = new ArrayBuffer(4, { maxByteLength: 8 }); const fixed = new Uint8Array(fixedBuffer, 0, 4); const entries = fixed.entries(); entries.next(); fixedBuffer.resize(2); let fixedError = 'missing'; try { entries.next(); } catch (error) { fixedError = error.name; } const shrinkingBuffer = new ArrayBuffer(4, { maxByteLength: 8 }); const shrinking = new Uint8Array(shrinkingBuffer); const keys = shrinking.keys(); const key = keys.next().value; shrinkingBuffer.resize(1); const shrinkDone = keys.next().done; first + '|' + grown + ':' + grownDone + '|' + fixedError + '|' + key + ':' + shrinkDone;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray iterators should follow resizable buffer bounds");
+        assert!(
+            outcome
+                .note
+                .contains("string(1|2,3,4,5,6:true|TypeError|0:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_typed_array_iterators_remain_exhausted_after_resize() {
+        let source = "const trackingBuffer = new ArrayBuffer(0, { maxByteLength: 4 }); const tracking = new Uint8Array(trackingBuffer); const trackingIterator = tracking.values(); const firstDone = trackingIterator.next().done; trackingBuffer.resize(1); tracking[0] = 9; const grown = trackingIterator.next(); const fixedBuffer = new ArrayBuffer(1, { maxByteLength: 2 }); const fixed = new Uint8Array(fixedBuffer, 0, 1); const fixedIterator = fixed.values(); fixedIterator.next(); const fixedDone = fixedIterator.next().done; fixedBuffer.resize(0); const shrunk = fixedIterator.next(); firstDone + '|' + (grown.value === undefined) + ':' + grown.done + '|' + fixedDone + '|' + (shrunk.value === undefined) + ':' + shrunk.done;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("exhausted TypedArray iterators should ignore later resizes");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|true:true|true|true:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_arguments_iterators_observe_length_truncation() {
         let outcome = engine()
             .run_script(
@@ -8932,6 +8998,77 @@ let results = [
     }
 
     #[test]
+    fn wasm_backend_distinguishes_ordinary_and_optional_computed_nullish_order() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let keyCalls = 0;
+function key() { keyCalls += 1; return "value"; }
+let caughtTypeError = false;
+try {
+  null[key()];
+} catch (error) {
+  caughtTypeError = error instanceof TypeError;
+}
+let skipped = null?.[key()];
+let tailCaughtTypeError = false;
+try {
+  ({ value: null })?.value[key()];
+} catch (error) {
+  tailCaughtTypeError = error instanceof TypeError;
+}
+[caughtTypeError, skipped === undefined, tailCaughtTypeError, keyCalls].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("ordinary and optional nullish property access should preserve key ordering");
+        assert!(
+            outcome.note.contains("string(true|true|true|2)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_evaluates_ordinary_computed_key_before_nullish_throw() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let keyCalls = 0;
+function stringKey() { keyCalls += 1; return "value"; }
+let nullThrew = false;
+try {
+  null[stringKey()];
+} catch (error) {
+  nullThrew = error instanceof TypeError;
+}
+let undefinedThrew = false;
+try {
+  undefined[keyCalls += 1];
+} catch (error) {
+  undefinedThrew = error instanceof TypeError;
+}
+[nullThrew, undefinedThrew, keyCalls].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("ordinary computed keys should be evaluated before the nullish receiver check");
+        assert!(
+            outcome.note.contains("string(true|true|2)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_adds_string_or_number_bindings_by_runtime_tag() {
         let outcome = engine()
             .run_script(
@@ -10713,6 +10850,41 @@ let proxy = new Proxy(target, { get: null });
             )
             .expect("var closure should run");
         assert!(outcome.note.contains("number(1"));
+    }
+
+    #[test]
+    fn wasm_backend_captured_var_observes_typed_array_assigned_after_closure_creation() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function copyWithinAfterDetach(TA) {
+  var view;
+  function detachAndReturnEnd() {
+    __porfDetachArrayBuffer(view.buffer);
+    return 4;
+  }
+  view = new TA(4);
+  try {
+    view.copyWithin(0, 1, { valueOf: detachAndReturnEnd });
+  } catch (error) {
+    return error instanceof TypeError;
+  }
+  return false;
+}
+copyWithinAfterDetach(Uint8Array);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("captured var should retain the runtime kind of its later typed array value");
+        assert!(
+            outcome.note.contains("boolean(true)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -12625,6 +12797,68 @@ let sized = new Sub(7);
     }
 
     #[test]
+    fn wasm_backend_array_to_string_observes_overridden_join_getters() {
+        let source = "const method = Uint8Array.prototype.toString; const values = new Uint8Array([1, 2]); const throwing = new Uint8Array(); const token = {}; const events = []; Object.defineProperty(values, 'join', { get() { events.push('get'); return function() { events.push(this === values ? 'call' : 'wrong receiver'); return 'custom'; }; } }); Object.defineProperty(throwing, 'join', { get() { events.push('throw'); throw token; } }); const result = method.call(values); let caught = false; try { method.call(throwing); } catch (error) { caught = error === token; } result + '|' + events.join(',') + '|' + caught;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.toString should observe overridden join getters");
+        assert!(
+            outcome.note.contains("string(custom|get,call,throw|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_to_string_is_generic_for_non_typed_array_receivers() {
+        let source = "const method = Uint8Array.prototype.toString; const receiver = { marker: 'generic', join() { return this.marker; } }; const fallback = { join: 0, [Symbol.toStringTag]: 'Fallback' }; method.call(receiver) + '|' + method.call(fallback) + '|' + method.call([1, 2]) + '|' + method.call('text');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.toString should accept generic receivers");
+        assert!(
+            outcome
+                .note
+                .contains("string(generic|[object Fallback]|1,2|[object String])"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_to_string_calls_proxy_join_with_the_original_receiver() {
+        let source = "const method = Uint8Array.prototype.toString; const events = []; let receiver; const join = new Proxy(function() {}, { apply(target, thisArgument) { events.push(thisArgument === receiver ? 'call' : 'wrong receiver'); return 'proxied'; } }); receiver = new Proxy({}, { get(target, key) { events.push('get:' + key); if (key === 'join') return join; } }); method.call(receiver) + '|' + events.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array.prototype.toString should call a Proxy join method");
+        assert!(
+            outcome.note.contains("string(proxied|get:join,call)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_array_to_locale_string_preserves_primitive_receivers() {
         let source = r#"
 "use strict";
@@ -13071,6 +13305,46 @@ shrunk + "|" + grown + "|" + shrinkCalls + "|" + growCalls;
     }
 
     #[test]
+    fn wasm_backend_typed_array_at_coerces_index_on_empty_receivers() {
+        let source = "const values = new Uint8Array(); const typedArrayAt = Object.getPrototypeOf(Uint8Array).prototype.at; const events = []; const directIndex = { valueOf() { events.push('direct'); return 0; } }; const intrinsicIndex = { valueOf() { events.push('intrinsic'); return 0; } }; const direct = values.at(directIndex); const intrinsic = typedArrayAt.call(values, intrinsicIndex); (direct === undefined) + '|' + (intrinsic === undefined) + '|' + events.join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray.prototype.at should coerce indexes on empty receivers");
+        assert!(
+            outcome.note.contains("string(true|true|direct,intrinsic)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_typed_array_at_propagates_index_coercion_from_empty_receivers() {
+        let source = "const values = new Uint8Array(); const typedArrayAt = Object.getPrototypeOf(Uint8Array).prototype.at; const directError = {}; const intrinsicError = {}; let directCaught = false; let intrinsicCaught = false; try { values.at({ valueOf() { throw directError; } }); } catch (error) { directCaught = error === directError; } try { typedArrayAt.call(values, { valueOf() { throw intrinsicError; } }); } catch (error) { intrinsicCaught = error === intrinsicError; } directCaught + '|' + intrinsicCaught;";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray.prototype.at should propagate index coercion failures");
+        assert!(
+            outcome.note.contains("string(true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_typed_array_join_formats_bigint_elements() {
         let source = "const signed = new BigInt64Array([1n, 0n, 2n, -3n]); const unsigned = new BigUint64Array([1n, 42n]); signed.join(',') + '|' + signed.join(null) + '|' + unsigned.join('-');";
         let outcome = engine()
@@ -13247,6 +13521,544 @@ const reversed = view.getBigUint64(0, true);
             outcome
                 .note
                 .contains("string(true|true|false|true|bigint|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_accessors_and_bigint_getters_require_private_brand() {
+        let source = r#"
+const accessors = ["buffer", "byteLength", "byteOffset"].map(
+  name => Object.getOwnPropertyDescriptor(DataView.prototype, name).get
+);
+const forgedBuffer = new ArrayBuffer(8);
+const forged = {
+  buffer: forgedBuffer,
+  $DataViewDataPtr: 1,
+  $DataViewByteOffset: 0,
+  $DataViewByteLength: 8,
+  $DataViewLengthTracking: false
+};
+let accessorErrors = 0;
+for (const accessor of accessors) {
+  try {
+    accessor.call(forged);
+  } catch (error) {
+    if (error.name === "TypeError") accessorErrors++;
+  }
+}
+let offsetCoercions = 0;
+let getterError = "missing";
+try {
+  DataView.prototype.getBigInt64.call(forged, {
+    valueOf() {
+      offsetCoercions++;
+      return 0;
+    }
+  });
+} catch (error) {
+  getterError = error.name;
+}
+accessorErrors + "|" + getterError + "|" + offsetCoercions;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView accessors and BigInt getters should require the private brand");
+        assert!(
+            outcome.note.contains("string(3|TypeError|0)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_accessors_and_bigint_getters_ignore_legacy_mirrors() {
+        let source = r#"
+const buffer = new ArrayBuffer(10, { maxByteLength: 16 });
+const view = new DataView(buffer, 2);
+const replacement = new ArrayBuffer(8);
+Object.defineProperty(view, "buffer", { value: replacement, writable: true });
+view.$DataViewDataPtr = 0;
+view.$DataViewByteOffset = 0;
+view.$DataViewByteLength = 1;
+view.$DataViewLengthTracking = false;
+const bufferGetter = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer").get;
+const byteOffsetGetter = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset").get;
+const byteLengthGetter = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength").get;
+const initial = (bufferGetter.call(view) === buffer) + ":" +
+  byteOffsetGetter.call(view) + ":" + byteLengthGetter.call(view);
+buffer.resize(14);
+const grown = byteOffsetGetter.call(view) + ":" +
+  byteLengthGetter.call(view) + ":" + (view.getBigUint64(4) === 0n);
+const fixedBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+const fixed = new DataView(fixedBuffer, 0, 8);
+fixed.$DataViewByteLength = 0;
+fixed.$DataViewLengthTracking = true;
+fixedBuffer.resize(4);
+const offsetError = {};
+let abruptOffset = false;
+try {
+  fixed.getBigInt64({
+    valueOf() {
+      throw offsetError;
+    }
+  });
+} catch (error) {
+  abruptOffset = error === offsetError;
+}
+let fixedError = "missing";
+try {
+  fixed.getBigInt64(0);
+} catch (error) {
+  fixedError = error.name;
+}
+initial + "|" + grown + "|" + fixedError + ":" + abruptOffset;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView private state should ignore poisoned legacy mirrors");
+        assert!(
+            outcome
+                .note
+                .contains("string(true:2:8|2:12:true|TypeError:true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_number_getters_ignore_legacy_mirrors_across_widths() {
+        let source = r#"
+const buffer = new ArrayBuffer(26);
+const view = new DataView(buffer, 2, 22);
+view.setInt8(0, -1);
+view.setUint16(1, 0x1234, false);
+view.setInt32(3, -2, true);
+view.setFloat32(7, 1.5, true);
+view.setFloat64(11, -2.25, false);
+view.setUint16(20, 0x3c00, false);
+view.buffer = new ArrayBuffer(1);
+view.$DataViewDataPtr = 0;
+view.$DataViewByteOffset = 0;
+view.$DataViewByteLength = 1;
+view.$DataViewLengthTracking = true;
+[
+  view.getInt8(0),
+  view.getUint8(0),
+  view.getUint16(1, false),
+  view.getInt16(1, false),
+  view.getUint32(3, true),
+  view.getInt32(3, true),
+  view.getFloat16(20, false),
+  view.getFloat32(7, true),
+  view.getFloat64(11, false)
+].join(",");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView number getters should read private state across widths");
+        assert!(
+            outcome
+                .note
+                .contains("string(-1,255,4660,4660,4294967294,-2,1,1.5,-2.25)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_number_getters_preserve_validation_and_toindex_order() {
+        let source = r#"
+const forged = {
+  buffer: new ArrayBuffer(16),
+  $DataViewDataPtr: 1,
+  $DataViewByteOffset: 0,
+  $DataViewByteLength: 16,
+  $DataViewLengthTracking: false
+};
+const getters = [
+  DataView.prototype.getInt8,
+  DataView.prototype.getUint16,
+  DataView.prototype.getInt32,
+  DataView.prototype.getFloat16,
+  DataView.prototype.getFloat32,
+  DataView.prototype.getFloat64
+];
+let forgedErrors = 0;
+let forgedCoercions = 0;
+for (const getter of getters) {
+  try {
+    getter.call(forged, {
+      valueOf() {
+        forgedCoercions++;
+        return 0;
+      }
+    });
+  } catch (error) {
+    if (error.name === "TypeError") forgedErrors++;
+  }
+}
+const detachedBuffer = new ArrayBuffer(8);
+const detached = new DataView(detachedBuffer);
+__porfDetachArrayBuffer(detachedBuffer);
+const offsetError = {};
+let abruptOffset = false;
+try {
+  detached.getFloat64({
+    valueOf() {
+      throw offsetError;
+    }
+  });
+} catch (error) {
+  abruptOffset = error === offsetError;
+}
+let detachedError = "missing";
+try {
+  detached.getUint16(0);
+} catch (error) {
+  detachedError = error.name;
+}
+const fixedBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+const fixed = new DataView(fixedBuffer, 0, 8);
+fixedBuffer.resize(4);
+let fixedError = "missing";
+try {
+  fixed.getInt32(0);
+} catch (error) {
+  fixedError = error.name;
+}
+const trackingBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+const tracking = new DataView(trackingBuffer);
+trackingBuffer.resize(16);
+const grownValue = tracking.getFloat64(8);
+forgedErrors + ":" + forgedCoercions + "|" + abruptOffset + ":" +
+  detachedError + "|" + fixedError + "|" + grownValue;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView number getters should preserve validation and ToIndex order");
+        assert!(
+            outcome
+                .note
+                .contains("string(6:0|true:TypeError|TypeError|0)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_setters_ignore_legacy_mirrors_across_widths() {
+        let source = r#"
+const buffer = new ArrayBuffer(18);
+const view = new DataView(buffer, 2, 16);
+Object.defineProperty(view, "buffer", { value: new ArrayBuffer(1), writable: true });
+view.$DataViewDataPtr = 0;
+view.$DataViewByteOffset = 0;
+view.$DataViewByteLength = 1;
+view.$DataViewLengthTracking = true;
+const results = [];
+results.push(view.setInt8(0, -1) === undefined && view.getInt8(0) === -1);
+results.push(view.setUint8(0, 255) === undefined && view.getUint8(0) === 255);
+results.push(view.setInt16(0, -2, true) === undefined && view.getInt16(0, true) === -2);
+results.push(view.setUint16(0, 0x1234, false) === undefined &&
+  view.getUint16(0, false) === 0x1234);
+results.push(view.setInt32(0, -3, true) === undefined && view.getInt32(0, true) === -3);
+results.push(view.setUint32(0, 0x89abcdef, false) === undefined &&
+  view.getUint32(0, false) === 0x89abcdef);
+results.push(view.setFloat16(0, 1.5, true) === undefined &&
+  view.getFloat16(0, true) === 1.5);
+results.push(view.setFloat32(0, -2.25, false) === undefined &&
+  view.getFloat32(0, false) === -2.25);
+results.push(view.setFloat64(0, 3.5, true) === undefined &&
+  view.getFloat64(0, true) === 3.5);
+results.push(view.setBigInt64(0, -4n, false) === undefined &&
+  view.getBigInt64(0, false) === -4n);
+results.push(view.setBigUint64(0, 18446744073709551615n, true) === undefined &&
+  view.getBigUint64(0, true) === 18446744073709551615n);
+results.join(",");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView setters should write through private state across widths");
+        assert!(
+            outcome
+                .note
+                .contains("string(true,true,true,true,true,true,true,true,true,true,true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_setters_validate_receiver_and_preserve_coercion_order() {
+        let source = r#"
+const forged = {
+  buffer: new ArrayBuffer(16),
+  $DataViewDataPtr: 1,
+  $DataViewByteOffset: 0,
+  $DataViewByteLength: 16,
+  $DataViewLengthTracking: false
+};
+const setters = [
+  DataView.prototype.setInt8,
+  DataView.prototype.setUint8,
+  DataView.prototype.setInt16,
+  DataView.prototype.setUint16,
+  DataView.prototype.setInt32,
+  DataView.prototype.setUint32,
+  DataView.prototype.setFloat16,
+  DataView.prototype.setFloat32,
+  DataView.prototype.setFloat64,
+  DataView.prototype.setBigInt64,
+  DataView.prototype.setBigUint64
+];
+let receiverErrors = 0;
+let receiverCoercions = 0;
+for (const setter of setters) {
+  try {
+    setter.call(
+      forged,
+      { valueOf() { receiverCoercions++; return 0; } },
+      { valueOf() { receiverCoercions++; return 0; } }
+    );
+  } catch (error) {
+    if (error.name === "TypeError") receiverErrors++;
+  }
+}
+const view = new DataView(new ArrayBuffer(8));
+const numberError = {};
+let numberOrder = "";
+let abruptNumber = false;
+try {
+  view.setUint32(
+    { valueOf() { numberOrder += "o"; return 100; } },
+    { valueOf() { numberOrder += "v"; throw numberError; } }
+  );
+} catch (error) {
+  abruptNumber = error === numberError;
+}
+const bigintError = {};
+let bigintOrder = "";
+let abruptBigint = false;
+try {
+  view.setBigInt64(
+    { valueOf() { bigintOrder += "o"; return 100; } },
+    { valueOf() { bigintOrder += "v"; throw bigintError; } }
+  );
+} catch (error) {
+  abruptBigint = error === bigintError;
+}
+let negativeValueCoercions = 0;
+let negativeError = "missing";
+try {
+  view.setFloat64(-1, {
+    valueOf() {
+      negativeValueCoercions++;
+      return 1;
+    }
+  });
+} catch (error) {
+  negativeError = error.name;
+}
+let unsafeOffsetErrors = 0;
+for (const offset of [9007199254740992, -1e300]) {
+  try {
+    view.setInt8(offset, {
+      valueOf() {
+        negativeValueCoercions++;
+        return 1;
+      }
+    });
+  } catch (error) {
+    if (error.name === "RangeError") unsafeOffsetErrors++;
+  }
+}
+let numericBigintError = "missing";
+try {
+  view.setBigUint64(0, 1);
+} catch (error) {
+  numericBigintError = error.name;
+}
+let bigintNumberError = "missing";
+try {
+  view.setInt16(0, 1n);
+} catch (error) {
+  bigintNumberError = error.name;
+}
+receiverErrors + ":" + receiverCoercions + "|" +
+  abruptNumber + ":" + numberOrder + "|" + abruptBigint + ":" + bigintOrder + "|" +
+  negativeError + ":" + unsafeOffsetErrors + ":" + negativeValueCoercions + "|" +
+  numericBigintError + ":" + bigintNumberError;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView setters should preserve receiver, offset, and value coercion order");
+        assert!(
+            outcome
+                .note
+                .contains("string(11:0|true:ov|true:ov|RangeError:2:0|TypeError:TypeError)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_dataview_setters_observe_buffer_changes_during_value_coercion() {
+        let source = r#"
+const growingBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+const growing = new DataView(growingBuffer);
+growing.setFloat64(8, {
+  valueOf() {
+    growingBuffer.resize(16);
+    return 1.5;
+  }
+}, true);
+const grown = growing.getFloat64(8, true);
+
+const fixedBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+const fixed = new DataView(fixedBuffer, 0, 8);
+let fixedError = "missing";
+try {
+  fixed.setInt32(0, {
+    valueOf() {
+      fixedBuffer.resize(4);
+      return 1;
+    }
+  });
+} catch (error) {
+  fixedError = error.name;
+}
+
+const shrinkingBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+const shrinking = new DataView(shrinkingBuffer);
+let shrinkingError = "missing";
+try {
+  shrinking.setUint32(0, {
+    valueOf() {
+      shrinkingBuffer.resize(2);
+      return 1;
+    }
+  });
+} catch (error) {
+  shrinkingError = error.name;
+}
+
+const detachedBuffer = new ArrayBuffer(8);
+const detached = new DataView(detachedBuffer);
+const valueError = {};
+let abruptValue = false;
+try {
+  detached.setBigInt64(0, {
+    valueOf() {
+      __porfDetachArrayBuffer(detachedBuffer);
+      throw valueError;
+    }
+  });
+} catch (error) {
+  abruptValue = error === valueError;
+}
+let detachedError = "missing";
+try {
+  detached.setBigInt64(0, 1n);
+} catch (error) {
+  detachedError = error.name;
+}
+grown + "|" + fixedError + "|" + shrinkingError + "|" +
+  abruptValue + ":" + detachedError;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("DataView setters should validate current buffer state after value coercion");
+        assert!(
+            outcome
+                .note
+                .contains("string(1.5|TypeError|RangeError|true:TypeError)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_buffer_is_view_uses_private_brands() {
+        let source = r#"
+const forged = {
+  $DataViewDataPtr: 1,
+  $TypedArrayViewedArrayBuffer: new ArrayBuffer(1)
+};
+const view = new DataView(new ArrayBuffer(1));
+const typed = new Uint8Array(1);
+view.$DataViewDataPtr = 0;
+typed.$TypedArrayViewedArrayBuffer = undefined;
+[
+  ArrayBuffer.isView(forged),
+  ArrayBuffer.isView(view),
+  ArrayBuffer.isView(typed),
+  ArrayBuffer.isView(new Proxy(view, {})),
+  ArrayBuffer.isView(new Proxy(typed, {}))
+].join(",");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("ArrayBuffer.isView should use private view brands");
+        assert!(
+            outcome.note.contains("string(false,true,true,false,false)"),
             "note: {}",
             outcome.note
         );

@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/TypedArray/prototype/find/resizable-buffer.js",
-      "duration_ms": 16643
+      "duration_ms": 18759
     }
   ],
   "timeout_list": [],

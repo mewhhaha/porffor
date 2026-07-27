@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
-      "duration_ms": 23121
+      "duration_ms": 80660
     }
   ],
   "timeout_list": [],

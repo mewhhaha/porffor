@@ -271,6 +271,7 @@ use crate::{
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_ENTRIES_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID,
@@ -541,6 +542,7 @@ pub enum StandardBuiltinId {
     TypedArrayPrototypeToStringTagGetter,
     TypedArrayPrototypeToString,
     TypedArrayPrototypeAt,
+    TypedArrayPrototypeCopyWithin,
     TypedArrayPrototypeIncludes,
     TypedArrayPrototypeIndexOf,
     TypedArrayPrototypeLastIndexOf,
@@ -1223,6 +1225,7 @@ impl StandardBuiltinId {
             | Self::TypedArrayPrototypeToStringTagGetter
             | Self::TypedArrayPrototypeToString
             | Self::TypedArrayPrototypeAt
+            | Self::TypedArrayPrototypeCopyWithin
             | Self::TypedArrayPrototypeIncludes
             | Self::TypedArrayPrototypeIndexOf
             | Self::TypedArrayPrototypeLastIndexOf
@@ -1589,6 +1592,7 @@ impl StandardBuiltinId {
             }
             Self::TypedArrayPrototypeToString => "TypedArray.prototype.toString",
             Self::TypedArrayPrototypeAt => "TypedArray.prototype.at",
+            Self::TypedArrayPrototypeCopyWithin => "TypedArray.prototype.copyWithin",
             Self::TypedArrayPrototypeIncludes => "TypedArray.prototype.includes",
             Self::TypedArrayPrototypeIndexOf => "TypedArray.prototype.indexOf",
             Self::TypedArrayPrototypeLastIndexOf => "TypedArray.prototype.lastIndexOf",
@@ -2264,6 +2268,9 @@ impl StandardBuiltinId {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
             }
             Self::TypedArrayPrototypeAt => BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID.to_string(),
+            Self::TypedArrayPrototypeCopyWithin => {
+                BUILTIN_TYPED_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID.to_string()
+            }
             Self::TypedArrayPrototypeIncludes => {
                 BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID.to_string()
             }
@@ -3179,6 +3186,9 @@ impl StandardBuiltinId {
                 Some(Self::TypedArrayPrototypeToString)
             }
             BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID => Some(Self::TypedArrayPrototypeAt),
+            BUILTIN_TYPED_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID => {
+                Some(Self::TypedArrayPrototypeCopyWithin)
+            }
             BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID => {
                 Some(Self::TypedArrayPrototypeIncludes)
             }
@@ -3937,6 +3947,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeToStringTagGetter,
             Self::TypedArrayPrototypeToString,
             Self::TypedArrayPrototypeAt,
+            Self::TypedArrayPrototypeCopyWithin,
             Self::TypedArrayPrototypeIncludes,
             Self::TypedArrayPrototypeIndexOf,
             Self::TypedArrayPrototypeLastIndexOf,
@@ -4683,6 +4694,7 @@ impl StandardBuiltinId {
             Self::TypedArrayPrototypeToStringTagGetter => Some("get [Symbol.toStringTag]"),
             Self::TypedArrayPrototypeToString => Some("toString"),
             Self::TypedArrayPrototypeAt => Some("at"),
+            Self::TypedArrayPrototypeCopyWithin => Some("copyWithin"),
             Self::TypedArrayPrototypeIncludes => Some("includes"),
             Self::TypedArrayPrototypeIndexOf => Some("indexOf"),
             Self::TypedArrayPrototypeLastIndexOf => Some("lastIndexOf"),

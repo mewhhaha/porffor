@@ -968,6 +968,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TypedArrayPrototypeSlice
         | StandardBuiltinId::TypedArrayPrototypeSet
         | StandardBuiltinId::TypedArrayPrototypeReverse
+        | StandardBuiltinId::TypedArrayPrototypeCopyWithin
         | StandardBuiltinId::TypedArrayPrototypeSort
         | StandardBuiltinId::TypedArrayPrototypeToReversed
         | StandardBuiltinId::TypedArrayPrototypeToSorted

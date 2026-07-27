@@ -4284,6 +4284,13 @@ impl<'a> FunctionBuilder<'a> {
         )));
         function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            -9_007_199_254_740_991.0,
+        )));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             RANGE_ERROR_NAME,
@@ -6191,17 +6198,6 @@ impl<'a> FunctionBuilder<'a> {
         rhs: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let has_heap_bigint_literal = is_heap_bigint_literal(lhs) || is_heap_bigint_literal(rhs);
-        let compares_two_bigints = lhs.possible_kinds.is_singleton()
-            && rhs.possible_kinds.is_singleton()
-            && lhs.kind == ValueKind::BigInt
-            && rhs.kind == ValueKind::BigInt;
-        if has_heap_bigint_literal && !compares_two_bigints {
-            return Err(EmitError::unsupported(
-                "loose equality between a heap-backed BigInt literal and a non-BigInt value is not implemented",
-            ));
-        }
-
         if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
             && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
         {
@@ -6321,17 +6317,6 @@ impl<'a> FunctionBuilder<'a> {
         rhs: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let has_heap_bigint_literal = is_heap_bigint_literal(lhs) || is_heap_bigint_literal(rhs);
-        let compares_two_bigints = lhs.possible_kinds.is_singleton()
-            && rhs.possible_kinds.is_singleton()
-            && lhs.kind == ValueKind::BigInt
-            && rhs.kind == ValueKind::BigInt;
-        if has_heap_bigint_literal && !compares_two_bigints {
-            return Err(EmitError::unsupported(
-                "loose equality between a heap-backed BigInt literal and a non-BigInt value is not implemented",
-            ));
-        }
-
         if !lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
             || !rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
         {
@@ -6376,11 +6361,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         self.emit_nonstring_value_to_number_payload(lhs_tag, lhs_payload, function)?;
         function.instruction(&Instruction::LocalSet(temp_number_local));
-        function.instruction(&Instruction::LocalGet(temp_number_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        self.emit_nonstring_value_to_number_payload(rhs_tag, rhs_payload, function)?;
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
+        self.emit_number_payload_loose_equal_i32(
+            temp_number_local,
+            rhs_tag,
+            rhs_payload,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(rhs_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
@@ -6388,13 +6374,39 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         self.emit_nonstring_value_to_number_payload(rhs_tag, rhs_payload, function)?;
         function.instruction(&Instruction::LocalSet(temp_number_local));
-        self.emit_nonstring_value_to_number_payload(lhs_tag, lhs_payload, function)?;
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(temp_number_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
+        self.emit_number_payload_loose_equal_i32(
+            temp_number_local,
+            lhs_tag,
+            lhs_payload,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag, function);
+        self.emit_is_bigint_tag_i32(rhs_tag, function);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_mixed_bigint_equality_i32(lhs_tag, lhs_payload, rhs_payload, function);
+        function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag, function);
+        function.instruction(&Instruction::LocalGet(rhs_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_bigint_number_equality_i32(lhs_tag, lhs_payload, rhs_payload, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(lhs_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.emit_is_bigint_tag_i32(rhs_tag, function);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_bigint_number_equality_i32(rhs_tag, rhs_payload, lhs_payload, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -6529,7 +6541,47 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_mixed_bigint_equality_i32(
+            lhs_tag_local,
+            lhs_payload_local,
+            rhs_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+        function.instruction(&Instruction::LocalGet(rhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_bigint_number_equality_i32(
+            lhs_tag_local,
+            lhs_payload_local,
+            rhs_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(lhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_bigint_number_equality_i32(
+            rhs_tag_local,
+            rhs_payload_local,
+            lhs_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -6538,6 +6590,411 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.release_temp_local(temp_number_local);
         Ok(())
+    }
+
+    fn emit_mixed_bigint_equality_i32(
+        &mut self,
+        lhs_tag_local: u32,
+        lhs_payload_local: u32,
+        rhs_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(lhs_tag_local));
+        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_heap_bigint_inline_equality_i32(lhs_payload_local, rhs_payload_local, function);
+        function.instruction(&Instruction::Else);
+        self.emit_heap_bigint_inline_equality_i32(rhs_payload_local, lhs_payload_local, function);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_bigint_number_equality_i32(
+        &mut self,
+        bigint_tag_local: u32,
+        bigint_payload_local: u32,
+        number_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(bigint_tag_local));
+        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_heap_bigint_number_equality_i32(
+            bigint_payload_local,
+            number_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        self.emit_inline_bigint_number_equality_i32(
+            bigint_payload_local,
+            number_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_inline_bigint_number_equality_i32(
+        &mut self,
+        bigint_payload_local: u32,
+        number_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let integer_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(i64::MIN as f64)));
+        function.instruction(&Instruction::F64Ge);
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(
+            9_223_372_036_854_775_808.0,
+        )));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::LocalSet(integer_local));
+        function.instruction(&Instruction::LocalGet(bigint_payload_local));
+        function.instruction(&Instruction::LocalGet(integer_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(integer_local);
+    }
+
+    fn emit_heap_bigint_inline_equality_i32(
+        &mut self,
+        heap_payload_local: u32,
+        inline_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let heap_sign_local = self.reserve_temp_local();
+        let heap_limbs_local = self.reserve_temp_local();
+        let heap_limb_count_local = self.reserve_temp_local();
+        let inline_sign_local = self.reserve_temp_local();
+        let inline_magnitude_local = self.reserve_temp_local();
+
+        self.load_i64_to_local_from_offset(
+            heap_payload_local,
+            HEAP_BIGINT_SIGN_OFFSET,
+            heap_sign_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            heap_payload_local,
+            HEAP_BIGINT_LIMBS_PTR_OFFSET,
+            heap_limbs_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            heap_payload_local,
+            HEAP_BIGINT_LIMBS_LEN_OFFSET,
+            heap_limb_count_local,
+            function,
+        );
+
+        function.instruction(&Instruction::LocalGet(inline_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(inline_sign_local));
+
+        function.instruction(&Instruction::LocalGet(inline_sign_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(inline_payload_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(inline_payload_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(inline_magnitude_local));
+
+        function.instruction(&Instruction::LocalGet(inline_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(heap_sign_local));
+        function.instruction(&Instruction::LocalGet(inline_sign_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(heap_limb_count_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(heap_limbs_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
+        function.instruction(&Instruction::LocalGet(inline_magnitude_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(inline_magnitude_local);
+        self.release_temp_local(inline_sign_local);
+        self.release_temp_local(heap_limb_count_local);
+        self.release_temp_local(heap_limbs_local);
+        self.release_temp_local(heap_sign_local);
+    }
+
+    fn emit_heap_bigint_number_equality_i32(
+        &mut self,
+        heap_payload_local: u32,
+        number_payload_local: u32,
+        function: &mut Function,
+    ) {
+        // Reconstruct the integer from its IEEE-754 significand and exponent so
+        // comparison against arbitrary-precision limbs cannot round unequal values.
+        let number_bits_local = self.reserve_temp_local();
+        let exponent_local = self.reserve_temp_local();
+        let significand_local = self.reserve_temp_local();
+        let shift_local = self.reserve_temp_local();
+        let first_limb_local = self.reserve_temp_local();
+        let bit_offset_local = self.reserve_temp_local();
+        let expected_limb_count_local = self.reserve_temp_local();
+        let expected_sign_local = self.reserve_temp_local();
+        let expected_limb_local = self.reserve_temp_local();
+        let heap_sign_local = self.reserve_temp_local();
+        let heap_limbs_local = self.reserve_temp_local();
+        let heap_limb_count_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let equal_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Abs);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::I64Const(i64::MAX));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(number_bits_local));
+
+        function.instruction(&Instruction::LocalGet(number_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(expected_sign_local));
+
+        function.instruction(&Instruction::LocalGet(number_bits_local));
+        function.instruction(&Instruction::I64Const(52));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0x7ff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(1023));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(exponent_local));
+
+        function.instruction(&Instruction::LocalGet(number_bits_local));
+        function.instruction(&Instruction::I64Const((1_i64 << 52) - 1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(1_i64 << 52));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(significand_local));
+
+        function.instruction(&Instruction::LocalGet(exponent_local));
+        function.instruction(&Instruction::I64Const(52));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(exponent_local));
+        function.instruction(&Instruction::I64Const(52));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(shift_local));
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64Const(6));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(first_limb_local));
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64Const(63));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(bit_offset_local));
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64Const(52));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(6));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(expected_limb_count_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(52));
+        function.instruction(&Instruction::LocalGet(exponent_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(shift_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(first_limb_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(bit_offset_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(expected_limb_count_local));
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            heap_payload_local,
+            HEAP_BIGINT_SIGN_OFFSET,
+            heap_sign_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            heap_payload_local,
+            HEAP_BIGINT_LIMBS_PTR_OFFSET,
+            heap_limbs_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            heap_payload_local,
+            HEAP_BIGINT_LIMBS_LEN_OFFSET,
+            heap_limb_count_local,
+            function,
+        );
+
+        function.instruction(&Instruction::LocalGet(heap_sign_local));
+        function.instruction(&Instruction::LocalGet(expected_sign_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(heap_limb_count_local));
+        function.instruction(&Instruction::LocalGet(expected_limb_count_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(equal_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(heap_limb_count_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(expected_limb_local));
+        function.instruction(&Instruction::LocalGet(exponent_local));
+        function.instruction(&Instruction::I64Const(52));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(first_limb_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(significand_local));
+        function.instruction(&Instruction::LocalGet(bit_offset_local));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalSet(expected_limb_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(bit_offset_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(first_limb_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(significand_local));
+        function.instruction(&Instruction::I64Const(64));
+        function.instruction(&Instruction::LocalGet(bit_offset_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(expected_limb_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(significand_local));
+        function.instruction(&Instruction::LocalGet(shift_local));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalSet(expected_limb_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(heap_limbs_local));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg64(0)));
+        function.instruction(&Instruction::LocalGet(expected_limb_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(equal_local));
+        function.instruction(&Instruction::LocalGet(equal_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(equal_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(equal_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(heap_limb_count_local);
+        self.release_temp_local(heap_limbs_local);
+        self.release_temp_local(heap_sign_local);
+        self.release_temp_local(expected_limb_local);
+        self.release_temp_local(expected_sign_local);
+        self.release_temp_local(expected_limb_count_local);
+        self.release_temp_local(bit_offset_local);
+        self.release_temp_local(first_limb_local);
+        self.release_temp_local(shift_local);
+        self.release_temp_local(significand_local);
+        self.release_temp_local(exponent_local);
+        self.release_temp_local(number_bits_local);
     }
 
     pub(crate) fn emit_number_payload_loose_equal_i32(
@@ -6570,7 +7027,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(other_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_bigint_number_equality_i32(
+            other_tag_local,
+            other_payload_local,
+            number_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         self.release_temp_local(other_number_local);

@@ -1,0 +1,130 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 18283877432536051520,
+  "run_kind": "full",
+  "total": 44,
+  "passed": 44,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 44
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/TypedArray/prototype/some/callbackfn-resize.js",
+      "duration_ms": 38607
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/BigInt/callbackfn-not-callable-throws.js",
+      "duration_ms": 36664
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/length.js",
+      "duration_ms": 34578
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/BigInt/detached-buffer.js",
+      "duration_ms": 33573
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/BigInt/callbackfn-detachbuffer.js",
+      "duration_ms": 31070
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/BigInt/returns-false-if-every-cb-returns-false.js",
+      "duration_ms": 30129
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/BigInt/return-abrupt-from-this-out-of-bounds.js",
+      "duration_ms": 29372
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/detached-buffer.js",
+      "duration_ms": 29077
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/BigInt/callbackfn-returns-abrupt.js",
+      "duration_ms": 29016
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/some/return-abrupt-from-this-out-of-bounds.js",
+      "duration_ms": 28961
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-arguments-with-thisarg.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-arguments-without-thisarg.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-detachbuffer.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-no-interaction-over-non-integer.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-not-called-on-empty.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-return-does-not-change-instance.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-returns-abrupt.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-set-value-during-interaction.js",
+    "built-ins/TypedArray/prototype/some/BigInt/callbackfn-this.js",
+    "built-ins/TypedArray/prototype/some/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/some/BigInt/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/some/BigInt/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/some/BigInt/returns-false-if-every-cb-returns-false.js",
+    "built-ins/TypedArray/prototype/some/BigInt/returns-true-if-any-cb-returns-true.js",
+    "built-ins/TypedArray/prototype/some/BigInt/values-are-not-cached.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-arguments-with-thisarg.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-arguments-without-thisarg.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-detachbuffer.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-no-interaction-over-non-integer.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-not-callable-throws.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-not-called-on-empty.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-resize.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-return-does-not-change-instance.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-returns-abrupt.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-set-value-during-interaction.js",
+    "built-ins/TypedArray/prototype/some/callbackfn-this.js",
+    "built-ins/TypedArray/prototype/some/detached-buffer.js",
+    "built-ins/TypedArray/prototype/some/get-length-uses-internal-arraylength.js",
+    "built-ins/TypedArray/prototype/some/invoked-as-func.js",
+    "built-ins/TypedArray/prototype/some/invoked-as-method.js",
+    "built-ins/TypedArray/prototype/some/length.js",
+    "built-ins/TypedArray/prototype/some/name.js",
+    "built-ins/TypedArray/prototype/some/not-a-constructor.js",
+    "built-ins/TypedArray/prototype/some/prop-desc.js",
+    "built-ins/TypedArray/prototype/some/resizable-buffer-grow-mid-iteration.js",
+    "built-ins/TypedArray/prototype/some/resizable-buffer-shrink-mid-iteration.js",
+    "built-ins/TypedArray/prototype/some/resizable-buffer.js",
+    "built-ins/TypedArray/prototype/some/return-abrupt-from-this-out-of-bounds.js",
+    "built-ins/TypedArray/prototype/some/returns-false-if-every-cb-returns-false.js",
+    "built-ins/TypedArray/prototype/some/returns-true-if-any-cb-returns-true.js",
+    "built-ins/TypedArray/prototype/some/this-is-not-object.js",
+    "built-ins/TypedArray/prototype/some/this-is-not-typedarray-instance.js",
+    "built-ins/TypedArray/prototype/some/values-are-not-cached.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

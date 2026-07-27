@@ -1,6 +1,13 @@
 let buffer = new ArrayBuffer(8);
 let view = new DataView(buffer);
 let bytes = new Uint8Array(buffer, 1);
+let fakeBuffer = new ArrayBuffer(8);
+
+bytes.$TypedArrayViewedArrayBuffer = fakeBuffer;
+bytes.$TypedArrayByteOffset = 0;
+bytes.$TypedArrayByteLength = 8;
+bytes.$TypedArrayBytesPerElement = 1;
+bytes.$TypedArrayElementKind = 1;
 
 let assigned0 = bytes[0] = 0;
 let assigned1 = bytes[1] = 1;
