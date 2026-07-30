@@ -513,6 +513,59 @@ mod tests {
     }
 
     #[test]
+    fn reflected_call_entry_points_root_proxy_dispatch() {
+        for builtin in [
+            StandardBuiltinId::ReflectApply,
+            StandardBuiltinId::ReflectConstruct,
+            StandardBuiltinId::FunctionPrototypeApply,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+
+            assert!(plan.standard_roots.contains(&builtin));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::ProxyConstructor));
+        }
+    }
+
+    #[test]
+    fn object_has_own_roots_generic_descriptor_lookup() {
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ObjectHasOwn);
+
+        for builtin in [
+            StandardBuiltinId::ObjectHasOwn,
+            StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+            StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn object_descriptor_map_builtins_root_reflective_operations() {
+        for entry_point in [
+            StandardBuiltinId::ObjectCreate,
+            StandardBuiltinId::ObjectDefineProperties,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry_point);
+
+            for builtin in [
+                entry_point,
+                StandardBuiltinId::ObjectDefineProperties,
+                StandardBuiltinId::ObjectDefineProperty,
+                StandardBuiltinId::ReflectOwnKeys,
+                StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+                StandardBuiltinId::ReflectDefineProperty,
+            ] {
+                assert!(plan.standard_roots.contains(&builtin));
+            }
+        }
+    }
+
+    #[test]
     fn object_integrity_builtins_root_reflective_property_operations() {
         for (integrity_builtin, dependencies) in [
             (
@@ -962,6 +1015,26 @@ impl RuntimeBootstrapPlan {
         }
         if builtin == StandardBuiltinId::ObjectAssign {
             self.require_standard_builtin(StandardBuiltinId::ReflectSet);
+        }
+        if builtin == StandardBuiltinId::ObjectHasOwn {
+            self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ReflectApply
+                | StandardBuiltinId::ReflectConstruct
+                | StandardBuiltinId::FunctionPrototypeApply
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ProxyConstructor);
+        }
+        if builtin == StandardBuiltinId::ObjectCreate {
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperties);
+        }
+        if builtin == StandardBuiltinId::ObjectDefineProperties {
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
+            self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
+            self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+            self.require_standard_builtin(StandardBuiltinId::ReflectDefineProperty);
         }
         if matches!(
             builtin,

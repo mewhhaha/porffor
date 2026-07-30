@@ -500,6 +500,7 @@ pub(crate) struct ScriptLowerer<'a> {
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    well_known_symbol_prototype_properties: BTreeMap<(String, String), ValueInfo>,
     /// Facts written by this lowerer (or one of its nested lowerers).
     nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
     /// Script-global facts learned before this lowerer was entered.
@@ -2807,7 +2808,7 @@ impl<'a> ScriptLowerer<'a> {
                     object.properties.insert(
                         "getOwnPropertyNames".to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                            StandardBuiltinId::ObjectKeys.function_id(),
+                            StandardBuiltinId::ObjectGetOwnPropertyNames.function_id(),
                             false,
                         )),
                     );
@@ -3943,9 +3944,9 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ObjectSetPrototypeOf => (
-                ValueKind::Object,
-                Self::object_like_kind_set(),
-                Some(Box::new(Self::empty_object_shape())),
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::ObjectDefineProperty | StandardBuiltinId::ObjectDefineProperties => {
@@ -6209,6 +6210,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 properties
             },
+            well_known_symbol_prototype_properties: BTreeMap::new(),
             nested_script_global_value_infos: BTreeMap::new(),
             known_nested_script_global_value_infos: BTreeMap::new(),
             // Array.prototype is mutable and can escape through dynamic code
@@ -9114,8 +9116,8 @@ impl<'a> ScriptLowerer<'a> {
                                 self.interner.resolve_expect(name.sym()).to_string(),
                             ),
                             PropertyAccessField::Expr(expr) => {
-                                if let Some(key) = self.try_static_string_key(expr) {
-                                    PropertyKeyIr::StaticString(key)
+                                if let Some(key) = self.lower_static_property_key(expr) {
+                                    key
                                 } else {
                                     let mut lowered = self.lower_expression(expr);
                                     if lowered.kind == ValueKind::Undefined
@@ -9150,8 +9152,8 @@ impl<'a> ScriptLowerer<'a> {
                             self.interner.resolve_expect(name.sym()).to_string(),
                         ),
                         PropertyAccessField::Expr(expr) => {
-                            if let Some(key) = self.try_static_string_key(expr) {
-                                PropertyKeyIr::StaticString(key)
+                            if let Some(key) = self.lower_static_property_key(expr) {
+                                key
                             } else {
                                 let mut lowered = self.lower_expression(expr);
                                 if lowered.kind == ValueKind::Undefined
@@ -9194,6 +9196,7 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                 }
+                self.update_well_known_symbol_prototype_property(access.target(), &key, None);
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Boolean),
                     ExprIr::DeleteProperty {
@@ -10764,7 +10767,7 @@ impl<'a> ScriptLowerer<'a> {
         if for_of.r#await() {
             for key in ["Symbol.asyncIterator", "Symbol.iterator"] {
                 let function_targets = self
-                    .optional_chain_static_property_info(&iterable.value_info(), key)
+                    .optional_chain_well_known_symbol_property_info(&iterable.value_info(), key)
                     .map(|method| method.function_targets)
                     .unwrap_or_default();
                 for function_id in function_targets {
@@ -11750,6 +11753,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.well_known_symbol_prototype_properties =
+            self.well_known_symbol_prototype_properties.clone();
         lowerer.known_nested_script_global_value_infos =
             self.known_nested_script_global_value_infos.clone();
         for (name, info) in &self.nested_script_global_value_infos {
@@ -14360,7 +14365,10 @@ impl<'a> ScriptLowerer<'a> {
             },
             ExprIr::PropertyRead {
                 target: Box::new(object),
-                key: PropertyKeyIr::StaticString("Symbol.unscopables".into()),
+                key: PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Symbol),
+                    ExprIr::String("Symbol.unscopables".into()),
+                ))),
             },
         );
         let unscopables_name = self.alloc_temp_binding_name("with.unscopables.");
@@ -14708,6 +14716,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.well_known_symbol_prototype_properties =
+            self.well_known_symbol_prototype_properties.clone();
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
         lowerer.number_prototype_match_is_string_match =
@@ -16685,6 +16695,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.well_known_symbol_prototype_properties =
+            self.well_known_symbol_prototype_properties.clone();
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
         lowerer.number_prototype_match_is_string_match =
@@ -17100,6 +17112,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
         lowerer.visible_function_names = self.visible_function_names.clone();
         lowerer.global_properties = self.global_properties.clone();
+        lowerer.well_known_symbol_prototype_properties =
+            self.well_known_symbol_prototype_properties.clone();
         lowerer.array_prototype_mutated = self.array_prototype_mutated;
         lowerer.number_prototype_to_string_deleted = self.number_prototype_to_string_deleted;
         lowerer.number_prototype_match_is_string_match =
@@ -18029,8 +18043,10 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     }
                     if let PropertyAccessField::Expr(expr) = access.field() {
-                        if let Some(symbol_key) = self.try_static_string_key(expr) {
-                            let builtin = match symbol_key.as_str() {
+                        if let Some((symbol_name, symbol_key)) =
+                            self.lower_well_known_symbol_property_key(expr)
+                        {
+                            let builtin = match symbol_name.as_str() {
                                 "Symbol.iterator" if receiver.kind == ValueKind::String => {
                                     Some(StandardBuiltinId::StringPrototypeIterator)
                                 }
@@ -18070,7 +18086,7 @@ impl<'a> ScriptLowerer<'a> {
                                     info,
                                     ExprIr::CallMethod {
                                         receiver: Box::new(receiver),
-                                        key: PropertyKeyIr::StaticString(symbol_key),
+                                        key: symbol_key,
                                         args,
                                     },
                                 );
@@ -18444,15 +18460,17 @@ impl<'a> ScriptLowerer<'a> {
                                     self.lower_object_property_key(receiver.clone(), access.field())
                                 }
                             } else if let PropertyAccessField::Expr(expr) = access.field() {
-                                if let Some(symbol_key) = self.try_static_string_key(expr) {
-                                    if symbol_key == "Symbol.toPrimitive" {
+                                if let Some((symbol_name, symbol_key)) =
+                                    self.lower_well_known_symbol_property_key(expr)
+                                {
+                                    if symbol_name == "Symbol.toPrimitive" {
                                         TypedExpr::from_info(
                                             Self::standard_builtin_value_info(
                                                 StandardBuiltinId::SymbolPrototypeToPrimitive,
                                             ),
                                             ExprIr::PropertyRead {
                                                 target: Box::new(receiver.clone()),
-                                                key: PropertyKeyIr::StaticString(symbol_key),
+                                                key: symbol_key,
                                             },
                                         )
                                     } else {
@@ -22476,18 +22494,6 @@ impl<'a> ScriptLowerer<'a> {
                         self.boxed_receiver_adaptations += 1;
                     }
                 }
-                if let Some(arg_list) = args.get(1) {
-                    let allowed = KindSet::from_kind(ValueKind::Undefined)
-                        .union(KindSet::from_kind(ValueKind::Null))
-                        .union(KindSet::from_kind(ValueKind::Array))
-                        .union(KindSet::from_kind(ValueKind::Arguments));
-                    if arg_list.possible_kinds.0 & allowed.0 == 0 {
-                        self.unsupported_with_message(format!(
-                            "unsupported in porffor wasm-aot first slice: Function.prototype.apply argument list"
-                        ));
-                        return None;
-                    }
-                }
                 Some(ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -22530,27 +22536,32 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::ObjectCreate => {
                 let Some(proto) = args.first() else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object.create requires prototype"
-                    ));
-                    return None;
+                    return Some(ValueInfo::new(ValueKind::Object));
                 };
-                let allowed =
-                    Self::object_like_kind_set().union(KindSet::from_kind(ValueKind::Null));
+                let null_kind = KindSet::from_kind(ValueKind::Null);
+                let allowed = Self::object_like_kind_set().union(null_kind);
                 if !proto.possible_kinds.is_subset_of(allowed) {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object.create prototype must be object or null"
-                    ));
-                    return None;
+                    return Some(ValueInfo::new(ValueKind::Object));
                 }
-                let prototype = if proto.possible_kinds == KindSet::from_kind(ValueKind::Null) {
-                    None
-                } else {
-                    proto.heap_shape.clone()
+                if proto.possible_kinds == null_kind {
+                    return Some(Self::value_info_from_shape(Some(Box::new(
+                        HeapShape::Object(ObjectShape {
+                            prototype: None,
+                            properties: BTreeMap::new(),
+                            private_brands: BTreeSet::new(),
+                            boxed_primitive: None,
+                        }),
+                    ))));
+                }
+                if proto.possible_kinds.contains(ValueKind::Null) {
+                    return Some(ValueInfo::new(ValueKind::Object));
+                }
+                let Some(prototype) = proto.heap_shape.clone() else {
+                    return Some(ValueInfo::new(ValueKind::Object));
                 };
                 Some(Self::value_info_from_shape(Some(Box::new(
                     HeapShape::Object(ObjectShape {
-                        prototype,
+                        prototype: Some(prototype),
                         properties: BTreeMap::new(),
                         private_brands: BTreeSet::new(),
                         boxed_primitive: None,
@@ -22559,10 +22570,13 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::ObjectGetPrototypeOf => {
                 let Some(target) = args.first() else {
-                    self.unsupported_with_message(format!(
-                        "unsupported in porffor wasm-aot first slice: Object.getPrototypeOf requires object"
-                    ));
-                    return None;
+                    return Some(ValueInfo {
+                        kind: ValueKind::Object,
+                        possible_kinds: KindSet::from_kind(ValueKind::Object)
+                            .union(KindSet::from_kind(ValueKind::Null)),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    });
                 };
                 if !target.function_targets.is_empty()
                     && target.function_targets.iter().all(|function_id| {
@@ -22650,37 +22664,39 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 if let Some(key_arg) = args.get(1) {
                     if let ExprIr::String(key) = &key_arg.expr {
-                        let species_getter = if key == "Symbol.species"
+                        let is_species_symbol =
+                            key_arg.kind == ValueKind::Symbol && key == "Symbol.species";
+                        let species_getter = if is_species_symbol
                             && target
                                 .function_targets
                                 .contains(&StandardBuiltinId::ArrayConstructor.function_id())
                         {
                             Some(StandardBuiltinId::ArraySpeciesGetter)
-                        } else if key == "Symbol.species"
+                        } else if is_species_symbol
                             && target
                                 .function_targets
                                 .contains(&StandardBuiltinId::ArrayBufferConstructor.function_id())
                         {
                             Some(StandardBuiltinId::ArrayBufferSpeciesGetter)
-                        } else if key == "Symbol.species"
+                        } else if is_species_symbol
                             && target
                                 .function_targets
                                 .contains(&StandardBuiltinId::RegExpConstructor.function_id())
                         {
                             Some(StandardBuiltinId::RegExpSpeciesGetter)
-                        } else if key == "Symbol.species"
+                        } else if is_species_symbol
                             && target
                                 .function_targets
                                 .contains(&StandardBuiltinId::PromiseConstructor.function_id())
                         {
                             Some(StandardBuiltinId::PromiseSpeciesGetter)
-                        } else if key == "Symbol.species"
+                        } else if is_species_symbol
                             && target
                                 .function_targets
                                 .contains(&StandardBuiltinId::MapConstructor.function_id())
                         {
                             Some(StandardBuiltinId::MapSpeciesGetter)
-                        } else if key == "Symbol.species"
+                        } else if is_species_symbol
                             && target
                                 .function_targets
                                 .contains(&StandardBuiltinId::SetConstructor.function_id())
@@ -24820,9 +24836,7 @@ impl<'a> ScriptLowerer<'a> {
                         PropertyName::Literal(name) => {
                             Some(self.interner.resolve_expect(name.sym()).to_string())
                         }
-                        PropertyName::Computed(expr) => self
-                            .try_static_string_key(expr)
-                            .or_else(|| self.static_number_property_key(expr)),
+                        PropertyName::Computed(expr) => self.try_static_ordinary_property_key(expr),
                     };
 
                     if let Some(key) = static_key {
@@ -24914,10 +24928,7 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("object literal shorthand");
                 }
                 PropertyDefinition::Property(PropertyName::Computed(expr), value) => {
-                    if let Some(key) = self
-                        .try_static_string_key(expr)
-                        .or_else(|| self.static_number_property_key(expr))
-                    {
+                    if let Some(key) = self.try_static_ordinary_property_key(expr) {
                         self.observe_proxy_trap_value_hint(&key, value);
                         let lowered = self.lower_expression(value);
                         shape
@@ -24938,12 +24949,6 @@ impl<'a> ScriptLowerer<'a> {
                         return self.unsupported_expr("computed object key");
                     }
                     let lowered = self.lower_expression(value);
-                    if key.kind == ValueKind::Symbol {
-                        shape.properties.insert(
-                            "Symbol()".to_string(),
-                            ObjectShapeProperty::Data(lowered.value_info()),
-                        );
-                    }
                     properties.push(ObjectPropertyIr::ComputedData {
                         key,
                         value: lowered,
@@ -25017,32 +25022,43 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_property_access(&mut self, access: &PropertyAccess) -> TypedExpr {
         match access {
             PropertyAccess::Simple(access) => {
-                if let Expression::Identifier(identifier) = access.target() {
+                if let (Expression::Identifier(identifier), PropertyAccessField::Const(field)) =
+                    (access.target(), access.field())
+                {
                     let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    if target_name == "Symbol" {
-                        if let PropertyAccessField::Const(name) = access.field() {
-                            let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
-                            if matches!(
-                                symbol_name.as_str(),
-                                "asyncIterator"
-                                    | "dispose"
-                                    | "species"
-                                    | "isConcatSpreadable"
-                                    | "iterator"
-                                    | "match"
-                                    | "matchAll"
-                                    | "replace"
-                                    | "search"
-                                    | "split"
-                                    | "toStringTag"
-                                    | "toPrimitive"
-                            ) {
-                                return TypedExpr::from_info(
-                                    ValueInfo::new(ValueKind::Symbol),
-                                    ExprIr::String(format!("Symbol.{symbol_name}")),
-                                );
-                            }
-                        }
+                    let target_is_builtin_symbol = target_name == "Symbol"
+                        && self.active_with_objects.is_empty()
+                        && self.lookup_binding(&target_name).is_none()
+                        && self
+                            .lookup_global_property_info(&target_name)
+                            .is_some_and(|property| {
+                                property.proven_present
+                                    && property.source == GlobalPropertySource::Builtin
+                            });
+                    let symbol_name = self.interner.resolve_expect(field.sym()).to_string();
+                    if target_is_builtin_symbol
+                        && matches!(
+                            symbol_name.as_str(),
+                            "asyncIterator"
+                                | "dispose"
+                                | "hasInstance"
+                                | "species"
+                                | "isConcatSpreadable"
+                                | "iterator"
+                                | "match"
+                                | "matchAll"
+                                | "replace"
+                                | "search"
+                                | "split"
+                                | "toStringTag"
+                                | "toPrimitive"
+                                | "unscopables"
+                        )
+                    {
+                        return TypedExpr::from_info(
+                            ValueInfo::new(ValueKind::Symbol),
+                            ExprIr::String(format!("Symbol.{symbol_name}")),
+                        );
                     }
                 }
                 let target = self.lower_property_target(access.target());
@@ -25145,15 +25161,17 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                         } else if let PropertyAccessField::Expr(expr) = access.field() {
-                            if let Some(symbol_key) = self.try_static_string_key(expr) {
-                                if symbol_key == "Symbol.toPrimitive" {
+                            if let Some((symbol_name, symbol_key)) =
+                                self.lower_well_known_symbol_property_key(expr)
+                            {
+                                if symbol_name == "Symbol.toPrimitive" {
                                     TypedExpr::from_info(
                                         Self::standard_builtin_value_info(
                                             StandardBuiltinId::SymbolPrototypeToPrimitive,
                                         ),
                                         ExprIr::PropertyRead {
                                             target: Box::new(target),
-                                            key: PropertyKeyIr::StaticString(symbol_key),
+                                            key: symbol_key,
                                         },
                                     )
                                 } else {
@@ -25521,6 +25539,41 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
+    fn optional_chain_well_known_symbol_property_info(
+        &self,
+        receiver: &ValueInfo,
+        key: &str,
+    ) -> Option<ValueInfo> {
+        let constructor_name = match receiver
+            .possible_kinds
+            .without(ValueKind::Null)
+            .without(ValueKind::Undefined)
+            .as_value_kind()
+        {
+            ValueKind::String => Some(STRING_NAME),
+            ValueKind::Number => Some(NUMBER_NAME),
+            ValueKind::Boolean => Some(BOOLEAN_NAME),
+            ValueKind::BigInt => Some(BIGINT_NAME),
+            ValueKind::Symbol => Some(SYMBOL_NAME),
+            ValueKind::Array
+                if matches!(
+                    receiver.heap_shape.as_deref(),
+                    Some(HeapShape::Array(shape)) if shape.prototype.is_none()
+                ) =>
+            {
+                Some(ARRAY_NAME)
+            }
+            _ => None,
+        };
+        if let Some(property) = constructor_name.and_then(|constructor_name| {
+            self.well_known_symbol_prototype_properties
+                .get(&(constructor_name.to_string(), key.to_string()))
+        }) {
+            return Some(property.clone());
+        }
+        self.optional_chain_static_property_info(receiver, key)
+    }
+
     fn optional_chain_call_info(
         &mut self,
         callee: &ValueInfo,
@@ -25867,8 +25920,8 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_dynamic_object_property_key(&mut self, expr: &Expression) -> Option<PropertyKeyIr> {
-        if let Some(key) = self.try_static_string_key(expr) {
-            return Some(PropertyKeyIr::StaticString(key));
+        if let Some(key) = self.lower_static_property_key(expr) {
+            return Some(key);
         }
 
         let mut lowered = self.lower_expression(expr);
@@ -25906,6 +25959,29 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         None
+    }
+
+    fn lower_static_property_key(&mut self, expr: &Expression) -> Option<PropertyKeyIr> {
+        let key = self.try_static_string_key(expr)?;
+        if key.starts_with("Symbol.") {
+            let lowered = self.lower_expression(expr);
+            if lowered.kind == ValueKind::Symbol {
+                return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
+            }
+        }
+        Some(PropertyKeyIr::StaticString(key))
+    }
+
+    fn lower_well_known_symbol_property_key(
+        &mut self,
+        expr: &Expression,
+    ) -> Option<(String, PropertyKeyIr)> {
+        let symbol_name = self.try_well_known_symbol_key_name(expr)?;
+        let lowered = self.lower_expression(expr);
+        if lowered.kind != ValueKind::Symbol {
+            return None;
+        }
+        Some((symbol_name, PropertyKeyIr::StringExpr(Box::new(lowered))))
     }
 
     fn spec_get_v_operand_from_property_key(key: &PropertyKeyIr) -> Option<TypedExpr> {
@@ -26003,8 +26079,8 @@ impl<'a> ScriptLowerer<'a> {
                 PropertyKeyIr::StaticString(self.interner.resolve_expect(name.sym()).to_string())
             }
             PropertyAccessField::Expr(expr) => {
-                if let Some(key) = self.try_static_string_key(expr) {
-                    PropertyKeyIr::StaticString(key)
+                if let Some(key) = self.lower_static_property_key(expr) {
+                    key
                 } else if let Some(index) = self.try_constant_array_index_expr(expr) {
                     if self.is_typed_array_value(&target)
                         || target.possible_kinds.contains(ValueKind::Array)
@@ -26653,14 +26729,16 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported array dot access");
         };
-        if self.try_static_string_key(expr).as_deref() == Some("Symbol.iterator") {
-            return TypedExpr::from_info(
-                Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
-                },
-            );
+        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+            if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: symbol_key,
+                    },
+                );
+            }
         }
         let Some(key) = self.lower_array_property_key(expr) else {
             return self.unsupported_expr("array index must be number");
@@ -26779,14 +26857,16 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported string access");
         };
-        if self.try_static_string_key(expr).as_deref() == Some("Symbol.iterator") {
-            return TypedExpr::from_info(
-                Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
-                },
-            );
+        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+            if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::StringPrototypeIterator),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: symbol_key,
+                    },
+                );
+            }
         }
         let index = self.lower_expression(expr);
         if index.kind != ValueKind::Number {
@@ -26869,29 +26949,33 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported arguments access");
         };
-        if self.try_static_string_key(expr).as_deref() == Some("Symbol.iterator") {
-            return TypedExpr::from_info(
-                Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
-                },
-            );
+        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+            if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
+                return TypedExpr::from_info(
+                    Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: symbol_key,
+                    },
+                );
+            }
         }
         let index = self.lower_expression(expr);
-        if let ExprIr::String(key) = &index.expr {
-            return TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::PropertyRead {
-                    target: Box::new(target),
-                    key: PropertyKeyIr::StaticString(key.clone()),
-                },
-            );
+        if index.kind == ValueKind::String {
+            if let ExprIr::String(key) = &index.expr {
+                return TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                    ExprIr::PropertyRead {
+                        target: Box::new(target),
+                        key: PropertyKeyIr::StaticString(key.clone()),
+                    },
+                );
+            }
         }
         if index.kind != ValueKind::Number {
             return TypedExpr::from_info(
@@ -28388,9 +28472,7 @@ impl<'a> ScriptLowerer<'a> {
             PropertyName::Literal(name) => {
                 Some(self.interner.resolve_expect(name.sym()).to_string())
             }
-            PropertyName::Computed(expr) => self
-                .try_static_string_key(expr)
-                .or_else(|| self.static_number_property_key(expr)),
+            PropertyName::Computed(expr) => self.try_static_ordinary_property_key(expr),
         }
     }
 
@@ -28449,8 +28531,8 @@ impl<'a> ScriptLowerer<'a> {
                     self.interner.resolve_expect(name.sym()).to_string(),
                 ),
                 PropertyAccessField::Expr(expr) => {
-                    if let Some(key) = self.try_static_string_key(expr) {
-                        PropertyKeyIr::StaticString(key)
+                    if let Some(key) = self.lower_static_property_key(expr) {
+                        key
                     } else if let Some(index) = self.try_constant_array_index_expr(expr) {
                         if self.is_typed_array_value(&target) {
                             PropertyKeyIr::ArrayIndex(Box::new(
@@ -28545,8 +28627,8 @@ impl<'a> ScriptLowerer<'a> {
                                 self.interner.resolve_expect(name.sym()).to_string(),
                             ),
                             PropertyAccessField::Expr(expr) => {
-                                if let Some(key) = self.try_static_string_key(expr) {
-                                    PropertyKeyIr::StaticString(key)
+                                if let Some(key) = self.lower_static_property_key(expr) {
+                                    key
                                 } else if let Some(index) = self.try_constant_array_index_expr(expr)
                                 {
                                     if self.is_typed_array_value(&target) {
@@ -28688,12 +28770,20 @@ impl<'a> ScriptLowerer<'a> {
                             }
                             PropertyAccessField::Expr(expr) => {
                                 let index = self.lower_expression(expr);
-                                if let ExprIr::String(key) = &index.expr {
-                                    PropertyKeyIr::StaticString(key.clone())
-                                } else if index.kind == ValueKind::String {
-                                    PropertyKeyIr::StringExpr(Box::new(index))
+                                if index.kind == ValueKind::String {
+                                    match &index.expr {
+                                        ExprIr::String(key) => {
+                                            PropertyKeyIr::StaticString(key.clone())
+                                        }
+                                        _ => PropertyKeyIr::StringExpr(Box::new(index)),
+                                    }
                                 } else if index.kind == ValueKind::Number {
                                     PropertyKeyIr::ArrayIndex(Box::new(index))
+                                } else if index
+                                    .possible_kinds
+                                    .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
+                                {
+                                    PropertyKeyIr::StringExpr(Box::new(index))
                                 } else {
                                     return self.unsupported_expr("arguments index must be number");
                                 }
@@ -28857,10 +28947,13 @@ impl<'a> ScriptLowerer<'a> {
                     let property_key = operands.pop().expect("GetV property key operand");
                     let target = operands.pop().expect("GetV target operand");
                     let key = match property_key.expr {
-                        ExprIr::String(key) => PropertyKeyIr::StaticString(key),
-                        _ if property_key
-                            .possible_kinds
-                            .is_subset_of(KindSet::from_kind(ValueKind::String)) =>
+                        ExprIr::String(key) if property_key.kind == ValueKind::String => {
+                            PropertyKeyIr::StaticString(key)
+                        }
+                        _ if property_key.possible_kinds.is_subset_of(
+                            KindSet::from_kind(ValueKind::String)
+                                .union(KindSet::from_kind(ValueKind::Symbol)),
+                        ) =>
                         {
                             PropertyKeyIr::StringExpr(Box::new(property_key))
                         }
@@ -29999,40 +30092,68 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 Some(self.interner.resolve_expect(*sym).to_string())
             }
-            Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-                let Expression::Identifier(identifier) = access.target() else {
-                    return None;
-                };
-                let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-                if target_name != "Symbol" {
-                    return None;
-                }
-                let PropertyAccessField::Const(name) = access.field() else {
-                    return None;
-                };
-                let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
-                if matches!(
-                    symbol_name.as_str(),
-                    "asyncIterator"
-                        | "dispose"
-                        | "species"
-                        | "isConcatSpreadable"
-                        | "iterator"
-                        | "match"
-                        | "matchAll"
-                        | "replace"
-                        | "search"
-                        | "split"
-                        | "toStringTag"
-                        | "toPrimitive"
-                ) {
-                    Some(format!("Symbol.{symbol_name}"))
-                } else {
-                    None
-                }
+            Expression::PropertyAccess(PropertyAccess::Simple(_)) => {
+                self.try_well_known_symbol_key_name(expr)
             }
             _ => None,
         }
+    }
+
+    fn try_static_ordinary_property_key(&self, expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Literal(literal) => {
+                let LiteralKind::String(sym) = literal.kind() else {
+                    return self.static_number_property_key(expr);
+                };
+                Some(self.interner.resolve_expect(*sym).to_string())
+            }
+            _ => self.static_number_property_key(expr),
+        }
+    }
+
+    fn try_well_known_symbol_key_name(&self, expr: &Expression) -> Option<String> {
+        let Expression::PropertyAccess(PropertyAccess::Simple(access)) = expr else {
+            return None;
+        };
+        let Expression::Identifier(identifier) = access.target() else {
+            return None;
+        };
+        let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
+        if target_name != "Symbol"
+            || !self.active_with_objects.is_empty()
+            || self.lookup_binding(&target_name).is_some()
+            || !self
+                .lookup_global_property_info(&target_name)
+                .is_some_and(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                })
+        {
+            return None;
+        }
+        let PropertyAccessField::Const(name) = access.field() else {
+            return None;
+        };
+        let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
+        if !matches!(
+            symbol_name.as_str(),
+            "asyncIterator"
+                | "dispose"
+                | "hasInstance"
+                | "species"
+                | "isConcatSpreadable"
+                | "iterator"
+                | "match"
+                | "matchAll"
+                | "replace"
+                | "search"
+                | "split"
+                | "toStringTag"
+                | "toPrimitive"
+                | "unscopables"
+        ) {
+            return None;
+        }
+        Some(format!("Symbol.{symbol_name}"))
     }
 
     fn static_parse_float_arg(&self, arg: Option<&Expression>) -> Option<f64> {
@@ -31093,11 +31214,66 @@ impl<'a> ScriptLowerer<'a> {
         key: &PropertyKeyIr,
         value: &ValueInfo,
     ) {
+        if self.update_well_known_symbol_prototype_property(target, key, Some(value)) {
+            return;
+        }
         let Some((root, mut path)) = self.binding_shape_path(target) else {
             return;
         };
         path.push(key.clone());
         self.update_binding_shape_path(&root, &path, value.clone());
+    }
+
+    fn update_well_known_symbol_prototype_property(
+        &mut self,
+        target: &Expression,
+        key: &PropertyKeyIr,
+        value: Option<&ValueInfo>,
+    ) -> bool {
+        let PropertyKeyIr::StringExpr(key) = key else {
+            return false;
+        };
+        let key_is_symbol = key.kind == ValueKind::Symbol;
+        if !key.possible_kinds.contains(ValueKind::Symbol) {
+            return false;
+        }
+        let Some((root, path)) = self.binding_shape_path(target) else {
+            return key_is_symbol;
+        };
+        let targets_builtin_prototype = path.as_slice()
+            == [PropertyKeyIr::StaticString("prototype".to_string())]
+            && self.lookup_binding(&root).is_none()
+            && self
+                .lookup_global_property_info(&root)
+                .is_some_and(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                });
+        if !targets_builtin_prototype {
+            return key_is_symbol;
+        }
+        if key_is_symbol {
+            if let ExprIr::String(symbol_name) = &key.expr {
+                if !symbol_name.starts_with("Symbol.") {
+                    self.well_known_symbol_prototype_properties
+                        .retain(|(constructor_name, _), _| constructor_name != &root);
+                    return true;
+                }
+                match value {
+                    Some(value) => {
+                        self.well_known_symbol_prototype_properties
+                            .insert((root, symbol_name.clone()), value.clone());
+                    }
+                    None => {
+                        self.well_known_symbol_prototype_properties
+                            .remove(&(root, symbol_name.clone()));
+                    }
+                }
+                return true;
+            }
+        }
+        self.well_known_symbol_prototype_properties
+            .retain(|(constructor_name, _), _| constructor_name != &root);
+        key_is_symbol
     }
 
     fn clear_binding_shape(&mut self, target: &Expression) {
@@ -31154,8 +31330,8 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     }
                     PropertyAccessField::Expr(expr) => {
-                        if let Some(key) = self.try_static_string_key(expr) {
-                            PropertyKeyIr::StaticString(key)
+                        if let Some(key) = self.lower_static_property_key(expr) {
+                            key
                         } else if let Some(index) = self.try_constant_array_index_expr(expr) {
                             PropertyKeyIr::ArrayIndex(Box::new(TypedExpr::from_info(
                                 ValueInfo {
@@ -31878,8 +32054,8 @@ impl<'a> ScriptLowerer<'a> {
         let mut next_values = None;
         for property in object.properties() {
             match property {
-                PropertyDefinition::Property(name, value)
-                    if self.property_name_to_static_key(name).as_deref()
+                PropertyDefinition::Property(PropertyName::Computed(expr), value)
+                    if self.try_well_known_symbol_key_name(expr).as_deref()
                         == Some("Symbol.iterator") =>
                 {
                     if !self.is_static_undefined_expr(value)
@@ -32084,7 +32260,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(field_expr) = field else {
             return None;
         };
-        if self.try_static_string_key(field_expr).as_deref() != Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(field_expr).as_deref() != Some("Symbol.iterator") {
             return None;
         }
         let target_name = self.static_target_identifier_name(target)?;

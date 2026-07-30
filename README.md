@@ -2881,6 +2881,36 @@ Recent focused progress through `2026-07-27`:
   descriptor objects. The snapshots are
   `object-assign-complete-20260730` and
   `object-get-own-property-descriptors-complete-20260730`.
+  `built-ins/Object/getPrototypeOf`, `hasOwn`, `is`, `setPrototypeOf`, and
+  `isExtensible` report `39/39`, `62/62`, `21/21`, `12/12`, and `38/38`
+  passing respectively as of `2026-07-30`, with every failure category at
+  zero. `Object.getPrototypeOf` applies defining-Realm `ToObject` semantics,
+  including primitives and the script global object; `Object.hasOwn` applies
+  `ToPropertyKey` and the real Proxy-aware `[[GetOwnProperty]]` operation; and
+  `Object.is` uses the shared SameValue implementation for allocated strings
+  and heap BigInts. Every Realm's `%Object.prototype%` now implements the
+  immutable-prototype exotic contract. The affected
+  `built-ins/Object/prototype/__proto__` and top-level `setPrototypeOf-*`
+  checks report `15/15` and `4/4` passing. Refresh from snapshots
+  `object-get-prototype-of-complete-20260730`,
+  `object-has-own-complete-20260730`, `object-is-complete-20260730`,
+  `object-set-prototype-of-complete-20260730`,
+  `object-is-extensible-verified-20260730`,
+  `object-prototype-proto-complete-20260730`, and
+  `object-prototype-set-prototype-of-complete-20260730`.
+  The complete `built-ins/Reflect` namespace reports `152/153` passing as of
+  `2026-07-30`; the remaining case is explicitly unsupported because it
+  constructs its target with the dynamic `Function` constructor. Reflective
+  calls and construction now snapshot generic array-like argument lists,
+  validate targets before property-key conversion in the defining Realm, and
+  expose the defining Realm's `"Reflect"` `@@toStringTag`. Refresh from
+  `reflect-namespace-complete-20260730`.
+  The complete `built-ins/Symbol` namespace reports `98/98` passing as of
+  `2026-07-30`, with every failure category at zero. Internal property keys
+  now preserve Symbol identity across computed access, descriptor maps,
+  Proxy invariants, enumeration, and well-known Symbol dispatch while
+  keeping JavaScript-visible Symbol values unmarked. Refresh from
+  `symbol-namespace-complete-20260730`.
   `built-ins/Object/freeze` reports `53/53` passing as of `2026-07-29`, with
   every failure category at zero, in snapshot
   `object-freeze-complete-20260729`. `built-ins/Object/isFrozen` and

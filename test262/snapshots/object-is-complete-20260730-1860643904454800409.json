@@ -1,0 +1,107 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1860643904454800409,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Object/is/symbol-object-is-same-value.js",
+      "duration_ms": 20661
+    },
+    {
+      "path": "built-ins/Object/is/same-value-x-y-symbol.js",
+      "duration_ms": 14141
+    },
+    {
+      "path": "built-ins/Object/is/object-is.js",
+      "duration_ms": 13021
+    },
+    {
+      "path": "built-ins/Object/is/not-same-value-x-y-undefined.js",
+      "duration_ms": 13000
+    },
+    {
+      "path": "built-ins/Object/is/name.js",
+      "duration_ms": 12788
+    },
+    {
+      "path": "built-ins/Object/is/length.js",
+      "duration_ms": 11900
+    },
+    {
+      "path": "built-ins/Object/is/not-a-constructor.js",
+      "duration_ms": 11899
+    },
+    {
+      "path": "built-ins/Object/is/same-value-x-y-undefined.js",
+      "duration_ms": 11695
+    },
+    {
+      "path": "built-ins/Object/is/same-value-x-y-string.js",
+      "duration_ms": 10015
+    },
+    {
+      "path": "built-ins/Object/is/same-value-x-y-empty.js",
+      "duration_ms": 9427
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Object/is/length.js",
+    "built-ins/Object/is/name.js",
+    "built-ins/Object/is/not-a-constructor.js",
+    "built-ins/Object/is/not-same-value-x-y-boolean.js",
+    "built-ins/Object/is/not-same-value-x-y-null.js",
+    "built-ins/Object/is/not-same-value-x-y-number.js",
+    "built-ins/Object/is/not-same-value-x-y-object.js",
+    "built-ins/Object/is/not-same-value-x-y-string.js",
+    "built-ins/Object/is/not-same-value-x-y-symbol.js",
+    "built-ins/Object/is/not-same-value-x-y-type.js",
+    "built-ins/Object/is/not-same-value-x-y-undefined.js",
+    "built-ins/Object/is/object-is.js",
+    "built-ins/Object/is/same-value-x-y-boolean.js",
+    "built-ins/Object/is/same-value-x-y-empty.js",
+    "built-ins/Object/is/same-value-x-y-null.js",
+    "built-ins/Object/is/same-value-x-y-number.js",
+    "built-ins/Object/is/same-value-x-y-object.js",
+    "built-ins/Object/is/same-value-x-y-string.js",
+    "built-ins/Object/is/same-value-x-y-symbol.js",
+    "built-ins/Object/is/same-value-x-y-undefined.js",
+    "built-ins/Object/is/symbol-object-is-same-value.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

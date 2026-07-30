@@ -5086,6 +5086,528 @@ try { otherRawJSON(Symbol("1")); } catch (error) {
     }
 
     #[test]
+    fn wasm_backend_object_has_own_observes_property_key_and_descriptor_semantics() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var symbol = Symbol("owned");
+var otherSymbol = Symbol("owned");
+var target = {};
+Object.defineProperty(target, "value", {
+  get: function() { throw "property getter must not run"; }
+});
+target[symbol] = 1;
+var calls = [];
+var proxy = new Proxy(target, {
+  getOwnPropertyDescriptor: function(actualTarget, key) {
+    calls.push("descriptor:" + (key === symbol ? "symbol" : key));
+    return Reflect.getOwnPropertyDescriptor(actualTarget, key);
+  }
+});
+var symbolKey = {};
+symbolKey[Symbol.toPrimitive] = function(hint) {
+  calls.push("key:" + hint);
+  return symbol;
+};
+var marker = {};
+var abruptIdentity = false;
+try {
+  Object.hasOwn(new Proxy({}, {
+    getOwnPropertyDescriptor: function() { throw marker; }
+  }), "x");
+} catch (error) {
+  abruptIdentity = error === marker;
+}
+var other = __porfCreateRealm().global;
+var otherRealmError = false;
+var otherHasOwn = other.Object.hasOwn;
+try {
+  otherHasOwn(null, "x");
+} catch (error) {
+  otherRealmError =
+    Object.getPrototypeOf(error) === other.TypeError.prototype &&
+    !(error instanceof TypeError);
+}
+function checkedHasOwn(label, value, key) {
+  try {
+    return label + ":" + Object.hasOwn(value, key);
+  } catch (error) {
+    return label + ":error:" + error.name;
+  }
+}
+[
+  checkedHasOwn("string-zero", "abcdef", "0"),
+  checkedHasOwn("string-five", "abcdef", "5"),
+  checkedHasOwn("string-length", "abcdef", "length"),
+  checkedHasOwn("array-five", [0, 1, 2, 3, 4, 5], "5"),
+  checkedHasOwn("proxy-value", proxy, "value"),
+  checkedHasOwn("proxy-symbol", proxy, symbolKey),
+  checkedHasOwn("other-symbol", target, otherSymbol),
+  calls.join(","),
+  abruptIdentity,
+  otherRealmError
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.hasOwn should use ToObject, ToPropertyKey, and [[GetOwnProperty]]");
+        assert!(
+            outcome.note.contains(
+                "string(string-zero:true|string-five:true|string-length:true|array-five:true|proxy-value:true|proxy-symbol:true|other-symbol:false|descriptor:value,key:string,descriptor:symbol|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_proxy_descriptor_invariants_preserve_symbol_identity() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var ownedSymbol = Symbol("same description");
+var distinctSymbol = Symbol("same description");
+var target = {};
+Object.defineProperty(target, ownedSymbol, {
+  value: 1,
+  configurable: false
+});
+var proxy = new Proxy(target, {
+  getOwnPropertyDescriptor: function(actualTarget, key) {
+    return Reflect.getOwnPropertyDescriptor(actualTarget, key);
+  }
+});
+var iteratorTarget = {
+  "Symbol.asyncIterator": "string"
+};
+iteratorTarget[Symbol.asyncIterator] = "symbol";
+var iteratorKeys = Reflect.ownKeys(iteratorTarget);
+[
+  Reflect.getOwnPropertyDescriptor(proxy, distinctSymbol) === undefined,
+  Object.hasOwn(proxy, distinctSymbol),
+  Object.hasOwn(proxy, ownedSymbol),
+  Object.hasOwn(iteratorTarget, "Symbol.asyncIterator"),
+  Object.hasOwn(iteratorTarget, Symbol.asyncIterator),
+  iteratorTarget["Symbol.asyncIterator"] === "string",
+  iteratorTarget[Symbol.asyncIterator] === "symbol",
+  iteratorKeys[0] === "Symbol.asyncIterator",
+  iteratorKeys[1] === Symbol.asyncIterator
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Proxy descriptor invariants should compare Symbols by identity");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|false|true|true|true|true|true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_computed_symbol_keys_stay_distinct_from_similar_strings() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var object = {
+  [Symbol.iterator]: 1,
+  [Symbol.toPrimitive]() {
+    return 2;
+  },
+  "Symbol.iterator": 3
+};
+object[Symbol.iterator]++;
+var argumentIterator = (function() {
+  return arguments[Symbol.iterator];
+})(1);
+[
+  object[Symbol.iterator],
+  object["Symbol.iterator"],
+  object[Symbol.toPrimitive](),
+  Object.getOwnPropertyNames(object).length,
+  Object.getOwnPropertySymbols(object).length,
+  [][Symbol.iterator] === Array.prototype.values,
+  ""[Symbol.iterator] === String.prototype[Symbol.iterator],
+  argumentIterator === Array.prototype.values
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("computed Symbols should stay distinct from similarly spelled strings");
+        assert!(
+            outcome.note.contains("string(2|3|2|1|2|true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_create_validates_and_preserves_the_prototype_kind() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function FunctionPrototype() {}
+var functionChild = Object.create(FunctionPrototype);
+var arrayPrototype = [];
+var arrayChild = Object.create(arrayPrototype);
+var missingError = false;
+try {
+  Object.create();
+} catch (error) {
+  missingError = error instanceof TypeError;
+}
+var primitiveError = false;
+try {
+  Object.create(1);
+} catch (error) {
+  primitiveError = error instanceof TypeError;
+}
+var other = __porfCreateRealm().global;
+var otherRealmError = false;
+try {
+  other.Object.create("invalid");
+} catch (error) {
+  otherRealmError =
+    Object.getPrototypeOf(error) === other.TypeError.prototype &&
+    !(error instanceof TypeError);
+}
+var descriptorObject = Object.create(null, {
+  value: {
+    value: 7,
+    enumerable: true
+  }
+});
+function choosePrototype(useObject) {
+  if (useObject) {
+    return { inherited: 9 };
+  }
+  return null;
+}
+var mixedPrototype = choosePrototype(globalThis === globalThis);
+var mixedChild = Object.create(mixedPrototype);
+[
+  Object.getPrototypeOf(functionChild) === FunctionPrototype,
+  Object.getPrototypeOf(arrayChild) === arrayPrototype,
+  missingError,
+  primitiveError,
+  otherRealmError,
+  Object.getPrototypeOf(descriptorObject) === null,
+  descriptorObject.value,
+  Object.keys(descriptorObject)[0],
+  Object.getPrototypeOf(mixedChild) === mixedPrototype,
+  mixedChild.inherited
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.create should validate and preserve its prototype");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|true|true|true|true|true|7|value|true|9)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_descriptor_maps_convert_before_defining_properties() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var target = {};
+var order = [];
+var firstDescriptor = {};
+Object.defineProperty(firstDescriptor, "enumerable", {
+  get: function() {
+    order.push("first:enumerable");
+    return true;
+  }
+});
+Object.defineProperty(firstDescriptor, "value", {
+  get: function() {
+    order.push("first:value");
+    return 1;
+  }
+});
+var secondDescriptor = {};
+Object.defineProperty(secondDescriptor, "enumerable", {
+  get: function() {
+    order.push("second:enumerable");
+    return true;
+  }
+});
+Object.defineProperty(secondDescriptor, "value", {
+  get: function() {
+    order.push("second:value:" + Object.hasOwn(target, "first"));
+    return 2;
+  }
+});
+var descriptorMapTarget = {};
+Object.defineProperty(descriptorMapTarget, "first", {
+  enumerable: true,
+  get: function() {
+    order.push("get:first");
+    return firstDescriptor;
+  }
+});
+Object.defineProperty(descriptorMapTarget, "second", {
+  enumerable: true,
+  get: function() {
+    order.push("get:second");
+    return secondDescriptor;
+  }
+});
+Object.defineProperty(descriptorMapTarget, "hidden", {
+  enumerable: false,
+  get: function() {
+    throw "non-enumerable descriptor must not be read";
+  }
+});
+var descriptorMap = new Proxy(descriptorMapTarget, {
+  ownKeys: function(actualTarget) {
+    order.push("ownKeys");
+    return Reflect.ownKeys(actualTarget);
+  },
+  getOwnPropertyDescriptor: function(actualTarget, key) {
+    order.push("descriptor:" + key);
+    return Reflect.getOwnPropertyDescriptor(actualTarget, key);
+  },
+  get: function(actualTarget, key, receiver) {
+    order.push("get-trap:" + key);
+    return Reflect.get(actualTarget, key, receiver);
+  }
+});
+Object.defineProperties(target, descriptorMap);
+var targetValidationPrecedesProperties = false;
+var propertiesObserved = false;
+try {
+  Object.defineProperties(1, new Proxy({}, {
+    ownKeys: function() {
+      propertiesObserved = true;
+      return [];
+    }
+  }));
+} catch (error) {
+  targetValidationPrecedesProperties =
+    error instanceof TypeError && !propertiesObserved;
+}
+var nullPropertiesError = false;
+try {
+  Object.create(null, null);
+} catch (error) {
+  nullPropertiesError = error instanceof TypeError;
+}
+var primitivePropertiesTarget = {};
+var primitiveProperties =
+  Object.defineProperties(primitivePropertiesTarget, true) ===
+  primitivePropertiesTarget;
+var firstSymbol = Symbol("same");
+var secondSymbol = Symbol("same");
+var symbolTarget = {};
+var symbolDescriptors = {};
+symbolDescriptors[firstSymbol] = { value: 3, enumerable: true };
+symbolDescriptors[secondSymbol] = { value: 4, enumerable: true };
+Object.defineProperties(symbolTarget, symbolDescriptors);
+var symbolKeys = Reflect.ownKeys(symbolTarget);
+var other = __porfCreateRealm().global;
+var fixedDescriptorMap = {};
+Object.defineProperty(fixedDescriptorMap, "fixed", {
+  value: { value: 1 },
+  configurable: false
+});
+var otherRealmProxyInvariantError = false;
+try {
+  other.Object.defineProperties({}, new Proxy(fixedDescriptorMap, {
+    getOwnPropertyDescriptor: function() {
+      return undefined;
+    }
+  }));
+} catch (error) {
+  otherRealmProxyInvariantError =
+    Object.getPrototypeOf(error) === other.TypeError.prototype &&
+    !(error instanceof TypeError);
+}
+[
+  target.first,
+  target.second,
+  Object.hasOwn(target, "hidden"),
+  Object.keys(target).join(","),
+  order.join(","),
+  targetValidationPrecedesProperties,
+  nullPropertiesError,
+  primitiveProperties,
+  symbolTarget[firstSymbol],
+  symbolTarget[secondSymbol],
+  symbolKeys[0] === firstSymbol,
+  symbolKeys[1] === secondSymbol,
+  otherRealmProxyInvariantError
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object descriptor maps should preserve observable two-phase semantics");
+        assert!(
+            outcome.note.contains(
+                "string(1|2|false|first,second|ownKeys,descriptor:first,get-trap:first,get:first,first:enumerable,first:value,descriptor:second,get-trap:second,get:second,second:enumerable,second:value:false,descriptor:hidden|true|true|true|3|4|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_is_uses_same_value_for_allocated_strings_and_bigints() {
+        let outcome = engine()
+            .run_script(
+                r#"
+[
+  Object.is(["ab", "cd"].join(""), "abcd"),
+  Object.is(
+    BigInt("123456789012345678901"),
+    BigInt("123456789012345678901")
+  ),
+  Object.is(NaN, NaN),
+  Object.is(0, -0)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.is should implement SameValue");
+        assert!(
+            outcome.note.contains("string(true|true|true|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_prototype_statics_coerce_and_preserve_prototype_invariants() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var proxySupport = new Proxy({}, {});
+var other = __porfCreateRealm().global;
+var otherGetPrototypeOf = other.Object.getPrototypeOf;
+var primitivePrototype =
+  Object.getPrototypeOf(1) === Number.prototype &&
+  Object.getPrototypeOf("x") === String.prototype &&
+  Object.getPrototypeOf(true) === Boolean.prototype &&
+  Object.getPrototypeOf(Symbol("x")) === Symbol.prototype &&
+  Object.getPrototypeOf(1n) === BigInt.prototype;
+var otherPrimitivePrototype =
+  otherGetPrototypeOf(1) === other.Number.prototype &&
+  otherGetPrototypeOf("x") === other.String.prototype;
+var missingError = false;
+try {
+  Object.getPrototypeOf();
+} catch (error) {
+  missingError = error instanceof TypeError;
+}
+var otherRealmError = false;
+try {
+  otherGetPrototypeOf(null);
+} catch (error) {
+  otherRealmError =
+    Object.getPrototypeOf(error) === other.TypeError.prototype &&
+    !(error instanceof TypeError);
+}
+var immutableError = false;
+try {
+  Object.setPrototypeOf(Object.prototype, {});
+} catch (error) {
+  immutableError = error instanceof TypeError;
+}
+var otherImmutableError = false;
+try {
+  other.Object.setPrototypeOf(other.Object.prototype, {});
+} catch (error) {
+  otherImmutableError =
+    Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+var trapMarker = {};
+var trapAbruptIdentity = false;
+try {
+  Object.setPrototypeOf(new Proxy({}, {
+    setPrototypeOf: function() { throw trapMarker; }
+  }), null);
+} catch (error) {
+  trapAbruptIdentity = error === trapMarker;
+}
+var fixed = {};
+Object.preventExtensions(fixed);
+var fixedSame = Object.setPrototypeOf(
+  fixed,
+  Object.getPrototypeOf(fixed)
+) === fixed;
+var primitive = 1;
+var primitiveResult = Object.setPrototypeOf(primitive, null) === primitive;
+var invalidPrototypeError = false;
+try {
+  Object.setPrototypeOf(primitive, 1);
+} catch (error) {
+  invalidPrototypeError = error instanceof TypeError;
+}
+[
+  primitivePrototype,
+  otherPrimitivePrototype,
+  missingError,
+  otherRealmError,
+  immutableError,
+  Reflect.setPrototypeOf(Object.prototype, {}) === false,
+  Object.setPrototypeOf(Object.prototype, null) === Object.prototype,
+  otherImmutableError,
+  Reflect.setPrototypeOf(other.Object.prototype, {}) === false,
+  trapAbruptIdentity,
+  fixedSame,
+  primitiveResult,
+  invalidPrototypeError,
+  Object.getPrototypeOf(this).isPrototypeOf(this)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object prototype statics should preserve coercion and immutable prototypes");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|true|true|true|true|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_object_seal_sets_integrity_level_and_observes_proxy_operations() {
         let outcome = engine()
             .run_script(
@@ -6220,6 +6742,60 @@ Object.getOwnPropertyNames(boxed).join(",");
             "unexpected boxed String own names: {}",
             outcome.note
         );
+    }
+
+    #[test]
+    fn wasm_backend_array_own_key_enumeration_separates_symbols() {
+        let outcome = engine()
+            .run_script(
+                r#"
+const arraySymbol = Symbol("array");
+const array = [];
+array.visible = 1;
+array[arraySymbol] = 2;
+
+Object.getOwnPropertyNames(array).join(",") === "length,visible"
+  && Object.keys(array).join(",") === "visible"
+  && Object.getOwnPropertySymbols(array).length === 1
+  && Object.getOwnPropertySymbols(array)[0] === arraySymbol;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Array own-key enumeration should preserve key kinds");
+
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_arguments_own_key_enumeration_returns_symbols() {
+        let outcome = engine()
+            .run_script(
+                r#"
+(function(value) {
+  const argumentsSymbol = Symbol("arguments");
+  arguments.visible = 3;
+  arguments[argumentsSymbol] = 4;
+  const names = Object.getOwnPropertyNames(arguments);
+  const symbols = Object.getOwnPropertySymbols(arguments);
+  return names.length === 4
+    && names.indexOf("visible") !== -1
+    && symbols.length === 1
+    && symbols[0] === argumentsSymbol;
+})(0);
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Arguments own-key enumeration should return symbol keys");
+
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 
     #[test]
@@ -11975,6 +12551,424 @@ let preventResult = other.Reflect.preventExtensions(object);
     }
 
     #[test]
+    fn wasm_backend_reflect_to_string_tag_describes_main_and_synthetic_realm_objects() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let localDescriptor = Object.getOwnPropertyDescriptor(Reflect, Symbol.toStringTag);
+let otherDescriptor = other.Object.getOwnPropertyDescriptor(
+  other.Reflect,
+  other.Symbol.toStringTag
+);
+[
+  localDescriptor.value,
+  localDescriptor.writable,
+  localDescriptor.enumerable,
+  localDescriptor.configurable,
+  Object.prototype.toString.call(Reflect),
+  otherDescriptor.value,
+  otherDescriptor.writable,
+  otherDescriptor.enumerable,
+  otherDescriptor.configurable,
+  Object.prototype.toString.call(other.Reflect),
+  other.Object.prototype.toString.call(Reflect),
+  other.Object.prototype.toString.call(other.Reflect)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Reflect toStringTag should describe main and synthetic realm objects");
+        assert!(
+            outcome.note.contains(
+                "string(Reflect|false|false|true|[object Reflect]|Reflect|false|false|true|[object Reflect]|[object Reflect]|[object Reflect])"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_reflect_validates_targets_before_property_keys_in_its_defining_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var coercions = 0;
+var key = {
+  [Symbol.toPrimitive]: function() {
+    coercions++;
+    return "x";
+  }
+};
+var invalidTargets = [undefined, null, true, 1, 1n, "x", Symbol("x")];
+var localErrors = true;
+for (var i = 0; i < invalidTargets.length; i++) {
+  try {
+    Reflect.get(invalidTargets[i], key);
+    localErrors = false;
+  } catch (error) {
+    localErrors = localErrors && Object.getPrototypeOf(error) === TypeError.prototype;
+  }
+  try {
+    Reflect.has(invalidTargets[i], key);
+    localErrors = false;
+  } catch (error) {
+    localErrors = localErrors && Object.getPrototypeOf(error) === TypeError.prototype;
+  }
+}
+
+var other = __porfCreateRealm().global;
+var otherGetError = false;
+var otherHasError = false;
+var otherOwnKeysError = false;
+try {
+  other.Reflect.get(1, "x");
+} catch (error) {
+  otherGetError = Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+try {
+  other.Reflect.has(Symbol("x"), "x");
+} catch (error) {
+  otherHasError = Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+try {
+  other.Reflect.ownKeys(null);
+} catch (error) {
+  otherOwnKeysError = Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+
+[
+  localErrors,
+  coercions,
+  otherGetError,
+  otherHasError,
+  otherOwnKeysError
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Reflect target validation should use the method defining realm");
+        assert!(
+            outcome.note.contains("string(true|0|true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_call_argument_lists_are_snapshotted_observably() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+var argumentsList = {
+  get length() {
+    calls.push("length");
+    return 2;
+  },
+  get 0() {
+    calls.push("0");
+    return 1;
+  },
+  get 1() {
+    calls.push("1");
+    return 2;
+  }
+};
+function Sum(left, right) {
+  this.value = left + right;
+}
+var result = Reflect.construct(Sum, argumentsList);
+
+var abrupt = false;
+try {
+  Reflect.construct(Sum, {
+    get length() {
+      throw 42;
+    }
+  });
+} catch (error) {
+  abrupt = error === 42;
+}
+
+var primitiveError = false;
+try {
+  Reflect.construct(Sum, 1);
+} catch (error) {
+  primitiveError = error instanceof TypeError;
+}
+
+var applyCalls = [];
+var applyArguments = {
+  get length() {
+    applyCalls.push("length");
+    return 2;
+  },
+  get 0() {
+    applyCalls.push("0");
+    return "left";
+  },
+  get 1() {
+    applyCalls.push("1");
+    return "right";
+  }
+};
+function join(left, right) {
+  return left + ":" + right;
+}
+var reflectedApply = Reflect.apply(join, null, applyArguments);
+var prototypeApply = join.apply(null, applyArguments);
+var nullishApply = join.apply(null, null);
+
+var indexedMarker = {};
+var indexedAbrupt = false;
+try {
+  Reflect.apply(join, null, {
+    length: 2,
+    0: "left",
+    get 1() {
+      throw indexedMarker;
+    }
+  });
+} catch (error) {
+  indexedAbrupt = error === indexedMarker;
+}
+
+var proxyReads = [];
+var proxiedArguments = new Proxy({
+  length: 2,
+  0: "proxy",
+  1: "arguments"
+}, {
+  get: function(target, key, receiver) {
+    proxyReads.push(key);
+    return Reflect.get(target, key, receiver);
+  }
+});
+var proxiedApply = Reflect.apply(join, null, proxiedArguments);
+
+var callableProxy = join;
+for (var proxyDepth = 0; proxyDepth < 12; proxyDepth++) {
+  callableProxy = new Proxy(callableProxy, {});
+}
+var reflectedProxyApply = Reflect.apply(callableProxy, null, ["deep", "proxy"]);
+var prototypeProxyApply = callableProxy.apply(null, ["prototype", "proxy"]);
+
+var constructableProxy = new Proxy(Sum, {});
+var proxyConstruct = Reflect.construct(constructableProxy, [4, 5]);
+var revokedConstructor = Proxy.revocable(Sum, {});
+revokedConstructor.revoke();
+var revokedArgumentsObserved = false;
+var revokedConstructError = false;
+try {
+  Reflect.construct(revokedConstructor.proxy, {
+    get length() {
+      revokedArgumentsObserved = true;
+      return 0;
+    }
+  });
+} catch (error) {
+  revokedConstructError = error instanceof TypeError;
+}
+
+var invalidTargetObservedArguments = false;
+try {
+  Reflect.apply(1, null, {
+    get length() {
+      invalidTargetObservedArguments = true;
+      return 0;
+    }
+  });
+} catch (error) {
+  primitiveError = primitiveError && error instanceof TypeError;
+}
+
+var reflectNullishError = false;
+var prototypePrimitiveError = false;
+try {
+  Reflect.apply(join, null, null);
+} catch (error) {
+  reflectNullishError = error instanceof TypeError;
+}
+try {
+  join.apply(null, 1);
+} catch (error) {
+  prototypePrimitiveError = error instanceof TypeError;
+}
+
+[
+  result.value,
+  calls.join(","),
+  abrupt,
+  primitiveError,
+  reflectedApply,
+  prototypeApply,
+  nullishApply,
+  applyCalls.join(","),
+  invalidTargetObservedArguments,
+  indexedAbrupt,
+  proxiedApply,
+  proxyReads.join(","),
+  reflectedProxyApply,
+  prototypeProxyApply,
+  proxyConstruct.value,
+  revokedArgumentsObserved,
+  revokedConstructError,
+  reflectNullishError,
+  prototypePrimitiveError
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("call argument lists should be snapshotted observably");
+        assert!(
+            outcome.note.contains(
+                "string(3|length,0,1|true|true|left:right|left:right|undefined:undefined|length,0,1,length,0,1|false|true|proxy:arguments|length,0,1|deep:proxy|prototype:proxy|9|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_proxy_internal_methods_accept_callable_proxy_traps() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var applyTrap = new Proxy(function(target, thisArgument, argumentsList) {
+  return target.apply(thisArgument, argumentsList);
+}, {});
+var callable = new Proxy(function(left, right) {
+  return this.prefix + left + right;
+}, { apply: applyTrap });
+
+var constructTrap = new Proxy(function(target, argumentsList, newTarget) {
+  return Reflect.construct(target, argumentsList, newTarget);
+}, {});
+function Pair(left, right) {
+  this.value = left + right;
+}
+var constructable = new Proxy(Pair, { construct: constructTrap });
+
+var prototype = {};
+var getPrototypeOfTrap = new Proxy(function() {
+  return prototype;
+}, {});
+var getPrototypeOfTarget = new Proxy({}, { getPrototypeOf: getPrototypeOfTrap });
+
+var setPrototypeOfCalls = 0;
+var setPrototypeOfTrap = new Proxy(function() {
+  setPrototypeOfCalls++;
+  return true;
+}, {});
+var setPrototypeOfTarget = new Proxy({}, { setPrototypeOf: setPrototypeOfTrap });
+
+var isExtensibleTrap = new Proxy(function(target) {
+  return Reflect.isExtensible(target);
+}, {});
+var isExtensibleTarget = new Proxy({}, { isExtensible: isExtensibleTrap });
+
+var descriptorTarget = new Proxy({ present: 1 }, {
+  getOwnPropertyDescriptor: descriptorTrap
+});
+
+[
+  Reflect.apply(callable, { prefix: ">" }, ["a", "b"]),
+  Reflect.construct(constructable, [2, 3]).value,
+  Object.getPrototypeOf(getPrototypeOfTarget) === prototype,
+  Reflect.setPrototypeOf(setPrototypeOfTarget, null),
+  setPrototypeOfCalls,
+  Reflect.isExtensible(isExtensibleTarget),
+  Object.hasOwn(descriptorTarget, "present")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("proxy internal methods should call callable proxy traps");
+        assert!(
+            outcome.note.contains("string(>ab|5|true|true|1|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_prototype_and_extensibility_methods_cross_deep_proxy_chains() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function wrapDeeply(target) {
+  for (var depth = 0; depth < 12; depth++) {
+    target = new Proxy(target, {});
+  }
+  return target;
+}
+
+var prototype = {};
+var getPrototypeOfCalls = 0;
+var getPrototypeOfTarget = wrapDeeply(new Proxy({}, {
+  getPrototypeOf: function() {
+    getPrototypeOfCalls++;
+    return prototype;
+  }
+}));
+
+var setPrototypeOfCalls = 0;
+var setPrototypeOfTarget = wrapDeeply(new Proxy({}, {
+  setPrototypeOf: function() {
+    setPrototypeOfCalls++;
+    return true;
+  }
+}));
+
+var isExtensibleCalls = 0;
+var isExtensibleTarget = wrapDeeply(new Proxy({}, {
+  isExtensible: function(target) {
+    isExtensibleCalls++;
+    return Reflect.isExtensible(target);
+  }
+}));
+
+[
+  Object.getPrototypeOf(getPrototypeOfTarget) === prototype,
+  getPrototypeOfCalls,
+  Reflect.setPrototypeOf(setPrototypeOfTarget, null),
+  setPrototypeOfCalls,
+  Reflect.isExtensible(isExtensibleTarget),
+  isExtensibleCalls
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("prototype and extensibility methods should cross deep proxy chains");
+        assert!(
+            outcome.note.contains("string(true|1|true|1|true|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_create_realm_exposes_global_function_properties() {
         let outcome = engine()
             .run_script(
@@ -15758,6 +16752,102 @@ try {
         assert!(
             outcome.note.contains("string(1,arrayLike,true)"),
             "unexpected proxy ownKeys array-like result: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_own_key_methods_accept_callable_proxy_traps() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var ownKeysCalls = 0;
+var ownKeysTrap = new Proxy(function() {
+  ownKeysCalls++;
+  return ["visible", "hidden"];
+}, {});
+var descriptorTrap = new Proxy(function(target, key) {
+  return {
+    value: target[key],
+    writable: true,
+    enumerable: key === "visible",
+    configurable: true
+  };
+}, {});
+var descriptorTrap = new Proxy(function(target, key) {
+  return Reflect.getOwnPropertyDescriptor(target, key);
+}, {});
+var target = {};
+target.visible = 1;
+Object.defineProperty(target, "hidden", { value: 2, enumerable: false });
+var proxy = new Proxy(target, {
+  ownKeys: ownKeysTrap,
+  getOwnPropertyDescriptor: descriptorTrap
+});
+
+[
+  Reflect.ownKeys(proxy).join(","),
+  Object.getOwnPropertyNames(proxy).join(","),
+  Object.getOwnPropertySymbols(proxy).length,
+  Object.keys(proxy).join(","),
+  ownKeysCalls
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("own-key methods should call callable proxy traps");
+        assert!(
+            outcome
+                .note
+                .contains("string(visible,hidden|visible,hidden|0|visible|4)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_own_key_methods_cross_deep_trapless_proxy_chains() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function wrapDeeply(target) {
+  for (var depth = 0; depth < 12; depth++) {
+    target = new Proxy(target, {});
+  }
+  return target;
+}
+
+var symbol = Symbol("owned");
+var target = { visible: 1 };
+target[symbol] = 2;
+var proxy = wrapDeeply(target);
+var reflected = Reflect.ownKeys(proxy);
+
+[
+  reflected.length,
+  reflected[0],
+  reflected[1] === symbol,
+  Object.getOwnPropertyNames(proxy).join(","),
+  Object.getOwnPropertySymbols(proxy)[0] === symbol,
+  Object.keys(proxy).join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("own-key methods should cross deep trapless proxy chains");
+        assert!(
+            outcome
+                .note
+                .contains("string(2|visible|true|visible|true|visible)"),
+            "note: {}",
             outcome.note
         );
     }

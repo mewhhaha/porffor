@@ -522,7 +522,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_is_heap_object_like_tag_i32(separator_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.split")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.split"),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
             separator_payload_local,
@@ -1694,7 +1696,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.search"),
+            self.strings.property_key_symbol_payload("Symbol.search"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -2653,7 +2655,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.species"),
+            self.strings.property_key_symbol_payload("Symbol.species"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -2793,7 +2795,9 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(species_argc_local);
         function.instruction(&Instruction::Else);
 
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.match"),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
             receiver_payload_local,
@@ -5314,7 +5318,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.species"),
+            self.strings.property_key_symbol_payload("Symbol.species"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -6727,7 +6731,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.matchAll"),
+            self.strings.property_key_symbol_payload("Symbol.matchAll"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -8080,7 +8084,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
 
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.replace"),
+            self.strings.property_key_symbol_payload("Symbol.replace"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(0));
@@ -8126,7 +8130,9 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(rx_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.match"),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
             rx_payload_local,
@@ -13808,7 +13814,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.match"),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
             arg_payload_local,
@@ -13973,7 +13981,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_is_heap_object_like_tag_i32(separator_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.split")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.split"),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
             separator_payload_local,
@@ -14150,7 +14160,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(regexp_is_regexp_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.match"),
+        ));
         function.instruction(&Instruction::LocalSet(regexp_key_local));
         self.emit_object_read(
             separator_payload_local,

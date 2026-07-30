@@ -813,7 +813,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(input_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.iterator"),
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(

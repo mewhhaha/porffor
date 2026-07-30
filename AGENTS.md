@@ -44,6 +44,15 @@
 - Permanent skip lists and silent expected failures are not acceptable.
 - Never call fake-suite green "100% ECMAScript" or "100% Test262". Fake subset truth and full pinned Test262 truth must stay separate.
 
+## Development Workflow
+
+- Batch implementation before expensive verification. At the start of a task, identify the complete coherent feature batch and the independent chunks within it.
+- Implement independent chunks concurrently with subagents. When work is unnecessarily coupled, first create the smallest clean seam that lets the chunks proceed independently; do not add speculative abstractions merely to enable parallel work.
+- Finish the code, tests, types, and documentation for the whole batch before running expensive compilation or broad test suites. Do not repeatedly rebuild after every small edit.
+- During implementation, prefer read-only inspection and cheap non-compiling checks. Run a focused compile or test early only when its result is needed to resolve an uncertainty, validate a risky foundation, or unblock later code.
+- After the batch is written, compile once, run the focused regressions, then run the broad suites sequentially so they reuse build artifacts. Fix all discovered failures, rerun affected focused tests, and finish with one broad verification checkpoint.
+- Verification remains mandatory before declaring the work complete. Report exactly what ran and what remains unverified.
+
 ## README And Status
 
 - Keep `README.md` current when work changes user-visible capabilities, conformance, CLI behavior, architecture, or development workflow.

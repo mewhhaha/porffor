@@ -3590,7 +3590,6 @@ impl<'a> FunctionBuilder<'a> {
             1,
             self.result_local,
             self.result_tag_local,
-            4,
             0,
             &mut function,
         )?;
@@ -3618,14 +3617,7 @@ impl<'a> FunctionBuilder<'a> {
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_is_extensible_i32_with_depth(
-            0,
-            1,
-            self.result_local,
-            4,
-            0,
-            &mut function,
-        )?;
+        self.emit_object_is_extensible_i32_with_depth(0, 1, self.result_local, 0, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));

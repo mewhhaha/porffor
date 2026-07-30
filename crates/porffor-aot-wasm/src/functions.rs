@@ -2026,9 +2026,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_break_current_completion_if_throw(2, function);
 
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(argv_tag_local));
@@ -2041,10 +2039,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(argv_tag_local));
-        self.emit_function_handle_call_without_throw_propagation(
+        self.emit_proxy_call_helper_leave_throw_completion(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[
                 (target_payload_local, target_tag_local),
                 (trap_args_payload_local, argv_tag_local),
@@ -4548,6 +4547,67 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_proxy_call_helper_leave_throw_completion(
+        &mut self,
+        callee_payload_local: u32,
+        callee_tag_local: u32,
+        this_payload_local: u32,
+        this_tag_local: u32,
+        args: &[(u32, u32)],
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let argc_local = self.reserve_temp_local();
+        let argv_local = self.reserve_temp_local();
+        let helper = self
+            .proxy_call_helper_function_index()
+            .expect("proxy-call helper index must exist");
+        self.emit_pre_evaluated_arg_vector(args, argc_local, argv_local, function)?;
+        function.instruction(&Instruction::LocalGet(callee_payload_local));
+        function.instruction(&Instruction::LocalGet(callee_tag_local));
+        function.instruction(&Instruction::LocalGet(this_payload_local));
+        function.instruction(&Instruction::LocalGet(this_tag_local));
+        function.instruction(&Instruction::LocalGet(argc_local));
+        function.instruction(&Instruction::LocalGet(argv_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(payload_local, tag_local, function);
+        self.release_temp_local(argv_local);
+        self.release_temp_local(argc_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_function_or_proxy_call_with_throw_extra_depth(
+        &mut self,
+        callee_payload_local: u32,
+        callee_tag_local: u32,
+        this_payload_local: u32,
+        this_tag_local: u32,
+        args: &[(u32, u32)],
+        payload_local: u32,
+        tag_local: u32,
+        throw_extra_depth: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            callee_payload_local,
+            callee_tag_local,
+            this_payload_local,
+            this_tag_local,
+            args,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            throw_extra_depth,
+            function,
+        )
+    }
+
     pub(crate) fn emit_function_handle_call_with_throw_extra_depth(
         &mut self,
         callee_payload_local: u32,
@@ -4872,9 +4932,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_break_current_completion_if_throw(2, function);
         }
 
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(argv_tag_local));
@@ -4887,10 +4945,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(argv_tag_local));
-        self.emit_function_handle_call_without_throw_propagation(
+        self.emit_proxy_call_helper_leave_throw_completion(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[
                 (target_payload_local, target_tag_local),
                 (this_payload_local, this_tag_local),

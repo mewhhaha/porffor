@@ -1110,6 +1110,7 @@ impl StringPool {
             "Proxy getOwnPropertyDescriptor trap returned undefined for non-configurable target property",
             "Proxy getOwnPropertyDescriptor trap returned undefined for non-extensible target",
             "Proxy getOwnPropertyDescriptor trap result incompatible with non-extensible target",
+            "Proxy getOwnPropertyDescriptor trap result cannot report configurable for non-configurable target property",
             "Proxy getOwnPropertyDescriptor trap result cannot report non-configurable target property",
             "Proxy getOwnPropertyDescriptor trap result cannot report non-writable target property",
             "Proxy preventExtensions trap is not callable",
@@ -1121,6 +1122,7 @@ impl StringPool {
             "Proxy defineProperty trap cannot define non-configurable target property",
             "Proxy defineProperty trap result is incompatible with target descriptor",
             "Proxy defineProperty trap cannot define non-writable target property",
+            "Proxy defineProperty trap cannot report a writable target property as non-writable",
             "Cannot define invalid TypedArray index",
             "Cannot define incompatible TypedArray index descriptor",
             "TypedArray.prototype.subarray requires TypedArray",
@@ -1148,6 +1150,11 @@ impl StringPool {
             "TypedArray.prototype.with index out of range",
             "TypedArray.prototype.with has unknown element type",
             "Reflect.defineProperty target must be object",
+            "Reflect.defineProperty attributes must be object",
+            "Property descriptor getter/setter must be callable or undefined",
+            "Property descriptor cannot be both accessor and data",
+            "Reflect.get target must be object",
+            "Reflect.has target must be object",
             "Reflect.getPrototypeOf target must be object",
             "Reflect.getOwnPropertyDescriptor target must be object",
             "Reflect.set target must be object",
@@ -1434,7 +1441,15 @@ impl StringPool {
             "Reflect.construct target is not a constructor",
             "Reflect.construct newTarget is not a constructor",
             "Reflect.construct argumentsList must be an array",
+            "Reflect.construct argumentsList must be array-like",
             "Reflect.apply argumentsList must be an array",
+            "Reflect.apply argumentsList must be array-like",
+            "Reflect.apply target must be callable",
+            "Function.prototype.apply argument list must be array-like",
+            "Object.create prototype must be object or null",
+            "Object.defineProperties target must be object",
+            "Object.defineProperties properties must not be null or undefined",
+            "Object.defineProperties could not convert descriptor",
             "Cannot convert object to primitive value",
             "ArrayBuffer byteLength getter requires ArrayBuffer",
             "ArrayBuffer detached getter requires ArrayBuffer",
@@ -3160,7 +3175,23 @@ impl StringPool {
             .refs
             .get(value)
             .unwrap_or_else(|| panic!("string `{value}` must exist in pool"));
+        assert!(
+            string.offset < (1 << 31),
+            "string pool offset {} exceeds the PropertyKey marker boundary",
+            string.offset
+        );
         (((string.offset as u64) << 32) | string.len as u64) as i64
+    }
+
+    pub(crate) fn property_key_symbol_payload(&self, value: &str) -> i64 {
+        self.payload(value) | PROPERTY_KEY_SYMBOL_MARKER as i64
+    }
+
+    pub(crate) fn static_builtin_property_key_payload(&self, value: &str) -> i64 {
+        if value.starts_with("Symbol.") {
+            return self.property_key_symbol_payload(value);
+        }
+        self.payload(value)
     }
 
     pub(crate) fn regexp_program(&self, program: &RegExpProgram) -> RegExpProgramRef {

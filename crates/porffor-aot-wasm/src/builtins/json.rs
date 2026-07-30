@@ -1707,9 +1707,7 @@ impl<'a> FunctionBuilder<'a> {
         key_payload_local: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(key_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol()")));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_property_key_payload_is_symbol_i32(key_payload_local, function);
     }
 
     pub(crate) fn emit_json_throw_bigint_serialization_type_error(

@@ -144,7 +144,8 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::LocalSet(iterator_mode_local));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.asyncIterator"),
+            self.strings
+                .property_key_symbol_payload("Symbol.asyncIterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
@@ -180,7 +181,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::LocalSet(iterator_mode_local));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.iterator"),
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read_without_throw_propagation_with_key_tag(

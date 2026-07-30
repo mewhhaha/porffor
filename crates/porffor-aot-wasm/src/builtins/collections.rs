@@ -691,7 +691,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.iterator"),
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(property_key_local));
         self.emit_object_read(
@@ -1039,7 +1039,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_object_local));
 
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.iterator"),
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(property_key_local));
         self.emit_object_read(
@@ -1462,7 +1462,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.iterator"),
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -4309,7 +4309,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.iterator"),
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(

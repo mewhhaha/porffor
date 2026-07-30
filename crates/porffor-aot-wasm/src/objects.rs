@@ -920,7 +920,9 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(value)));
         function.instruction(&Instruction::LocalSet(payload_local));
@@ -968,7 +970,9 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_function_value_payload(meta, function)?;
         function.instruction(&Instruction::LocalSet(payload_local));
@@ -1021,7 +1025,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(tag_local));
 
         for property in std::iter::once(key).chain(aliases.iter().copied()) {
-            function.instruction(&Instruction::I64Const(self.strings.payload(property)));
+            function.instruction(&Instruction::I64Const(
+                self.strings.static_builtin_property_key_payload(property),
+            ));
             function.instruction(&Instruction::LocalSet(key_local));
             if self.is_main() {
                 self.emit_object_append_data_property_with_flags(
@@ -1061,7 +1067,9 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::GlobalGet(global_index));
         function.instruction(&Instruction::LocalSet(payload_local));
@@ -1642,7 +1650,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_append_data_property_with_flags(
             object_local,
@@ -1699,7 +1709,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.store_i64_local_at_offset(
             entry_local,
@@ -1833,7 +1843,9 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::LocalGet(value_local));
         function.instruction(&Instruction::F64ConvertI64U);
@@ -1881,7 +1893,9 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::F64Const(Ieee64::from(value)));
         function.instruction(&Instruction::I64ReinterpretF64);
@@ -1927,7 +1941,9 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(i64::from(value)));
         function.instruction(&Instruction::LocalSet(payload_local));
@@ -1970,7 +1986,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_define_data(object_local, key_local, payload_local, tag_local, function)?;
         self.release_temp_local(key_local);
@@ -1989,7 +2007,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_define_data_with_configurable(
             object_local,
@@ -2018,7 +2038,9 @@ impl<'a> FunctionBuilder<'a> {
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
             object_local,
@@ -3965,13 +3987,23 @@ impl<'a> FunctionBuilder<'a> {
                     }
                 },
                 PropertyKeyIr::StringExpr(_) => {
-                    let key_local = self.compile_object_key_to_local(key, function)?;
+                    let key_local = self.reserve_temp_local();
+                    let key_tag_local = self.reserve_temp_local();
+                    self.compile_object_key_to_locals(key, key_local, key_tag_local, function)?;
                     let array_index_local = self.reserve_temp_local();
+                    function.instruction(&Instruction::LocalGet(key_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_string_index_0_to_4_or_minus_one(
                         key_local,
                         array_index_local,
                         function,
                     );
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::I64Const(-1));
+                    function.instruction(&Instruction::LocalSet(array_index_local));
+                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::LocalGet(array_index_local));
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::I64GeS);
@@ -3994,23 +4026,25 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::I32Or);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_object_read(
+                    self.emit_object_read_with_key_tag(
                         target_local,
                         target_tag_local,
                         target_local,
                         target_tag_local,
                         key_local,
+                        Some(key_tag_local),
                         payload_local,
                         tag_local,
                         function,
                     )?;
                     function.instruction(&Instruction::Else);
-                    self.emit_object_read(
+                    self.emit_object_read_with_key_tag(
                         target_local,
                         target_tag_local,
                         target_local,
                         target_tag_local,
                         key_local,
+                        Some(key_tag_local),
                         payload_local,
                         tag_local,
                         function,
@@ -4018,6 +4052,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     self.release_temp_local(array_index_local);
+                    self.release_temp_local(key_tag_local);
                     self.release_temp_local(key_local);
                 }
                 _ => {
@@ -4095,7 +4130,20 @@ impl<'a> FunctionBuilder<'a> {
                     // properties, and any user extensions) is resolved by an
                     // ordinary lookup against the real `Symbol.prototype`
                     // heap object, mirroring the actual [[Prototype]] chain.
-                    let key_local = self.compile_object_key_to_local(key, function)?;
+                    let key_local = if matches!(
+                        key,
+                        PropertyKeyIr::StaticString(name) if name == "Symbol.toPrimitive"
+                    ) {
+                        let key_local = self.reserve_temp_local();
+                        function.instruction(&Instruction::I64Const(
+                            self.strings
+                                .property_key_symbol_payload("Symbol.toPrimitive"),
+                        ));
+                        function.instruction(&Instruction::LocalSet(key_local));
+                        key_local
+                    } else {
+                        self.compile_object_key_to_local(key, function)?
+                    };
                     let proto_payload_local = self.reserve_temp_local();
                     let proto_tag_local = self.reserve_temp_local();
                     function.instruction(&Instruction::GlobalGet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
@@ -4350,7 +4398,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
                     function.instruction(&Instruction::LocalSet(array_prototype_tag_local));
                     function.instruction(&Instruction::I64Const(
-                        self.strings.payload("Symbol.iterator"),
+                        self.strings.property_key_symbol_payload("Symbol.iterator"),
                     ));
                     function.instruction(&Instruction::LocalSet(key_local));
                     self.emit_object_read(
@@ -4783,21 +4831,33 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::End);
 
-                let property_key_kinds = KindSet::from_kind(ValueKind::String)
-                    .union(KindSet::from_kind(ValueKind::Symbol));
-                if matches!(key, PropertyKeyIr::StringExpr(_))
-                    && !key_expr.possible_kinds.is_subset_of(property_key_kinds)
-                {
-                    self.emit_value_to_property_key_locals(
-                        key_payload_local,
-                        key_tag_local,
-                        function,
-                    )?;
-                    self.emit_propagate_throw_from_locals_if_needed(
-                        key_payload_local,
-                        key_tag_local,
-                        function,
-                    )?;
+                if matches!(key, PropertyKeyIr::StringExpr(_)) {
+                    let property_key_kinds = KindSet::from_kind(ValueKind::String)
+                        .union(KindSet::from_kind(ValueKind::Symbol));
+                    if key_expr.possible_kinds.is_subset_of(property_key_kinds) {
+                        function.instruction(&Instruction::LocalGet(key_tag_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                        function.instruction(&Instruction::I64Eq);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        function.instruction(&Instruction::LocalGet(key_payload_local));
+                        function
+                            .instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+                        function.instruction(&Instruction::I64Or);
+                        function.instruction(&Instruction::LocalSet(key_payload_local));
+                        function.instruction(&Instruction::End);
+                    } else {
+                        self.emit_value_to_property_key_locals(
+                            key_payload_local,
+                            key_tag_local,
+                            function,
+                        )?;
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            key_payload_local,
+                            key_tag_local,
+                            function,
+                        )?;
+                    }
                 }
 
                 let read_result =
@@ -5010,7 +5070,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::LocalGet(key_payload_local));
             function.instruction(&Instruction::I64Const(
-                self.strings.payload("Symbol.iterator"),
+                self.strings.property_key_symbol_payload("Symbol.iterator"),
             ));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::I32And);
@@ -5020,7 +5080,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
             function.instruction(&Instruction::LocalSet(object_tag_local));
             function.instruction(&Instruction::I64Const(
-                self.strings.payload("Symbol.iterator"),
+                self.strings.property_key_symbol_payload("Symbol.iterator"),
             ));
             function.instruction(&Instruction::LocalSet(index_local));
             self.emit_object_read(
@@ -5042,7 +5102,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(key_payload_local));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.isConcatSpreadable"),
+            self.strings
+                .property_key_symbol_payload("Symbol.isConcatSpreadable"),
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
@@ -6164,7 +6225,8 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::LocalGet(key_local));
                     function.instruction(&Instruction::I64Const(
-                        self.strings.payload("Symbol.isConcatSpreadable"),
+                        self.strings
+                            .property_key_symbol_payload("Symbol.isConcatSpreadable"),
                     ));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
@@ -6290,7 +6352,8 @@ impl<'a> FunctionBuilder<'a> {
                     let is_spreadable_key_local = self.reserve_temp_local();
                     function.instruction(&Instruction::LocalGet(key_local));
                     function.instruction(&Instruction::I64Const(
-                        self.strings.payload("Symbol.isConcatSpreadable"),
+                        self.strings
+                            .property_key_symbol_payload("Symbol.isConcatSpreadable"),
                     ));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::I64ExtendI32U);
@@ -8575,6 +8638,15 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
+                function.instruction(&Instruction::LocalGet(key_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(key_payload_local));
+                function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(key_payload_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(key_payload_local));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::LocalGet(key_tag_local));
@@ -8686,35 +8758,47 @@ impl<'a> FunctionBuilder<'a> {
         key_local: u32,
         function: &mut Function,
     ) {
-        let mut first = true;
-        for symbol_name in [
-            "Symbol()",
-            "Symbol.iterator",
-            "Symbol.dispose",
-            "Symbol.species",
-            "Symbol.isConcatSpreadable",
-            "Symbol.match",
-            "Symbol.matchAll",
-            "Symbol.replace",
-            "Symbol.search",
-            "Symbol.split",
-            "Symbol.toStringTag",
-            "Symbol.toPrimitive",
-        ] {
-            function.instruction(&Instruction::LocalGet(key_local));
-            function.instruction(&Instruction::I64Const(self.strings.payload(symbol_name)));
-            function.instruction(&Instruction::I64Eq);
-            if first {
-                first = false;
-            } else {
-                function.instruction(&Instruction::I32Or);
-            }
-        }
         function.instruction(&Instruction::LocalGet(key_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+    }
+
+    pub(crate) fn emit_property_key_payload_to_value_payload(
+        &self,
+        key_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(!PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64And);
+    }
+
+    pub(crate) fn emit_property_key_payload_equality_i32(
+        &mut self,
+        stored_key_local: u32,
+        key_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_property_key_payload_is_symbol_i32(key_local, function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_property_key_payload_is_symbol_i32(stored_key_local, function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(stored_key_local));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        self.emit_property_key_payload_is_symbol_i32(stored_key_local, function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::Else);
+        self.emit_string_payload_equality_i32(stored_key_local, key_local, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_property_key_tag_from_source_tag(
@@ -9004,9 +9088,7 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         if let Some(key_tag_override_local) = key_tag_override_local {
             function.instruction(&Instruction::LocalGet(key_tag_override_local));
@@ -9256,7 +9338,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -9437,7 +9519,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -9941,7 +10023,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        function.instruction(&Instruction::LocalGet(target_entry_key_local));
+        self.emit_property_key_payload_to_value_payload(target_entry_key_local, function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
@@ -10041,7 +10123,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        function.instruction(&Instruction::LocalGet(target_entry_key_local));
+        self.emit_property_key_payload_to_value_payload(target_entry_key_local, function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
@@ -10114,9 +10196,7 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_function_handle_call(
             trap_payload_local,
@@ -10313,6 +10393,127 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(result_payload_local);
         self.release_temp_local(snapshot_payload_local);
         self.release_temp_local(list_len_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_proxy_own_keys_trap_result(
+        &mut self,
+        object_payload_local: u32,
+        object_tag_local: u32,
+        handled_local: u32,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        handler_payload_local: u32,
+        handler_tag_local: u32,
+        trap_payload_local: u32,
+        trap_tag_local: u32,
+        trap_result_payload_local: u32,
+        trap_result_tag_local: u32,
+        key_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::BrIf(1));
+        self.load_i64_to_local_from_offset(
+            object_payload_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            handler_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(handler_payload_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(handler_payload_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Proxy handler is null",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            object_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            target_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            object_payload_local,
+            HEAP_OBJECT_BOXED_TAG_OFFSET,
+            target_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(handler_tag_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("ownKeys")));
+        function.instruction(&Instruction::LocalSet(key_payload_local));
+        self.emit_object_read(
+            handler_payload_local,
+            handler_tag_local,
+            handler_payload_local,
+            handler_tag_local,
+            key_payload_local,
+            trap_payload_local,
+            trap_tag_local,
+            function,
+        )?;
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_function_or_proxy_call_with_throw_extra_depth(
+            trap_payload_local,
+            trap_tag_local,
+            handler_payload_local,
+            handler_tag_local,
+            &[(target_payload_local, target_tag_local)],
+            trap_result_payload_local,
+            trap_result_tag_local,
+            2,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(trap_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(trap_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(target_payload_local));
+        function.instruction(&Instruction::LocalSet(object_payload_local));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::LocalSet(object_tag_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Proxy ownKeys trap is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -10649,7 +10850,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        function.instruction(&Instruction::LocalGet(target_entry_key_local));
+        self.emit_property_key_payload_to_value_payload(target_entry_key_local, function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
@@ -10749,7 +10950,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        function.instruction(&Instruction::LocalGet(target_entry_key_local));
+        self.emit_property_key_payload_to_value_payload(target_entry_key_local, function);
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
@@ -11176,7 +11377,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(present_local));
@@ -11288,7 +11489,7 @@ impl<'a> FunctionBuilder<'a> {
             stored_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(stored_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(stored_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -11426,7 +11627,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(present_local));
@@ -11958,7 +12159,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -12351,7 +12552,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -12709,7 +12910,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -13547,7 +13748,7 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
-        self.emit_string_payload_equality_i32(self.scratch_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(self.scratch_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -14303,7 +14504,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.isConcatSpreadable"),
+            self.strings
+                .property_key_symbol_payload("Symbol.isConcatSpreadable"),
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
@@ -14390,7 +14592,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -14667,7 +14869,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -15342,7 +15544,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -16008,7 +16210,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(entry_key_local));
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -16202,7 +16404,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -16767,7 +16969,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -16917,7 +17119,7 @@ impl<'a> FunctionBuilder<'a> {
             entry_key_local,
             function,
         );
-        self.emit_string_payload_equality_i32(entry_key_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(entry_key_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(present_local));
@@ -17152,7 +17354,7 @@ impl<'a> FunctionBuilder<'a> {
             key_payload_local,
             function,
         );
-        self.emit_string_payload_equality_i32(key_payload_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(key_payload_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
@@ -17365,7 +17567,6 @@ impl<'a> FunctionBuilder<'a> {
             object_tag_local,
             result_payload_local,
             result_tag_local,
-            4,
             0,
             function,
         )
@@ -17452,7 +17653,6 @@ impl<'a> FunctionBuilder<'a> {
         object_tag_local: u32,
         result_payload_local: u32,
         result_tag_local: u32,
-        proxy_depth: u8,
         extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -17544,9 +17744,7 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         // This call site sits 3 untracked `If`s deep (object-tag check, proxy-handler
         // check, trap-is-callable check above), matching the nesting the sibling
@@ -17559,10 +17757,11 @@ impl<'a> FunctionBuilder<'a> {
         // reached from inside a non-top-level function. `throw_extra_depth` must be
         // `extra_throw_depth + 2` (not `+ 3`) because the underlying propagate helper
         // already adds its own `+ 1` for its internal `if` wrapper.
-        self.emit_function_handle_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_extra_depth(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
@@ -17587,36 +17786,24 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        self.emit_object_is_extensible_i32_with_depth(
+        self.emit_call_object_is_extensible_helper(
             target_payload_local,
             target_tag_local,
             target_extensible_local,
-            proxy_depth,
             extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(target_extensible_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_get_prototype_of(
-                target_payload_local,
-                target_tag_local,
-                target_proto_payload_local,
-                target_proto_tag_local,
-                function,
-            );
-        } else {
-            self.emit_object_get_prototype_of_with_depth(
-                target_payload_local,
-                target_tag_local,
-                target_proto_payload_local,
-                target_proto_tag_local,
-                proxy_depth - 1,
-                extra_throw_depth + 4,
-                function,
-            )?;
-        }
+        self.emit_call_object_get_prototype_of_helper(
+            target_payload_local,
+            target_tag_local,
+            target_proto_payload_local,
+            target_proto_tag_local,
+            extra_throw_depth + 4,
+            function,
+        )?;
         self.emit_tagged_payload_same_value_i32(
             trap_result_tag_local,
             trap_result_payload_local,
@@ -17656,25 +17843,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_get_prototype_of(
-                target_payload_local,
-                target_tag_local,
-                result_payload_local,
-                result_tag_local,
-                function,
-            );
-        } else {
-            self.emit_object_get_prototype_of_with_depth(
-                target_payload_local,
-                target_tag_local,
-                result_payload_local,
-                result_tag_local,
-                proxy_depth - 1,
-                extra_throw_depth + 4,
-                function,
-            )?;
-        }
+        self.emit_call_object_get_prototype_of_helper(
+            target_payload_local,
+            target_tag_local,
+            result_payload_local,
+            result_tag_local,
+            extra_throw_depth + 4,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error_to_active_handler(
             TYPE_ERROR_NAME,
@@ -17810,7 +17986,6 @@ impl<'a> FunctionBuilder<'a> {
             proto_payload_local,
             proto_tag_local,
             result_local,
-            4,
             0,
             function,
         )
@@ -17823,7 +17998,6 @@ impl<'a> FunctionBuilder<'a> {
         proto_payload_local: u32,
         proto_tag_local: u32,
         result_local: u32,
-        proxy_depth: u8,
         extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -17846,6 +18020,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
 
         function.instruction(&Instruction::LocalGet(object_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -17904,20 +18080,20 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_with_throw_extra_depth(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[
                 (target_payload_local, target_tag_local),
                 (proto_payload_local, proto_tag_local),
             ],
             trap_result_payload_local,
             trap_result_tag_local,
+            extra_throw_depth + 2,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -17929,36 +18105,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_is_extensible_i32_with_depth(
+        self.emit_call_object_is_extensible_helper(
             target_payload_local,
             target_tag_local,
             target_extensible_local,
-            proxy_depth,
             extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(target_extensible_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_get_prototype_of(
-                target_payload_local,
-                target_tag_local,
-                target_proto_payload_local,
-                target_proto_tag_local,
-                function,
-            );
-        } else {
-            self.emit_object_get_prototype_of_with_depth(
-                target_payload_local,
-                target_tag_local,
-                target_proto_payload_local,
-                target_proto_tag_local,
-                proxy_depth - 1,
-                extra_throw_depth + 5,
-                function,
-            )?;
-        }
+        self.emit_call_object_get_prototype_of_helper(
+            target_payload_local,
+            target_tag_local,
+            target_proto_payload_local,
+            target_proto_tag_local,
+            extra_throw_depth + 5,
+            function,
+        )?;
         self.emit_tagged_payload_same_value_i32(
             proto_tag_local,
             proto_payload_local,
@@ -17989,27 +18153,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_set_prototype_of_i32(
-                target_payload_local,
-                target_tag_local,
-                proto_payload_local,
-                proto_tag_local,
-                result_local,
-                function,
-            )?;
-        } else {
-            self.emit_object_set_prototype_of_i32_with_depth(
-                target_payload_local,
-                target_tag_local,
-                proto_payload_local,
-                proto_tag_local,
-                result_local,
-                proxy_depth - 1,
-                extra_throw_depth + 5,
-                function,
-            )?;
-        }
+        function.instruction(&Instruction::LocalGet(target_payload_local));
+        function.instruction(&Instruction::LocalSet(object_payload_local));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::LocalSet(object_tag_local));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::LocalSet(handled_local));
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error_to_active_handler(
             TYPE_ERROR_NAME,
@@ -18022,11 +18171,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        function.instruction(&Instruction::LocalGet(handled_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(handled_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
 
+        function.instruction(&Instruction::LocalGet(handled_local));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -18038,6 +18199,9 @@ impl<'a> FunctionBuilder<'a> {
             result_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.release_temp_local(key_local);
@@ -18074,6 +18238,8 @@ impl<'a> FunctionBuilder<'a> {
         let next_cycle_payload_local = self.reserve_temp_local();
         let next_cycle_tag_local = self.reserve_temp_local();
         let cycle_found_local = self.reserve_temp_local();
+        let internal_brand_local = self.reserve_temp_local();
+        let cycle_boxed_kind_local = self.reserve_temp_local();
 
         self.emit_ordinary_get_prototype_of(
             object_payload_local,
@@ -18098,12 +18264,40 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            object_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            internal_brand_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(internal_brand_local));
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_IMMUTABLE_PROTOTYPE as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Else);
         self.emit_ordinary_is_extensible_i32(
             object_payload_local,
             object_tag_local,
             result_local,
             function,
         );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        self.emit_ordinary_is_extensible_i32(
+            object_payload_local,
+            object_tag_local,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(result_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -18153,6 +18347,23 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(cycle_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(cycle_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            cycle_payload_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            cycle_boxed_kind_local,
+            function,
+        );
+        // OrdinarySetPrototypeOf stops its cycle walk at a non-ordinary
+        // [[GetPrototypeOf]] implementation.
+        function.instruction(&Instruction::LocalGet(cycle_boxed_kind_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(2));
+        function.instruction(&Instruction::End);
         self.emit_ordinary_get_prototype_of(
             cycle_payload_local,
             cycle_tag_local,
@@ -18259,6 +18470,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(cycle_boxed_kind_local);
+        self.release_temp_local(internal_brand_local);
         self.release_temp_local(cycle_found_local);
         self.release_temp_local(next_cycle_tag_local);
         self.release_temp_local(next_cycle_payload_local);
@@ -18549,17 +18762,17 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_with_throw_extra_depth(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
+            extra_throw_depth + 3,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -18583,7 +18796,6 @@ impl<'a> FunctionBuilder<'a> {
                 target_payload_local,
                 target_tag_local,
                 target_extensible_local,
-                proxy_depth - 1,
                 extra_throw_depth + 5,
                 function,
             )?;
@@ -18699,7 +18911,6 @@ impl<'a> FunctionBuilder<'a> {
             object_payload_local,
             object_tag_local,
             result_local,
-            4,
             0,
             function,
         )
@@ -18710,7 +18921,6 @@ impl<'a> FunctionBuilder<'a> {
         object_payload_local: u32,
         object_tag_local: u32,
         result_local: u32,
-        proxy_depth: u8,
         extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -18799,17 +19009,17 @@ impl<'a> FunctionBuilder<'a> {
             trap_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_with_throw_extra_depth(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
+            extra_throw_depth + 3,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -18817,23 +19027,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(trap_truthy_local));
         function.instruction(&Instruction::LocalGet(trap_truthy_local));
         function.instruction(&Instruction::LocalSet(result_local));
-        if proxy_depth == 0 {
-            self.emit_ordinary_is_extensible_i32(
-                target_payload_local,
-                target_tag_local,
-                target_result_local,
-                function,
-            );
-        } else {
-            self.emit_object_is_extensible_i32_with_depth(
-                target_payload_local,
-                target_tag_local,
-                target_result_local,
-                proxy_depth - 1,
-                extra_throw_depth + 4,
-                function,
-            )?;
-        }
+        self.emit_call_object_is_extensible_helper(
+            target_payload_local,
+            target_tag_local,
+            target_result_local,
+            extra_throw_depth + 4,
+            function,
+        )?;
         function.instruction(&Instruction::LocalGet(result_local));
         function.instruction(&Instruction::LocalGet(target_result_local));
         function.instruction(&Instruction::I64Ne);
@@ -18856,23 +19056,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if proxy_depth == 0 {
-            self.emit_ordinary_is_extensible_i32(
-                target_payload_local,
-                target_tag_local,
-                result_local,
-                function,
-            );
-        } else {
-            self.emit_object_is_extensible_i32_with_depth(
-                target_payload_local,
-                target_tag_local,
-                result_local,
-                proxy_depth - 1,
-                extra_throw_depth + 5,
-                function,
-            )?;
-        }
+        self.emit_call_object_is_extensible_helper(
+            target_payload_local,
+            target_tag_local,
+            result_local,
+            extra_throw_depth + 5,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error_to_active_handler(
             TYPE_ERROR_NAME,
@@ -19850,7 +20040,7 @@ impl<'a> FunctionBuilder<'a> {
             key_payload_local,
             function,
         );
-        self.emit_string_payload_equality_i32(key_payload_local, key_local, function);
+        self.emit_property_key_payload_equality_i32(key_payload_local, key_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(result_local));

@@ -3647,6 +3647,19 @@ mod tests {
     }
 
     #[test]
+    fn object_create_does_not_infer_a_null_prototype_from_a_mixed_prototype() {
+        let program =
+            lower_script("var prototype = globalThis.flag ? null : {}; Object.create(prototype);");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(instance) = script.body.statements.last().unwrap() else {
+            panic!("expected Object.create result");
+        };
+        assert_eq!(instance.kind, ValueKind::Object);
+        assert!(instance.heap_shape.is_none());
+    }
+
+    #[test]
     fn preserves_private_brand_shape_for_array_subclass_instances() {
         let program =
             lower_script("class A extends Array { #x; has() { return #x in this; } } new A();");
@@ -4402,6 +4415,213 @@ mod tests {
         assert_eq!(operands.len(), 2);
         assert!(matches!(operands[1].expr, ExprIr::Number(_)));
         assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn preserves_well_known_symbols_as_computed_property_keys() {
+        let program = lower_script(
+            r#"let target = { "Symbol.asyncIterator": "string" };
+target[Symbol.asyncIterator] = "symbol";
+target[Symbol.asyncIterator];"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(write) = &script.body.statements[1] else {
+            panic!("expected property write");
+        };
+        let ExprIr::PropertyWrite { key, .. } = &write.expr else {
+            panic!("expected property write, got {:?}", write.expr);
+        };
+        assert!(
+            matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol),
+            "well-known Symbol write key must retain its Symbol kind, got {key:?}"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected property read");
+        };
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } = &read.expr
+        else {
+            panic!("expected GetV operation, got {:?}", read.expr);
+        };
+        assert!(
+            matches!(operands.as_slice(), [_, key] if key.kind == ValueKind::Symbol),
+            "well-known Symbol read key must retain its Symbol kind, got {operands:?}"
+        );
+    }
+
+    #[test]
+    fn symbol_and_similarly_named_string_properties_do_not_share_shape_facts() {
+        let program = lower_script(
+            r#"let target = {
+                [Symbol.iterator]: 1,
+                "Symbol.iterator": "ordinary"
+            };
+            target[Symbol.iterator];
+            target["Symbol.iterator"];"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(symbol_read) = &script.body.statements[1] else {
+            panic!("expected symbol property read");
+        };
+        assert_eq!(symbol_read.kind, ValueKind::Dynamic);
+
+        let StatementIr::Expression(string_read) = &script.body.statements[2] else {
+            panic!("expected string property read");
+        };
+        assert_eq!(string_read.kind, ValueKind::String);
+    }
+
+    #[test]
+    fn distinct_computed_symbols_are_omitted_from_string_key_shapes() {
+        let program = lower_script(
+            r#"const first = Symbol("first");
+            const second = Symbol("second");
+            let target = { [first]: 1, [second]: "second" };"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical { init, .. } = &script.body.statements[2] else {
+            panic!("expected object declaration");
+        };
+        let Some(HeapShape::Object(shape)) = init.heap_shape.as_deref() else {
+            panic!("expected object shape");
+        };
+        assert!(shape.properties.is_empty());
+    }
+
+    #[test]
+    fn computed_property_keys_respect_a_shadowed_symbol_binding() {
+        let program = lower_script(
+            r#"const Symbol = { iterator: "actual" };
+let target = { actual: 1, "Symbol.iterator": 2 };
+target[Symbol.iterator];"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        let StatementIr::Expression(read) = &script.body.statements[2] else {
+            panic!("expected property read");
+        };
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } = &read.expr
+        else {
+            panic!("expected GetV operation, got {:?}", read.expr);
+        };
+        assert!(
+            !matches!(
+                operands.as_slice(),
+                [_, TypedExpr {
+                    expr: ExprIr::String(key),
+                    ..
+                }] if key == "Symbol.iterator"
+            ),
+            "shadowed Symbol key must not resolve to the well-known Symbol marker"
+        );
+    }
+
+    #[test]
+    fn specialized_iterator_reads_preserve_symbol_keys() {
+        let program = lower_script(
+            r#"[][Symbol.iterator];
+""[Symbol.iterator];
+[]["Symbol.iterator"];"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        for statement in &script.body.statements[..2] {
+            let StatementIr::Expression(read) = statement else {
+                panic!("expected property read");
+            };
+            match &read.expr {
+                ExprIr::PropertyRead { key, .. } => assert!(
+                    matches!(key, PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol),
+                    "well-known iterator reads must retain their Symbol key, got {key:?}"
+                ),
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::GetV,
+                    operands,
+                } => assert!(
+                    matches!(operands.as_slice(), [_, key] if key.kind == ValueKind::Symbol),
+                    "well-known iterator reads must retain their Symbol operand, got {operands:?}"
+                ),
+                _ => panic!("expected property read, got {:?}", read.expr),
+            }
+        }
+
+        let StatementIr::Expression(literal_read) = &script.body.statements[2] else {
+            panic!("expected literal-string property read");
+        };
+        match &literal_read.expr {
+            ExprIr::PropertyRead {
+                key: literal_key, ..
+            } => assert_eq!(
+                literal_key,
+                &PropertyKeyIr::StaticString("Symbol.iterator".to_string())
+            ),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetV,
+                operands,
+            } => assert!(
+                matches!(
+                    operands.as_slice(),
+                    [_, TypedExpr {
+                        kind: ValueKind::String,
+                        expr: ExprIr::String(key),
+                        ..
+                    }] if key == "Symbol.iterator"
+                ),
+                "literal iterator key must remain a String operand, got {operands:?}"
+            ),
+            _ => panic!(
+                "expected literal-string property read, got {:?}",
+                literal_read.expr
+            ),
+        }
+    }
+
+    #[test]
+    fn computed_object_literal_keys_preserve_symbol_identity() {
+        let program = lower_script(
+            r#"({
+  [Symbol.iterator]: 1,
+  [Symbol.toPrimitive]() { return 2; },
+  ["Symbol.iterator"]: 3
+});"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(object) = &script.body.statements[0] else {
+            panic!("expected object literal");
+        };
+        let ExprIr::ObjectLiteral(properties) = &object.expr else {
+            panic!("expected object literal, got {:?}", object.expr);
+        };
+        assert!(
+            matches!(
+                properties.as_slice(),
+                [
+                    ObjectPropertyIr::ComputedData { key: symbol_data, .. },
+                    ObjectPropertyIr::ComputedMethod { key: symbol_method, .. },
+                    ObjectPropertyIr::Data {
+                        key: string_key,
+                        ..
+                    }
+                ] if symbol_data.kind == ValueKind::Symbol
+                    && symbol_method.kind == ValueKind::Symbol
+                    && string_key == "Symbol.iterator"
+            ),
+            "computed Symbol keys and ordinary string keys must stay distinct: {properties:?}"
+        );
     }
 
     #[test]
@@ -7043,6 +7263,9 @@ mod tests {
         let program = lower_script(
             "String.prototype[Symbol.asyncIterator] = function strictAsyncIterator() {
                  'use strict';
+                 return this;
+             };
+             String.prototype['Symbol.asyncIterator'] = function ordinaryStringProperty() {
                  return this;
              };
              async function collect() {

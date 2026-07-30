@@ -2,10 +2,11 @@ use super::*;
 use porffor_ir::StaticRegExpCompilation;
 
 fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
-    if let ExprIr::String(value) = &key.expr {
-        PropertyKeyIr::StaticString(value.clone())
-    } else {
-        PropertyKeyIr::StringExpr(Box::new(key.clone()))
+    match &key.expr {
+        ExprIr::String(value) if key.kind == ValueKind::String => {
+            PropertyKeyIr::StaticString(value.clone())
+        }
+        _ => PropertyKeyIr::StringExpr(Box::new(key.clone())),
     }
 }
 
@@ -242,7 +243,6 @@ impl<'a> FunctionBuilder<'a> {
                 search_tag_local,
                 next_proto_local,
                 next_proto_tag_local,
-                4,
                 3,
                 function,
             )?;
@@ -2171,13 +2171,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
         self.load_i64_to_local_from_offset(
             current_payload_local,
             HEAP_OBJECT_BOXED_TAG_OFFSET,
@@ -4355,6 +4348,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(property_key_local));
         function.instruction(&Instruction::Else);
         self.emit_value_to_string_payload(payload_local, tag_local, function)?;
@@ -4403,6 +4398,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
@@ -7298,54 +7295,54 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));
 
-        for _ in 0..8 {
-            function.instruction(&Instruction::LocalGet(result_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(current_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(result_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(current_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                current_payload_local,
-                HEAP_OBJECT_BOXED_KIND_OFFSET,
-                proxy_handler_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
-            function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                current_payload_local,
-                HEAP_OBJECT_BOXED_TAG_OFFSET,
-                current_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                current_payload_local,
-                HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                current_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(current_tag_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(current_tag_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            current_payload_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            proxy_handler_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+
+        self.load_i64_to_local_from_offset(
+            current_payload_local,
+            HEAP_OBJECT_BOXED_TAG_OFFSET,
+            current_tag_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            current_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            current_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Br(0));
+
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(result_local));
         function.instruction(&Instruction::I32WrapI64);
 
@@ -9769,7 +9766,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(search_is_regexp_local));
         self.emit_is_heap_object_like_tag_i32(search_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.match"),
+        ));
         function.instruction(&Instruction::LocalSet(search_match_key_local));
         self.emit_object_read(
             search_payload_local,
@@ -10428,12 +10427,25 @@ impl<'a> FunctionBuilder<'a> {
         rhs_payload_local: u32,
         function: &mut Function,
     ) {
+        function.instruction(&Instruction::LocalGet(lhs_payload_local));
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalGet(rhs_payload_local));
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::Else);
         self.emit_string_payload_equality_i32_with_ascii_case_folding(
             lhs_payload_local,
             rhs_payload_local,
             None,
             function,
         );
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_string_payload_equality_i32_with_ascii_case_folding(

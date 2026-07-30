@@ -152,8 +152,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(target_extensible_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap cannot add property to non-extensible target",
             self.result_local,
             self.result_tag_local,
@@ -168,8 +167,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap cannot define non-configurable target property",
             self.result_local,
             self.result_tag_local,
@@ -190,8 +188,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap cannot define non-configurable target property",
             self.result_local,
             self.result_tag_local,
@@ -219,8 +216,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap result is incompatible with target descriptor",
             self.result_local,
             self.result_tag_local,
@@ -239,8 +235,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap result is incompatible with target descriptor",
             self.result_local,
             self.result_tag_local,
@@ -258,8 +253,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap result is incompatible with target descriptor",
             self.result_local,
             self.result_tag_local,
@@ -282,8 +276,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap cannot report a writable target property as non-writable",
             self.result_local,
             self.result_tag_local,
@@ -302,8 +295,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap result is incompatible with target descriptor",
             self.result_local,
             self.result_tag_local,
@@ -324,8 +316,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap result is incompatible with target descriptor",
             self.result_local,
             self.result_tag_local,
@@ -371,8 +362,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
+            self.emit_throw_current_function_realm_type_error(
                 "Proxy defineProperty trap result is incompatible with target descriptor",
                 self.result_local,
                 self.result_tag_local,
@@ -422,6 +412,7 @@ impl<'a> FunctionBuilder<'a> {
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
+        let argv_local = self.reserve_temp_local();
         let target_constructable_local = self.reserve_temp_local();
         let new_target_constructable_local = self.reserve_temp_local();
 
@@ -452,8 +443,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.construct target is not a constructor",
             self.result_local,
             self.result_tag_local,
@@ -468,8 +458,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(new_target_constructable_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.construct newTarget is not a constructor",
             self.result_local,
             self.result_tag_local,
@@ -478,14 +467,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(args_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        self.emit_is_heap_object_like_tag_i32(args_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Reflect.construct argumentsList must be an array",
+        self.emit_throw_current_function_realm_type_error(
+            "Reflect.construct argumentsList must be array-like",
             self.result_local,
             self.result_tag_local,
             function,
@@ -493,19 +479,21 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
+        self.emit_array_like_snapshot_payload(
             args_payload_local,
-            HEAP_LEN_OFFSET,
-            argc_local,
+            args_tag_local,
+            argv_local,
+            "Reflect.construct argumentsList must be array-like",
             function,
-        );
+        )?;
+        self.load_i64_to_local_from_offset(argv_local, HEAP_LEN_OFFSET, argc_local, function);
         self.emit_function_or_proxy_construct_with_argv(
             target_payload_local,
             target_tag_local,
             new_target_payload_local,
             new_target_tag_local,
             argc_local,
-            args_payload_local,
+            argv_local,
             self.result_local,
             self.result_tag_local,
             function,
@@ -513,6 +501,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(new_target_constructable_local);
         self.release_temp_local(target_constructable_local);
+        self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(new_target_tag_local);
         self.release_temp_local(new_target_payload_local);
@@ -539,6 +528,31 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
         self.emit_builtin_arg_to_locals(1, this_arg_payload_local, this_arg_tag_local, function);
         self.emit_builtin_arg_to_locals(2, args_payload_local, args_tag_local, function);
+
+        self.emit_is_callable_i32(target_tag_local, target_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Reflect.apply target must be callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_is_heap_object_like_tag_i32(args_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Reflect.apply argumentsList must be array-like",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
         self.emit_array_like_snapshot_payload(
             args_payload_local,
             args_tag_local,
@@ -586,6 +600,19 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
         self.emit_builtin_arg_to_locals(1, key_payload_local, key_tag_local, function);
         self.emit_builtin_arg_to_locals(2, receiver_payload_local, receiver_tag_local, function);
+
+        self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Reflect.get target must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -691,8 +718,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.getOwnPropertyDescriptor target must be object",
             self.result_local,
             self.result_tag_local,
@@ -739,8 +765,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.getPrototypeOf target must be object",
             self.result_local,
             self.result_tag_local,
@@ -821,8 +846,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.set target must be object",
             self.result_local,
             self.result_tag_local,
@@ -870,8 +894,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
@@ -961,8 +984,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy set trap is not callable",
             self.result_local,
             self.result_tag_local,
@@ -1097,6 +1119,19 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
         self.emit_builtin_arg_to_locals(1, key_payload_local, key_tag_local, function);
+
+        self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Reflect.has target must be object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
         self.emit_value_to_property_key_payload(key_payload_local, key_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(key_string_local));
         self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
@@ -1218,8 +1253,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.defineProperty target must be object",
             self.result_local,
             self.result_tag_local,
@@ -1235,8 +1269,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(descriptor_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.defineProperty attributes must be object",
             self.result_local,
             self.result_tag_local,
@@ -1349,8 +1382,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "Property descriptor getter/setter must be callable or undefined",
                     self.result_local,
                     self.result_tag_local,
@@ -1373,8 +1405,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Property descriptor cannot be both accessor and data",
             self.result_local,
             self.result_tag_local,
@@ -1490,8 +1521,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
@@ -1652,8 +1682,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(target_tag_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap is not callable",
             self.result_local,
             self.result_tag_local,
@@ -1988,8 +2017,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.deleteProperty target must be object",
             self.result_local,
             self.result_tag_local,
@@ -2029,8 +2057,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.preventExtensions target must be object",
             self.result_local,
             self.result_tag_local,
@@ -2064,8 +2091,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.isExtensible target must be object",
             self.result_local,
             self.result_tag_local,
@@ -2104,8 +2130,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Object.setPrototypeOf target must be object",
             self.result_local,
             self.result_tag_local,
@@ -2121,8 +2146,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Object.setPrototypeOf prototype must be object or null",
             self.result_local,
             self.result_tag_local,
@@ -2167,6 +2191,7 @@ impl<'a> FunctionBuilder<'a> {
         let trap_result_payload_local = self.reserve_temp_local();
         let trap_result_tag_local = self.reserve_temp_local();
         let key_payload_local = self.reserve_temp_local();
+        let proxy_handled_local = self.reserve_temp_local();
         let names_function_payload_local = self.reserve_temp_local();
         let names_function_tag_local = self.reserve_temp_local();
         let symbols_function_payload_local = self.reserve_temp_local();
@@ -2189,8 +2214,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Reflect.ownKeys target must be object",
             self.result_local,
             self.result_tag_local,
@@ -2199,72 +2223,25 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
+        self.emit_proxy_own_keys_trap_result(
             target_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            handler_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            target_tag_local,
+            proxy_handled_local,
             proxy_target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
             proxy_target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(handler_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("ownKeys")));
-        function.instruction(&Instruction::LocalSet(key_payload_local));
-        self.emit_object_read(
             handler_payload_local,
             handler_tag_local,
-            handler_payload_local,
-            handler_tag_local,
-            key_payload_local,
             trap_payload_local,
             trap_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
-            trap_payload_local,
-            trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
-            &[(proxy_target_payload_local, proxy_target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
+            key_payload_local,
             function,
         )?;
+        function.instruction(&Instruction::LocalGet(proxy_handled_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_proxy_own_keys_array_result(
             proxy_target_payload_local,
             proxy_target_tag_local,
@@ -2272,131 +2249,6 @@ impl<'a> FunctionBuilder<'a> {
             trap_result_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(proxy_target_payload_local));
-        function.instruction(&Instruction::LocalSet(target_payload_local));
-        function.instruction(&Instruction::LocalGet(proxy_target_tag_local));
-        function.instruction(&Instruction::LocalSet(target_tag_local));
-
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            handler_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(handler_payload_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy handler is null",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            proxy_target_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            proxy_target_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(handler_tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("ownKeys")));
-        function.instruction(&Instruction::LocalSet(key_payload_local));
-        self.emit_object_read(
-            handler_payload_local,
-            handler_tag_local,
-            handler_payload_local,
-            handler_tag_local,
-            key_payload_local,
-            trap_payload_local,
-            trap_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
-            trap_payload_local,
-            trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
-            &[(proxy_target_payload_local, proxy_target_tag_local)],
-            trap_result_payload_local,
-            trap_result_tag_local,
-            function,
-        )?;
-        self.emit_proxy_own_keys_array_result(
-            proxy_target_payload_local,
-            proxy_target_tag_local,
-            trap_result_payload_local,
-            trap_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(proxy_target_payload_local));
-        function.instruction(&Instruction::LocalSet(target_payload_local));
-        function.instruction(&Instruction::LocalGet(proxy_target_tag_local));
-        function.instruction(&Instruction::LocalSet(target_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         let names_meta = self
@@ -2556,6 +2408,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(symbols_function_payload_local);
         self.release_temp_local(names_function_tag_local);
         self.release_temp_local(names_function_payload_local);
+        self.release_temp_local(proxy_handled_local);
         self.release_temp_local(key_payload_local);
         self.release_temp_local(trap_result_tag_local);
         self.release_temp_local(trap_result_payload_local);

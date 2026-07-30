@@ -287,7 +287,8 @@ impl<'a> FunctionBuilder<'a> {
                 let to_string_tag_payload_local = self.reserve_temp_local();
                 let to_string_tag_tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(to_string_tag_key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("Promise")));
@@ -348,7 +349,7 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.species"),
+                    self.strings.property_key_symbol_payload("Symbol.species"),
                 ));
                 function.instruction(&Instruction::LocalSet(species_key_local));
                 self.emit_function_value_payload(species_meta, function)?;
@@ -429,7 +430,7 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.species"),
+                    self.strings.property_key_symbol_payload("Symbol.species"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(&species_getter, function)?;
@@ -573,7 +574,8 @@ impl<'a> FunctionBuilder<'a> {
                 let payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("WeakMap")));
@@ -624,7 +626,8 @@ impl<'a> FunctionBuilder<'a> {
                 let payload_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("WeakSet")));
@@ -673,7 +676,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("WeakRef")));
@@ -742,7 +746,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(
@@ -784,7 +789,7 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.species"),
+                    self.strings.property_key_symbol_payload("Symbol.species"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(&species_getter, function)?;
@@ -1576,7 +1581,9 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                 }
-                function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.match")));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.property_key_symbol_payload("Symbol.match"),
+                ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(
                     REGEXP_PROTOTYPE_SYMBOL_MATCH_GLOBAL_INDEX,
@@ -1595,7 +1602,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.matchAll"),
+                    self.strings.property_key_symbol_payload("Symbol.matchAll"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(&match_all_meta, function)?;
@@ -1613,7 +1620,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.replace"),
+                    self.strings.property_key_symbol_payload("Symbol.replace"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(&replace_meta, function)?;
@@ -1631,7 +1638,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.search"),
+                    self.strings.property_key_symbol_payload("Symbol.search"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(
@@ -1650,7 +1657,9 @@ impl<'a> FunctionBuilder<'a> {
                     true,
                     function,
                 )?;
-                function.instruction(&Instruction::I64Const(self.strings.payload("Symbol.split")));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.property_key_symbol_payload("Symbol.split"),
+                ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(&split_meta, function)?;
                 function.instruction(&Instruction::LocalSet(payload_local));
@@ -1692,7 +1701,7 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.species"),
+                    self.strings.property_key_symbol_payload("Symbol.species"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(species_meta, function)?;
@@ -2126,7 +2135,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(to_string_tag_getter_meta, function)?;
@@ -2179,7 +2189,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(
@@ -2258,7 +2269,7 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.species"),
+                    self.strings.property_key_symbol_payload("Symbol.species"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(species_meta, function)?;
@@ -2772,7 +2783,8 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                 }
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.unscopables"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.unscopables"),
                 ));
                 function.instruction(&Instruction::LocalSet(unscopables_key_local));
                 function.instruction(&Instruction::LocalGet(unscopables_local));
@@ -2937,7 +2949,7 @@ impl<'a> FunctionBuilder<'a> {
                         )
                     })?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.species"),
+                    self.strings.property_key_symbol_payload("Symbol.species"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 self.emit_function_value_payload(species_meta, function)?;
@@ -3128,7 +3140,8 @@ impl<'a> FunctionBuilder<'a> {
                     }
                 }
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload(
@@ -3247,7 +3260,8 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                 }
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("DataView")));
@@ -3342,7 +3356,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(
@@ -3508,7 +3523,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(
@@ -3678,7 +3694,8 @@ impl<'a> FunctionBuilder<'a> {
                 let to_primitive_payload_local = self.reserve_temp_local();
                 let to_primitive_tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toPrimitive"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toPrimitive"),
                 ));
                 function.instruction(&Instruction::LocalSet(to_primitive_key_local));
                 self.emit_function_value_payload(&to_primitive_meta, function)?;
@@ -3818,7 +3835,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("BigInt")));
@@ -3880,7 +3898,8 @@ impl<'a> FunctionBuilder<'a> {
                 // Symbol.prototype[Symbol.toStringTag] === "Symbol"
                 // (non-writable, non-enumerable, configurable).
                 function.instruction(&Instruction::I64Const(
-                    self.strings.payload("Symbol.toStringTag"),
+                    self.strings
+                        .property_key_symbol_payload("Symbol.toStringTag"),
                 ));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::I64Const(self.strings.payload("Symbol")));
@@ -4027,7 +4046,8 @@ impl<'a> FunctionBuilder<'a> {
                     .cloned()
                 {
                     function.instruction(&Instruction::I64Const(
-                        self.strings.payload("Symbol.toPrimitive"),
+                        self.strings
+                            .property_key_symbol_payload("Symbol.toPrimitive"),
                     ));
                     function.instruction(&Instruction::LocalSet(key_local));
                     self.emit_function_value_payload(&to_primitive_meta, function)?;
@@ -4796,6 +4816,9 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn init_reflect_object(&mut self, function: &mut Function) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
         let construct_meta = self
             .functions
             .get(&StandardBuiltinId::ReflectConstruct.function_id())
@@ -4954,8 +4977,30 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_object_define_function_data(object_local, "ownKeys", own_keys_meta, function)?;
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("Reflect")));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(REFLECT_OBJECT_GLOBAL_INDEX));
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
         self.release_temp_local(object_local);
         Ok(())
     }
@@ -5013,7 +5058,8 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("Temporal")));
@@ -5121,7 +5167,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("Math")));
@@ -5159,7 +5206,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(JSON_NAME)));
@@ -5211,7 +5259,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(ATOMICS_NAME)));
@@ -5339,7 +5388,7 @@ impl<'a> FunctionBuilder<'a> {
                 )
             })?;
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.species"),
+            self.strings.property_key_symbol_payload("Symbol.species"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_function_value_payload(species_meta, function)?;
@@ -5402,7 +5451,8 @@ impl<'a> FunctionBuilder<'a> {
                 )
             })?;
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_function_value_payload(to_string_tag_meta, function)?;
@@ -5961,7 +6011,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(
@@ -6009,7 +6060,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(
@@ -6056,7 +6108,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("Map Iterator")));
@@ -6101,7 +6154,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("Set Iterator")));
@@ -6177,7 +6231,8 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("Generator")));
@@ -6308,7 +6363,8 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(
@@ -6435,7 +6491,8 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         function.instruction(&Instruction::I64Const(
-            self.strings.payload("Symbol.toStringTag"),
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(
@@ -6617,7 +6674,8 @@ impl<'a> FunctionBuilder<'a> {
             )?;
 
             function.instruction(&Instruction::I64Const(
-                self.strings.payload("Symbol.toStringTag"),
+                self.strings
+                    .property_key_symbol_payload("Symbol.toStringTag"),
             ));
             function.instruction(&Instruction::LocalSet(key_local));
             function.instruction(&Instruction::I64Const(self.strings.payload(to_string_tag)));
@@ -6652,6 +6710,12 @@ impl<'a> FunctionBuilder<'a> {
         let object_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(object_prototype_local));
+        self.store_i64_const_at_offset(
+            object_prototype_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_IMMUTABLE_PROTOTYPE,
+            function,
+        );
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.emit_store_realm_object_prototype(
@@ -7794,12 +7858,18 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_local_at_offset(object_local, HEAP_PTR_OFFSET, buffer_local, function);
         self.store_i64_const_at_offset(object_local, HEAP_LEN_OFFSET, 0, function);
         self.store_i64_const_at_offset(object_local, HEAP_CAP_OFFSET, capacity, function);
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
+        self.store_i64_const_at_offset(
             object_local,
-            HEAP_PROTOTYPE_OFFSET,
-            self.scratch_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            BOXED_PRIMITIVE_KIND_NONE,
+            function,
+        );
+        self.store_i64_const_at_offset(object_local, HEAP_OBJECT_BOXED_TAG_OFFSET, 0, function);
+        self.store_i64_const_at_offset(object_local, HEAP_OBJECT_BOXED_PAYLOAD_OFFSET, 0, function);
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            0,
             function,
         );
         function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
@@ -7808,6 +7878,12 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             HEAP_PROTOTYPE_OFFSET,
             self.scratch_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
             function,
         );
         function.instruction(&Instruction::LocalGet(object_local));
