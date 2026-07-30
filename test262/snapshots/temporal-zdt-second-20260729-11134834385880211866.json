@@ -1,0 +1,66 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11134834385880211866,
+  "run_kind": "full",
+  "total": 4,
+  "passed": 4,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 4
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/second/branding.js",
+      "duration_ms": 19091
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/second/prop-desc.js",
+      "duration_ms": 13175
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/second/balance-negative-time-units.js",
+      "duration_ms": 9925
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/second/basic.js",
+      "duration_ms": 9562
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Temporal/ZonedDateTime/prototype/second/balance-negative-time-units.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/second/basic.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/second/branding.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/second/prop-desc.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

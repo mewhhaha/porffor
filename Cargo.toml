@@ -17,7 +17,7 @@ resolver = "2"
 edition = "2021"
 license = "MIT"
 version = "0.1.0"
-authors = ["Porffor contributors"]
+authors = ["Lila contributors"]
 repository = "https://github.com/CanadaHonk/porffor"
 
 [workspace.lints.rust]
@@ -31,7 +31,7 @@ icu_calendar = { path = "vendor/icu_calendar-2.0.6" }
 regress = { path = "vendor/regress-0.10.5" }
 temporal_rs = { path = "vendor/temporal_rs-0.1.0" }
 
-# Developer builds keep Porffor's large IR/backend crates cheap to rebuild,
+# Developer builds keep Lila's large IR/backend crates cheap to rebuild,
 # while compiling third-party code (notably Wasmtime/Cranelift) once at a
 # useful optimization level. `line-tables-only` preserves source locations
 # without the much larger full debuginfo footprint.
@@ -51,7 +51,7 @@ opt-level = 2
 
 # Package overrides win over the wildcard dependency setting above. Keep all
 # workspace crates at opt-level 0 so an IR/backend edit does not trigger a slow
-# optimized rebuild of Porffor itself.
+# optimized rebuild of Lila itself.
 [profile.dev.package.porffor-front]
 opt-level = 0
 [profile.dev.package.porffor-ir]

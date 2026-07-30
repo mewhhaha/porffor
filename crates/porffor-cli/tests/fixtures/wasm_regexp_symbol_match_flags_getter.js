@@ -79,15 +79,32 @@ let flagsConflictMatch = flagsConflict[Symbol.match]("aa");
 let falseGlobal = /a/g;
 falseGlobal.lastIndex = 3;
 let falseGlobalExecCount = 0;
-Object.defineProperty(falseGlobal, "global", { value: false });
+Object.defineProperty(falseGlobal, "flags", { value: "" });
+Object.defineProperty(falseGlobal, "global", {
+  get() { throw new Error("global must not be read directly"); },
+});
 Object.defineProperty(falseGlobal, "unicode", {
-  get() { throw new Error("unicode must not be read"); },
+  get() { throw new Error("unicode must not be read directly"); },
 });
 falseGlobal.exec = function () {
   falseGlobalExecCount++;
   return null;
 };
 let falseGlobalMatch = falseGlobal[Symbol.match]("a");
+
+let ownFlagsMarker = {};
+let ownFlagsCaught = false;
+let ownFlagsReceiver = {
+  get flags() { throw ownFlagsMarker; },
+  get global() { throw new Error("global must not be read after flags throws"); },
+  get unicode() { throw new Error("unicode must not be read after flags throws"); },
+  exec() { return null; },
+};
+try {
+  RegExp.prototype[Symbol.match].call(ownFlagsReceiver, "a");
+} catch (error) {
+  ownFlagsCaught = error === ownFlagsMarker;
+}
 
 let inheritedExec = /a/;
 let inheritedExecReads = 0;
@@ -124,13 +141,14 @@ customMatch === null
   && caught === marker
   && resetCaught
   && resetOrder === "gu"
-  && resetBeforeUnicodeThrow.lastIndex === 0
-  && flagsConflictMatch.length === 2
+  && resetBeforeUnicodeThrow.lastIndex === 4
+  && flagsConflictMatch.length === 1
   && flagsConflictMatch[0] === "a"
-  && flagsConflictMatch[1] === "a"
+  && flagsConflictMatch[1] === undefined
   && falseGlobalMatch === null
   && falseGlobalExecCount === 1
   && falseGlobal.lastIndex === 3
+  && ownFlagsCaught
   && inheritedExecMatch === null
   && inheritedExecReads === 1
   && inheritedExecCalls === 1

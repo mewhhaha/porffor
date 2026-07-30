@@ -1,0 +1,104 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2656856083593623631,
+  "run_kind": "full",
+  "total": 18,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/symbols-included.js",
+      "duration_ms": 30697
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+      "duration_ms": 28100
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+      "duration_ms": 23371
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+      "duration_ms": 22218
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/order-after-define-property.js",
+      "duration_ms": 20429
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/function-property-descriptor.js",
+      "duration_ms": 20227
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/not-a-constructor.js",
+      "duration_ms": 18820
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/proxy-no-ownkeys-returned-keys-order.js",
+      "duration_ms": 18137
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/normal-object.js",
+      "duration_ms": 17031
+    },
+    {
+      "path": "built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+      "duration_ms": 16851
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Object/getOwnPropertyDescriptors/exception-not-object-coercible.js",
+    "built-ins/Object/getOwnPropertyDescriptors/function-length.js",
+    "built-ins/Object/getOwnPropertyDescriptors/function-name.js",
+    "built-ins/Object/getOwnPropertyDescriptors/function-property-descriptor.js",
+    "built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+    "built-ins/Object/getOwnPropertyDescriptors/normal-object.js",
+    "built-ins/Object/getOwnPropertyDescriptors/not-a-constructor.js",
+    "built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+    "built-ins/Object/getOwnPropertyDescriptors/order-after-define-property.js",
+    "built-ins/Object/getOwnPropertyDescriptors/primitive-booleans.js",
+    "built-ins/Object/getOwnPropertyDescriptors/primitive-numbers.js",
+    "built-ins/Object/getOwnPropertyDescriptors/primitive-strings.js",
+    "built-ins/Object/getOwnPropertyDescriptors/primitive-symbols.js",
+    "built-ins/Object/getOwnPropertyDescriptors/proxy-no-ownkeys-returned-keys-order.js",
+    "built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+    "built-ins/Object/getOwnPropertyDescriptors/symbols-included.js",
+    "built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+    "built-ins/Object/getOwnPropertyDescriptors/tamper-with-object-keys.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

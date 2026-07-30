@@ -1,0 +1,279 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15408077714727533178,
+  "run_kind": "full",
+  "total": 21,
+  "passed": 2,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 18,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 18,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 2
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Object/entries/symbols-omitted.js",
+      "duration_ms": 28275
+    },
+    {
+      "path": "built-ins/Object/entries/return-order.js",
+      "duration_ms": 28144
+    },
+    {
+      "path": "built-ins/Object/entries/observable-operations.js",
+      "duration_ms": 21526
+    },
+    {
+      "path": "built-ins/Object/entries/primitive-symbols.js",
+      "duration_ms": 20611
+    },
+    {
+      "path": "built-ins/Object/entries/getter-removing-future-key.js",
+      "duration_ms": 20548
+    },
+    {
+      "path": "built-ins/Object/entries/not-a-constructor.js",
+      "duration_ms": 19088
+    },
+    {
+      "path": "built-ins/Object/entries/function-property-descriptor.js",
+      "duration_ms": 18228
+    },
+    {
+      "path": "built-ins/Object/entries/inherited-properties-omitted.js",
+      "duration_ms": 17254
+    },
+    {
+      "path": "built-ins/Object/entries/exception-during-enumeration.js",
+      "duration_ms": 16091
+    },
+    {
+      "path": "built-ins/Object/entries/function-name.js",
+      "duration_ms": 15014
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Object/entries/exception-during-enumeration.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1461480)",
+      "detail_hash": 14668706813567701791,
+      "duration_ms": 16091
+    },
+    {
+      "test_path": "built-ins/Object/entries/function-length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1480472)",
+      "detail_hash": 7495604600860149411,
+      "duration_ms": 11882
+    },
+    {
+      "test_path": "built-ins/Object/entries/function-name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1480472)",
+      "detail_hash": 7495604600860149411,
+      "duration_ms": 15014
+    },
+    {
+      "test_path": "built-ins/Object/entries/function-property-descriptor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected descriptor to exist)",
+      "detail_hash": 4157586038938152846,
+      "duration_ms": 18228
+    },
+    {
+      "test_path": "built-ins/Object/entries/getter-adding-key.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1433696)",
+      "detail_hash": 7553221092561381586,
+      "duration_ms": 13242
+    },
+    {
+      "test_path": "built-ins/Object/entries/getter-making-future-key-nonenumerable.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1433816)",
+      "detail_hash": 15853830133687697556,
+      "duration_ms": 13308
+    },
+    {
+      "test_path": "built-ins/Object/entries/getter-removing-future-key.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1433768)",
+      "detail_hash": 5117472699215131959,
+      "duration_ms": 20548
+    },
+    {
+      "test_path": "built-ins/Object/entries/inherited-properties-omitted.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1436672)",
+      "detail_hash": 4846458680726995188,
+      "duration_ms": 17254
+    },
+    {
+      "test_path": "built-ins/Object/entries/observable-operations.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1513288)",
+      "detail_hash": 2759760366910403968,
+      "duration_ms": 21526
+    },
+    {
+      "test_path": "built-ins/Object/entries/order-after-define-property-with-function.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1442800)",
+      "detail_hash": 17081332727102801402,
+      "duration_ms": 14840
+    },
+    {
+      "test_path": "built-ins/Object/entries/order-after-define-property.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1442488)",
+      "detail_hash": 16289119714680285659,
+      "duration_ms": 13701
+    },
+    {
+      "test_path": "built-ins/Object/entries/primitive-booleans.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1432576)",
+      "detail_hash": 8007626232911083449,
+      "duration_ms": 11265
+    },
+    {
+      "test_path": "built-ins/Object/entries/primitive-numbers.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1459328)",
+      "detail_hash": 4732590574624924854,
+      "duration_ms": 9040
+    },
+    {
+      "test_path": "built-ins/Object/entries/primitive-strings.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1432616)",
+      "detail_hash": 15810205099352160960,
+      "duration_ms": 12016
+    },
+    {
+      "test_path": "built-ins/Object/entries/primitive-symbols.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1432408)",
+      "detail_hash": 10754837141977347151,
+      "duration_ms": 20611
+    },
+    {
+      "test_path": "built-ins/Object/entries/return-order.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1444992)",
+      "detail_hash": 15141768338474878169,
+      "duration_ms": 28144
+    },
+    {
+      "test_path": "built-ins/Object/entries/symbols-omitted.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1434792)",
+      "detail_hash": 11044777248022224236,
+      "duration_ms": 28275
+    },
+    {
+      "test_path": "built-ins/Object/entries/tamper-with-global-object.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Object/entries/tamper-with-object-keys.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1441992)",
+      "detail_hash": 14775592692166472318,
+      "duration_ms": 13217
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Object/entries/exception-during-enumeration.js",
+    "built-ins/Object/entries/exception-not-object-coercible.js",
+    "built-ins/Object/entries/function-length.js",
+    "built-ins/Object/entries/function-name.js",
+    "built-ins/Object/entries/function-property-descriptor.js",
+    "built-ins/Object/entries/getter-adding-key.js",
+    "built-ins/Object/entries/getter-making-future-key-nonenumerable.js",
+    "built-ins/Object/entries/getter-removing-future-key.js",
+    "built-ins/Object/entries/inherited-properties-omitted.js",
+    "built-ins/Object/entries/not-a-constructor.js",
+    "built-ins/Object/entries/observable-operations.js",
+    "built-ins/Object/entries/order-after-define-property-with-function.js",
+    "built-ins/Object/entries/order-after-define-property.js",
+    "built-ins/Object/entries/primitive-booleans.js",
+    "built-ins/Object/entries/primitive-numbers.js",
+    "built-ins/Object/entries/primitive-strings.js",
+    "built-ins/Object/entries/primitive-symbols.js",
+    "built-ins/Object/entries/return-order.js",
+    "built-ins/Object/entries/symbols-omitted.js",
+    "built-ins/Object/entries/tamper-with-global-object.js",
+    "built-ins/Object/entries/tamper-with-object-keys.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

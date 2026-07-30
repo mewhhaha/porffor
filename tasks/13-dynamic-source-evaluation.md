@@ -1,9 +1,21 @@
 # T13 — Dynamic source evaluation: `eval`, `Function` and realm evaluation
 
-**Status:** Design gate after T06/T08/T09/T12  
+**Status:** Policy selected; in progress — explicit unsupported accounting exists, ADR remains
+
 **Parallel group:** Feature lane with an architecture decision first  
 **Depends on:** T03, T06, T08, T09, T12  
 **Blocks:** Honest accounting for dynamic-code Test262 cases and parts of T24/T26
+
+## Current repository state
+
+The active product policy is explicit: generic `eval`, Function-family
+construction and realm `evalScript` remain visible Wasm-AOT unsupported cases
+when support would require an interpreter or runtime parser. The harness
+classifies these cases and the README reports them separately. A dedicated ADR
+comparing the allowed designs is still absent, and supported statically known
+source/host-compiler subsets have not been implemented. Keep this task focused
+on architecture, capability reporting and general compilation paths rather
+than treating the permitted unsupported result as a pass.
 
 ## Objective
 

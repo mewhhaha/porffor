@@ -14,7 +14,12 @@ function argumentsHasOwnProperties(first, second) {
   });
   let hadLength = hasOwnProperty.call(values, "length");
   let hadFirst = hasOwnProperty.call(values, "0");
+  let hadSixth = hasOwnProperty.call(values, "5");
+  let hadCallee = hasOwnProperty.call(values, "callee");
   let hadNamed = hasOwnProperty.call(values, "named");
+  let objectHadLength = Object.hasOwn(values, "length");
+  let objectHadSixth = Object.hasOwn(values, "5");
+  let objectHadCallee = Object.hasOwn(values, "callee");
   let deletedLength = delete values.length;
   let reflectedDeletedLength = Reflect.deleteProperty(values, "length");
   let prototype = Object.getPrototypeOf(values);
@@ -23,14 +28,24 @@ function argumentsHasOwnProperties(first, second) {
   delete prototype.length;
   return hadLength
     && hadFirst
+    && hadSixth
+    && hadCallee
     && hadNamed
+    && objectHadLength
+    && objectHadSixth
+    && objectHadCallee
     && deletedLength
     && reflectedDeletedLength
     && readsInheritedLength
     && Object.getOwnPropertyDescriptor(values, "length") === undefined
     && !hasOwnProperty.call(values, "length")
     && hasOwnProperty.call(values, "0")
-    && hasOwnProperty.call(values, "named");
+    && hasOwnProperty.call(values, "named")
+    && !Object.hasOwn(values, "length")
+    && Object.hasOwn(values, "0")
+    && Object.hasOwn(values, "named")
+    && !("length" in values)
+    && "named" in values;
 }
 
 let nullishKeyCalls = 0;
@@ -153,7 +168,7 @@ let ok = directDeleteBuiltin.hasOwnProperty("length")
   && nullishCoercesKeyBeforeThrow
   && proxyCoercesKeyOnce
   && proxyPropagatesKeyCoercion
-  && argumentsHasOwnProperties(1, 2)
+  && argumentsHasOwnProperties(1, 2, 3, 4, 5, 6)
   && primitiveStringProperties
   && symbolProperty
   && symbolProxyProperty

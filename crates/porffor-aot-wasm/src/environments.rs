@@ -1160,6 +1160,60 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
     }
 
+    pub(crate) fn emit_global_identifier_read(
+        &mut self,
+        name: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        let object_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        let has_property_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(object_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(object_tag_local));
+        self.emit_object_has_property_i32(
+            object_local,
+            object_tag_local,
+            key_local,
+            has_property_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(has_property_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_read_without_throw_propagation(
+            object_local,
+            object_tag_local,
+            object_local,
+            object_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_throw_runtime_error(
+            REFERENCE_ERROR_NAME,
+            "unbound identifier",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(has_property_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_local);
+        self.release_temp_local(key_local);
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
+    }
+
     pub(crate) fn emit_global_property_write(
         &mut self,
         name: &str,

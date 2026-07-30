@@ -191,29 +191,29 @@ var $262 = {
     __porfUnsupportedHost('getGlobal');
   },
   agent: {
-    start: function () {
-      __porfUnsupportedHost('agent.start');
+    start: function (source) {
+      return __porfAgentStart(source);
     },
-    broadcast: function () {
-      __porfUnsupportedHost('agent.broadcast');
+    broadcast: function (sab) {
+      return __porfAgentBroadcast(sab);
     },
-    receiveBroadcast: function () {
-      __porfUnsupportedHost('agent.receiveBroadcast');
+    receiveBroadcast: function (callback) {
+      return callback(__porfAgentReceiveBroadcast());
     },
-    report: function () {
-      __porfUnsupportedHost('agent.report');
+    report: function (value) {
+      return __porfAgentReport(value);
     },
     getReport: function () {
-      __porfUnsupportedHost('agent.getReport');
+      return __porfAgentGetReport();
     },
-    sleep: function () {
-      __porfUnsupportedHost('agent.sleep');
+    sleep: function (milliseconds) {
+      return __porfAgentSleep(milliseconds);
     },
     monotonicNow: function () {
-      __porfUnsupportedHost('agent.monotonicNow');
+      return __porfAgentMonotonicNow();
     },
     leaving: function () {
-      __porfUnsupportedHost('agent.leaving');
+      return __porfAgentLeaving();
     }
   }
 };

@@ -1,0 +1,99 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16726008249018294135,
+  "run_kind": "full",
+  "total": 13,
+  "passed": 13,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 13
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Reflect/ownKeys/return-on-corresponding-order-large-index.js",
+      "duration_ms": 32591
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/order-after-define-property.js",
+      "duration_ms": 29578
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/target-is-not-object-throws.js",
+      "duration_ms": 28899
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/not-a-constructor.js",
+      "duration_ms": 27911
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/return-on-corresponding-order.js",
+      "duration_ms": 27227
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/return-non-enumerable-keys.js",
+      "duration_ms": 27112
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/length.js",
+      "duration_ms": 25081
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/ownKeys.js",
+      "duration_ms": 23594
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/name.js",
+      "duration_ms": 23531
+    },
+    {
+      "path": "built-ins/Reflect/ownKeys/return-abrupt-from-result.js",
+      "duration_ms": 21611
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Reflect/ownKeys/length.js",
+    "built-ins/Reflect/ownKeys/name.js",
+    "built-ins/Reflect/ownKeys/not-a-constructor.js",
+    "built-ins/Reflect/ownKeys/order-after-define-property.js",
+    "built-ins/Reflect/ownKeys/ownKeys.js",
+    "built-ins/Reflect/ownKeys/return-abrupt-from-result.js",
+    "built-ins/Reflect/ownKeys/return-array-with-own-keys-only.js",
+    "built-ins/Reflect/ownKeys/return-empty-array.js",
+    "built-ins/Reflect/ownKeys/return-non-enumerable-keys.js",
+    "built-ins/Reflect/ownKeys/return-on-corresponding-order-large-index.js",
+    "built-ins/Reflect/ownKeys/return-on-corresponding-order.js",
+    "built-ins/Reflect/ownKeys/target-is-not-object-throws.js",
+    "built-ins/Reflect/ownKeys/target-is-symbol-throws.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

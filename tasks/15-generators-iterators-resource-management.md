@@ -1,9 +1,19 @@
 # T15 — Generators, iterators, iterator helpers and resource management
 
-**Status:** Blocked on T04/T05/T08/T09  
+**Status:** In progress — iterator helpers and generator records exist; general suspension remains
+
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T08, T09; async portions also depend on T14  
 **Blocks:** Iterator-dependent closure across arrays, collections, promises and modules
+
+## Current repository state
+
+Generator activation/delegation records, iterator operations, several iterator
+helpers, async-iterator support and resource-management builtins now exist.
+Some generator and helper behavior is still handled through focused
+materialization, and the README records unsupported suspended/control-flow
+families. General sync/async generator state machines, iterator-close coverage
+across all consumers and complete resource-management filters remain open.
 
 ## Objective
 

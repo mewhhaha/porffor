@@ -1,9 +1,19 @@
 # T10 — Object model, descriptors and exotic-object protocol
 
-**Status:** Blocked on T04-T06  
+**Status:** In progress — general object machinery exists; shortcut-free closure remains
+
 **Parallel group:** Core foundations  
 **Depends on:** T04, T05, T06  
 **Blocks:** T11, T16-T24
+
+## Current repository state
+
+The backend has dedicated object/internal-operation emitters, descriptor
+support, integrity operations, own-key ordering and multiple exotic brands.
+Recent focused Object work is extensive, but the shortcut audit still finds
+path/source-dependent materializations and there is no current complete
+Wasm-AOT proof that the Object and descriptor trees are zero-failure. Exotic
+families continue to expose gaps in the common protocol.
 
 ## Objective
 

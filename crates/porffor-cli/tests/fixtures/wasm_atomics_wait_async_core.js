@@ -150,9 +150,31 @@ assertTypeError(function () {
 assertTypeError(function () {
   Atomics.waitAsync({}, poisoned, poisoned, poisoned);
 }, "plain object");
-assertTypeError(function () {
-  Atomics.waitAsync(i32, 0, 0, 1);
-}, "blocking waitAsync");
+var positiveTimeoutResult = Atomics.waitAsync(i32, 0, 0, 1);
+assertSame(positiveTimeoutResult.async, true, "positive timeout async");
+assertSame(positiveTimeoutResult.value instanceof Promise, true, "positive timeout promise");
+Atomics.add(i32, 0, 1);
+assertSame(Atomics.notify(i32, 0, 1), 1, "positive timeout notify count");
+positiveTimeoutResult.value.then(function (outcome) {
+  assertSame(outcome, "ok", "positive timeout outcome");
+});
+
+Atomics.store(i32, 0, 0);
+var firstWaiter = Atomics.waitAsync(i32, 0, 0);
+var secondWaiter = Atomics.waitAsync(i32, 0, 0);
+assertSame(Atomics.notify(i32, 0, 0), 0, "zero notify count");
+Atomics.store(i32, 0, 1);
+assertSame(Atomics.notify(i32, 0), 2, "default notify count");
+var waiterOrder = 0;
+firstWaiter.value.then(function (outcome) {
+  assertSame(outcome, "ok", "first waiter outcome");
+  assertSame(waiterOrder, 0, "first waiter order");
+  waiterOrder = 1;
+});
+secondWaiter.value.then(function (outcome) {
+  assertSame(outcome, "ok", "second waiter outcome");
+  assertSame(waiterOrder, 1, "second waiter order");
+});
 
 assertTypeError(function () {
   Atomics.waitAsync(i32, Symbol("index"), poisoned, poisoned);

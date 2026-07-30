@@ -7,9 +7,9 @@
     "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
   },
   "manifest_hash": 9731803590341660978,
-  "run_kind": "resume-case-checkpoint",
-  "total": 50,
-  "passed": 50,
+  "run_kind": "full",
+  "total": 64,
+  "passed": 64,
   "counts_per_kind": {
     "EarlyError": 0,
     "HostHarness": 0,
@@ -23,7 +23,7 @@
     "Bug": 0,
     "Crash": 0,
     "NotImplemented": 0,
-    "Success": 50
+    "Success": 64
   },
   "slowest_tests": [
     {
@@ -43,33 +43,47 @@
       "duration_ms": 15839
     },
     {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-target.js",
+      "duration_ms": 13041
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-end.js",
+      "duration_ms": 13034
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-end.js",
+      "duration_ms": 12971
+    },
+    {
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/detached-buffer.js",
+      "duration_ms": 12760
+    },
+    {
       "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end.js",
       "duration_ms": 12745
     },
     {
-      "path": "built-ins/TypedArray/prototype/copyWithin/undefined-end.js",
-      "duration_ms": 12602
-    },
-    {
-      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end-is-symbol.js",
-      "duration_ms": 12563
-    },
-    {
-      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start-is-symbol.js",
-      "duration_ms": 12511
-    },
-    {
-      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-start.js",
-      "duration_ms": 12452
-    },
-    {
-      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js",
-      "duration_ms": 12412
+      "path": "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-start.js",
+      "duration_ms": 12733
     }
   ],
   "timeout_list": [],
   "failures": [],
   "completed_paths": [
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/coerced-values-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/coerced-values-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/coerced-values-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/detached-buffer.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/get-length-ignores-length-prop.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-out-of-bounds-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/negative-target.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-end.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-out-of-bounds-target-and-start.js",
+    "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-target-and-start.js",
     "built-ins/TypedArray/prototype/copyWithin/BigInt/non-negative-target-start-and-end.js",
     "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end-is-symbol.js",
     "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-end.js",

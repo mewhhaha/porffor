@@ -1,0 +1,138 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3551910974750769547,
+  "run_kind": "full",
+  "total": 42,
+  "passed": 41,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 41
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Iterator/zipKeyed/basic-shortest.js",
+      "duration_ms": 37702
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/basic-longest.js",
+      "duration_ms": 37527
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/suspended-yield-iterator-close-calls-next.js",
+      "duration_ms": 29791
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/basic-strict.js",
+      "duration_ms": 29508
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/results-object-from-array.js",
+      "duration_ms": 29250
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/iterables-iteration.js",
+      "duration_ms": 25744
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/iterables-iteration-undefined.js",
+      "duration_ms": 25676
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/length.js",
+      "duration_ms": 25145
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/results-object-has-default-attributes.js",
+      "duration_ms": 24052
+    },
+    {
+      "path": "built-ins/Iterator/zipKeyed/padding-iteration.js",
+      "duration_ms": 23978
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Iterator/zipKeyed/result-is-iterator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: dynamic Function constructor. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 6357427131409392297,
+      "duration_ms": 6924
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Iterator/zipKeyed/basic-longest.js",
+    "built-ins/Iterator/zipKeyed/basic-shortest.js",
+    "built-ins/Iterator/zipKeyed/basic-strict.js",
+    "built-ins/Iterator/zipKeyed/is-function.js",
+    "built-ins/Iterator/zipKeyed/iterables-containing-string-objects.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-after-reading-options.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-deleted.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-enumerable.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-get-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-get-iterator-flattenable-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-get-own-property-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-inherited.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-symbol-key.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration-undefined.js",
+    "built-ins/Iterator/zipKeyed/iterables-iteration.js",
+    "built-ins/Iterator/zipKeyed/iterables-primitive.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-iterator-close-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-iterator-step-value-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-longest-iterator-close-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-shortest-iterator-close-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-strict-iterator-close-i-is-not-zero-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-strict-iterator-close-i-is-zero-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration-strict-iterator-step-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/iterator-zip-iteration.js",
+    "built-ins/Iterator/zipKeyed/length.js",
+    "built-ins/Iterator/zipKeyed/name.js",
+    "built-ins/Iterator/zipKeyed/non-constructible.js",
+    "built-ins/Iterator/zipKeyed/options-mode.js",
+    "built-ins/Iterator/zipKeyed/options-padding.js",
+    "built-ins/Iterator/zipKeyed/options.js",
+    "built-ins/Iterator/zipKeyed/padding-iteration-get-abrupt-completion.js",
+    "built-ins/Iterator/zipKeyed/padding-iteration.js",
+    "built-ins/Iterator/zipKeyed/prop-desc.js",
+    "built-ins/Iterator/zipKeyed/proto.js",
+    "built-ins/Iterator/zipKeyed/result-is-iterator.js",
+    "built-ins/Iterator/zipKeyed/results-object-from-array.js",
+    "built-ins/Iterator/zipKeyed/results-object-has-default-attributes.js",
+    "built-ins/Iterator/zipKeyed/results-object-has-no-undefined-iterables-properties.js",
+    "built-ins/Iterator/zipKeyed/suspended-start-iterator-close-calls-next.js",
+    "built-ins/Iterator/zipKeyed/suspended-start-iterator-close-calls-return.js",
+    "built-ins/Iterator/zipKeyed/suspended-yield-iterator-close-calls-next.js",
+    "built-ins/Iterator/zipKeyed/suspended-yield-iterator-close-calls-return.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,13 +1,22 @@
 # T22 — Date and Temporal
 
-**Status:** Blocked on T04-T06/T10/T18/T20  
+**Status:** In progress — Date and initial Temporal adapters exist; complete APIs/data remain open
+
 **Parallel group:** Feature lane; Date and Temporal can be separate sub-owners  
 **Depends on:** T04, T05, T06, T10, T18, T20; locale formatting integrates with T23  
 **Blocks:** Time-related T23/T26 closure
 
+## Current repository state
+
+Date has a substantial dedicated backend implementation and focused complete
+leaves. Temporal now has a dedicated builtin module with Instant and
+ZonedDateTime work and focused snapshots. The complete Temporal class surface,
+custom calendar/time-zone protocols, pinned deterministic data, Intl
+integration and materialization-free full Date/Temporal trees remain open.
+
 ## Objective
 
-Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Porffor's own runtime/compiler layers.
+Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Lila's own runtime/compiler layers.
 
 ## Host time contract
 
@@ -40,7 +49,7 @@ Do not use Rust/OS date parsers for ECMAScript ISO parsing unless wrapped by exh
 Create a JavaScript-facing adapter around `temporal_rs` or the selected semantic kernel. The adapter must own:
 
 - ordered option/property access and conversion through T04;
-- Porffor object branding/internal slots and prototype dispatch;
+- Lila object branding/internal slots and prototype dispatch;
 - realm-specific constructors/prototypes/errors;
 - conversion to/from ECMAScript strings, Numbers, BigInts and objects;
 - calendar/time-zone protocol calls, including user-defined objects and abrupt completion;

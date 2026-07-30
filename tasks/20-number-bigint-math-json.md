@@ -1,9 +1,19 @@
 # T20 — Number, BigInt, Math and JSON
 
-**Status:** Blocked on T04/T05/T10  
+**Status:** In progress — broad numeric/JSON support exists; arbitrary BigInt and full closure remain
+
 **Parallel group:** Feature lane; split internally by Number, BigInt, Math and JSON  
 **Depends on:** T04, T05, T10, T18  
 **Blocks:** Numeric and JSON portions of T22-T23/T26
+
+## Current repository state
+
+Number operators/conversions, Math builtins, JSON parsing/stringification and
+small/heap BigInt representations have extensive Wasm implementations and
+focused real-suite coverage. The heap design explicitly records multi-limb
+BigInt arithmetic and conversion as incomplete, and JSON/Number metadata still
+appears in the Test262 materialization layer. Full Number, BigInt, Math and JSON
+current-pin trees have not met this task's shortcut-free acceptance gate.
 
 ## Objective
 
@@ -53,7 +63,7 @@ Implement every method/constant in the pinned suite, including exact corner case
 
 ## JSON
 
-Implement a dedicated JSON parser and serializer over Porffor values:
+Implement a dedicated JSON parser and serializer over Lila values:
 
 - strict JSON lexical grammar, strings/escapes, numbers and duplicate keys;
 - `JSON.parse` reviver traversal/deletion/order, `__proto__` treatment and source-text context argument if present in the pin;

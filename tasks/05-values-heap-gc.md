@@ -1,9 +1,20 @@
 # T05 — Value representation, heap, GC and weak reachability
 
-**Status:** Blocked on stable T02/T04 interfaces  
+**Status:** In progress — layout registries landed; executable GC and full BigInt remain open
+
 **Parallel group:** Core foundations  
 **Depends on:** T02, T04  
 **Blocks:** T06, T10, T14, T17, T21 and long-running full-suite stability
+
+## Current repository state
+
+The checked-in heap design and registries document value tags, layouts, roots,
+weak edges and collector phases, and allocation grows linear memory safely.
+The implementation remains bump-only, the collector contract is metadata-only,
+`gc()` is intentionally unsupported, and multi-limb BigInt arithmetic and
+conversion are still incomplete. The current linear-memory object model also
+does not yet realize this task's Wasm-GC-first target, so that architecture gap
+must be resolved rather than treated as completion.
 
 ## Objective
 

@@ -1,9 +1,19 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-**Status:** Ready after T01-T04 interfaces; run continuously  
+**Status:** Early in progress — benchmarks exist; differential/reduction/CI framework remains open
+
 **Parallel group:** Validation lane  
 **Depends on:** T01, T02, T03, T04  
 **Blocks:** Confidence and performance gates in T26
+
+## Current repository state
+
+The repository has legacy fuzz inputs, benchmark programs, ignored Wasm-AOT
+performance tests, snapshot determinism tests and an explicitly feature-gated
+spec-exec oracle. It does not yet expose the task's grammar-aware differential
+generator, structured mismatch corpus, AST reducer and replay CLI, nor the
+described nightly fuzz/performance artifact pipeline. Treat performance
+fixtures as a starting point, not completion of this validation lane.
 
 ## Objective
 
@@ -13,8 +23,8 @@ Build automated methods that discover semantic divergences, crashes, hangs and p
 
 Create a runner that can execute the same generated or minimized program through:
 
-- Porffor Wasm-AOT (the product under test);
-- Porffor `spec-exec` (the internal Boa-based oracle — this differential role is the only permitted use of an interpreter in the project);
+- Lila Wasm-AOT (the product under test);
+- Lila `spec-exec` (the internal Boa-based oracle — this differential role is the only permitted use of an interpreter in the project);
 - the legacy JavaScript implementation when it provides useful independent evidence;
 - an optional external standards-oriented engine configured explicitly for developer testing.
 

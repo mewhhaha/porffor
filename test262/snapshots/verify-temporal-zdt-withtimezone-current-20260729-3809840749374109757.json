@@ -1,0 +1,121 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3809840749374109757,
+  "run_kind": "full",
+  "total": 16,
+  "passed": 14,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 14
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/preserves-instant.js",
+      "duration_ms": 90972
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/subclassing-ignored.js",
+      "duration_ms": 84325
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/name.js",
+      "duration_ms": 32590
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-wrong-type.js",
+      "duration_ms": 27622
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/length.js",
+      "duration_ms": 26219
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/branding.js",
+      "duration_ms": 24825
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-sub-minute-offset.js",
+      "duration_ms": 24603
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-year-zero.js",
+      "duration_ms": 24490
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-datetime.js",
+      "duration_ms": 24207
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/builtin.js",
+      "duration_ms": 23645
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/preserves-instant.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1651720)",
+      "detail_hash": 14976773400381272845,
+      "duration_ms": 90972
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-wrong-type.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1512264)",
+      "detail_hash": 1145260976694493011,
+      "duration_ms": 27622
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/branding.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/builtin.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/length.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/name.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/not-a-constructor.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/preserves-instant.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/prop-desc.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/subclassing-ignored.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-case-insensitive.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-datetime.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-leap-second.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-multiple-offsets.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-sub-minute-offset.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string-year-zero.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-string.js",
+    "built-ins/Temporal/ZonedDateTime/prototype/withTimeZone/timezone-wrong-type.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

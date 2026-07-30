@@ -208,6 +208,12 @@ pub(crate) struct FunctionBuilder<'a> {
     /// false only while compiling that helper itself. ToNumber appears at ~130
     /// builtin sites, each otherwise several KB inline.
     pub(crate) outline_value_to_number: bool,
+    /// When false, `emit_value_to_numeric_locals` inlines the full dynamic
+    /// ToNumeric composite instead of calling the shared helper. Set false only
+    /// while compiling that helper itself. Object coercion dominates repeated
+    /// arithmetic expressions, so outlining it keeps user functions below
+    /// Cranelift's per-function virtual-register limit.
+    pub(crate) outline_value_to_numeric: bool,
     /// When false, `emit_object_get_prototype_of_with_depth` inlines the
     /// proxy-aware `[[GetPrototypeOf]]` state machine instead of emitting a call
     /// to the shared helper. Set false only while compiling that helper itself.
@@ -291,11 +297,15 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
     let mut forced = ForcedBuiltins::default();
     loop {
         let (artifact, touched_stubbed) = emit_script_with_forced_builtins(script, &forced)?;
-        if touched_stubbed.standard.is_empty() && touched_stubbed.host.is_empty() {
+        if touched_stubbed.standard.is_empty()
+            && touched_stubbed.host.is_empty()
+            && !touched_stubbed.number_pow_import
+        {
             return Ok(artifact);
         }
         forced.standard.extend(touched_stubbed.standard);
         forced.host.extend(touched_stubbed.host);
+        forced.number_pow_import |= touched_stubbed.number_pow_import;
     }
 }
 
@@ -315,14 +325,14 @@ fn async_generator_contains_suspension(
             matches!(suspension, AsyncGeneratorSuspension::Yield)
         }
         StatementIr::GeneratorLoop {
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
-        } => before_yield
+        } => before_suspension
             .iter()
-            .chain(std::iter::once(yield_statement.as_ref()))
-            .chain(after_yield)
+            .chain(std::iter::once(suspension_statement.as_ref()))
+            .chain(after_suspension)
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
         StatementIr::GeneratorIf {
             then_before_yield,
@@ -435,44 +445,83 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         } => Some("property-assignment yield resumption"),
         StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. } => None,
         StatementIr::GeneratorLoop {
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             entry_state,
             resume_state,
             exit_state,
             ..
         } => {
-            let StatementIr::GeneratorYield {
-                delegate: false,
-                suspend_state,
-                resume_state: yield_resume_state,
-                ..
-            } = yield_statement.as_ref()
-            else {
-                return Some("resumable loops without one direct yield");
+            let (suspend_state, suspension_resume_state) = match suspension_statement.as_ref() {
+                StatementIr::GeneratorYield {
+                    delegate: false,
+                    suspend_state,
+                    resume_state,
+                    ..
+                }
+                | StatementIr::AsyncAwait {
+                    suspend_state,
+                    resume_state,
+                    ..
+                } => (suspend_state, resume_state),
+                StatementIr::GeneratorYield { delegate: true, .. } => {
+                    return Some("resumable loops with delegated yield");
+                }
+                _ => return Some("resumable loops without one direct suspension"),
             };
-            if suspend_state != entry_state || yield_resume_state != resume_state {
-                return Some("resumable loops with non-linear yield states");
-            }
+            if suspend_state != entry_state || suspension_resume_state != resume_state {
+                return Some("resumable loops with non-linear suspension states");
+            };
             if exit_state != resume_state {
                 return Some("resumable loops with an unplanned exit state");
             }
-            if before_yield.iter().chain(after_yield).any(|statement| {
+            if before_suspension
+                .iter()
+                .chain(after_suspension)
+                .any(|statement| {
+                    async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
+                        || async_generator_contains_suspension(
+                            statement,
+                            AsyncGeneratorSuspension::Yield,
+                        )
+                })
+            {
+                return Some("resumable loops containing multiple suspensions");
+            }
+            std::iter::once(suspension_statement.as_ref())
+                .chain(before_suspension)
+                .chain(after_suspension)
+                .find_map(async_generator_dispatcher_unsupported_feature)
+        }
+        StatementIr::GeneratorIf {
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            ..
+        } => {
+            let surrounding_statements = then_before_yield
+                .iter()
+                .chain(then_after_yield)
+                .chain(else_before_yield)
+                .chain(else_after_yield);
+            if surrounding_statements.clone().any(|statement| {
                 async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
                     || async_generator_contains_suspension(
                         statement,
                         AsyncGeneratorSuspension::Yield,
                     )
             }) {
-                return Some("resumable loops containing multiple suspensions");
+                return Some("resumable branches containing multiple suspensions");
             }
-            std::iter::once(yield_statement.as_ref())
-                .chain(before_yield)
-                .chain(after_yield)
+            surrounding_statements
+                .chain(then_yield_statement.as_deref())
+                .chain(else_yield_statement.as_deref())
                 .find_map(async_generator_dispatcher_unsupported_feature)
         }
-        StatementIr::GeneratorIf { .. } => Some("resumable branches"),
         StatementIr::ForOfIterator {
             name,
             body,
@@ -587,6 +636,7 @@ pub(crate) fn async_generator_for_await_is_transparent_yield(
 struct ForcedBuiltins {
     standard: BTreeSet<StandardBuiltinId>,
     host: BTreeSet<HostBuiltinId>,
+    number_pow_import: bool,
 }
 
 fn emit_script_with_forced_builtins(
@@ -594,8 +644,41 @@ fn emit_script_with_forced_builtins(
     forced: &ForcedBuiltins,
 ) -> Result<(WasmArtifact, ForcedBuiltins), EmitError> {
     let uses_heap = true;
-    let uses_shared_memory = script_references_memory_atomics(script);
+    let references_agent_host = script
+        .host_builtins
+        .iter()
+        .chain(&forced.host)
+        .any(|builtin| {
+            matches!(
+                builtin,
+                HostBuiltinId::AgentStart
+                    | HostBuiltinId::AgentBroadcast
+                    | HostBuiltinId::AgentReceiveBroadcast
+                    | HostBuiltinId::AgentReport
+                    | HostBuiltinId::AgentGetReport
+                    | HostBuiltinId::AgentSleep
+                    | HostBuiltinId::AgentMonotonicNow
+                    | HostBuiltinId::AgentLeaving
+            )
+        });
+    let uses_shared_memory = references_agent_host
+        || script_references_memory_atomics(script)
+        || forced
+            .standard
+            .iter()
+            .copied()
+            .any(standard_builtin_uses_memory_atomics);
+    let uses_atomics_wait_async =
+        script_references_standard_builtin(script, StandardBuiltinId::AtomicsWaitAsync)
+            || forced
+                .standard
+                .contains(&StandardBuiltinId::AtomicsWaitAsync);
     let mut compiled_host_builtins = script.host_builtins.clone();
+    if compiled_host_builtins.contains(&HostBuiltinId::CreateHTMLDDA)
+        && !compiled_host_builtins.contains(&HostBuiltinId::HTMLDDA)
+    {
+        compiled_host_builtins.push(HostBuiltinId::HTMLDDA);
+    }
     for builtin in all_host_builtins() {
         if forced.host.contains(builtin) && !compiled_host_builtins.contains(builtin) {
             compiled_host_builtins.push(*builtin);
@@ -607,7 +690,20 @@ fn emit_script_with_forced_builtins(
         .filter(|builtin| !compiled_host_builtins.contains(builtin))
         .collect::<Vec<_>>();
     let uses_host_print = compiled_host_builtins.contains(&HostBuiltinId::Print);
-    let imported_function_count = u32::from(uses_host_print);
+    let uses_agent_host = compiled_host_builtins.iter().any(|builtin| {
+        matches!(
+            builtin,
+            HostBuiltinId::AgentStart
+                | HostBuiltinId::AgentBroadcast
+                | HostBuiltinId::AgentReceiveBroadcast
+                | HostBuiltinId::AgentReport
+                | HostBuiltinId::AgentGetReport
+                | HostBuiltinId::AgentSleep
+                | HostBuiltinId::AgentMonotonicNow
+                | HostBuiltinId::AgentLeaving
+        )
+    });
+    let uses_number_pow_import = forced.number_pow_import;
     let mut compiled_standard_builtins = Vec::new();
     let mut stubbed_standard_builtins = Vec::new();
     for builtin in StandardBuiltinId::all_functions() {
@@ -617,20 +713,56 @@ fn emit_script_with_forced_builtins(
             compiled_standard_builtins.push(*builtin);
         }
     }
+    let uses_wall_clock_millis = compiled_standard_builtins.contains(&StandardBuiltinId::DateNow);
+    let number_pow_import_function_index =
+        uses_number_pow_import.then_some(1 + u32::from(uses_host_print));
+    let wall_clock_millis_import_function_index = uses_wall_clock_millis
+        .then_some(1 + u32::from(uses_host_print) + u32::from(uses_number_pow_import));
+    let shared_memory_alloc_function_index = uses_shared_memory.then_some(
+        1 + u32::from(uses_host_print)
+            + u32::from(uses_number_pow_import)
+            + u32::from(uses_wall_clock_millis),
+    );
+    let monotonic_clock_nanos_import_function_index =
+        uses_atomics_wait_async.then(|| shared_memory_alloc_function_index.unwrap() + 1);
+    let sleep_nanos_import_function_index =
+        monotonic_clock_nanos_import_function_index.map(|index| index + 1);
+    let agent_call_import_function_index = uses_agent_host.then_some(
+        1 + u32::from(uses_host_print)
+            + u32::from(uses_number_pow_import)
+            + u32::from(uses_wall_clock_millis)
+            + u32::from(uses_shared_memory)
+            + 2 * u32::from(uses_atomics_wait_async),
+    );
+    let imported_function_count = 1
+        + u32::from(uses_host_print)
+        + u32::from(uses_number_pow_import)
+        + u32::from(uses_wall_clock_millis)
+        + u32::from(uses_shared_memory)
+        + 2 * u32::from(uses_atomics_wait_async)
+        + u32::from(uses_agent_host);
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
     let runtime_bootstrap_plan =
         RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
     let has_shared_stub =
         !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty();
-    let function_metas = FunctionMetaRegistry::new(build_function_metas(
-        script.functions.as_slice(),
-        &compiled_standard_builtins,
-        &stubbed_standard_builtins,
-        &compiled_host_builtins,
-        &stubbed_host_builtins,
-        imported_function_count,
-    ));
+    let function_metas = FunctionMetaRegistry::new(
+        build_function_metas(
+            script.functions.as_slice(),
+            &compiled_standard_builtins,
+            &stubbed_standard_builtins,
+            &compiled_host_builtins,
+            &stubbed_host_builtins,
+            imported_function_count,
+        ),
+        number_pow_import_function_index,
+        wall_clock_millis_import_function_index,
+        shared_memory_alloc_function_index,
+        monotonic_clock_nanos_import_function_index,
+        sleep_nanos_import_function_index,
+        agent_call_import_function_index,
+    );
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
     let string_pool =
         StringPool::collect(script, function_metas.metas(), &compiled_standard_builtins);
@@ -912,6 +1044,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_value_to_number_helper()
         })
         .transpose()?;
+    let value_to_numeric_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_value_to_numeric_helper()
+        })
+        .transpose()?;
     let object_get_prototype_of_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -1185,9 +1334,17 @@ fn emit_script_with_forced_builtins(
     types
         .ty()
         .function([ValType::I64], [ValType::I64, ValType::I64]);
-    if uses_host_print {
-        types.ty().function([ValType::I32, ValType::I32], []);
-    }
+    types.ty().function([ValType::I32, ValType::I32], []);
+    types
+        .ty()
+        .function([ValType::F64, ValType::F64], [ValType::F64]);
+    types.ty().function([], [ValType::I32]);
+    types.ty().function([], [ValType::I64]);
+    types.ty().function([ValType::I64], []);
+    types
+        .ty()
+        .function([ValType::I64, ValType::I64, ValType::I64], [ValType::I64]);
+    types.ty().function([], [ValType::F64]);
 
     let main_wasm_index = imported_function_count;
 
@@ -1219,6 +1376,8 @@ fn emit_script_with_forced_builtins(
         // dynamic ToString (value-to-string) helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // dynamic ToNumber (value-to-number) helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // dynamic ToNumeric (value-to-numeric) helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // proxy-aware [[GetPrototypeOf]] + [[IsExtensible]] helpers.
         functions.function(JS_FUNCTION_TYPE_INDEX);
@@ -1431,6 +1590,11 @@ fn emit_script_with_forced_builtins(
                 .expect("value-to-number helper must exist when heap is enabled"),
         );
         code.function(
+            value_to_numeric_helper_function
+                .as_ref()
+                .expect("value-to-numeric helper must exist when heap is enabled"),
+        );
+        code.function(
             object_get_prototype_of_helper_function
                 .as_ref()
                 .expect("get-prototype-of helper must exist when heap is enabled"),
@@ -1499,13 +1663,85 @@ fn emit_script_with_forced_builtins(
 
     let mut module = Module::new();
     module.section(&types);
-    if uses_host_print {
+    {
         let mut imports = ImportSection::new();
         imports.import(
             HOST_IMPORT_MODULE,
-            HOST_IMPORT_PRINT_LINE_UTF8,
-            wasm_encoder::EntityType::Function(HOST_PRINT_IMPORT_TYPE_INDEX),
+            HOST_IMPORT_AGENT_CAN_SUSPEND,
+            wasm_encoder::EntityType::Function(HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX),
         );
+        if uses_host_print {
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_PRINT_LINE_UTF8,
+                wasm_encoder::EntityType::Function(HOST_PRINT_IMPORT_TYPE_INDEX),
+            );
+        }
+        if uses_number_pow_import {
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_NUMBER_POW,
+                wasm_encoder::EntityType::Function(HOST_NUMBER_POW_IMPORT_TYPE_INDEX),
+            );
+        }
+        if uses_wall_clock_millis {
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_WALL_CLOCK_MILLIS,
+                wasm_encoder::EntityType::Function(HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX),
+            );
+        }
+        if uses_shared_memory {
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_SHARED_MEMORY_ALLOC,
+                wasm_encoder::EntityType::Function(HEAP_ALLOC_TYPE_INDEX),
+            );
+            if uses_atomics_wait_async {
+                imports.import(
+                    HOST_IMPORT_MODULE,
+                    HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
+                    wasm_encoder::EntityType::Function(
+                        HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX,
+                    ),
+                );
+                imports.import(
+                    HOST_IMPORT_MODULE,
+                    HOST_IMPORT_SLEEP_NANOS,
+                    wasm_encoder::EntityType::Function(HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX),
+                );
+            }
+            let initial_pages = initial_memory_pages(string_pool.bytes.len(), uses_heap);
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_PRIVATE_MEMORY,
+                wasm_encoder::EntityType::Memory(MemoryType {
+                    minimum: initial_pages,
+                    maximum: None,
+                    memory64: false,
+                    shared: false,
+                    page_size_log2: None,
+                }),
+            );
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_SHARED_MEMORY,
+                wasm_encoder::EntityType::Memory(MemoryType {
+                    minimum: 1,
+                    maximum: Some(16_384),
+                    memory64: false,
+                    shared: true,
+                    page_size_log2: None,
+                }),
+            );
+        }
+        if uses_agent_host {
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_AGENT_CALL,
+                wasm_encoder::EntityType::Function(HOST_AGENT_CALL_IMPORT_TYPE_INDEX),
+            );
+        }
         module.section(&imports);
     }
     module.section(&functions);
@@ -1530,7 +1766,7 @@ fn emit_script_with_forced_builtins(
         format!(
             "runtime helper functions: {}",
             if uses_heap {
-                24 + usize::from(uses_json_stringify)
+                25 + usize::from(uses_json_stringify)
             } else {
                 0
             }
@@ -1572,29 +1808,63 @@ fn emit_script_with_forced_builtins(
         format!("export global: {COMPLETION_KIND_EXPORT}"),
         format!("export global: {COMPLETION_AUX_EXPORT}"),
         format!("export global: {THROW_ERROR_NAME_EXPORT}"),
+        format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
     ];
     if uses_host_print {
         debug_dump.push(format!(
             "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRINT_LINE_UTF8}"
         ));
-    } else {
-        debug_dump.push("imports: 0".to_string());
+    }
+    if uses_number_pow_import {
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_NUMBER_POW}"
+        ));
+    }
+    if uses_wall_clock_millis {
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_WALL_CLOCK_MILLIS}"
+        ));
+    }
+    if uses_shared_memory {
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_SHARED_MEMORY_ALLOC}"
+        ));
+        debug_dump.push(format!(
+            "import memory: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRIVATE_MEMORY}"
+        ));
+        debug_dump.push(format!(
+            "import memory: {HOST_IMPORT_MODULE}.{HOST_IMPORT_SHARED_MEMORY}"
+        ));
+    }
+    if uses_atomics_wait_async {
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_MONOTONIC_CLOCK_NANOS}"
+        ));
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_SLEEP_NANOS}"
+        ));
+    }
+    if uses_agent_host {
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CALL}"
+        ));
     }
 
     if !string_pool.bytes.is_empty() || uses_heap {
-        let mut memories = MemorySection::new();
-        let initial_pages = initial_memory_pages(string_pool.bytes.len(), uses_heap);
-        memories.memory(MemoryType {
-            minimum: initial_pages,
-            maximum: uses_shared_memory.then_some(65_536),
-            memory64: false,
-            shared: uses_shared_memory,
-            page_size_log2: None,
-        });
-        module.section(&memories);
+        if !uses_shared_memory {
+            let mut memories = MemorySection::new();
+            memories.memory(MemoryType {
+                minimum: initial_memory_pages(string_pool.bytes.len(), uses_heap),
+                maximum: None,
+                memory64: false,
+                shared: false,
+                page_size_log2: None,
+            });
+            module.section(&memories);
+        }
         exports.export("memory", ExportKind::Memory, 0);
         if uses_shared_memory {
-            debug_dump.push("memory: exported shared linear memory".to_string());
+            debug_dump.push("memory: exported private linear memory".to_string());
         } else {
             debug_dump.push("memory: exported linear memory".to_string());
         }
@@ -1665,6 +1935,7 @@ fn emit_script_with_forced_builtins(
             .into_iter()
             .filter(|builtin| stubbed_host_builtins.contains(builtin))
             .collect(),
+        number_pow_import: function_metas.touched_number_pow_import() && !uses_number_pow_import,
     };
 
     Ok((
@@ -2004,6 +2275,7 @@ impl<'a> FunctionBuilder<'a> {
             outline_string_to_number: true,
             outline_value_to_string: true,
             outline_value_to_number: true,
+            outline_value_to_numeric: true,
             outline_object_get_prototype_of: true,
             outline_object_is_extensible: true,
             outline_object_read_proxy: true,
@@ -2067,80 +2339,85 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 15)
     }
 
+    /// Wasm function index of the shared dynamic ToNumeric helper.
+    pub(crate) fn value_to_numeric_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 16)
+    }
+
     /// Wasm function index of the shared proxy-aware `[[GetPrototypeOf]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_get_prototype_of_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 16)
+        self.heap_alloc_function_index.map(|base| base + 17)
     }
 
     /// Wasm function index of the shared proxy-aware `[[IsExtensible]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_is_extensible_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 17)
+        self.heap_alloc_function_index.map(|base| base + 18)
     }
 
     /// Wasm function index of the shared proxy-aware `[[Get]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_read_proxy_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 18)
+        self.heap_alloc_function_index.map(|base| base + 19)
     }
 
     /// Wasm function index of the sequence-only RegExp matcher helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn regexp_matcher_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 19)
+        self.heap_alloc_function_index.map(|base| base + 20)
     }
 
     /// Wasm function index of the shared plain function-call dispatcher.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn function_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 20)
+        self.heap_alloc_function_index.map(|base| base + 21)
     }
 
     /// Wasm function index of the runtime-kind dynamic property-read helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn dynamic_property_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 21)
+        self.heap_alloc_function_index.map(|base| base + 22)
     }
 
     /// Wasm function index of the receiver-side OrdinarySet data-property
     /// helper. Unconditional (emitted whenever heap is used) so its fixed
     /// offset never shifts.
     pub(crate) fn ordinary_set_data_on_receiver_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 22)
+        self.heap_alloc_function_index.map(|base| base + 23)
     }
 
     pub(crate) fn ordinary_set_data_on_receiver_with_fallback_helper_function_index(
         &self,
     ) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 23)
+        self.heap_alloc_function_index.map(|base| base + 24)
     }
 
     /// Wasm function index of the shared dense/sparse Array element-write helper.
     pub(crate) fn array_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 24)
+        self.heap_alloc_function_index.map(|base| base + 25)
     }
 
     /// Wasm function index of the shared OrdinarySet helper with an explicit receiver.
     pub(crate) fn ordinary_set_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 25)
+        self.heap_alloc_function_index.map(|base| base + 26)
     }
 
     pub(crate) fn ordinary_set_without_receiver_fallback_helper_function_index(
         &self,
     ) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 26)
+        self.heap_alloc_function_index.map(|base| base + 27)
     }
 
     /// Wasm function index of the exact decimal source-text to binary64 helper.
     pub(crate) fn decimal_to_binary64_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 27)
+        self.heap_alloc_function_index.map(|base| base + 28)
     }
 
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
@@ -2148,7 +2425,7 @@ impl<'a> FunctionBuilder<'a> {
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 28)
+        self.heap_alloc_function_index.map(|base| base + 29)
     }
 
     pub(crate) fn local_count(&self) -> usize {
@@ -2392,7 +2669,21 @@ impl<'a> FunctionBuilder<'a> {
         self.normalize_base_class_constructor_result(&mut function);
         self.normalize_derived_constructor_result(&mut function)?;
         if self.is_main() && self.uses_heap {
-            self.emit_drain_promise_jobs(&mut function)?;
+            if self
+                .functions
+                .monotonic_clock_nanos_import_function_index()
+                .is_some()
+            {
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                self.emit_drain_promise_jobs(&mut function)?;
+                self.emit_drain_atomics_wait_async_timeouts(&mut function)?;
+                function.instruction(&Instruction::BrIf(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            } else {
+                self.emit_drain_promise_jobs(&mut function)?;
+            }
         }
         assert!(
             self.next_binding_local <= self.current_env_local,
@@ -2549,7 +2840,6 @@ impl<'a> FunctionBuilder<'a> {
             descriptor_kind_local,
             function,
         );
-        self.store_i64_const_at_offset(array_local, HEAP_CAP_OFFSET, 0, function);
         self.store_i64_const_at_offset(array_local, HEAP_ARRAY_NON_EXTENSIBLE_OFFSET, 1, function);
         self.release_temp_local(descriptor_kind_local);
         self.release_temp_local(entry_local);
@@ -2618,6 +2908,12 @@ impl<'a> FunctionBuilder<'a> {
                 Some(HostBuiltinId::CreateRealm) => {
                     self.compile_host_create_realm_builtin(&mut function)?
                 }
+                Some(HostBuiltinId::CreateHTMLDDA) => {
+                    self.compile_host_create_html_dda_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::HTMLDDA) => {
+                    self.compile_host_html_dda_builtin(&mut function)?
+                }
                 Some(HostBuiltinId::ParseInt) => {
                     self.compile_host_parse_int_builtin(&mut function)?
                 }
@@ -2626,6 +2922,30 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 Some(HostBuiltinId::DetachArrayBuffer) => {
                     self.compile_host_detach_array_buffer_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentStart) => {
+                    self.compile_host_agent_start_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentBroadcast) => {
+                    self.compile_host_agent_broadcast_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentReceiveBroadcast) => {
+                    self.compile_host_agent_receive_broadcast_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentReport) => {
+                    self.compile_host_agent_report_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentGetReport) => {
+                    self.compile_host_agent_get_report_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentSleep) => {
+                    self.compile_host_agent_sleep_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentMonotonicNow) => {
+                    self.compile_host_agent_monotonic_now_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AgentLeaving) => {
+                    self.compile_host_agent_leaving_builtin(&mut function)?
                 }
                 None => {
                     return Err(EmitError::unsupported(format!(
@@ -2828,8 +3148,12 @@ impl<'a> FunctionBuilder<'a> {
         let value_tag_local = self.reserve_temp_local();
         let realm_environment_local = self.reserve_temp_local();
         let realm_environment_tag_local = self.reserve_temp_local();
+        let strict_local = self.reserve_temp_local();
 
         self.push_scope();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(strict_local));
+        self.object_write_strict_flag_local = Some(strict_local);
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, &mut function);
         self.emit_builtin_arg_to_locals(
             1,
@@ -2862,6 +3186,7 @@ impl<'a> FunctionBuilder<'a> {
             allow_receiver_generic_write_fallback,
             &mut function,
         )?;
+        self.object_write_strict_flag_local = None;
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Ne);
@@ -2871,6 +3196,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_scope();
 
+        self.release_temp_local(strict_local);
         self.release_temp_local(realm_environment_tag_local);
         self.release_temp_local(realm_environment_local);
         self.release_temp_local(value_tag_local);
@@ -3209,6 +3535,32 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared dynamic ToNumeric helper.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params 0 and 1 contain
+    /// the input payload and tag, and param 6 contains the calling function's
+    /// realm environment. The standard four-i64 result tuple preserves the
+    /// resulting Number-or-BigInt tag and any abrupt completion produced by
+    /// ToPrimitive.
+    fn compile_value_to_numeric_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.outline_value_to_numeric = false;
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_value_to_numeric_locals(0, 1, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(0));
+        function.instruction(&Instruction::LocalGet(1));
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::End);
@@ -3652,26 +4004,98 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) const fn memarg32(offset: u64) -> MemArg {
+        Self::memarg32_in(0, offset)
+    }
+
+    pub(crate) const fn memarg32_in(memory_index: u32, offset: u64) -> MemArg {
         MemArg {
             offset,
             align: 2,
-            memory_index: 0,
+            memory_index,
         }
     }
 
     pub(crate) const fn memarg16(offset: u64) -> MemArg {
+        Self::memarg16_in(0, offset)
+    }
+
+    pub(crate) const fn memarg16_in(memory_index: u32, offset: u64) -> MemArg {
         MemArg {
             offset,
             align: 1,
-            memory_index: 0,
+            memory_index,
         }
     }
 
     pub(crate) const fn memarg8(offset: u64) -> MemArg {
+        Self::memarg8_in(0, offset)
+    }
+
+    pub(crate) const fn memarg8_in(memory_index: u32, offset: u64) -> MemArg {
         MemArg {
             offset,
             align: 0,
-            memory_index: 0,
+            memory_index,
         }
+    }
+
+    pub(crate) const fn shared_memarg64(offset: u64) -> MemArg {
+        MemArg {
+            offset,
+            align: 3,
+            memory_index: 1,
+        }
+    }
+
+    pub(crate) const fn shared_memarg32(offset: u64) -> MemArg {
+        MemArg {
+            offset,
+            align: 2,
+            memory_index: 1,
+        }
+    }
+
+    pub(crate) const fn shared_memarg16(offset: u64) -> MemArg {
+        MemArg {
+            offset,
+            align: 1,
+            memory_index: 1,
+        }
+    }
+
+    pub(crate) const fn shared_memarg8(offset: u64) -> MemArg {
+        MemArg {
+            offset,
+            align: 0,
+            memory_index: 1,
+        }
+    }
+
+    pub(crate) fn buffer_memarg64(&self, offset: u64) -> MemArg {
+        Self::memarg64_in(self.buffer_memory_index(), offset)
+    }
+
+    pub(crate) fn buffer_memarg32(&self, offset: u64) -> MemArg {
+        Self::memarg32_in(self.buffer_memory_index(), offset)
+    }
+
+    pub(crate) fn buffer_memarg16(&self, offset: u64) -> MemArg {
+        Self::memarg16_in(self.buffer_memory_index(), offset)
+    }
+
+    pub(crate) fn buffer_memarg8(&self, offset: u64) -> MemArg {
+        Self::memarg8_in(self.buffer_memory_index(), offset)
+    }
+
+    pub(crate) fn buffer_memory_index(&self) -> u32 {
+        // Split modules keep object/runtime state in private memory 0 while
+        // allocating every ArrayBuffer backing store from memory 1. Ordinary
+        // buffers remain semantically private because only their owning
+        // instance has metadata containing the disjoint host allocation.
+        u32::from(
+            self.functions
+                .shared_memory_alloc_function_index()
+                .is_some(),
+        )
     }
 }

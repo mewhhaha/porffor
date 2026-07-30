@@ -7,7 +7,7 @@ function check(value, label) {
 check("abcxyz09-f".toUpperCase() === "ABCXYZ09-F", "ascii lowercase");
 check("Already UPPER".toUpperCase() === "ALREADY UPPER", "mixed ascii");
 check("123-!?".toUpperCase() === "123-!?", "non letters");
-check("ma\u00f1ana".toUpperCase() === "MA\u00f1ANA", "non-ascii preserved");
+check("ma\u00f1ana".toUpperCase() === "MA\u00d1ANA", "non-ascii uppercase");
 check(String.prototype.toUpperCase.call(12345) === "12345", "number receiver");
 check(String.prototype.toUpperCase.name === "toUpperCase", "name");
 check(String.prototype.toUpperCase.length === 0, "length");

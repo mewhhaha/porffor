@@ -228,7 +228,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 304;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 312;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 344;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -243,6 +243,15 @@ pub(crate) const HEAP_SYMBOL_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_PROMISE_RECORD_SIZE: u64 = 64;
 pub(crate) const HEAP_MAP_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_MAP_ENTRY_SIZE: u64 = 40;
+pub(crate) const HEAP_WEAK_MAP_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_WEAK_MAP_ENTRY_SIZE: u64 = 40;
+pub(crate) const HEAP_WEAK_SET_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_WEAK_SET_ENTRY_SIZE: u64 = 24;
+pub(crate) const HEAP_WEAK_REF_RECORD_SIZE: u64 = 16;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_SIZE: u64 = 40;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_SIZE: u64 = 56;
+pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -252,6 +261,7 @@ pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_PROMISE_REACTION_RECORD_SIZE: u64 = 56;
 #[allow(dead_code)]
 pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE: u64 = 48;
 #[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_CAPABILITY_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 136;
@@ -281,7 +291,8 @@ pub(crate) const HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET: u64 = 128;
 pub(crate) const HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET: u64 = 136;
 pub(crate) const HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET: u64 = 144;
 pub(crate) const HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET: u64 = 152;
-pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 160;
+pub(crate) const HEAP_ARGUMENTS_NON_EXTENSIBLE_OFFSET: u64 = HEAP_ARRAY_NON_EXTENSIBLE_OFFSET;
+pub(crate) const HEAP_ARGUMENTS_RECORD_SIZE: u64 = 272;
 pub(crate) const HEAP_OBJECT_BOXED_KIND_OFFSET: u64 = 32;
 pub(crate) const HEAP_OBJECT_BOXED_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
@@ -620,6 +631,10 @@ pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_CONSTRUCTOR_OFFSET: u64 = 
 pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET: u64 = 288;
 pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET: u64 = 296;
 pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET: u64 = 304;
+pub(crate) const HEAP_REALM_INTRINSICS_WEAK_MAP_PROTOTYPE_OFFSET: u64 = 312;
+pub(crate) const HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET: u64 = 320;
+pub(crate) const HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET: u64 = 328;
+pub(crate) const HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET: u64 = 336;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -682,6 +697,14 @@ pub(crate) const HEAP_BIGINT_LIMBS_PTR_OFFSET: u64 = 8;
 pub(crate) const HEAP_BIGINT_LIMBS_LEN_OFFSET: u64 = 16;
 pub(crate) const HEAP_BIGINT_LIMBS_CAP_OFFSET: u64 = 24;
 pub(crate) const HEAP_BIGINT_VALUE_TAG: i64 = 12;
+pub(crate) const HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
+pub(crate) const HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET: u64 = 24;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET: u64 = 32;
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET: u64 = 40;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
@@ -709,6 +732,36 @@ pub(crate) const HEAP_MAP_ENTRY_KEY_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_MAP_ENTRY_VALUE_TAG_OFFSET: u64 = 24;
 pub(crate) const HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_WEAK_MAP_ENTRIES_PTR_OFFSET: u64 = 0;
+pub(crate) const HEAP_WEAK_MAP_ENTRIES_LEN_OFFSET: u64 = 8;
+pub(crate) const HEAP_WEAK_MAP_ENTRIES_CAP_OFFSET: u64 = 16;
+pub(crate) const HEAP_WEAK_MAP_LIVE_COUNT_OFFSET: u64 = 24;
+pub(crate) const HEAP_WEAK_MAP_ENTRY_PRESENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_WEAK_MAP_ENTRY_KEY_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_WEAK_MAP_ENTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_WEAK_MAP_ENTRY_VALUE_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_WEAK_MAP_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_WEAK_REF_TARGET_TAG_OFFSET: u64 = 0;
+pub(crate) const HEAP_WEAK_REF_TARGET_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_TAG_OFFSET: u64 = 0;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_PAYLOAD_OFFSET: u64 = 8;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELLS_PTR_OFFSET: u64 = 16;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELLS_LEN_OFFSET: u64 = 24;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELLS_CAP_OFFSET: u64 = 32;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET: u64 = 40;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET: u64 = 48;
+pub(crate) const HEAP_WEAK_SET_ENTRIES_PTR_OFFSET: u64 = 0;
+pub(crate) const HEAP_WEAK_SET_ENTRIES_LEN_OFFSET: u64 = 8;
+pub(crate) const HEAP_WEAK_SET_ENTRIES_CAP_OFFSET: u64 = 16;
+pub(crate) const HEAP_WEAK_SET_LIVE_COUNT_OFFSET: u64 = 24;
+pub(crate) const HEAP_WEAK_SET_ENTRY_PRESENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_WEAK_SET_ENTRY_VALUE_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_WEAK_SET_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_MAP_ITERATOR_MAP_PAYLOAD_OFFSET: u64 = 0;
 pub(crate) const HEAP_MAP_ITERATOR_NEXT_INDEX_OFFSET: u64 = 8;
 pub(crate) const HEAP_MAP_ITERATOR_KIND_OFFSET: u64 = 16;
@@ -742,6 +795,12 @@ pub(crate) const HEAP_PENDING_JOB_ARG_PAYLOAD_OFFSET: u64 = 24;
 pub(crate) const HEAP_PENDING_JOB_REALM_OFFSET: u64 = 32;
 pub(crate) const HEAP_PENDING_JOB_NEXT_OFFSET: u64 = 40;
 pub(crate) const HEAP_PENDING_JOB_KIND_OFFSET: u64 = 48;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET: u64 = 0;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET: u64 = 8;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET: u64 = 16;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET: u64 = 24;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET: u64 = 32;
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET: u64 = 40;
 pub(crate) const HEAP_ASYNC_FUNCTION_ENV_OFFSET: u64 = 0;
 pub(crate) const HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET: u64 = 8;
 pub(crate) const HEAP_ASYNC_THIS_PAYLOAD_OFFSET: u64 = 16;
@@ -806,6 +865,14 @@ pub(crate) const OBJECT_INTERNAL_BRAND_GENERATOR: u64 = 18;
 pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR: u64 = 19;
 pub(crate) const OBJECT_INTERNAL_BRAND_TYPED_ARRAY_ITERATOR: u64 = 20;
 pub(crate) const OBJECT_INTERNAL_BRAND_DATA_VIEW: u64 = 21;
+pub(crate) const OBJECT_INTERNAL_BRAND_WEAK_MAP: u64 = 22;
+pub(crate) const OBJECT_INTERNAL_BRAND_DATE: u64 = 23;
+pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_INSTANT: u64 = 24;
+pub(crate) const OBJECT_INTERNAL_BRAND_WEAK_REF: u64 = 25;
+pub(crate) const OBJECT_INTERNAL_BRAND_FINALIZATION_REGISTRY: u64 = 26;
+pub(crate) const OBJECT_INTERNAL_BRAND_WEAK_SET: u64 = 27;
+pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME: u64 = 28;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_CONCAT_HELPER: u64 = 29;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -2209,6 +2276,34 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%WeakMap.prototype%",
+        offset: HEAP_REALM_INTRINSICS_WEAK_MAP_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%WeakRef.prototype%",
+        offset: HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%FinalizationRegistry.prototype%",
+        offset: HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%WeakSet.prototype%",
+        offset: HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -2862,6 +2957,251 @@ pub(crate) const HEAP_MAP_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_WEAK_MAP_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "weak-map-record",
+        name: "entries_ptr",
+        offset: HEAP_WEAK_MAP_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-record",
+        name: "entries_len",
+        offset: HEAP_WEAK_MAP_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-record",
+        name: "entries_cap",
+        offset: HEAP_WEAK_MAP_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-record",
+        name: "live_count",
+        offset: HEAP_WEAK_MAP_LIVE_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_WEAK_MAP_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "weak-map-entry",
+        name: "present",
+        offset: HEAP_WEAK_MAP_ENTRY_PRESENT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-entry",
+        name: "key_tag",
+        offset: HEAP_WEAK_MAP_ENTRY_KEY_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-entry",
+        name: "key_payload",
+        offset: HEAP_WEAK_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-entry",
+        name: "value_tag",
+        offset: HEAP_WEAK_MAP_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-map-entry",
+        name: "value_payload",
+        offset: HEAP_WEAK_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "temporal-instant-record",
+        name: "epoch_nanoseconds_tag",
+        offset: HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-instant-record",
+        name: "epoch_nanoseconds_payload",
+        offset: HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "temporal-zoned-date-time-record",
+        name: "epoch_nanoseconds_tag",
+        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-zoned-date-time-record",
+        name: "epoch_nanoseconds_payload",
+        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "temporal-zoned-date-time-record",
+        name: "time_zone_tag",
+        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-zoned-date-time-record",
+        name: "time_zone_payload",
+        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "temporal-zoned-date-time-record",
+        name: "calendar_tag",
+        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-zoned-date-time-record",
+        name: "calendar_payload",
+        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_WEAK_REF_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "weak-ref-record",
+        name: "target_tag",
+        offset: HEAP_WEAK_REF_TARGET_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-ref-record",
+        name: "target_payload",
+        offset: HEAP_WEAK_REF_TARGET_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "finalization-registry-record",
+        name: "cleanup_callback_tag",
+        offset: HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-record",
+        name: "cleanup_callback_payload",
+        offset: HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-record",
+        name: "cells_ptr",
+        offset: HEAP_FINALIZATION_REGISTRY_CELLS_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-record",
+        name: "cells_len",
+        offset: HEAP_FINALIZATION_REGISTRY_CELLS_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-record",
+        name: "cells_cap",
+        offset: HEAP_FINALIZATION_REGISTRY_CELLS_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "present",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "target_tag",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "target_payload",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "holdings_tag",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "holdings_payload",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "unregister_token_tag",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "finalization-registry-cell",
+        name: "unregister_token_payload",
+        offset: HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "map-iterator-record",
@@ -2947,6 +3287,63 @@ pub(crate) const HEAP_SET_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
         width: 8,
         pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_WEAK_SET_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "weak-set-record",
+        name: "entries_ptr",
+        offset: HEAP_WEAK_SET_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "weak-set-record",
+        name: "entries_len",
+        offset: HEAP_WEAK_SET_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-set-record",
+        name: "entries_cap",
+        offset: HEAP_WEAK_SET_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-set-record",
+        name: "live_count",
+        offset: HEAP_WEAK_SET_LIVE_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_WEAK_SET_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "weak-set-entry",
+        name: "present",
+        offset: HEAP_WEAK_SET_ENTRY_PRESENT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-set-entry",
+        name: "value_tag",
+        offset: HEAP_WEAK_SET_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "weak-set-entry",
+        name: "value_payload",
+        offset: HEAP_WEAK_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: false,
     },
 ];
 
@@ -3121,6 +3518,52 @@ pub(crate) const HEAP_PENDING_JOB_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "atomics-async-waiter",
+        name: "state",
+        offset: HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "atomics-async-waiter",
+        name: "address",
+        offset: HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "atomics-async-waiter",
+        name: "promise_record",
+        offset: HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "atomics-async-waiter",
+        name: "deadline_nanos",
+        offset: HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "atomics-async-waiter",
+        name: "next",
+        offset: HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "atomics-async-waiter",
+        name: "host_id",
+        offset: HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT: HeapByteSpanLayout = HeapByteSpanLayout {
     record: "array-buffer-backing-store",
     length_source: "array-buffer-object-header.max_byte_length",
@@ -3149,114 +3592,6 @@ pub(crate) const HEAP_RAW_BYTE_SPAN_LAYOUTS: &[HeapByteSpanLayout] = &[
     HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT,
     HEAP_STRING_CODE_UNITS_LAYOUT,
     HEAP_BIGINT_LIMBS_LAYOUT,
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_ARRAY_BUFFER_NAMED_SLOTS: &[HeapNamedSlot] = &[
-    HeapNamedSlot {
-        record: "array-buffer-object",
-        key: ARRAY_BUFFER_DATA_PTR_SLOT,
-        strong_reference: true,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "array-buffer-object",
-        key: ARRAY_BUFFER_BYTE_LENGTH_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "array-buffer-object",
-        key: ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "array-buffer-object",
-        key: ARRAY_BUFFER_SHARED_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "array-buffer-object",
-        key: ARRAY_BUFFER_IMMUTABLE_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_DATA_VIEW_NAMED_SLOTS: &[HeapNamedSlot] = &[
-    HeapNamedSlot {
-        record: "data-view-object",
-        key: "buffer",
-        strong_reference: true,
-        scans_target: true,
-    },
-    HeapNamedSlot {
-        record: "data-view-object",
-        key: DATA_VIEW_DATA_PTR_SLOT,
-        strong_reference: true,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "data-view-object",
-        key: DATA_VIEW_BYTE_OFFSET_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "data-view-object",
-        key: DATA_VIEW_BYTE_LENGTH_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "data-view-object",
-        key: DATA_VIEW_LENGTH_TRACKING_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TYPED_ARRAY_NAMED_SLOTS: &[HeapNamedSlot] = &[
-    HeapNamedSlot {
-        record: "typed-array-object",
-        key: TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT,
-        strong_reference: true,
-        scans_target: true,
-    },
-    HeapNamedSlot {
-        record: "typed-array-object",
-        key: TYPED_ARRAY_BYTE_OFFSET_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "typed-array-object",
-        key: TYPED_ARRAY_BYTE_LENGTH_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "typed-array-object",
-        key: TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "typed-array-object",
-        key: TYPED_ARRAY_ELEMENT_KIND_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
-    HeapNamedSlot {
-        record: "typed-array-object",
-        key: TYPED_ARRAY_LENGTH_TRACKING_SLOT,
-        strong_reference: false,
-        scans_target: false,
-    },
 ];
 
 #[allow(dead_code)]
@@ -3501,6 +3836,12 @@ pub(crate) const HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS: &[HeapNamedSlot] = &[
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
+        key: "$IteratorZipKeys",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-zip-state-object",
         key: "$IteratorZipMode",
         strong_reference: false,
         scans_target: false,
@@ -3526,14 +3867,64 @@ pub(crate) const HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS: &[HeapNamedSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS: &[HeapNamedSlot] = &[
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatIterables",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatMethods",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatCurrentIterator",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatCurrentNext",
+        strong_reference: true,
+        scans_target: true,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatIndex",
+        strong_reference: false,
+        scans_target: false,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatActive",
+        strong_reference: false,
+        scans_target: false,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatDone",
+        strong_reference: false,
+        scans_target: false,
+    },
+    HeapNamedSlot {
+        record: "iterator-concat-state-object",
+        key: "$IteratorConcatExecuting",
+        strong_reference: false,
+        scans_target: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_NAMED_SLOT_LAYOUTS: &[&[HeapNamedSlot]] = &[
-    HEAP_ARRAY_BUFFER_NAMED_SLOTS,
-    HEAP_DATA_VIEW_NAMED_SLOTS,
-    HEAP_TYPED_ARRAY_NAMED_SLOTS,
     HEAP_ARRAY_ITERATOR_NAMED_SLOTS,
     HEAP_STRING_ITERATOR_NAMED_SLOTS,
     HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS,
     HEAP_ITERATOR_HELPER_NAMED_SLOTS,
+    HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS,
     HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS,
 ];
 
@@ -3599,7 +3990,7 @@ pub(crate) const HEAP_WEAK_EDGE_SLOTS: &[HeapWeakEdgeSlot] = &[
     },
     HeapWeakEdgeSlot {
         record: "weak-set-entry",
-        name: "key",
+        name: "value",
         kind: HeapWeakEdgeKind::EphemeronKey,
         keeps_target_alive: false,
     },
@@ -4024,10 +4415,14 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) const fn memarg64(offset: u64) -> MemArg {
+        Self::memarg64_in(0, offset)
+    }
+
+    pub(crate) const fn memarg64_in(memory_index: u32, offset: u64) -> MemArg {
         MemArg {
             offset,
             align: 3,
-            memory_index: 0,
+            memory_index,
         }
     }
 }
@@ -4246,16 +4641,31 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 312);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 344);
+        assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
+        assert_eq!(
+            HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
+            328
+        );
+        assert_eq!(HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET, 336);
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 64);
         assert_eq!(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, 48);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 56);
         assert_eq!(HEAP_PENDING_JOB_RECORD_SIZE, 56);
+        assert_eq!(HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE, 48);
         assert_eq!(HEAP_PENDING_COMPLETION_RECORD_SIZE, 40);
         assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 184);
         assert_eq!(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, 56);
         assert_eq!(HEAP_MAP_RECORD_SIZE, 32);
         assert_eq!(HEAP_MAP_ENTRY_SIZE, 40);
+        assert_eq!(HEAP_WEAK_MAP_RECORD_SIZE, 32);
+        assert_eq!(HEAP_WEAK_MAP_ENTRY_SIZE, 40);
+        assert_eq!(HEAP_WEAK_SET_RECORD_SIZE, 32);
+        assert_eq!(HEAP_WEAK_SET_ENTRY_SIZE, 24);
+        assert_eq!(HEAP_WEAK_REF_RECORD_SIZE, 16);
+        assert_eq!(HEAP_FINALIZATION_REGISTRY_RECORD_SIZE, 40);
+        assert_eq!(HEAP_FINALIZATION_REGISTRY_CELL_SIZE, 56);
+        assert_eq!(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE, 48);
         assert_eq!(HEAP_MAP_ITERATOR_RECORD_SIZE, 32);
         assert_eq!(HEAP_SET_RECORD_SIZE, 32);
         assert_eq!(HEAP_SET_ENTRY_SIZE, 24);
@@ -4313,6 +4723,27 @@ mod tests {
         );
         assert_layout(HEAP_MAP_RECORD_LAYOUT, HEAP_MAP_RECORD_SIZE);
         assert_layout(HEAP_MAP_ENTRY_LAYOUT, HEAP_MAP_ENTRY_SIZE);
+        assert_layout(HEAP_WEAK_MAP_RECORD_LAYOUT, HEAP_WEAK_MAP_RECORD_SIZE);
+        assert_layout(HEAP_WEAK_MAP_ENTRY_LAYOUT, HEAP_WEAK_MAP_ENTRY_SIZE);
+        assert_layout(HEAP_WEAK_SET_RECORD_LAYOUT, HEAP_WEAK_SET_RECORD_SIZE);
+        assert_layout(HEAP_WEAK_SET_ENTRY_LAYOUT, HEAP_WEAK_SET_ENTRY_SIZE);
+        assert_layout(HEAP_WEAK_REF_RECORD_LAYOUT, HEAP_WEAK_REF_RECORD_SIZE);
+        assert_layout(
+            HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT,
+            HEAP_FINALIZATION_REGISTRY_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT,
+            HEAP_FINALIZATION_REGISTRY_CELL_SIZE,
+        );
+        assert_layout(
+            HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
+            HEAP_TEMPORAL_INSTANT_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE,
+        );
         assert_layout(
             HEAP_MAP_ITERATOR_RECORD_LAYOUT,
             HEAP_MAP_ITERATOR_RECORD_SIZE,
@@ -4332,6 +4763,10 @@ mod tests {
             HEAP_PROMISE_REACTION_RECORD_SIZE,
         );
         assert_layout(HEAP_PENDING_JOB_LAYOUT, HEAP_PENDING_JOB_RECORD_SIZE);
+        assert_layout(
+            HEAP_ATOMICS_ASYNC_WAITER_LAYOUT,
+            HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE,
+        );
         assert_layout(
             HEAP_ENVIRONMENT_LAYOUT,
             ENV_SLOT_BASE_OFFSET + ENV_SLOT_SIZE,
@@ -4365,6 +4800,11 @@ mod tests {
             .chain(HEAP_PROMISE_CAPABILITY_LAYOUT.iter())
             .chain(HEAP_MAP_RECORD_LAYOUT.iter())
             .chain(HEAP_MAP_ENTRY_LAYOUT.iter())
+            .chain(HEAP_WEAK_REF_RECORD_LAYOUT.iter())
+            .chain(HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT.iter())
+            .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
+            .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
+            .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_MAP_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_ENTRY_LAYOUT.iter())
@@ -4372,6 +4812,7 @@ mod tests {
             .chain(HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_PROMISE_REACTION_LAYOUT.iter())
             .chain(HEAP_PENDING_JOB_LAYOUT.iter())
+            .chain(HEAP_ATOMICS_ASYNC_WAITER_LAYOUT.iter())
             .chain(HEAP_ENVIRONMENT_LAYOUT.iter())
             .filter(|slot| slot.pointer)
             .count();
@@ -4652,21 +5093,10 @@ mod tests {
     }
 
     #[test]
-    fn heap_named_slot_registry_marks_binary_data_references() {
+    fn heap_named_slot_registry_marks_iterator_references() {
         for layout in HEAP_NAMED_SLOT_LAYOUTS {
             assert_named_slots(layout);
         }
-        assert!(HEAP_ARRAY_BUFFER_NAMED_SLOTS.iter().any(|slot| {
-            slot.key == ARRAY_BUFFER_DATA_PTR_SLOT && slot.strong_reference && !slot.scans_target
-        }));
-        assert!(HEAP_DATA_VIEW_NAMED_SLOTS
-            .iter()
-            .any(|slot| slot.key == "buffer" && slot.strong_reference && slot.scans_target));
-        assert!(HEAP_TYPED_ARRAY_NAMED_SLOTS.iter().any(|slot| {
-            slot.key == TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT
-                && slot.strong_reference
-                && slot.scans_target
-        }));
         assert!(HEAP_ARRAY_ITERATOR_NAMED_SLOTS.iter().any(|slot| {
             slot.key == "$ArrayIterator.array" && slot.strong_reference && slot.scans_target
         }));
@@ -4688,6 +5118,7 @@ mod tests {
             "$IteratorZipNextMethods",
             "$IteratorZipOpen",
             "$IteratorZipPadding",
+            "$IteratorZipKeys",
         ] {
             assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS
                 .iter()
@@ -4700,6 +5131,30 @@ mod tests {
             "$IteratorZipMode",
         ] {
             assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS
+                .iter()
+                .any(|slot| { slot.key == key && !slot.strong_reference && !slot.scans_target }));
+        }
+    }
+
+    #[test]
+    fn iterator_concat_state_slots_have_expected_gc_edges() {
+        for key in [
+            "$IteratorConcatIterables",
+            "$IteratorConcatMethods",
+            "$IteratorConcatCurrentIterator",
+            "$IteratorConcatCurrentNext",
+        ] {
+            assert!(HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS
+                .iter()
+                .any(|slot| { slot.key == key && slot.strong_reference && slot.scans_target }));
+        }
+        for key in [
+            "$IteratorConcatIndex",
+            "$IteratorConcatActive",
+            "$IteratorConcatDone",
+            "$IteratorConcatExecuting",
+        ] {
+            assert!(HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS
                 .iter()
                 .any(|slot| { slot.key == key && !slot.strong_reference && !slot.scans_target }));
         }
@@ -4745,6 +5200,16 @@ mod tests {
                 && slot.kind == HeapWeakEdgeKind::WeakTarget
                 && !slot.keeps_target_alive
         }));
+        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
+            slot.record == "weak-set-entry"
+                && slot.name == "value"
+                && slot.kind == HeapWeakEdgeKind::EphemeronKey
+                && !slot.keeps_target_alive
+        }));
+        assert!(HEAP_WEAK_SET_ENTRY_LAYOUT
+            .iter()
+            .find(|slot| slot.name == "value_payload")
+            .is_some_and(|slot| !slot.pointer));
         assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
             slot.record == "finalization-registry-cell"
                 && slot.name == "holdings"
@@ -4795,6 +5260,54 @@ mod tests {
             .weak_edges
             .iter()
             .any(|slot| slot.kind == HeapWeakEdgeKind::FinalizerHoldings));
+    }
+
+    #[test]
+    fn weak_map_entries_are_ephemerons_not_strong_heap_edges() {
+        assert!(HEAP_WEAK_MAP_ENTRY_LAYOUT.iter().all(|slot| !slot.pointer));
+        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
+            slot.record == "weak-map-entry"
+                && slot.name == "key"
+                && slot.kind == HeapWeakEdgeKind::EphemeronKey
+        }));
+        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
+            slot.record == "weak-map-entry"
+                && slot.name == "value"
+                && slot.kind == HeapWeakEdgeKind::EphemeronValue
+        }));
+    }
+
+    #[test]
+    fn weak_ref_target_is_not_a_strong_heap_edge() {
+        assert!(HEAP_WEAK_REF_RECORD_LAYOUT.iter().all(|slot| !slot.pointer));
+        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
+            slot.record == "weak-ref-record"
+                && slot.name == "target"
+                && slot.kind == HeapWeakEdgeKind::WeakTarget
+                && !slot.keeps_target_alive
+        }));
+    }
+
+    #[test]
+    fn finalization_registry_cells_keep_only_holdings_strongly_reachable() {
+        assert!(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT
+            .iter()
+            .any(|slot| { slot.name == "holdings_payload" && slot.pointer }));
+        assert!(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter().all(|slot| {
+            !matches!(slot.name, "target_payload" | "unregister_token_payload") || !slot.pointer
+        }));
+        for (name, kind, keeps_target_alive) in [
+            ("target", HeapWeakEdgeKind::WeakTarget, false),
+            ("holdings", HeapWeakEdgeKind::FinalizerHoldings, true),
+            ("unregister-token", HeapWeakEdgeKind::FinalizerToken, false),
+        ] {
+            assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
+                slot.record == "finalization-registry-cell"
+                    && slot.name == name
+                    && slot.kind == kind
+                    && slot.keeps_target_alive == keeps_target_alive
+            }));
+        }
     }
 
     #[test]
@@ -4881,6 +5394,7 @@ mod tests {
             HEAP_PROMISE_CAPABILITY_RECORD_SIZE,
             HEAP_PROMISE_REACTION_RECORD_SIZE,
             HEAP_PENDING_JOB_RECORD_SIZE,
+            HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE,
             HEAP_PENDING_COMPLETION_RECORD_SIZE,
             HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE,
             HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE,

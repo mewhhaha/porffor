@@ -14,7 +14,7 @@ before.value === 17
   && before.writable === false
   && before.enumerable === false
   && before.configurable === true
-  && afterWrite.value === 23
-  && afterWrite.writable === true
-  && afterWrite.enumerable === true
+  && afterWrite.value === 17
+  && afterWrite.writable === false
+  && afterWrite.enumerable === false
   && afterWrite.configurable === true;

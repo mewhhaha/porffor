@@ -1,9 +1,18 @@
 # T00 — Operating contract and contribution protocol
 
-**Status:** Ready  
+**Status:** Complete as of 2026-07-30
+
 **Parallel group:** Bootstrap  
 **Depends on:** None  
 **Blocks:** None directly; reduces coordination failures across every task
+
+## Current repository state
+
+The repository now has the task-plan validator, pull-request template, generated
+README status guard, shortcut audit, host-ABI audit, module-boundary audit and
+interpreter-quarantine audit wired into CI. `./scripts/check-task-plan.sh`
+passes in the current working tree. Keep this task as the record for those
+repository contracts; new compiler work belongs to its semantic owner task.
 
 ## Objective
 
@@ -27,7 +36,7 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
 - Add a short contributor note explaining the one-owner rule for the monolithic IR/Wasm files until `T02` lands.
 - Add a CI check that fails when README status markers are edited without a corresponding generated status artifact change, unless the edit is explicitly documentation-only outside the generated block.
 - Document which commands are smoke tests and which commands are evidence for real-suite progress.
-- Document the backend policy: only `wasm-aot` results are Porffor conformance evidence; `spec-exec` (Boa) output is internal oracle/differential diagnostics and must never appear as product status.
+- Document the backend policy: only `wasm-aot` results are Lila conformance evidence; `spec-exec` (Boa) output is internal oracle/differential diagnostics and must never appear as product status.
 
 ## Out of scope
 

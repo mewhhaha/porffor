@@ -246,25 +246,29 @@ impl<'a> FunctionBuilder<'a> {
         let fallback = fallback_realm_prototype_offset
             .map(NewTargetPrototypeFallback::FunctionSnapshot)
             .unwrap_or(NewTargetPrototypeFallback::CurrentGlobal);
-        self.emit_new_target_prototype_to_local(
+        let prototype_tag_local = self.reserve_temp_local();
+        let result = self.emit_new_target_prototype_to_locals(
             default_prototype_global_index,
             fallback,
             prototype_payload_local,
+            prototype_tag_local,
             function,
-        )
+        );
+        self.release_temp_local(prototype_tag_local);
+        result
     }
 
-    pub(crate) fn emit_new_target_prototype_to_local(
+    pub(crate) fn emit_new_target_prototype_to_locals(
         &mut self,
         default_prototype_global_index: u32,
         fallback: NewTargetPrototypeFallback,
         prototype_payload_local: u32,
+        prototype_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
         let prototype_key_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
         let realm_source_payload_local = self.reserve_temp_local();
         let proxy_handler_payload_local = self.reserve_temp_local();
         let proxy_target_tag_local = self.reserve_temp_local();
@@ -317,6 +321,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
         function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(prototype_tag_local));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
         function.instruction(&Instruction::LocalSet(prototype_key_local));
@@ -380,6 +386,8 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
         }
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(prototype_tag_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -388,7 +396,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(proxy_target_tag_local);
         self.release_temp_local(proxy_handler_payload_local);
         self.release_temp_local(realm_source_payload_local);
-        self.release_temp_local(prototype_tag_local);
         self.release_temp_local(prototype_key_local);
         self.release_temp_local(new_target_tag_local);
         self.release_temp_local(new_target_payload_local);
@@ -563,6 +570,22 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.emit_throw_current_function_realm_error(
             RANGE_ERROR_NAME,
+            message,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_throw_current_function_realm_uri_error(
+        &mut self,
+        message: &str,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_throw_current_function_realm_error(
+            URI_ERROR_NAME,
             message,
             payload_local,
             tag_local,

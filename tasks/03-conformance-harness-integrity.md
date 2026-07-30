@@ -1,9 +1,20 @@
 # T03 — Test262 harness integrity and host contract
 
-**Status:** Ready  
+**Status:** In progress — host contracts landed; shortcut audit is currently red
+
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** T01 for the authoritative inventory  
 **Blocks:** Trustworthy results for every feature lane
+
+## Current repository state
+
+The repository has a checked-in host-ABI contract, shortcut inventory,
+allowlist and CI audits. `./scripts/check-test262-host-abi.sh` passes in the
+current working tree. `./scripts/audit-test262-shortcuts.sh --check` does not:
+direct path predicates, source-text predicates and harness-helper reductions
+currently exceed their recorded ceilings. The remaining materialization layer
+is still large, so harness results cannot yet satisfy this task's integrity
+acceptance criteria.
 
 ## Objective
 

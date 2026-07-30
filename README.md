@@ -1,11 +1,15 @@
-# Porffor <sup><sub>/ˈpɔrfɔr/ *(poor-for)*</sub></sup>
+# Lila
 
-Porffor is a Rust rewrite of the original Porffor experiment: a JavaScript-to-Wasm
-AOT compiler, library, CLI, and conformance harness. It is still a research
-project and not ready for general JavaScript workloads.
+Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, library,
+CLI, and conformance harness, formerly developed as Porffor. It is still a
+research project and not ready for general JavaScript workloads.
+
+The public project name is Lila. Existing `porffor-*` Rust crates, the `porf`
+CLI, environment variables, cache paths and legacy JavaScript package names
+retain their current identifiers until a dedicated code-identifier migration.
 
 The product path is direct JavaScript compilation. User programs must go through
-parse, early errors, spec-shaped IR, lowering IR, and real Wasm codegen. Porffor
+parse, early errors, spec-shaped IR, lowering IR, and real Wasm codegen. Lila
 does not count "compile a JavaScript interpreter or VM to Wasm and feed source
 into it" as success.
 
@@ -37,6 +41,52 @@ When counts move, update this block in same change. Do not claim full Test262 `1
 Focused Wasm-AOT progress verified after the last aggregate publish is recorded
 under [Current Capabilities](#current-capabilities). The generated status block
 above stays conservative until a full pinned real-suite publish is refreshed.
+
+## Implementation Progress
+
+As of `2026-07-30`, the Rust rewrite has 28 epic-level tasks:
+
+- `1` complete: the repository operating contract and CI enforcement (`T00`);
+- `24` in progress with substantial implementation but unmet closure criteria;
+- `1` with policy selected and implementation/accounting still open: dynamic
+  source evaluation (`T13`);
+- `1` open feature lane: complete product-side ECMA-402 Intl (`T23`);
+- `1` blocked final gate: zero-failure current-pin Wasm-AOT conformance (`T26`).
+
+These are closure counts, not an estimate that “1/28 of JavaScript” is
+implemented. The task epics differ greatly in size, and many in-progress lanes
+already contain broad working implementations.
+
+What is already in place:
+
+- direct JS-to-Wasm compilation is the product default;
+- the Boa interpreter is feature-gated as a developer-only oracle and excluded
+  from default product dependency graphs;
+- both repository fake suites are fully green at their generated status counts;
+- shared IR, lowering, operation, ABI, heap, object, control-flow and builtin
+  modules exist;
+- substantial focused support exists across functions/classes, objects,
+  arrays, promises/async execution, generators/iterators, binary data,
+  collections, strings, RegExp, numbers/BigInt/JSON, Date/Temporal and host
+  builtins.
+
+The largest remaining closure work is:
+
+- publish a complete current-pin Wasm-AOT Test262 aggregate and generated
+  failure backlog;
+- remove the large Test262 path/source materialization layer—the shortcut audit
+  is currently red;
+- implement executable GC and real weak reachability, plus complete
+  arbitrary-precision BigInt operations;
+- remove the parser/lowering reparse boundary;
+- finish modules/linking, broad RegExp grammar, complete Intl, general suspended
+  async/generator control flow and remaining cross-realm/exotic-object edges;
+- build the planned differential generation, reduction, replay and sustained
+  fuzzing pipeline.
+
+See [the implementation task plan](tasks/README.md) for the status and current
+repository evidence for every epic. Conformance percentages remain governed by
+the generated status block above, not by this task summary.
 
 ## Rust Workspace
 
@@ -92,7 +142,7 @@ Current commands:
 
 - `run [--execution-backend wasm|spec] <file>` runs a script through the Rust engine. Wasm-AOT is the product default and the only result counted for conformance; `spec` is an explicitly selected, feature-gated differential oracle.
 - `build wasm <file>` compiles JavaScript directly to a Wasm artifact and prints the artifact summary.
-- `cache status` reports the bounded Cranelift function cache, Wasmtime native-module cache, Porffor program-Wasm cache, and the old global Wasmtime cache without modifying any of them. `cache prune` removes only Porffor-owned entries; add `--legacy-wasmtime` to explicitly remove the reported legacy cache too.
+- `cache status` reports the bounded Cranelift function cache, Wasmtime native-module cache, Lila program-Wasm cache, and the old global Wasmtime cache without modifying any of them. `cache prune` removes only Lila-owned entries; add `--legacy-wasmtime` to explicitly remove the reported legacy cache too.
 - `build c <file>` and `build native <file>` exist as CLI surfaces but currently fail with scaffold errors.
 - `inspect <file>` prints the parser/lowering pipeline summary and invariants.
 - `types [entrypoint] [output] [options]` and `typegen` generate Wrangler-style Worker TypeScript declarations from config plus a selected entrypoint.
@@ -129,16 +179,21 @@ Up to 64 immutable compiled Wasmtime Modules are retained in-process with LRU
 eviction so a warmed chunk does not deserialize/relink the same native code;
 module state is never shared between executions.
 
-Compiled-code storage is Porffor-owned and capped at 2 GiB total: 1 GiB for
+Compiled-code storage is Lila-owned and capped at 2 GiB total: 1 GiB for
 Cranelift function stencils and a 1 GiB whole-program budget split evenly
 between emitted program Wasm and Wasmtime native modules. Each tier prunes to
 70% after crossing its limit. Program entries are keyed by source, parse goal,
 compiler options, architecture, and a build-time SHA-256 of the compiler inputs;
 Cranelift supplies its stencil/version/target/flags key for function entries.
 Writes are atomic and corrupt program/native entries are treated as misses.
+Test262 agent roots and the complete `agent prelude + worker source` use the
+same bounded program-Wasm cache; only immutable Wasm bytes are reused, while
+every Store, instance, realm, shared-memory backing, report queue, and worker
+remains fresh. A focused shared-buffer/report regression measured `22.05 s`
+cold and `0.32 s` warm after both the root and worker became cache hits.
 Concurrent pruning may remove an entry during a cache scan; that vanished entry
 is skipped without turning an otherwise valid cache write into a failure.
-Set `PORFFOR_CACHE_DIR` to relocate only Porffor's cache. The legacy global
+Set `PORFFOR_CACHE_DIR` to relocate only Lila's cache. The legacy global
 Wasmtime directory is reported by `porf cache status` and is never deleted
 implicitly.
 
@@ -221,7 +276,7 @@ most likely to work when they stay close to the fixtures under
 cases under
 `crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
-Recent focused progress through `2026-07-21`:
+Recent focused progress through `2026-07-27`:
 
 - Promise construction now runs executors synchronously through the real
   Wasm-AOT call path, creates branded pending promise records, supplies distinct
@@ -387,9 +442,13 @@ Recent focused progress through `2026-07-21`:
   and async-iterator preference with strict primitive receiver identity. The
   adjacent pinned String-iterator, AsyncFromSync timing, and rejection-close
   roots report `4/4` on `2026-07-19`.
-  Broader async iteration and
-  `Array.fromAsync` remain active conformance work; this is not a claim of
-  complete Promise or async-function support. The pinned
+  The native async-iterator path preserves yielded values, including Promise
+  objects, for result creation and mapper calls while still awaiting mapper
+  results. The complete pinned `Array.fromAsync` leaf reports `95/95` on
+  `2026-07-27` under
+  `./target/release/porf test262 run built-ins/Array/fromAsync --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`;
+  broader async iteration remains active conformance work, and this is not a
+  claim of complete Promise or async-function support. The pinned
   six-file declaration
   and body baseline reports `6/6` on `2026-07-19`; refresh it by running the
   exact `declaration-returns-promise.js`, `evaluation-body.js`,
@@ -399,11 +458,28 @@ Recent focused progress through `2026-07-21`:
   `evaluation-body-that-throws-after-await.js` paths under
   `language/statements/async-function/` with
   `./target/debug/porf test262 run <path> --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
+- `%AsyncIteratorPrototype%[Symbol.asyncDispose]` is a distinct
+  non-constructible Rust/AOT builtin. It creates a defining-realm intrinsic
+  Promise before reading `return`, converts getter and call throws into
+  rejections, passes one explicit `undefined` argument, awaits the returned
+  value, and resolves to `undefined` or preserves the rejection reason. The
+  pinned `built-ins/AsyncIteratorPrototype/Symbol.asyncDispose` directory
+  reports `9/9` on `2026-07-28` at Test262 pin
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`; refresh it with
+  `./target/debug/porf --jobs 1 test262 run built-ins/AsyncIteratorPrototype/Symbol.asyncDispose --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
 - Async-generator declarations and expressions now create suspended-start
   generator objects whose terminal `next`, `throw`, and `return` requests settle
   intrinsic promises with the required iterator-result or rejection outcome,
   and the bounded linear no-Yield body path resumes from Await fulfillment or
-  rejection without replaying its prefix. The scoped exact checkpoint reports
+  rejection without replaying its prefix. Invalid receivers for all three
+  `%AsyncGeneratorPrototype%` request methods create an intrinsic Promise
+  capability, reject it with the method-defining realm's `TypeError`, and
+  return normally without entering the valid-generator queue. The pinned
+  `built-ins/AsyncGeneratorPrototype` directory reports `48/48` on
+  `2026-07-28` at Test262 pin
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`; refresh it with
+  `./target/debug/porf --jobs 1 test262 run built-ins/AsyncGeneratorPrototype --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  The scoped exact checkpoint reports
   `13/13` on `2026-07-20` at Test262 pin
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`. Only two of those roots exercise
   body-Await or implicit async-return Await semantics:
@@ -488,10 +564,16 @@ Recent focused progress through `2026-07-21`:
   delegate `throw` now awaits and validates `return` cleanup before producing
   the required TypeError. The
   `language/expressions/async-generator` directory contains 623 roots: 618 are
-  AOT-applicable and five invoke actual `eval`. Current exact evidence is
-  `186/618`; the other 432 AOT-applicable roots remain unverified. Across the
-  four earlier checkpoints and this non-overlapping addition, 227 unique roots
-  are exact-green.
+  AOT-applicable and five invoke actual `eval`. The most recent full-directory
+  run reports `186/618`. Independently, the bounded exact checkpoints described
+  above account for 227 unique roots.
+  A separate non-overlapping checkpoint on `2026-07-27` adds all 32 roots under
+  `language/expressions/async-generator/dstr/ary-ptrn-elem`. Combined bounded
+  evidence therefore accounts for 259 unique exact-green roots, leaving at
+  most 359 AOT-applicable roots without exact-green evidence. Refresh the
+  prefix with
+  `./target/release/porf --jobs 1 test262 run language/expressions/async-generator/dstr/ary-ptrn-elem --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000`.
+  This bounded checkpoint does not recompute the broader aggregate.
   Queued `.return(value)` requests at an ordinary or delegated suspended Yield
   now unwrap through their own Promise continuation without double-awaiting the
   final completion; the four statement-form async/sync delegation,
@@ -566,8 +648,16 @@ Recent focused progress through `2026-07-21`:
   `6075337559788816786`, `15049589881886505538`, `8173557398602242706`,
   `11207893843153698446`, and `679067303864347086`. Refresh an exact root with
   `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-cohort-<case>-20260722`.
-  Broader suspended-body control flow and request scheduling remain active
-  conformance work.
+  Direct `yield` statements in runtime-selected `if`/`else` branches now use a
+  dedicated merge state, so resumption does not re-evaluate the condition or
+  collide with later suspension points. Classic async-generator `for` loops
+  with one direct body `await` reuse that suspension edge across iterations,
+  retain their lexical counter in the activation, and resume through
+  update/test without rerunning initialization. Loop-head suspension,
+  break/continue, captured per-iteration environments, and multiple or nested
+  body suspensions remain explicit unsupported paths. Conditional `await` and
+  broader suspended-body control flow also remain unsupported.
+  Request scheduling remains active conformance work.
   This checkpoint is not a claim of full async-generator support.
 - Wasmtime shared-memory exports now participate in result rendering,
   exception-name reads, and host printing. The real Wasm atomic RMW path clears
@@ -579,21 +669,49 @@ Recent focused progress through `2026-07-21`:
   numeric value. `Atomics.isLockFree` reports `7/7`, and 35 of 36 bounded
   no-waiter `Atomics.notify` cases pass. Real in-place growable
   SharedArrayBuffer support, whose pinned `grow` leaf reports `15/15`, clears
-  the final bounded notify case for `36/36`; true multi-agent waiter tests
-  remain explicitly ungated. Integer TypedArray writes use ECMAScript
+  the final bounded notify case for `36/36`. `Atomics.wait` now emits real
+  Wasm `memory.atomic.wait32`/`wait64` operations, observes the host's `CanBlock`
+  capability, and distinguishes `ok`, `not-equal`, and `timed-out`;
+  `Atomics.notify` emits `memory.atomic.notify` after specification-ordered
+  count coercion. `Atomics.waitAsync` waiters are registered in their host
+  agent group, so `notify` can claim FIFO waiters owned by another Wasm module;
+  each origin module polls the claim, settles its private Promise, and removes
+  the waiter.
+  Unnotified finite waits settle as `timed-out` against a monotonic host
+  deadline; notification claims and removes a waiter only while its deadline
+  remains live. The Wasm-AOT Test262 host compiles `$262.agent.start` source as
+  a separate Wasm module, gives every worker the same host-owned shared-memory
+  arena, reconstructs broadcast SharedArrayBuffers, and implements reports,
+  sleep, monotonic time, leaving, shutdown, and worker-error joins. Identical
+  worker sources reuse their emitted artifact within the agent group. The
+  Test262 materializer installs an include-scoped asynchronous host-sleep timer
+  before `atomicsHelper.js`, avoiding that helper's allocation-heavy Promise
+  polling fallback without changing unrelated cases. The canonical no-waiter,
+  one- and two-waiter, renotify-noop, FIFO-order, and
+  BigInt per-location `Atomics.notify` agent cases pass. Async-agent report
+  collection through lexical array literals with direct `await` elements now
+  lowers into ordered suspension states. Lexical and `var` declaration
+  initializers also preserve ordered suspension through unconditional unary
+  and arithmetic expression trees; branch-sensitive expressions, composite
+  awaited array elements, and array spread across those suspension points
+  remain explicitly unsupported.
+  Integer TypedArray writes use ECMAScript
   modulo/clamping conversions, and integer-indexed
   `Object.defineProperty`/`Reflect.defineProperty` writes preserve descriptor,
   bounds, conversion-order, and abrupt-completion semantics.
 - ArrayBuffer and SharedArrayBuffer backing state now lives in unforgeable
   brand-selected header slots rather than ordinary `$ArrayBuffer...`
-  properties. The real keyed detach operation rejects forged and shared
-  buffers, supports repeat detachment, preserves resizable flags, and is shared
-  by the host hook and transfer path. Fifteen original upstream ArrayBuffer and
-  DataView detachment cases pass after removing their classifier catch-alls and
-  fake detached-source rewrites. TypedArray-owned backing buffers now initialize
-  the same private state; three original detached `toString`/`toLocaleString`
-  paths improved from `0/3` to `3/3` after replacing source-output rewrites with
-  a compact harness that still exercises every real constructor and assertion.
+  properties. TypedArray view metadata and DataView state use the same private
+  headers; instances expose inherited standard accessors instead of `$...`
+  mirrors or raw backing pointers. The real keyed detach operation rejects
+  forged and shared buffers, supports repeat detachment, preserves resizable
+  flags, and is shared by the host hook and transfer path. Fifteen original
+  upstream ArrayBuffer and DataView detachment cases pass after removing their
+  classifier catch-alls and fake detached-source rewrites. TypedArray-owned
+  backing buffers now initialize the same private state; three original
+  detached `toString`/`toLocaleString` paths improved from `0/3` to `3/3` after
+  replacing source-output rewrites with a compact harness that still exercises
+  every real constructor and assertion.
   TypedArray buffer-argument construction now recognizes only privately branded
   ArrayBuffer and SharedArrayBuffer instances, performs offset and length
   coercions in specification order, rechecks detach/resize state afterward,
@@ -711,6 +829,83 @@ Recent focused progress through `2026-07-21`:
   wrappers inherit that realm's `BigInt.prototype`, while serialization errors
   come from the `JSON.stringify` defining realm; the exact pinned
   `value-bigint` cohort reports `6/6`.
+- Focused Wasm-AOT coverage for `Date.prototype.toDateString`, `toTimeString`,
+  `toString`, `toUTCString`/`toGMTString`, `toISOString`, and generic `toJSON`
+  includes invalid dates, extended years, time-clip boundaries, correct
+  RangeError/TypeError behavior, `ToPrimitive(number)` ordering, the
+  non-finite-to-null path, and observable `toISOString` lookup and invocation.
+  The pinned `toDateString`, `toTimeString`, and `toString` leaves report
+  `7/7`, `6/6`, and `8/8`, respectively, on `2026-07-27`. Refresh one with
+  `./target/release/porf --jobs 1 test262 run built-ins/Date/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`.
+  The exact pinned
+  `Date.prototype[Symbol.toPrimitive]` leaf reports `18/18`, including property
+  attributes, hint validation, ordinary conversion order, and abrupt hooks.
+  A fresh isolated-cache run of the complete pinned `built-ins/Date` shard
+  reports `591/594` on `2026-07-28`: all `591/591` AOT-applicable tests pass,
+  and the only three unsupported tests use excluded cross-realm dynamic
+  `Function` construction. This includes `Date.parse` at `8/8`, the three
+  locale-string metadata leaves at `12/12`, callable and constructible Date
+  coercion, private Date branding, and `toTemporalInstant` at `8/8`. Refresh
+  with
+  `PORFFOR_CACHE_DIR=/tmp/porffor-date-cache ./target/debug/porf --jobs 4 test262 run built-ins/Date --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 8 --timeout-ms 60000`.
+  `Temporal.Instant` now has a real namespace binding, constructor, prototype,
+  private epoch-nanoseconds slot, branded `epochNanoseconds` and floor-rounded
+  `epochMilliseconds` accessors, and a real static `from` path. `from` copies
+  branded instants, performs object `ToPrimitive(string)`, parses exact ISO
+  instant strings without routing through millisecond-only `Date.parse`, and
+  preserves nanosecond offsets, annotations, leap seconds, and range
+  boundaries. Its instances also have branded canonical UTC `toString`
+  formatting. A distinct branded `Temporal.ZonedDateTime` record now retains
+  exact epoch nanoseconds, a stored time-zone string, and the canonical
+  `iso8601` calendar identifier; UTC spellings are canonicalized to `UTC`, and
+  numeric offset syntax is range-checked. Its static `from` path now copies
+  branded ZonedDateTime records and parses ISO strings with bracketed `UTC` or
+  minute-precision numeric offset zones, including date-only forms, leap
+  seconds, expanded years, calendar annotations, and the standard
+  `disambiguation`, `offset`, and `overflow` option validation order. Fixed-zone
+  `reject`, `use`, `prefer`, and `ignore` offset semantics retain exact
+  nanoseconds. The same path accepts ordinary-object, function, and Array
+  property bags with ISO `year`, `month` or `monthCode`, `day`, optional time
+  and offset fields, and a required fixed-zone `timeZone`; field reads and
+  options reads follow the Temporal order, while `overflow` performs ISO
+  constrain/reject regulation before exact epoch-nanosecond construction.
+  On `2026-07-29`, the complete pinned `withTimeZone`, `from`, and `equals`
+  leaves report `14/16`, `78/91`, and `49/55`, respectively (artifacts
+  `verify-temporal-zdt-withtimezone-current-20260729-3809840749374109757.json`,
+  `verify-temporal-zdt-from-current-20260729-13737876247778637226.json`, and
+  `verify-temporal-zdt-equals-current-20260729-5397219743879800583.json`).
+  Branded `offset` and `offsetNanoseconds` accessors derive the canonical
+  `±HH:MM` string and exact numeric nanoseconds directly from those fixed
+  zones. Branded ISO civil accessors (`year`, `month`, `monthCode`, `day`,
+  `hour`, `minute`, `second`, `millisecond`, `microsecond`, and `nanosecond`)
+  project the exact epoch plus fixed offset, including negative sub-millisecond
+  epochs; their ten pinned directories report `40/40`. ZonedDateTime
+  `equals` compares the epoch, time-zone, and calendar slots after intrinsic
+  argument conversion. The 21 residual failures group around missing real
+  PlainDateTime and Duration support, ISO calendar-string and calendar-object
+  conversion, ZonedDateTime string limits, and month-code/offset validation
+  ordering. Named IANA zones remain explicit errors until the compiler has real
+  time-zone transition resolution; they are not guessed through the host
+  `Date` or `TZ` environment.
+  `Temporal.Instant.from` copies that private epoch slot without consulting
+  shadowable ZonedDateTime properties, and `Temporal.Instant.prototype.equals`
+  compares the exact private BigInt epoch after the same intrinsic conversion.
+  The exact pinned
+  `built-ins/Temporal/Instant/basic.js` case and both three-case accessor leaves
+  report `1/1`, `3/3`, and `3/3` on `2026-07-28`; `toTemporalInstant` returns
+  that same intrinsic object model. This is not a broader Temporal conformance
+  claim.
+  `Date.now` reads integer
+  Unix-epoch milliseconds from the host wall clock; Atomics timeout scheduling
+  continues to use the separate monotonic nanosecond clock.
+- Complete pinned builtin-shard evidence refreshed on `2026-07-28` also
+  reports `built-ins/Boolean` at `51/51` and `built-ins/DataView` at `559/561`;
+  all `559/559` AOT-applicable DataView tests pass, while its two unsupported
+  tests use excluded dynamic `Function` construction. Combined exact evidence
+  covers `built-ins/BigInt` at `77/77`: a fresh full-shard baseline passed
+  `75/77`, then exact reruns passed the two corrected relational-comparison and
+  wrapper `ToPrimitive` cases. Refresh a complete shard with
+  `./target/debug/porf --jobs 4 test262 run built-ins/<Boolean|DataView|BigInt> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 8 --timeout-ms 60000`.
 - The first heap-backed `Map` slice implements nullish construction plus
   `clear`, `delete`, `get`, `has`, `set`, and the `size` accessor with ordered
   tombstoned entries, SameValueZero keys, and `-0` normalization. Twelve pinned
@@ -722,13 +917,52 @@ Recent focused progress through `2026-07-21`:
   iterator, and `MapIteratorPrototype`, including live mutation and permanent
   exhaustion. `Map.groupBy` and `Object.groupBy` each report `14/14`; the
   latter preserves symbol keys, safely defines `__proto__`, and returns the
-  required null-prototype object. `Map.prototype.getOrInsert` reports `14/14`,
-  while `getOrInsertComputed` reports `17/19`; its remaining cases require an
-  excluded dynamic `Function` constructor and a real WeakMap implementation.
+  required null-prototype object. `Object.fromEntries` reports `25/25` on
+  `2026-07-29`, including symbol and duplicate keys, direct entry-property
+  access, define semantics, and the required iterator-close boundary. Refresh
+  it with
+  `./target/debug/porf --jobs 1 test262 run built-ins/Object/fromEntries --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  `Map.prototype.getOrInsert` reports `14/14`,
+  while the older `getOrInsertComputed` checkpoint reports `17/19`; that
+  checkpoint predates WeakMap support and was not refreshed in this batch.
   Non-dynamic cross-realm
   constructor-prototype selection passes focused direct, bound, proxy, and
   revoked-proxy tests; the pinned realm file itself uses an excluded dynamic
   `Function` constructor and remains classified accordingly.
+- `WeakMap` has a distinct internal brand, record layout, prototype, and weak
+  entry representation rather than aliasing `Map`. Its constructor and
+  `delete`, `get`, `has`, `set`, `getOrInsert`, and `getOrInsertComputed`
+  methods implement weak-key eligibility, observable iterator/setter ordering,
+  IteratorClose, and abrupt completion. Weak entry key/value relationships are
+  registered as ephemeron metadata; the collector remains metadata-only, so
+  this is not yet a claim of observable garbage-collection behavior. The
+  complete pinned `built-ins/WeakMap` leaf reports `139/141` on `2026-07-27`;
+  the only two unsupported roots use excluded dynamic `Function` construction,
+  so all `139/139` AOT-applicable roots pass. Refresh with
+  `./target/release/porf --jobs 1 test262 run built-ins/WeakMap --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`.
+- `WeakSet` has a real global intrinsic, realm-aware prototype and `newTarget`
+  allocation, a private brand, and a distinct weak entry layout. Its constructor
+  consumes iterables through the observable `add` method with `IteratorClose`
+  on abrupt completion; `add`, `delete`, and `has` support objects and
+  nonregistered symbols with the ECMAScript weak-value rules. Weak entries are
+  represented for the collector contract but cannot clear until collection is
+  executable.
+- `WeakRef` has a real global intrinsic, prototype, private brand, and tagged
+  weak-target record. Construction accepts objects and non-registered symbols,
+  observes `newTarget.prototype` with defining-realm fallback, and `deref`
+  validates its receiver before returning the current target. The target record
+  is registered as a weak edge and excluded from ordinary strong tracing.
+  Observable clearing is not claimed yet: the Wasm-AOT collector and `gc()`
+  hook remain non-executable, so synchronous `deref` coverage cannot
+  deterministically exercise collection.
+- `FinalizationRegistry` has a real global intrinsic, prototype, private brand,
+  callable cleanup callback slot, and heap-backed cell list. `register` accepts
+  object and non-registered-symbol targets and tokens, preserves holdings as a
+  strong cell edge, rejects `SameValue(target, holdings)`, and appends distinct
+  cells. `unregister` removes every cell with the matching token and releases
+  its holdings. Target and token edges are registered as weak; cleanup delivery
+  is not claimed because collection and finalizer queueing remain
+  non-executable.
 - The corresponding heap-backed `Set` core implements nullish construction,
   `add`, `clear`, `delete`, `has`, and `size` with ordered tombstones,
   SameValueZero values, distinct Map/Set brands, and defining-realm prototype
@@ -994,8 +1228,8 @@ Recent focused progress through `2026-07-21`:
   dispatcher, keeping repeated optional reads below Wasmtime's per-function
   compilation limit without evaluating skipped keys. The
   checked-out real-Test262 `language/expressions/optional-chaining` leaf reports
-  `30/38` with no bugs or crashes as of `2026-07-16`. One remaining case is
-  excluded dynamic `eval`; the other seven are AOT-applicable async/await gaps.
+  `37/38` with no bugs or crashes as of `2026-07-27`. The sole remaining case
+  uses excluded dynamic `eval`, so all `37/37` AOT-applicable roots pass.
   Refresh with
   `./target/debug/porf test262 run language/expressions/optional-chaining --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Tagged templates now lower as ordinary calls with preserved member receivers,
@@ -1040,9 +1274,12 @@ Recent focused progress through `2026-07-21`:
   `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `Array.prototype.concat` handles species creation, proxies and revoked
   proxies, sparse and inherited indexes, spreadable Arguments and TypedArray
-  objects, maximum-safe-length rejection, and abrupt getters. Its complete
-  pinned real-Test262 leaf reports `69/69` with no unsupported cases, bugs, or
-  crashes as of `2026-07-15`. Refresh with
+  objects, maximum-safe-length rejection, abrupt getters, and inherited
+  numeric properties on Function objects without reading Function records as
+  Object boxed-primitive or TypedArray state. Combined exact evidence accounts
+  for all `69/69` pinned real-Test262 roots with no unsupported cases, bugs, or
+  crashes as of `2026-07-27`: a fresh `68/69` full-leaf baseline plus the exact
+  corrected survivor. Refresh the complete leaf with
   `./target/debug/porf test262 run built-ins/Array/prototype/concat --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.slice` preserves sparse and inherited indexes, species
   construction, proxy-observable operations, and the current integer-index
@@ -1544,6 +1781,20 @@ Recent focused progress through `2026-07-21`:
   `./target/debug/porf test262 run built-ins/NaN --execution-backend wasm --timeout-ms 60000 --threads 4`,
   and
   `./target/debug/porf test262 run built-ins/undefined --execution-backend wasm --timeout-ms 60000 --threads 4`.
+- Exact pinned Wasm-AOT URI-codec runs report `encodeURI` at `31/31`,
+  `encodeURIComponent` at `31/31`, `decodeURI` at `54/55`, and
+  `decodeURIComponent` at `55/56` as of `2026-07-29`, for `171/173` combined.
+  The sole `Crash:Runtime` cases are
+  `built-ins/decodeURI/S15.1.3.1_A2.5_T1.js` and
+  `built-ins/decodeURIComponent/S15.1.3.2_A2.5_T1.js`. Both exhaust wasm32
+  memory in exhaustive million-iteration RFC-3629 checks under the
+  non-reclaiming bump heap; they are not codec semantic mismatches. The safe
+  resolution is heap reclamation or GC, with no codec-local workaround.
+  The snapshots are `uri-encodeuri-current-20260729`,
+  `uri-encodeuricomponent-current-20260729`,
+  `uri-decodeuri-current-20260729`, and
+  `uri-decodeuricomponent-current-20260729`. Refresh one with
+  `./target/debug/porf --jobs 1 test262 run built-ins/<codec> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name <snapshot>`.
 - Number constructor constants and parse aliases now avoid the slow
   `propertyHelper.js` descriptor path while still checking direct descriptors,
   read-only/non-configurable behavior, and global alias identity. The exact
@@ -2582,10 +2833,14 @@ Recent focused progress through `2026-07-21`:
   `undefined`. `Object.getOwnPropertyNames(proxy)` and
   `Object.getOwnPropertySymbols(proxy)` call `ownKeys`, filter the trap result
   to string names or symbol keys, and forward missing, `undefined`, or `null`
-  traps to the target path. `Reflect.ownKeys(proxy)` now returns the trap result
-  order directly for callable traps and composes ordinary string names followed
-  by symbols when forwarding to the target, including nested proxy targets and
-  boxed String exotic indices/`length` plus symbols. The local
+  traps to the target path. The complete trap result is materialized and
+  validated before either public Object API filters it, including
+  `LengthOfArrayLike` coercion, abrupt `length` access, symbol duplicates, and
+  non-configurable/non-extensible target invariants for ordinary and Array
+  targets. `Reflect.ownKeys(proxy)` returns the validated trap order directly
+  for callable traps and composes ordinary string names followed by symbols
+  when forwarding to the target, including nested proxy targets and boxed
+  String exotic indices/`length` plus symbols. The local
   `wasm_proxy_own_keys.js` fixture covers trap call parameters, result ordering,
   enumerable filtering, duplicate/type errors, symbol keys, `Reflect.ownKeys`,
   and nested target forwarding.
@@ -2602,6 +2857,70 @@ Recent focused progress through `2026-07-21`:
   `2026-06-15` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
   `./target/debug/porf test262 run built-ins/Proxy/ownKeys --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  The pinned real Test262 `built-ins/Object/getOwnPropertySymbols` and
+  `built-ins/Reflect/ownKeys` leaves report `12/12` and `13/13` passing
+  respectively as of `2026-07-29`, with every failure category at zero.
+  `built-ins/Object/getOwnPropertyNames` reports `45/45` passing as of
+  `2026-07-29`, with every failure category at zero, in snapshot
+  `object-get-own-property-names-final-current-20260729`.
+  `built-ins/Object/entries` and `built-ins/Object/values` report `20/21` and
+  `19/20` overall as of `2026-07-30`: all `20/20` and `19/19` AOT-applicable
+  cases pass, and each leaf's remaining case is an explicit
+  Function-constructor dynamic-source-generation exclusion. Parser,
+  early-error, lowering, runtime, Wasm-backend, host-harness, bug, and crash
+  counts are all zero in snapshots `object-entries-complete-20260730` and
+  `object-values-complete-20260730`.
+  `built-ins/Object/assign` and
+  `built-ins/Object/getOwnPropertyDescriptors` report `38/38` and `18/18`
+  passing respectively as of `2026-07-30`, with every failure category at
+  zero. `Object.assign` performs live enumerable-own-property checks and
+  strict `Set` operations across string and symbol keys, including Proxy traps
+  and boxed primitive targets. `Object.getOwnPropertyDescriptors` preserves
+  data and accessor descriptor fields, Proxy operation order, symbols, and the
+  called builtin's defining-Realm `Object.prototype` for its result and nested
+  descriptor objects. The snapshots are
+  `object-assign-complete-20260730` and
+  `object-get-own-property-descriptors-complete-20260730`.
+  `built-ins/Object/freeze` reports `53/53` passing as of `2026-07-29`, with
+  every failure category at zero, in snapshot
+  `object-freeze-complete-20260729`. `built-ins/Object/isFrozen` and
+  `built-ins/Object/isSealed` report `59/59` and `33/33` passing respectively
+  as of `2026-07-29`, with every failure category at zero, in snapshots
+  `object-isfrozen-complete-20260729` and
+  `object-issealed-complete-20260729`. The Wasm-AOT path observes Proxy
+  integrity traps in specification order, preserves sparse array indices
+  through integrity-level changes, and rejects preventing extensions on
+  non-fixed-length TypedArrays, including zero-length views backed by resizable
+  ArrayBuffers.
+  The adjacent `built-ins/Object/seal` leaf reports `89/94` overall as of
+  `2026-07-29`: all 89 AOT-applicable cases pass, and the other five are
+  explicit Function-constructor dynamic-source-generation exclusions. Parser,
+  early-error, lowering, runtime, Wasm-backend, host-harness, bug, and crash
+  counts are all zero in snapshot `object-seal-final-current-20260729`.
+  Refresh these snapshots with
+  `./target/debug/porf --jobs 1 test262 run built-ins/Object/getOwnPropertyNames --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 120000 --snapshot-name object-get-own-property-names-final-current-20260729`,
+  the same command with `built-ins/Object/getOwnPropertySymbols` and snapshot
+  `object-get-own-property-symbols-20260729`, or the same command with
+  `built-ins/Reflect/ownKeys` and snapshot `reflect-own-keys-20260729`.
+  Refresh Object enumerable property lists with the same command pattern using
+  `built-ins/Object/entries` and snapshot
+  `object-entries-complete-20260730`, or `built-ins/Object/values` and snapshot
+  `object-values-complete-20260730`.
+  Refresh Object property copying and descriptor collection with the same
+  command pattern using `built-ins/Object/assign` and snapshot
+  `object-assign-complete-20260730`, or
+  `built-ins/Object/getOwnPropertyDescriptors` and snapshot
+  `object-get-own-property-descriptors-complete-20260730`.
+  Refresh Object freeze with the same command pattern using
+  `built-ins/Object/freeze` and snapshot
+  `object-freeze-complete-20260729`.
+  Refresh Object integrity queries with the same command pattern using
+  `built-ins/Object/isFrozen` and snapshot
+  `object-isfrozen-complete-20260729`, or `built-ins/Object/isSealed` and
+  snapshot `object-issealed-complete-20260729`.
+  Refresh Object seal with the same command pattern using
+  `built-ins/Object/seal` and snapshot
+  `object-seal-final-current-20260729`.
   This is leaf-level real Test262 progress, not a full-suite green claim.
 - `RegExp.escape` is now installed on the `RegExp` constructor in Wasm-AOT with
   `length`/`name` metadata, descriptor checks, non-constructor behavior, and
@@ -3033,9 +3352,9 @@ Recent focused progress through `2026-07-21`:
   `PORFFOR_CACHE_DIR=/tmp/porffor-cache-verify_match_indices_post_self-20260713-112722 ./target/release/porf test262 run built-ins/RegExp/match-indices --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 1 --snapshot-dir /tmp/porffor-snapshots-verify_match_indices_post_self-20260713-112722 --snapshot-name match-indices-wasm-aot`.
   The release binary is intentional for cold status runs: populating the
   per-function Cranelift cache is materially slower and larger than a warm
-  exact-case run. Use a new or cleared `PORFFOR_CACHE_DIR` after compiler
-  changes because the current program-cache key does not include the compiler
-  revision. The matcher also supports complemented `\D` and `\S`, empty
+  exact-case run. Compiler changes automatically invalidate whole-program
+  entries through the build-time compiler-input fingerprint. The matcher also
+  supports complemented `\D` and `\S`, empty
   character classes and alternatives, and Annex B identity treatment for
   malformed non-Unicode `\x` escapes. Broader RegExp grammar remains
   intentionally incomplete: Unicode folding, property escapes outside the
@@ -3103,21 +3422,61 @@ Recent focused progress through `2026-07-21`:
   `isregexp-called-once.js` and `regexpcreate-this-throws.js` report `1/1`,
   covered by `wasm_regexp_symbol_match_all_generic_order.js`. Custom
   `@@species` constructors now receive the original RegExp and coerced flags;
-  function-valued constructors observe `Symbol.species`, while the intrinsic
+  constructable Proxy constructors preserve construct/newTarget semantics.
+  Function-valued constructors observe `Symbol.species`, while the intrinsic
   default path creates a fresh branded matcher without reading an actual
   RegExp's shadowing `source` property. Default construction rejects invalid or
   duplicate flags and the currently recognized malformed-pattern forms before
   returning an iterator. Primitive `constructor` values are rejected, replacement
   matcher `global`/`unicode` accessors are not read, and the direct non-global
   single-match path is preserved. These paths are covered by
-  `wasm_regexp_symbol_match_all_species.js` and
+  `wasm_regexp_symbol_match_all_species.js`,
+  `wasm_regexp_symbol_match_all_proxy_species.js`, and
   `wasm_regexp_symbol_match_all_default_validation.js`. The downstream
   `%RegExpStringIteratorPrototype%.next` leaf now reports `15/15` as of
   `2026-06-21` under
   `./target/debug/porf test262 run built-ins/RegExpStringIteratorPrototype/next --execution-backend wasm --timeout-ms 120000 --threads 4`;
   the lazy iterator observes later `RegExp.prototype.exec` replacement and
-  getter failures for focused dot-pattern cases, covered by
-  `wasm_regexp_string_iterator_custom_exec.js`.
+  getter failures for focused dot-pattern cases. Abrupt `exec` completions
+  propagate unchanged, and callable Proxy replacements receive the matcher and
+  input. These paths are covered by
+  `wasm_regexp_string_iterator_custom_exec.js` and
+  `wasm_regexp_string_iterator_exec_abrupt_and_proxy.js`.
+  `Iterator.concat` is a distinct non-constructible Rust/AOT builtin. It
+  validates argument objects and captures their `@@iterator` methods eagerly
+  from left to right, creates and advances inner iterators lazily, and returns
+  fresh iterator-result objects through `%IteratorHelperPrototype%`. Its
+  helper state preserves done-before-value access, zero-argument iterator
+  calls, running-generator rejection, terminal abrupt completion, and
+  forwarding `return()` only to a currently suspended inner iterator. Focused
+  coverage lives in `wasm_iterator_concat.js`. The exact pinned real Test262
+  `built-ins/Iterator/concat` leaf reports `32/32` under Wasm-AOT as of
+  `2026-07-28`, with every failure bucket and unsupported count at zero
+  (manifest `16266333929169271790`, Test262 revision
+  `aa55200d1310384c5cf69ea95b2a2ecba457007b`). Refresh it with
+  `./target/debug/porf test262 run built-ins/Iterator/concat --execution-backend wasm-aot --timeout-ms 120000 --threads 4`.
+  The pinned `built-ins/Iterator/zip` directory reports `36/36` on
+  `2026-07-28` at the same Test262 revision, with every failure category at
+  zero. Refresh it with
+  `./target/debug/porf --jobs 1 test262 run built-ins/Iterator/zip --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  `Iterator.zipKeyed` is also a distinct non-constructible Rust/AOT builtin.
+  It reads options before enumerating the input's own keys, preserves
+  `[[OwnPropertyKeys]]` and descriptor/Get ordering for string and symbol keys,
+  omits non-enumerable, deleted and `undefined` sources, and eagerly acquires
+  iterator records with reverse-order close on construction failure. It shares
+  the zip helper advancement and closing machinery, while finishing each row
+  as a fresh null-prototype object with default data-property attributes.
+  `longest` mode reads keyed padding after source acquisition; `shortest` and
+  `strict` retain the shared positional zip behavior. Focused Wasm-AOT engine
+  coverage checks result shaping, ordering, padding and close-error
+  preservation. The pinned `built-ins/Iterator/zipKeyed` directory reports
+  `41/41` AOT-applicable cases passing (`41/42` overall) as of `2026-07-29`,
+  with zero Runtime, WasmBackend, HostHarness, Crash, or Bug outcomes. The sole
+  excluded file is `result-is-iterator.js`: its
+  `wellKnownIntrinsicObjects.js` harness executes source through
+  `new Function(...)`, which is explicitly outside the Wasm-AOT dynamic-source
+  boundary. Refresh this status with
+  `./target/debug/porf --jobs 1 test262 run built-ins/Iterator/zipKeyed --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 120000`.
   `Iterator.from` now calls iterable `@@iterator` methods instead of treating
   iterable inputs as iterator-like records, keeps the indirect
   `Array.prototype.values` body emitted for `Array.from`/`Iterator.from`
@@ -3548,7 +3907,7 @@ Recent focused progress through `2026-07-21`:
   `./target/debug/porf test262 run built-ins/String/prototype/toUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.toLocaleLowerCase` and
   `String.prototype.toLocaleUpperCase` are now registered over the same Unicode
-  case-mapping paths for Porffor's default locale. Their full Test262 leaves
+  case-mapping paths for Lila's default locale. Their full Test262 leaves
   report `27/28` and `25/26` passing respectively as of `2026-07-15`; each sole
   remaining file requires dynamic `eval`, so all `27/27` and `25/25`
   Wasm-AOT-applicable files pass under
@@ -3716,12 +4075,33 @@ Recent focused progress through `2026-07-21`:
   constructor object-valued throws now propagate to active `try/catch` handlers;
   the `wasm_function_prototype_define_property_core.js` CLI fixture covers the
   focused `Object.defineProperty(F, "prototype", ...)`,
-  `Symbol.toStringTag` accessor, and catchable constructor-throw path. Dynamic
-  finite-integer numeric exponentiation now lowers
+  `Symbol.toStringTag` accessor, and catchable constructor-throw path.
+  Object-literal spread now lowers through the real Wasm-AOT
+  `CopyDataProperties` path: operands run in source order, nullish sources are
+  skipped, primitives are boxed, descriptors gate observable `Get`, symbols
+  are copied, and each value becomes an enumerable writable configurable own
+  data property. Ordinary own-key order is canonicalized as ascending array
+  indices, insertion-ordered remaining strings, then symbols; proxy `ownKeys`
+  trap order remains untouched. The exact real Test262 filters
+  `language/expressions/call/spread-obj` and
+  `language/expressions/object/object-spread-proxy` report `13/13` and `3/3`
+  passing respectively as of `2026-07-29`, and
+  `built-ins/Temporal/ZonedDateTime/from/infinity-throws-rangeerror.js`
+  reports `1/1`. Refresh them with
+  `./target/debug/porf --jobs 1 test262 run language/expressions/call/spread-obj --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`,
+  the same command with
+  `language/expressions/object/object-spread-proxy`, or the exact Temporal
+  path.
+  Dynamic
+  finite numeric exponentiation now lowers
   through Wasm-AOT with right-associative operand preservation, prefix/postfix
-  update operands, the shared finite-integer `Math.pow` path, and special
+  update operands, the shared `Math.pow` path, and special
   Number cases for infinities, signed zero, NaN, and `Math` numeric constants
-  such as `Math.PI`/`Math.E`. Numeric exponentiation assignment, unary
+  such as `Math.PI`/`Math.E`. Dynamic finite fractional Number exponentiation
+  uses the explicit `porf_host::number_pow(f64, f64) -> f64` runtime import.
+  Its shared outlined `ToNumeric` path preserves the caller realm for coercion
+  errors while keeping large coercion-heavy functions within Wasmtime's
+  compilation limits. Numeric exponentiation assignment, unary
   coercion around exponentiation, and the operand/coercion evaluation-order
   cases are now green under Wasm-AOT. BigInt exponentiation now routes through
   `ToPrimitive(Number)`/`ToNumeric`, covers BigInt literals, boxed BigInt
@@ -3729,7 +4109,7 @@ Recent focused progress through `2026-07-21`:
   TypeErrors, and negative-exponent RangeErrors in the current Wasm-AOT BigInt
   payload model. The exact real Test262
   `language/expressions/exponentiation` shard now reports `44/44` passing as of
-  `2026-06-04` under
+  `2026-07-27` under
   `./target/debug/porf test262 run language/expressions/exponentiation --execution-backend wasm --timeout-ms 60000`
   (`0` unsupported, `0` runtime failures). Exact real Test262 checks now green
   include the
@@ -3748,8 +4128,10 @@ Recent focused progress through `2026-07-21`:
   `language/expressions/exponentiation/int32_min-exponent.js`,
   `language/expressions/exponentiation/order-of-evaluation.js`, and selected
   `built-ins/Math/pow/applying-the-exp-operator_A4.js`, `A7.js`, `A14.js`,
-  `A20.js`, and `A23.js` mirror cases. General finite dynamic non-integer
-  `**` and broader arbitrary-precision BigInt coverage remain separate work.
+  `A20.js`, and `A23.js` mirror cases. The complete pinned
+  `built-ins/Math/pow` leaf reports `28/28`; refresh it with
+  `./target/debug/porf test262 run built-ins/Math/pow --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  Broader arbitrary-precision BigInt coverage remains separate work.
 - Mutable bindings whose value can be either a string or number now reach the
   tagged `ToPrimitive` addition path instead of being rejected during
   lowering. This covers assertion-message control flow in the final Math
@@ -3766,13 +4148,15 @@ Recent focused progress through `2026-07-21`:
   `2026-06-04` under
   `./target/debug/porf test262 run built-ins/AbstractModuleSource --execution-backend wasm --timeout-ms 60000 --threads 4`
   (`0` unsupported, `0` runtime failures).
-- IsHTMLDDA host-hook functions now carry an internal Wasm-AOT function flag,
-  and class heritage validation branches to active `try/catch` handlers from
-  the correct nested Wasm block depth. `$262.IsHTMLDDA` is non-constructable for
-  `__porfIsConstructor`, `class extends $262.IsHTMLDDA {}` rejects it before
-  reading `prototype`, and the focused
+- The hidden `__porfCreateHTMLDDA()` host factory now creates a fresh callable
+  with an internal Wasm-AOT HTMLDDA flag; ordinary user functions are never
+  branded by their source name. Class heritage validation branches to active
+  `try/catch` handlers from the correct nested Wasm block depth.
+  `$262.IsHTMLDDA` is non-constructable for `__porfIsConstructor`,
+  `class extends $262.IsHTMLDDA {}` rejects it before reading `prototype`, and
+  the focused
   `crates/porffor-cli/tests/fixtures/wasm_htmldda_host_hook.js` fixture is
-  green as of `2026-06-04` under `--execution-backend wasm`.
+  green as of `2026-07-28` under `--execution-backend wasm`.
 - `AggregateError` descriptor and message/cause coverage now avoids the slow
   generic `propertyHelper.js` path while still executing direct
   `Object.getOwnPropertyDescriptor(...)` assertions for constructor
@@ -3882,7 +4266,7 @@ the emitted Wasm artifact.
 ## Development
 
 The dev/test profiles retain incremental compilation and line-table source
-locations, compile dependencies at `opt-level=2`, and keep Porffor workspace
+locations, compile dependencies at `opt-level=2`, and keep Lila workspace
 crates at `opt-level=0`. Capture representative large-crate build timings with:
 
 ```sh
@@ -3913,7 +4297,7 @@ Measured on the 16-logical-CPU development machine on `2026-07-10`:
   `0.84 s` lowering and `11.73 s` native compilation (target `<=5 s`, not met).
 - that cold compile averaged `488%` CPU with the eight-thread Cranelift cap;
 - sampled peak RSS for the large host-output artifact was `3,165,520 KiB`;
-- after the validation runs, Porffor compiled-code caches used `1,459,395,488`
+- after the validation runs, Lila compiled-code caches used `1,459,395,488`
   bytes (below 2 GiB), `target/` used `64 GiB`, and the separately reported
   legacy Wasmtime cache used `22,276,692,202` bytes.
 
@@ -3945,4 +4329,4 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 
 ## The Name
 
-`porffor` means `purple` in Welsh.
+`lila` means `purple` in Swedish.

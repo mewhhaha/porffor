@@ -106,6 +106,32 @@ if (!privateState.some(function (value) { return value === 4; })) {
   throw "private header some";
 }
 
+let genericSlotReads = 0;
+let spoofedGeneric = {
+  0: 3,
+  1: 4,
+  length: 2,
+  get $TypedArrayByteLength() {
+    genericSlotReads = genericSlotReads + 1;
+    return 16;
+  },
+  get $TypedArrayViewedArrayBuffer() {
+    genericSlotReads = genericSlotReads + 1;
+    return new ArrayBuffer(16);
+  }
+};
+if (!Array.prototype.every.call(spoofedGeneric, function (value) {
+  return value > 0;
+})) {
+  throw "generic every result";
+}
+if (!Array.prototype.some.call(spoofedGeneric, function (value) {
+  return value === 4;
+})) {
+  throw "generic some result";
+}
+if (genericSlotReads !== 0) throw "generic spoofed slots observed";
+
 let proxyCalls = 0;
 let callableProxy = new Proxy(function () {}, {
   apply: function (target, thisArg, argumentsList) {

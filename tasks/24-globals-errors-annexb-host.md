@@ -1,9 +1,19 @@
 # T24 — Globals, native errors, Annex B and remaining host-visible builtins
 
-**Status:** Blocked on core semantic foundations  
+**Status:** In progress — errors/globals/URI/host exotics are broad but not fully closed
+
 **Parallel group:** Feature lane; split by errors, globals and Annex B  
 **Depends on:** T04, T06, T07, T09, T10; dynamic evaluation uses T13; strings/RegExp use T18/T19  
 **Blocks:** Remaining builtins/Annex B/harness portions of T26
+
+## Current repository state
+
+Native errors, global constants/functions, URI codecs, Annex B builtins,
+IsHTMLDDA and AbstractModuleSource have dedicated runtime/backend paths and
+many focused real-suite results. Error/global/Annex B metadata and legacy
+behavior still appears in exact-path materializations, dynamic-source cases
+remain visible exclusions, and the full assigned trees lack current complete
+Wasm-AOT closure.
 
 ## Objective
 

@@ -14,6 +14,141 @@ enum GroupByResult {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum MapCollectionKind {
+    Map,
+    WeakMap,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetCollectionKind {
+    Set,
+    WeakSet,
+}
+
+impl SetCollectionKind {
+    fn prototype_global_index(self) -> u32 {
+        match self {
+            Self::Set => SET_PROTOTYPE_GLOBAL_INDEX,
+            Self::WeakSet => WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
+        }
+    }
+
+    fn realm_prototype_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET,
+            Self::WeakSet => HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
+        }
+    }
+
+    fn brand(self) -> u64 {
+        match self {
+            Self::Set => OBJECT_INTERNAL_BRAND_SET,
+            Self::WeakSet => OBJECT_INTERNAL_BRAND_WEAK_SET,
+        }
+    }
+
+    fn record_size(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_RECORD_SIZE,
+            Self::WeakSet => HEAP_WEAK_SET_RECORD_SIZE,
+        }
+    }
+
+    fn entry_size(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRY_SIZE,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRY_SIZE,
+        }
+    }
+
+    fn entries_ptr_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRIES_PTR_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRIES_PTR_OFFSET,
+        }
+    }
+
+    fn entries_len_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRIES_LEN_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRIES_LEN_OFFSET,
+        }
+    }
+
+    fn entries_cap_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRIES_CAP_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRIES_CAP_OFFSET,
+        }
+    }
+
+    fn live_count_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_LIVE_COUNT_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_LIVE_COUNT_OFFSET,
+        }
+    }
+
+    fn entry_present_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRY_PRESENT_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRY_PRESENT_OFFSET,
+        }
+    }
+
+    fn entry_value_tag_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRY_VALUE_TAG_OFFSET,
+        }
+    }
+
+    fn entry_value_payload_offset(self) -> u64 {
+        match self {
+            Self::Set => HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+            Self::WeakSet => HEAP_WEAK_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+        }
+    }
+}
+
+impl MapCollectionKind {
+    fn prototype_global_index(self) -> u32 {
+        match self {
+            Self::Map => MAP_PROTOTYPE_GLOBAL_INDEX,
+            Self::WeakMap => WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,
+        }
+    }
+
+    fn realm_prototype_offset(self) -> u64 {
+        match self {
+            Self::Map => HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
+            Self::WeakMap => HEAP_REALM_INTRINSICS_WEAK_MAP_PROTOTYPE_OFFSET,
+        }
+    }
+
+    fn record_size(self) -> u64 {
+        match self {
+            Self::Map => HEAP_MAP_RECORD_SIZE,
+            Self::WeakMap => HEAP_WEAK_MAP_RECORD_SIZE,
+        }
+    }
+
+    fn entry_size(self) -> u64 {
+        match self {
+            Self::Map => HEAP_MAP_ENTRY_SIZE,
+            Self::WeakMap => HEAP_WEAK_MAP_ENTRY_SIZE,
+        }
+    }
+
+    fn brand(self) -> u64 {
+        match self {
+            Self::Map => OBJECT_INTERNAL_BRAND_MAP,
+            Self::WeakMap => OBJECT_INTERNAL_BRAND_WEAK_MAP,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum SetAlgebraOperation {
     Difference,
     Intersection,
@@ -34,6 +169,19 @@ impl<'a> FunctionBuilder<'a> {
         map_record_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_map_collection_record_from_receiver(
+            MapCollectionKind::Map,
+            map_record_local,
+            function,
+        )
+    }
+
+    fn emit_map_collection_record_from_receiver(
+        &mut self,
+        collection_kind: MapCollectionKind,
+        map_record_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let receiver_payload_local = self.reserve_temp_local();
         let receiver_tag_local = self.reserve_temp_local();
         let receiver_brand_local = self.reserve_temp_local();
@@ -50,7 +198,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_MAP as i64));
+        function.instruction(&Instruction::I64Const(collection_kind.brand() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
@@ -61,7 +209,12 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Else);
         self.emit_throw_current_function_realm_type_error(
-            "Map method receiver does not have [[MapData]]",
+            match collection_kind {
+                MapCollectionKind::Map => "Map method receiver does not have [[MapData]]",
+                MapCollectionKind::WeakMap => {
+                    "WeakMap method receiver does not have [[WeakMapData]]"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -70,7 +223,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_throw_current_function_realm_type_error(
-            "Map method receiver is not an object",
+            match collection_kind {
+                MapCollectionKind::Map => "Map method receiver is not an object",
+                MapCollectionKind::WeakMap => "WeakMap method receiver is not an object",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -280,8 +436,87 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_can_be_held_weakly_i32(
+        &mut self,
+        key_payload_local: u32,
+        key_tag_local: u32,
+        function: &mut Function,
+    ) {
+        let can_be_held_weakly_local = self.reserve_temp_local();
+        let registry_key_payload_local = self.reserve_temp_local();
+
+        self.emit_is_heap_object_like_tag_i32(key_tag_local, function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(can_be_held_weakly_local));
+        function.instruction(&Instruction::LocalGet(key_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(can_be_held_weakly_local));
+        function.instruction(&Instruction::LocalGet(key_payload_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            key_payload_local,
+            HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET,
+            registry_key_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(registry_key_payload_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(can_be_held_weakly_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(can_be_held_weakly_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+
+        self.release_temp_local(registry_key_payload_local);
+        self.release_temp_local(can_be_held_weakly_local);
+    }
+
+    fn emit_require_weak_key(
+        &mut self,
+        key_payload_local: u32,
+        key_tag_local: u32,
+        message: &'static str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     pub(crate) fn emit_map_constructor(
         &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_collection_constructor(MapCollectionKind::Map, function)
+    }
+
+    pub(crate) fn emit_weak_map_constructor(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_collection_constructor(MapCollectionKind::WeakMap, function)
+    }
+
+    fn emit_map_collection_constructor(
+        &mut self,
+        collection_kind: MapCollectionKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let new_target_payload_local = self.reserve_temp_local();
@@ -291,6 +526,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterable_object_payload_local = self.reserve_temp_local();
         let iterable_object_tag_local = self.reserve_temp_local();
         let prototype_payload_local = self.reserve_temp_local();
+        let prototype_tag_local = self.reserve_temp_local();
         let map_payload_local = self.reserve_temp_local();
         let map_tag_local = self.reserve_temp_local();
         let map_record_local = self.reserve_temp_local();
@@ -332,7 +568,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor requires new",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor requires new",
+                MapCollectionKind::WeakMap => "WeakMap constructor requires new",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -340,17 +579,23 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_new_target_prototype_to_local(
-            MAP_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::RealmIntrinsic(HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET),
+        self.emit_new_target_prototype_to_locals(
+            collection_kind.prototype_global_index(),
+            NewTargetPrototypeFallback::RealmIntrinsic(collection_kind.realm_prototype_offset()),
             prototype_payload_local,
+            prototype_tag_local,
             function,
         )?;
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
+        self.emit_alloc_plain_object_with_prototype_and_tag(
+            Some(prototype_payload_local),
+            Some(prototype_tag_local),
+            None,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(map_payload_local));
-        self.emit_heap_alloc_const(HEAP_MAP_RECORD_SIZE, function)?;
+        self.emit_heap_alloc_const(collection_kind.record_size(), function)?;
         function.instruction(&Instruction::LocalSet(map_record_local));
-        self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * HEAP_MAP_ENTRY_SIZE, function)?;
+        self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * collection_kind.entry_size(), function)?;
         function.instruction(&Instruction::LocalSet(entries_ptr_local));
         self.store_i64_local_at_offset(
             map_record_local,
@@ -369,7 +614,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             map_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_MAP,
+            collection_kind.brand(),
             function,
         );
         self.store_i64_const_at_offset(
@@ -427,7 +672,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor set method is not callable",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor set method is not callable",
+                MapCollectionKind::WeakMap => "WeakMap constructor set method is not callable",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -466,7 +714,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor iterator method is not callable",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor iterator method is not callable",
+                MapCollectionKind::WeakMap => "WeakMap constructor iterator method is not callable",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -489,7 +740,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor iterator method must return an object",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor iterator method must return an object",
+                MapCollectionKind::WeakMap => {
+                    "WeakMap constructor iterator method must return an object"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -515,7 +771,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor iterator next method is not callable",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor iterator next method is not callable",
+                MapCollectionKind::WeakMap => {
+                    "WeakMap constructor iterator next method is not callable"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -554,7 +815,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor iterator next result must be an object",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor iterator next result must be an object",
+                MapCollectionKind::WeakMap => {
+                    "WeakMap constructor iterator next result must be an object"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -596,7 +862,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Map constructor iterator value must be an object",
+            match collection_kind {
+                MapCollectionKind::Map => "Map constructor iterator value must be an object",
+                MapCollectionKind::WeakMap => {
+                    "WeakMap constructor iterator value must be an object"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -703,6 +974,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(map_record_local);
         self.release_temp_local(map_tag_local);
         self.release_temp_local(map_payload_local);
+        self.release_temp_local(prototype_tag_local);
         self.release_temp_local(prototype_payload_local);
         self.release_temp_local(iterable_object_tag_local);
         self.release_temp_local(iterable_object_payload_local);
@@ -710,6 +982,346 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(iterable_payload_local);
         self.release_temp_local(new_target_tag_local);
         self.release_temp_local(new_target_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_object_from_entries(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let iterable_payload_local = self.reserve_temp_local();
+        let iterable_tag_local = self.reserve_temp_local();
+        let iterable_object_payload_local = self.reserve_temp_local();
+        let iterable_object_tag_local = self.reserve_temp_local();
+        let object_prototype_local = self.reserve_temp_local();
+        let result_object_local = self.reserve_temp_local();
+        let property_key_local = self.reserve_temp_local();
+        let property_key_tag_local = self.reserve_temp_local();
+        let iterator_method_payload_local = self.reserve_temp_local();
+        let iterator_method_tag_local = self.reserve_temp_local();
+        let iterator_payload_local = self.reserve_temp_local();
+        let iterator_tag_local = self.reserve_temp_local();
+        let next_payload_local = self.reserve_temp_local();
+        let next_tag_local = self.reserve_temp_local();
+        let next_result_payload_local = self.reserve_temp_local();
+        let next_result_tag_local = self.reserve_temp_local();
+        let done_payload_local = self.reserve_temp_local();
+        let done_tag_local = self.reserve_temp_local();
+        let entry_payload_local = self.reserve_temp_local();
+        let entry_tag_local = self.reserve_temp_local();
+        let key_payload_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
+        let primitive_key_payload_local = self.reserve_temp_local();
+        let primitive_key_tag_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let close_result_payload_local = self.reserve_temp_local();
+        let close_result_tag_local = self.reserve_temp_local();
+        let close_saved_payload_local = self.reserve_temp_local();
+        let close_saved_tag_local = self.reserve_temp_local();
+        let close_saved_completion_local = self.reserve_temp_local();
+        let close_saved_aux_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, iterable_payload_local, iterable_tag_local, function);
+        self.emit_value_to_current_function_realm_object_locals(
+            iterable_payload_local,
+            iterable_tag_local,
+            iterable_object_payload_local,
+            iterable_object_tag_local,
+            function,
+        )?;
+        self.emit_load_function_defining_realm_object_prototype(
+            self.current_env_local,
+            object_prototype_local,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(result_object_local));
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.iterator"),
+        ));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_read(
+            iterable_object_payload_local,
+            iterable_object_tag_local,
+            iterable_payload_local,
+            iterable_tag_local,
+            property_key_local,
+            iterator_method_payload_local,
+            iterator_method_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_is_callable_i32(
+            iterator_method_tag_local,
+            iterator_method_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Object.fromEntries iterator method is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            iterator_method_payload_local,
+            iterator_method_tag_local,
+            iterable_payload_local,
+            iterable_tag_local,
+            &[],
+            iterator_payload_local,
+            iterator_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Object.fromEntries iterator method must return an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("next")));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_read(
+            iterator_payload_local,
+            iterator_tag_local,
+            iterator_payload_local,
+            iterator_tag_local,
+            property_key_local,
+            next_payload_local,
+            next_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Object.fromEntries iterator next method is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        let iterator_close = IteratorCloseOnThrowLocals {
+            iterator_payload_local,
+            iterator_tag_local,
+            key_local: property_key_local,
+            return_payload_local: iterator_method_payload_local,
+            return_tag_local: iterator_method_tag_local,
+            result_payload_local: close_result_payload_local,
+            result_tag_local: close_result_tag_local,
+            saved_payload_local: close_saved_payload_local,
+            saved_tag_local: close_saved_tag_local,
+            saved_completion_local: close_saved_completion_local,
+            saved_aux_local: close_saved_aux_local,
+        };
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            next_payload_local,
+            next_tag_local,
+            iterator_payload_local,
+            iterator_tag_local,
+            &[],
+            next_result_payload_local,
+            next_result_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_is_heap_object_like_tag_i32(next_result_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Object.fromEntries iterator next result must be an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("done")));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_read_without_throw_propagation(
+            next_result_payload_local,
+            next_result_tag_local,
+            next_result_payload_local,
+            next_result_tag_local,
+            property_key_local,
+            done_payload_local,
+            done_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+        function.instruction(&Instruction::BrIf(1));
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_read_without_throw_propagation(
+            next_result_payload_local,
+            next_result_tag_local,
+            next_result_payload_local,
+            next_result_tag_local,
+            property_key_local,
+            entry_payload_local,
+            entry_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_is_heap_object_like_tag_i32(entry_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Object.fromEntries iterator value must be an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_iterator_close_preserving_current_throw(iterator_close, function)?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        for (index, payload_local, tag_local) in [
+            ("0", key_payload_local, key_tag_local),
+            ("1", value_payload_local, value_tag_local),
+        ] {
+            function.instruction(&Instruction::I64Const(self.strings.payload(index)));
+            function.instruction(&Instruction::LocalSet(property_key_local));
+            self.emit_object_read_without_throw_propagation(
+                entry_payload_local,
+                entry_tag_local,
+                entry_payload_local,
+                entry_tag_local,
+                property_key_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(self.completion_local));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_iterator_close_preserving_current_throw(iterator_close, function)?;
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
+
+        self.emit_tagged_to_primitive_locals_without_throw_propagation(
+            ToPrimitiveHint::String,
+            key_payload_local,
+            key_tag_local,
+            primitive_key_payload_local,
+            primitive_key_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_iterator_close_preserving_current_throw(iterator_close, function)?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(primitive_key_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(primitive_key_payload_local));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::LocalSet(property_key_tag_local));
+        function.instruction(&Instruction::Else);
+        self.emit_primitive_to_string_payload(
+            primitive_key_payload_local,
+            primitive_key_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(property_key_tag_local));
+        function.instruction(&Instruction::End);
+        self.emit_object_define_enumerable_data(
+            result_object_local,
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(result_object_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        for local in [
+            close_saved_aux_local,
+            close_saved_completion_local,
+            close_saved_tag_local,
+            close_saved_payload_local,
+            close_result_tag_local,
+            close_result_payload_local,
+            value_tag_local,
+            value_payload_local,
+            primitive_key_tag_local,
+            primitive_key_payload_local,
+            key_tag_local,
+            key_payload_local,
+            entry_tag_local,
+            entry_payload_local,
+            done_tag_local,
+            done_payload_local,
+            next_result_tag_local,
+            next_result_payload_local,
+            next_tag_local,
+            next_payload_local,
+            iterator_tag_local,
+            iterator_payload_local,
+            iterator_method_tag_local,
+            iterator_method_payload_local,
+            property_key_tag_local,
+            property_key_local,
+            result_object_local,
+            object_prototype_local,
+            iterable_object_tag_local,
+            iterable_object_payload_local,
+            iterable_tag_local,
+            iterable_payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 
@@ -1564,14 +2176,40 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_delete(MapCollectionKind::Map, function)
+    }
+
+    pub(crate) fn emit_weak_map_prototype_delete(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_delete(MapCollectionKind::WeakMap, function)
+    }
+
+    fn emit_map_collection_prototype_delete(
+        &mut self,
+        collection_kind: MapCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let map_record_local = self.reserve_temp_local();
         let key_payload_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let found_entry_local = self.reserve_temp_local();
         let live_count_local = self.reserve_temp_local();
 
-        self.emit_map_record_from_receiver(map_record_local, function)?;
+        self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
+        if collection_kind == MapCollectionKind::WeakMap {
+            self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
         self.emit_find_map_entry(
             map_record_local,
             key_payload_local,
@@ -1628,13 +2266,39 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_get(MapCollectionKind::Map, function)
+    }
+
+    pub(crate) fn emit_weak_map_prototype_get(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_get(MapCollectionKind::WeakMap, function)
+    }
+
+    fn emit_map_collection_prototype_get(
+        &mut self,
+        collection_kind: MapCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let map_record_local = self.reserve_temp_local();
         let key_payload_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let found_entry_local = self.reserve_temp_local();
 
-        self.emit_map_record_from_receiver(map_record_local, function)?;
+        self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
+        if collection_kind == MapCollectionKind::WeakMap {
+            self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
         self.emit_find_map_entry(
             map_record_local,
             key_payload_local,
@@ -1676,18 +2340,33 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_map_prototype_get_or_insert_inner(false, function)
+        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::Map, false, function)
     }
 
     pub(crate) fn emit_map_prototype_get_or_insert_computed(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_map_prototype_get_or_insert_inner(true, function)
+        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::Map, true, function)
+    }
+
+    pub(crate) fn emit_weak_map_prototype_get_or_insert(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::WeakMap, false, function)
+    }
+
+    pub(crate) fn emit_weak_map_prototype_get_or_insert_computed(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::WeakMap, true, function)
     }
 
     fn emit_map_prototype_get_or_insert_inner(
         &mut self,
+        collection_kind: MapCollectionKind,
         computed: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1707,8 +2386,16 @@ impl<'a> FunctionBuilder<'a> {
         let entry_local = self.reserve_temp_local();
         let live_count_local = self.reserve_temp_local();
 
-        self.emit_map_record_from_receiver(map_record_local, function)?;
+        self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
+        if collection_kind == MapCollectionKind::WeakMap && !computed {
+            self.emit_require_weak_key(
+                key_payload_local,
+                key_tag_local,
+                "WeakMap key must be an object or unregistered symbol",
+                function,
+            )?;
+        }
         if computed {
             self.emit_builtin_arg_to_locals(
                 1,
@@ -1720,13 +2407,28 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_type_error(
-                "Map.prototype.getOrInsertComputed callback must be callable",
+                match collection_kind {
+                    MapCollectionKind::Map => {
+                        "Map.prototype.getOrInsertComputed callback must be callable"
+                    }
+                    MapCollectionKind::WeakMap => {
+                        "WeakMap.prototype.getOrInsertComputed callback must be callable"
+                    }
+                },
                 self.result_local,
                 self.result_tag_local,
                 function,
             )?;
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
+            if collection_kind == MapCollectionKind::WeakMap {
+                self.emit_require_weak_key(
+                    key_payload_local,
+                    key_tag_local,
+                    "WeakMap key must be an object or unregistered symbol",
+                    function,
+                )?;
+            }
         } else {
             self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
         }
@@ -1923,13 +2625,39 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_has(MapCollectionKind::Map, function)
+    }
+
+    pub(crate) fn emit_weak_map_prototype_has(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_has(MapCollectionKind::WeakMap, function)
+    }
+
+    fn emit_map_collection_prototype_has(
+        &mut self,
+        collection_kind: MapCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let map_record_local = self.reserve_temp_local();
         let key_payload_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let found_entry_local = self.reserve_temp_local();
 
-        self.emit_map_record_from_receiver(map_record_local, function)?;
+        self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
+        if collection_kind == MapCollectionKind::WeakMap {
+            self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
         self.emit_find_map_entry(
             map_record_local,
             key_payload_local,
@@ -2106,6 +2834,21 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_set(MapCollectionKind::Map, function)
+    }
+
+    pub(crate) fn emit_weak_map_prototype_set(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_map_collection_prototype_set(MapCollectionKind::WeakMap, function)
+    }
+
+    fn emit_map_collection_prototype_set(
+        &mut self,
+        collection_kind: MapCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let map_record_local = self.reserve_temp_local();
         let receiver_payload_local = self.reserve_temp_local();
         let receiver_tag_local = self.reserve_temp_local();
@@ -2121,9 +2864,17 @@ impl<'a> FunctionBuilder<'a> {
         let live_count_local = self.reserve_temp_local();
 
         self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        self.emit_map_record_from_receiver(map_record_local, function)?;
+        self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
         self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
+        if collection_kind == MapCollectionKind::WeakMap {
+            self.emit_require_weak_key(
+                key_payload_local,
+                key_tag_local,
+                "WeakMap key must be an object or unregistered symbol",
+                function,
+            )?;
+        }
         function.instruction(&Instruction::LocalGet(key_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -2685,6 +3436,19 @@ impl<'a> FunctionBuilder<'a> {
         set_record_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_set_collection_record_from_receiver(
+            SetCollectionKind::Set,
+            set_record_local,
+            function,
+        )
+    }
+
+    fn emit_set_collection_record_from_receiver(
+        &mut self,
+        collection_kind: SetCollectionKind,
+        set_record_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let receiver_payload_local = self.reserve_temp_local();
         let receiver_tag_local = self.reserve_temp_local();
         let receiver_brand_local = self.reserve_temp_local();
@@ -2701,7 +3465,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_SET as i64));
+        function.instruction(&Instruction::I64Const(collection_kind.brand() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
@@ -2712,7 +3476,12 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Else);
         self.emit_throw_current_function_realm_type_error(
-            "Set method receiver does not have [[SetData]]",
+            match collection_kind {
+                SetCollectionKind::Set => "Set method receiver does not have [[SetData]]",
+                SetCollectionKind::WeakSet => {
+                    "WeakSet method receiver does not have [[WeakSetData]]"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -2721,7 +3490,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_throw_current_function_realm_type_error(
-            "Set method receiver is not an object",
+            match collection_kind {
+                SetCollectionKind::Set => "Set method receiver is not an object",
+                SetCollectionKind::WeakSet => "WeakSet method receiver is not an object",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -2743,6 +3515,25 @@ impl<'a> FunctionBuilder<'a> {
         found_entry_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_find_set_collection_entry(
+            SetCollectionKind::Set,
+            set_record_local,
+            value_payload_local,
+            value_tag_local,
+            found_entry_local,
+            function,
+        )
+    }
+
+    fn emit_find_set_collection_entry(
+        &mut self,
+        collection_kind: SetCollectionKind,
+        set_record_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        found_entry_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let entries_ptr_local = self.reserve_temp_local();
         let entries_len_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
@@ -2753,13 +3544,13 @@ impl<'a> FunctionBuilder<'a> {
 
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_PTR_OFFSET,
+            collection_kind.entries_ptr_offset(),
             entries_ptr_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_LEN_OFFSET,
+            collection_kind.entries_len_offset(),
             entries_len_local,
             function,
         );
@@ -2775,13 +3566,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::BrIf(1));
         function.instruction(&Instruction::LocalGet(entries_ptr_local));
         function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_SET_ENTRY_SIZE as i64));
+        function.instruction(&Instruction::I64Const(collection_kind.entry_size() as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(entry_local));
         self.load_i64_to_local_from_offset(
             entry_local,
-            HEAP_SET_ENTRY_PRESENT_OFFSET,
+            collection_kind.entry_present_offset(),
             present_local,
             function,
         );
@@ -2791,13 +3582,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             entry_local,
-            HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
+            collection_kind.entry_value_tag_offset(),
             stored_value_tag_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             entry_local,
-            HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+            collection_kind.entry_value_payload_offset(),
             stored_value_payload_local,
             function,
         );
@@ -2840,6 +3631,25 @@ impl<'a> FunctionBuilder<'a> {
         entries_cap_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_ensure_set_collection_capacity(
+            SetCollectionKind::Set,
+            set_record_local,
+            entries_ptr_local,
+            entries_len_local,
+            entries_cap_local,
+            function,
+        )
+    }
+
+    fn emit_ensure_set_collection_capacity(
+        &mut self,
+        collection_kind: SetCollectionKind,
+        set_record_local: u32,
+        entries_ptr_local: u32,
+        entries_len_local: u32,
+        entries_cap_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let new_cap_local = self.reserve_temp_local();
         let allocation_size_local = self.reserve_temp_local();
         let new_entries_ptr_local = self.reserve_temp_local();
@@ -2857,7 +3667,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(new_cap_local));
         function.instruction(&Instruction::LocalGet(new_cap_local));
-        function.instruction(&Instruction::I64Const(HEAP_SET_ENTRY_SIZE as i64));
+        function.instruction(&Instruction::I64Const(collection_kind.entry_size() as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(allocation_size_local));
         self.emit_heap_alloc_from_local(allocation_size_local, function)?;
@@ -2876,15 +3686,15 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             function.instruction(&Instruction::LocalGet(entries_base_local));
             function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(HEAP_SET_ENTRY_SIZE as i64));
+            function.instruction(&Instruction::I64Const(collection_kind.entry_size() as i64));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::LocalSet(entry_local));
         }
         for offset in [
-            HEAP_SET_ENTRY_PRESENT_OFFSET,
-            HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
-            HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+            collection_kind.entry_present_offset(),
+            collection_kind.entry_value_tag_offset(),
+            collection_kind.entry_value_payload_offset(),
         ] {
             self.load_i64_to_local_from_offset(
                 old_entry_local,
@@ -2903,13 +3713,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.store_i64_local_at_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_PTR_OFFSET,
+            collection_kind.entries_ptr_offset(),
             new_entries_ptr_local,
             function,
         );
         self.store_i64_local_at_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_CAP_OFFSET,
+            collection_kind.entries_cap_offset(),
             new_cap_local,
             function,
         );
@@ -3306,6 +4116,21 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_set_collection_constructor(SetCollectionKind::Set, function)
+    }
+
+    pub(crate) fn emit_weak_set_constructor(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_set_collection_constructor(SetCollectionKind::WeakSet, function)
+    }
+
+    fn emit_set_collection_constructor(
+        &mut self,
+        collection_kind: SetCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
         let iterable_payload_local = self.reserve_temp_local();
@@ -3313,6 +4138,7 @@ impl<'a> FunctionBuilder<'a> {
         let iterable_object_payload_local = self.reserve_temp_local();
         let iterable_object_tag_local = self.reserve_temp_local();
         let prototype_payload_local = self.reserve_temp_local();
+        let prototype_tag_local = self.reserve_temp_local();
         let set_payload_local = self.reserve_temp_local();
         let set_tag_local = self.reserve_temp_local();
         let set_record_local = self.reserve_temp_local();
@@ -3350,7 +4176,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Set constructor requires new",
+            match collection_kind {
+                SetCollectionKind::Set => "Set constructor requires new",
+                SetCollectionKind::WeakSet => "WeakSet constructor requires new",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -3358,36 +4187,52 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_new_target_prototype_to_local(
-            SET_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::RealmIntrinsic(HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET),
+        self.emit_new_target_prototype_to_locals(
+            collection_kind.prototype_global_index(),
+            NewTargetPrototypeFallback::RealmIntrinsic(collection_kind.realm_prototype_offset()),
             prototype_payload_local,
+            prototype_tag_local,
             function,
         )?;
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
+        self.emit_alloc_plain_object_with_prototype_and_tag(
+            Some(prototype_payload_local),
+            Some(prototype_tag_local),
+            None,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(set_payload_local));
-        self.emit_heap_alloc_const(HEAP_SET_RECORD_SIZE, function)?;
+        self.emit_heap_alloc_const(collection_kind.record_size(), function)?;
         function.instruction(&Instruction::LocalSet(set_record_local));
-        self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * HEAP_SET_ENTRY_SIZE, function)?;
+        self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * collection_kind.entry_size(), function)?;
         function.instruction(&Instruction::LocalSet(entries_ptr_local));
         self.store_i64_local_at_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_PTR_OFFSET,
+            collection_kind.entries_ptr_offset(),
             entries_ptr_local,
             function,
         );
-        self.store_i64_const_at_offset(set_record_local, HEAP_SET_ENTRIES_LEN_OFFSET, 0, function);
         self.store_i64_const_at_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_CAP_OFFSET,
+            collection_kind.entries_len_offset(),
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            set_record_local,
+            collection_kind.entries_cap_offset(),
             MIN_HEAP_CAPACITY,
             function,
         );
-        self.store_i64_const_at_offset(set_record_local, HEAP_SET_LIVE_COUNT_OFFSET, 0, function);
+        self.store_i64_const_at_offset(
+            set_record_local,
+            collection_kind.live_count_offset(),
+            0,
+            function,
+        );
         self.store_i64_const_at_offset(
             set_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_SET,
+            collection_kind.brand(),
             function,
         );
         self.store_i64_const_at_offset(
@@ -3445,7 +4290,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Set constructor add method is not callable",
+            match collection_kind {
+                SetCollectionKind::Set => "Set constructor add method is not callable",
+                SetCollectionKind::WeakSet => "WeakSet constructor add method is not callable",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -3484,7 +4332,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Set constructor iterator method is not callable",
+            match collection_kind {
+                SetCollectionKind::Set => "Set constructor iterator method is not callable",
+                SetCollectionKind::WeakSet => "WeakSet constructor iterator method is not callable",
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -3507,7 +4358,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Set constructor iterator method must return an object",
+            match collection_kind {
+                SetCollectionKind::Set => "Set constructor iterator method must return an object",
+                SetCollectionKind::WeakSet => {
+                    "WeakSet constructor iterator method must return an object"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -3533,7 +4389,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Set constructor iterator next method is not callable",
+            match collection_kind {
+                SetCollectionKind::Set => "Set constructor iterator next method is not callable",
+                SetCollectionKind::WeakSet => {
+                    "WeakSet constructor iterator next method is not callable"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -3559,7 +4420,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
-            "Set constructor iterator next result must be an object",
+            match collection_kind {
+                SetCollectionKind::Set => "Set constructor iterator next result must be an object",
+                SetCollectionKind::WeakSet => {
+                    "WeakSet constructor iterator next result must be an object"
+                }
+            },
             self.result_local,
             self.result_tag_local,
             function,
@@ -3662,6 +4528,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(set_record_local);
         self.release_temp_local(set_tag_local);
         self.release_temp_local(set_payload_local);
+        self.release_temp_local(prototype_tag_local);
         self.release_temp_local(prototype_payload_local);
         self.release_temp_local(iterable_object_tag_local);
         self.release_temp_local(iterable_object_payload_local);
@@ -3674,6 +4541,21 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_set_prototype_add(
         &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_set_collection_prototype_add(SetCollectionKind::Set, function)
+    }
+
+    pub(crate) fn emit_weak_set_prototype_add(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_set_collection_prototype_add(SetCollectionKind::WeakSet, function)
+    }
+
+    fn emit_set_collection_prototype_add(
+        &mut self,
+        collection_kind: SetCollectionKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let set_record_local = self.reserve_temp_local();
@@ -3689,8 +4571,16 @@ impl<'a> FunctionBuilder<'a> {
         let live_count_local = self.reserve_temp_local();
 
         self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        self.emit_set_record_from_receiver(set_record_local, function)?;
+        self.emit_set_collection_record_from_receiver(collection_kind, set_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
+        if collection_kind == SetCollectionKind::WeakSet {
+            self.emit_require_weak_key(
+                value_payload_local,
+                value_tag_local,
+                "WeakSet value must be an object or unregistered symbol",
+                function,
+            )?;
+        }
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -3704,7 +4594,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_find_set_entry(
+        self.emit_find_set_collection_entry(
+            collection_kind,
             set_record_local,
             value_payload_local,
             value_tag_local,
@@ -3717,23 +4608,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_PTR_OFFSET,
+            collection_kind.entries_ptr_offset(),
             entries_ptr_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_LEN_OFFSET,
+            collection_kind.entries_len_offset(),
             entries_len_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_CAP_OFFSET,
+            collection_kind.entries_cap_offset(),
             entries_cap_local,
             function,
         );
-        self.emit_ensure_set_capacity(
+        self.emit_ensure_set_collection_capacity(
+            collection_kind,
             set_record_local,
             entries_ptr_local,
             entries_len_local,
@@ -3742,20 +4634,25 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(entries_ptr_local));
         function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::I64Const(HEAP_SET_ENTRY_SIZE as i64));
+        function.instruction(&Instruction::I64Const(collection_kind.entry_size() as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(entry_local));
-        self.store_i64_const_at_offset(entry_local, HEAP_SET_ENTRY_PRESENT_OFFSET, 1, function);
+        self.store_i64_const_at_offset(
+            entry_local,
+            collection_kind.entry_present_offset(),
+            1,
+            function,
+        );
         self.store_i64_local_at_offset(
             entry_local,
-            HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
+            collection_kind.entry_value_tag_offset(),
             value_tag_local,
             function,
         );
         self.store_i64_local_at_offset(
             entry_local,
-            HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+            collection_kind.entry_value_payload_offset(),
             value_payload_local,
             function,
         );
@@ -3765,13 +4662,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(entries_len_local));
         self.store_i64_local_at_offset(
             set_record_local,
-            HEAP_SET_ENTRIES_LEN_OFFSET,
+            collection_kind.entries_len_offset(),
             entries_len_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_LIVE_COUNT_OFFSET,
+            collection_kind.live_count_offset(),
             live_count_local,
             function,
         );
@@ -3781,7 +4678,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(live_count_local));
         self.store_i64_local_at_offset(
             set_record_local,
-            HEAP_SET_LIVE_COUNT_OFFSET,
+            collection_kind.live_count_offset(),
             live_count_local,
             function,
         );
@@ -3874,15 +4771,42 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_set_collection_prototype_delete(SetCollectionKind::Set, function)
+    }
+
+    pub(crate) fn emit_weak_set_prototype_delete(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_set_collection_prototype_delete(SetCollectionKind::WeakSet, function)
+    }
+
+    fn emit_set_collection_prototype_delete(
+        &mut self,
+        collection_kind: SetCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let set_record_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
         let found_entry_local = self.reserve_temp_local();
         let live_count_local = self.reserve_temp_local();
 
-        self.emit_set_record_from_receiver(set_record_local, function)?;
+        self.emit_set_collection_record_from_receiver(collection_kind, set_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        self.emit_find_set_entry(
+        if collection_kind == SetCollectionKind::WeakSet {
+            self.emit_can_be_held_weakly_i32(value_payload_local, value_tag_local, function);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_find_set_collection_entry(
+            collection_kind,
             set_record_local,
             value_payload_local,
             value_tag_local,
@@ -3894,15 +4818,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         for offset in [
-            HEAP_SET_ENTRY_PRESENT_OFFSET,
-            HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
-            HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
+            collection_kind.entry_present_offset(),
+            collection_kind.entry_value_tag_offset(),
+            collection_kind.entry_value_payload_offset(),
         ] {
             self.store_i64_const_at_offset(found_entry_local, offset, 0, function);
         }
         self.load_i64_to_local_from_offset(
             set_record_local,
-            HEAP_SET_LIVE_COUNT_OFFSET,
+            collection_kind.live_count_offset(),
             live_count_local,
             function,
         );
@@ -3912,7 +4836,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(live_count_local));
         self.store_i64_local_at_offset(
             set_record_local,
-            HEAP_SET_LIVE_COUNT_OFFSET,
+            collection_kind.live_count_offset(),
             live_count_local,
             function,
         );
@@ -3936,14 +4860,41 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_set_collection_prototype_has(SetCollectionKind::Set, function)
+    }
+
+    pub(crate) fn emit_weak_set_prototype_has(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_set_collection_prototype_has(SetCollectionKind::WeakSet, function)
+    }
+
+    fn emit_set_collection_prototype_has(
+        &mut self,
+        collection_kind: SetCollectionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let set_record_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
         let found_entry_local = self.reserve_temp_local();
 
-        self.emit_set_record_from_receiver(set_record_local, function)?;
+        self.emit_set_collection_record_from_receiver(collection_kind, set_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        self.emit_find_set_entry(
+        if collection_kind == SetCollectionKind::WeakSet {
+            self.emit_can_be_held_weakly_i32(value_payload_local, value_tag_local, function);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
+        self.emit_find_set_collection_entry(
+            collection_kind,
             set_record_local,
             value_payload_local,
             value_tag_local,

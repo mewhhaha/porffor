@@ -1,9 +1,18 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** Ready after T02 front/IR split  
+**Status:** In progress — structured diagnostics exist; parse-once architecture is not implemented
+
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
 **Blocks:** T08, T09, T12, T24 and parser-failure closure
+
+## Current repository state
+
+The front end and IR now have dedicated diagnostics and early-error modules.
+Lowering still calls `reparse_script`/`reparse_module`, and the engine exposes
+an `ast-reparsed` lowering stage, so the task's parse-exactly-once architecture
+has not landed. Current-pin parser and early-error buckets also lack a complete
+verified Wasm-AOT aggregate.
 
 ## Objective
 
@@ -11,7 +20,7 @@ Make parsing and static-semantics classification complete, deterministic and sou
 
 ## Architecture
 
-- Define a parsed source product that owns the Boa AST/interner/scope data needed by lowering, or perform lowering inside a controlled parser session and return a Porffor-owned syntax representation.
+- Define a parsed source product that owns the Boa AST/interner/scope data needed by lowering, or perform lowering inside a controlled parser session and return a Lila-owned syntax representation.
 - Parse exactly once per compilation unit.
 - Preserve script vs module goal, filename, spans, strictness and source text.
 - Convert parser panics into structured diagnostics without hiding compiler bugs. Known unsupported parser constructs must be distinguishable from malformed JavaScript.

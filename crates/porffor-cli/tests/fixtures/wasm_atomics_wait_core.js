@@ -25,6 +25,7 @@ assertSame(Atomics.wait(i32, 0, 0, 0), "timed-out", "i32 zero timeout");
 assertSame(Atomics.wait(i32, 0, 0, -1), "timed-out", "i32 negative timeout");
 assertSame(Atomics.wait(i32, 0, 0, false), "timed-out", "i32 false timeout");
 assertSame(Atomics.wait(i32, 0, 0, null), "timed-out", "i32 null timeout");
+assertSame(Atomics.wait(i32, 0, 0, 1), "timed-out", "i32 positive timeout");
 
 var indexCoerced = 0;
 var index = {
@@ -74,6 +75,7 @@ i64[0] = 1n;
 assertSame(Atomics.wait(i64, 0, 0n, 0), "not-equal", "i64 not equal");
 i64[0] = 0n;
 assertSame(Atomics.wait(i64, 0, 0n, 0), "timed-out", "i64 timed out");
+assertSame(Atomics.wait(i64, 0, 0n, 1), "timed-out", "i64 positive timeout");
 
 function clearView(view, zero) {
   for (var i = 0; i < view.length; i++) {
@@ -129,10 +131,6 @@ assertTypeError(function () {
 assertTypeError(function () {
   Atomics.wait({}, poisoned, poisoned, poisoned);
 }, "plain object");
-assertTypeError(function () {
-  Atomics.wait(i32, 0, 0, 1);
-}, "blocking wait");
-
 assertTypeError(function () {
   Atomics.wait(i32, Symbol("index"), poisoned, poisoned);
 }, "symbol index");

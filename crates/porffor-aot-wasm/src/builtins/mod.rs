@@ -1,11 +1,13 @@
 mod array;
 mod array_from_async;
+mod async_iterator;
 mod binary_data;
 mod bootstrap;
 mod collections;
 mod date;
 mod decimal;
 mod errors;
+mod finalization_registry;
 mod host;
 mod iterators;
 mod json;
@@ -14,6 +16,8 @@ mod reflect;
 mod regexp;
 mod standard;
 mod string;
+mod temporal;
+mod weak_ref;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xC2, 0xA0],       // U+00A0
     &[0xE1, 0x9A, 0x80], // U+1680

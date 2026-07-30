@@ -9,6 +9,16 @@ fn created_realm_string_prototype_method_aliases(name: &str) -> &'static [&'stat
 }
 
 impl<'a> FunctionBuilder<'a> {
+    fn agent_call_import_function_index(&self) -> Result<u32, EmitError> {
+        self.functions
+            .agent_call_import_function_index()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot: missing Test262 agent host import",
+                )
+            })
+    }
+
     pub(crate) fn compile_host_print_builtin(
         &mut self,
         function: &mut Function,
@@ -98,13 +108,14 @@ impl<'a> FunctionBuilder<'a> {
                 "heap collector is marked executable but host gc emitter is not wired",
             ));
         }
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "gc requires a real collector in wasm-aot",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload("gc requires a real collector in wasm-aot"),
+        ));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.set_completion_kind(CompletionKind::Throw, function);
         self.emit_return_current_completion(function);
         Ok(())
     }
@@ -969,6 +980,37 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn compile_host_create_html_dda_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let html_dda_meta = self
+            .functions
+            .get(&HostBuiltinId::HTMLDDA.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing HTMLDDA host callable",
+                )
+            })?;
+        self.emit_function_value_payload(&html_dda_meta, function)?;
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_html_dda_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        Ok(())
+    }
+
     pub(crate) fn compile_host_create_realm_builtin(
         &mut self,
         function: &mut Function,
@@ -1044,6 +1086,15 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.groupBy`",
+                )
+            })?;
+        let object_from_entries_meta = self
+            .functions
+            .get(&StandardBuiltinId::ObjectFromEntries.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.fromEntries`",
                 )
             })?;
         let object_prototype_method_metas = [
@@ -1138,6 +1189,18 @@ impl<'a> FunctionBuilder<'a> {
         ];
         let object_static_method_metas = [
             ("groupBy", object_group_by_meta),
+            ("fromEntries", object_from_entries_meta),
+            (
+                "assign",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectAssign.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.assign`",
+                        )
+                    })?,
+            ),
             (
                 "create",
                 self.functions
@@ -1201,6 +1264,17 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.getOwnPropertyDescriptor`",
+                        )
+                    })?,
+            ),
+            (
+                "getOwnPropertyDescriptors",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectGetOwnPropertyDescriptors.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.getOwnPropertyDescriptors`",
                         )
                     })?,
             ),
@@ -1271,6 +1345,17 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
+                "seal",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectSeal.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.seal`",
+                        )
+                    })?,
+            ),
+            (
                 "freeze",
                 self.functions
                     .get(&StandardBuiltinId::ObjectFreeze.function_id())
@@ -1311,6 +1396,17 @@ impl<'a> FunctionBuilder<'a> {
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.values`",
+                        )
+                    })?,
+            ),
+            (
+                "entries",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectEntries.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.entries`",
                         )
                     })?,
             ),
@@ -1477,6 +1573,10 @@ impl<'a> FunctionBuilder<'a> {
             ("isNaN", StandardBuiltinId::GlobalIsNaN),
             ("escape", StandardBuiltinId::Escape),
             ("unescape", StandardBuiltinId::Unescape),
+            ("encodeURI", StandardBuiltinId::EncodeUri),
+            ("encodeURIComponent", StandardBuiltinId::EncodeUriComponent),
+            ("decodeURI", StandardBuiltinId::DecodeUri),
+            ("decodeURIComponent", StandardBuiltinId::DecodeUriComponent),
         ]
         .into_iter()
         .map(|(name, builtin)| {
@@ -1641,6 +1741,15 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.from`",
                 )
             })?;
+        let iterator_concat_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorConcat.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.concat`",
+                )
+            })?;
         let iterator_zip_meta = self
             .functions
             .get(&StandardBuiltinId::IteratorZip.function_id())
@@ -1648,6 +1757,15 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.zip`",
+                )
+            })?;
+        let iterator_zip_keyed_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorZipKeyed.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.zipKeyed`",
                 )
             })?;
         let iterator_helper_next_meta = self
@@ -3503,6 +3621,27 @@ impl<'a> FunctionBuilder<'a> {
                 "setUTCMilliseconds",
                 StandardBuiltinId::DatePrototypeSetUtcMilliseconds,
             ),
+            ("toISOString", StandardBuiltinId::DatePrototypeToIsoString),
+            ("toJSON", StandardBuiltinId::DatePrototypeToJson),
+            ("toDateString", StandardBuiltinId::DatePrototypeToDateString),
+            (
+                "toLocaleDateString",
+                StandardBuiltinId::DatePrototypeToLocaleDateString,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::DatePrototypeToLocaleString,
+            ),
+            (
+                "toLocaleTimeString",
+                StandardBuiltinId::DatePrototypeToLocaleTimeString,
+            ),
+            (
+                "toTemporalInstant",
+                StandardBuiltinId::DatePrototypeToTemporalInstant,
+            ),
+            ("toTimeString", StandardBuiltinId::DatePrototypeToTimeString),
+            ("toString", StandardBuiltinId::DatePrototypeToString),
             ("toUTCString", StandardBuiltinId::DatePrototypeToUtcString),
         ]
         .map(|(name, builtin)| {
@@ -3800,6 +3939,15 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(function_prototype_local));
+        self.emit_object_define_number_data_from_f64_const_with_flags(
+            function_prototype_local,
+            "length",
+            0.0,
+            false,
+            false,
+            true,
+            function,
+        )?;
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(iterator_prototype_local));
         self.emit_alloc_plain_object_with_prototype(
@@ -5035,7 +5183,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_set_function_prototype_data(
             iterator_constructor_local,
             iterator_prototype_local,
-            true,
+            false,
             function,
         )?;
         let iterator_from_payload_local = self.reserve_temp_local();
@@ -5068,6 +5216,36 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.release_temp_local(iterator_from_payload_local);
+        let iterator_concat_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload(&iterator_concat_meta, function)?;
+        function.instruction(&Instruction::LocalSet(iterator_concat_payload_local));
+        self.emit_store_function_defining_realm(
+            iterator_concat_payload_local,
+            realm_record_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_concat_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            iterator_concat_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_concat_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            iterator_constructor_local,
+            "concat",
+            iterator_concat_payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(iterator_concat_payload_local);
         let iterator_zip_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload(&iterator_zip_meta, function)?;
         function.instruction(&Instruction::LocalSet(iterator_zip_payload_local));
@@ -5098,6 +5276,36 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.release_temp_local(iterator_zip_payload_local);
+        let iterator_zip_keyed_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload(&iterator_zip_keyed_meta, function)?;
+        function.instruction(&Instruction::LocalSet(iterator_zip_keyed_payload_local));
+        self.emit_store_function_defining_realm(
+            iterator_zip_keyed_payload_local,
+            realm_record_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_zip_keyed_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            iterator_zip_keyed_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            iterator_zip_keyed_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            iterator_constructor_local,
+            "zipKeyed",
+            iterator_zip_keyed_payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(iterator_zip_keyed_payload_local);
         let iterator_identity_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload(&array_iterator_identity_meta, function)?;
         function.instruction(&Instruction::LocalSet(iterator_identity_payload_local));
@@ -7338,6 +7546,12 @@ impl<'a> FunctionBuilder<'a> {
                 type_error_prototype_local,
                 function,
             );
+            self.store_i64_local_at_offset(
+                function_payload_local,
+                HEAP_FUNCTION_REALM_URI_ERROR_PROTOTYPE_OFFSET,
+                uri_error_prototype_local,
+                function,
+            );
             self.emit_object_define_local_data(
                 global_local,
                 name,
@@ -7533,6 +7747,331 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(detach_key_payload_local);
         self.release_temp_local(buffer_tag_local);
         self.release_temp_local(buffer_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_start_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_START: i64 = 1;
+        let source_payload_local = self.reserve_temp_local();
+        let source_tag_local = self.reserve_temp_local();
+        let source_string_local = self.reserve_temp_local();
+        let source_ptr_local = self.reserve_temp_local();
+        let source_len_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, source_payload_local, source_tag_local, function);
+        self.emit_value_to_string_payload(source_payload_local, source_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(source_string_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_unpack_string_payload(
+            source_string_local,
+            source_ptr_local,
+            source_len_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(AGENT_START));
+        function.instruction(&Instruction::LocalGet(source_ptr_local));
+        function.instruction(&Instruction::LocalGet(source_len_local));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "failed to start Test262 agent",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(source_len_local);
+        self.release_temp_local(source_ptr_local);
+        self.release_temp_local(source_string_local);
+        self.release_temp_local(source_tag_local);
+        self.release_temp_local(source_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_broadcast_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_BROADCAST: i64 = 2;
+        let buffer_payload_local = self.reserve_temp_local();
+        let buffer_tag_local = self.reserve_temp_local();
+        let descriptor_local = self.reserve_temp_local();
+        let slot_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, buffer_payload_local, buffer_tag_local, function);
+        self.emit_require_shared_array_buffer(
+            buffer_payload_local,
+            buffer_tag_local,
+            "agent.broadcast requires SharedArrayBuffer",
+            function,
+        )?;
+        self.emit_heap_alloc_const(32, function)?;
+        function.instruction(&Instruction::LocalSet(descriptor_local));
+        for (descriptor_offset, buffer_offset) in [
+            (0, HEAP_ARRAY_BUFFER_DATA_OFFSET),
+            (8, HEAP_ARRAY_BUFFER_BYTE_LENGTH_OFFSET),
+            (16, HEAP_ARRAY_BUFFER_MAX_BYTE_LENGTH_OFFSET),
+            (24, HEAP_ARRAY_BUFFER_FLAGS_OFFSET),
+        ] {
+            self.load_i64_to_local_from_offset(
+                buffer_payload_local,
+                buffer_offset,
+                slot_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                descriptor_local,
+                descriptor_offset,
+                slot_local,
+                function,
+            );
+        }
+        function.instruction(&Instruction::I64Const(AGENT_BROADCAST));
+        function.instruction(&Instruction::LocalGet(descriptor_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::Drop);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(slot_local);
+        self.release_temp_local(descriptor_local);
+        self.release_temp_local(buffer_tag_local);
+        self.release_temp_local(buffer_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_receive_broadcast_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_RECEIVE_BROADCAST: i64 = 3;
+        let descriptor_local = self.reserve_temp_local();
+        let status_local = self.reserve_temp_local();
+        let buffer_local = self.reserve_temp_local();
+        let data_ptr_local = self.reserve_temp_local();
+        let byte_length_local = self.reserve_temp_local();
+        let max_byte_length_local = self.reserve_temp_local();
+        let flags_local = self.reserve_temp_local();
+
+        self.emit_heap_alloc_const(32, function)?;
+        function.instruction(&Instruction::LocalSet(descriptor_local));
+        function.instruction(&Instruction::I64Const(AGENT_RECEIVE_BROADCAST));
+        function.instruction(&Instruction::LocalGet(descriptor_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::LocalSet(status_local));
+        function.instruction(&Instruction::LocalGet(status_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Test262 agent stopped before receiving a broadcast",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        for (descriptor_offset, destination_local) in [
+            (0, data_ptr_local),
+            (8, byte_length_local),
+            (16, max_byte_length_local),
+            (24, flags_local),
+        ] {
+            self.load_i64_to_local_from_offset(
+                descriptor_local,
+                descriptor_offset,
+                destination_local,
+                function,
+            );
+        }
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(SHARED_ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(buffer_local));
+        self.store_i64_const_at_offset(
+            buffer_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER,
+            function,
+        );
+        self.emit_initialize_array_buffer_private_state(
+            buffer_local,
+            data_ptr_local,
+            byte_length_local,
+            max_byte_length_local,
+            flags_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(buffer_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(flags_local);
+        self.release_temp_local(max_byte_length_local);
+        self.release_temp_local(byte_length_local);
+        self.release_temp_local(data_ptr_local);
+        self.release_temp_local(buffer_local);
+        self.release_temp_local(status_local);
+        self.release_temp_local(descriptor_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_report_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_REPORT: i64 = 4;
+        let report_payload_local = self.reserve_temp_local();
+        let report_tag_local = self.reserve_temp_local();
+        let report_string_local = self.reserve_temp_local();
+        let report_ptr_local = self.reserve_temp_local();
+        let report_len_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, report_payload_local, report_tag_local, function);
+        self.emit_value_to_string_payload(report_payload_local, report_tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(report_string_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_unpack_string_payload(
+            report_string_local,
+            report_ptr_local,
+            report_len_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(AGENT_REPORT));
+        function.instruction(&Instruction::LocalGet(report_ptr_local));
+        function.instruction(&Instruction::LocalGet(report_len_local));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(report_len_local);
+        self.release_temp_local(report_ptr_local);
+        self.release_temp_local(report_string_local);
+        self.release_temp_local(report_tag_local);
+        self.release_temp_local(report_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_get_report_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_REPORT_LENGTH: i64 = 5;
+        const AGENT_REPORT_COPY: i64 = 6;
+        let report_len_local = self.reserve_temp_local();
+        let report_ptr_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(AGENT_REPORT_LENGTH));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::LocalSet(report_len_local));
+        function.instruction(&Instruction::LocalGet(report_len_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::Else);
+        self.emit_heap_alloc_from_local(report_len_local, function)?;
+        function.instruction(&Instruction::LocalSet(report_ptr_local));
+        function.instruction(&Instruction::I64Const(AGENT_REPORT_COPY));
+        function.instruction(&Instruction::LocalGet(report_ptr_local));
+        function.instruction(&Instruction::LocalGet(report_len_local));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::Drop);
+        self.emit_pack_string_payload(report_ptr_local, report_len_local, function);
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(report_ptr_local);
+        self.release_temp_local(report_len_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_sleep_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_SLEEP: i64 = 7;
+        let millis_payload_local = self.reserve_temp_local();
+        let millis_tag_local = self.reserve_temp_local();
+
+        self.emit_builtin_arg_to_locals(0, millis_payload_local, millis_tag_local, function);
+        self.emit_value_to_number_payload(millis_tag_local, millis_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(millis_payload_local));
+        function.instruction(&Instruction::I64Const(AGENT_SLEEP));
+        function.instruction(&Instruction::LocalGet(millis_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(millis_tag_local);
+        self.release_temp_local(millis_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_monotonic_now_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_MONOTONIC_NOW: i64 = 8;
+        function.instruction(&Instruction::I64Const(AGENT_MONOTONIC_NOW));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        Ok(())
+    }
+
+    pub(crate) fn compile_host_agent_leaving_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        const AGENT_LEAVING: i64 = 9;
+        function.instruction(&Instruction::I64Const(AGENT_LEAVING));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(self.agent_call_import_function_index()?));
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
         Ok(())
     }
 

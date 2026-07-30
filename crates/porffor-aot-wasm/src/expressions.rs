@@ -265,6 +265,15 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
+            ExprIr::GlobalIdentifierRead { name } => {
+                self.emit_global_identifier_read(
+                    name,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::AssignIdentifier { name, value } => {
                 if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
                     let value_local = self.reserve_temp_local();
@@ -482,7 +491,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::F64Sub);
                 } else if matches!(op, ArithmeticBinaryOp::Exp) {
                     let output_local = self.reserve_temp_local();
-                    self.emit_number_pow_integer_payload(
+                    self.emit_number_pow_payload(
                         temp_local,
                         self.scratch_local,
                         output_local,
@@ -652,7 +661,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::F64Sub);
                 } else if matches!(op, ArithmeticBinaryOp::Exp) {
                     let output_local = self.reserve_temp_local();
-                    self.emit_number_pow_integer_payload(
+                    self.emit_number_pow_payload(
                         temp_local,
                         self.scratch_local,
                         output_local,
@@ -796,12 +805,7 @@ impl<'a> FunctionBuilder<'a> {
                     let output_local = self.reserve_temp_local();
                     function.instruction(&Instruction::LocalSet(rhs_local));
                     function.instruction(&Instruction::LocalSet(lhs_local));
-                    self.emit_number_pow_integer_payload(
-                        lhs_local,
-                        rhs_local,
-                        output_local,
-                        function,
-                    )?;
+                    self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
                     function.instruction(&Instruction::LocalGet(output_local));
                     self.release_temp_local(output_local);
                     self.release_temp_local(rhs_local);
@@ -934,12 +938,7 @@ impl<'a> FunctionBuilder<'a> {
                         let output_local = self.reserve_temp_local();
                         function.instruction(&Instruction::LocalSet(rhs_local));
                         function.instruction(&Instruction::LocalSet(lhs_local));
-                        self.emit_number_pow_integer_payload(
-                            lhs_local,
-                            rhs_local,
-                            output_local,
-                            function,
-                        )?;
+                        self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
                         function.instruction(&Instruction::LocalGet(output_local));
                         self.release_temp_local(output_local);
                         self.release_temp_local(rhs_local);
@@ -1005,12 +1004,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
 
-                        self.emit_number_pow_integer_payload(
-                            lhs_local,
-                            rhs_local,
-                            output_local,
-                            function,
-                        )?;
+                        self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
                         function.instruction(&Instruction::LocalGet(output_local));
 
                         self.release_temp_local(primitive_tag_local);
@@ -2694,6 +2688,9 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::GlobalPropertyRead { name } => {
                 self.emit_global_property_read(name, payload_local, tag_local, function)?;
+            }
+            ExprIr::GlobalIdentifierRead { name } => {
+                self.emit_global_identifier_read(name, payload_local, tag_local, function)?;
             }
             ExprIr::AssignIdentifier { name, value } => {
                 if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {

@@ -1,0 +1,1233 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1968150528530665004,
+  "run_kind": "resume-case-checkpoint",
+  "total": 120,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 114,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 114,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Atomics/xor/non-views.js",
+      "duration_ms": 22663
+    },
+    {
+      "path": "built-ins/Atomics/xor/non-shared-bufferdata.js",
+      "duration_ms": 20347
+    },
+    {
+      "path": "built-ins/Atomics/xor/validate-arraytype-before-value-coercion.js",
+      "duration_ms": 19654
+    },
+    {
+      "path": "built-ins/Atomics/xor/non-shared-int-views-throws.js",
+      "duration_ms": 14961
+    },
+    {
+      "path": "built-ins/Atomics/xor/not-a-constructor.js",
+      "duration_ms": 12795
+    },
+    {
+      "path": "built-ins/Atomics/xor/validate-arraytype-before-index-coercion.js",
+      "duration_ms": 11753
+    },
+    {
+      "path": "built-ins/Atomics/notify/bigint/notify-all-on-loc.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Atomics/notify/count-defaults-to-infinity-missing.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Atomics/notify/count-defaults-to-infinity-undefined.js",
+      "duration_ms": 0
+    },
+    {
+      "path": "built-ins/Atomics/notify/negative-count.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Atomics/notify/bigint/notify-all-on-loc.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/count-defaults-to-infinity-missing.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/count-defaults-to-infinity-undefined.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/negative-count.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-all-on-loc.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-all.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-in-order-one-time.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-in-order.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-nan.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-one.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-renotify-noop.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-two.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-with-no-matching-agents-waiting.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/notify-zero.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/notify/undefined-index-defaults-to-zero.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/cannot-suspend-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/false-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/nan-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/negative-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-no-operation.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-add.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-and.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-compareExchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-exchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-or.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-store.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-sub.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-xor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/waiterlist-block-indexedposition-wake.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/waiterlist-order-of-operations-is-fifo.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/bigint/was-woken-before-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/cannot-suspend-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/false-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/nan-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/negative-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-no-operation.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-add.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-and.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-compareExchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-exchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-or.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-store.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-sub.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/no-spurious-wakeup-on-xor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/null-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/object-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/poisoned-object-for-timeout-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/retrieve-length-before-index-coercion.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/symbol-for-index-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/symbol-for-timeout-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/symbol-for-value-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/true-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/true-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/undefined-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/undefined-index-defaults-to-zero.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/waiterlist-block-indexedposition-wake.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/waiterlist-order-of-operations-is-fifo.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/wait/was-woken-before-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/false-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/nan-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/negative-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-no-operation.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-add.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-and.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-compareExchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-exchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-or.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-store.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-sub.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-xor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/null-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/object-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/poisoned-object-for-timeout-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/symbol-for-index-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/symbol-for-timeout-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/symbol-for-value-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/true-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/true-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/undefined-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/undefined-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/undefined-index-defaults-to-zero-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/value-not-equal-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/waiterlist-block-indexedposition-wake.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/bigint/was-woken-before-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/false-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/implicit-infinity-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/nan-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/negative-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-no-operation.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-add.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-and.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-compareExchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-exchange.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-or.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-store.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-sub.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-xor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/null-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/object-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/poisoned-object-for-timeout-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/retrieve-length-before-index-coercion.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 341218305294620582,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/returns-result-object-value-is-promise-resolves-to-ok.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/returns-result-object-value-is-promise-resolves-to-timed-out.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/symbol-for-index-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/symbol-for-timeout-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/symbol-for-value-throws-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/true-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/true-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/undefined-for-timeout-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/undefined-for-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/undefined-index-defaults-to-zero-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/value-not-equal-agent.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/waiterlist-block-indexedposition-wake.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Atomics/waitAsync/was-woken-before-timeout.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `SharedArrayBuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 5043146376610110776,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Atomics/notify/bigint/notify-all-on-loc.js",
+    "built-ins/Atomics/notify/count-defaults-to-infinity-missing.js",
+    "built-ins/Atomics/notify/count-defaults-to-infinity-undefined.js",
+    "built-ins/Atomics/notify/negative-count.js",
+    "built-ins/Atomics/notify/notify-all-on-loc.js",
+    "built-ins/Atomics/notify/notify-all.js",
+    "built-ins/Atomics/notify/notify-in-order-one-time.js",
+    "built-ins/Atomics/notify/notify-in-order.js",
+    "built-ins/Atomics/notify/notify-nan.js",
+    "built-ins/Atomics/notify/notify-one.js",
+    "built-ins/Atomics/notify/notify-renotify-noop.js",
+    "built-ins/Atomics/notify/notify-two.js",
+    "built-ins/Atomics/notify/notify-with-no-matching-agents-waiting.js",
+    "built-ins/Atomics/notify/notify-zero.js",
+    "built-ins/Atomics/notify/undefined-index-defaults-to-zero.js",
+    "built-ins/Atomics/wait/bigint/cannot-suspend-throws.js",
+    "built-ins/Atomics/wait/bigint/false-for-timeout-agent.js",
+    "built-ins/Atomics/wait/bigint/nan-for-timeout.js",
+    "built-ins/Atomics/wait/bigint/negative-timeout-agent.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-no-operation.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-add.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-and.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-compareExchange.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-exchange.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-or.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-store.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-sub.js",
+    "built-ins/Atomics/wait/bigint/no-spurious-wakeup-on-xor.js",
+    "built-ins/Atomics/wait/bigint/waiterlist-block-indexedposition-wake.js",
+    "built-ins/Atomics/wait/bigint/waiterlist-order-of-operations-is-fifo.js",
+    "built-ins/Atomics/wait/bigint/was-woken-before-timeout.js",
+    "built-ins/Atomics/wait/cannot-suspend-throws.js",
+    "built-ins/Atomics/wait/false-for-timeout-agent.js",
+    "built-ins/Atomics/wait/nan-for-timeout.js",
+    "built-ins/Atomics/wait/negative-timeout-agent.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-no-operation.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-add.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-and.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-compareExchange.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-exchange.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-or.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-store.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-sub.js",
+    "built-ins/Atomics/wait/no-spurious-wakeup-on-xor.js",
+    "built-ins/Atomics/wait/null-for-timeout-agent.js",
+    "built-ins/Atomics/wait/object-for-timeout-agent.js",
+    "built-ins/Atomics/wait/poisoned-object-for-timeout-throws-agent.js",
+    "built-ins/Atomics/wait/retrieve-length-before-index-coercion.js",
+    "built-ins/Atomics/wait/symbol-for-index-throws-agent.js",
+    "built-ins/Atomics/wait/symbol-for-timeout-throws-agent.js",
+    "built-ins/Atomics/wait/symbol-for-value-throws-agent.js",
+    "built-ins/Atomics/wait/true-for-timeout-agent.js",
+    "built-ins/Atomics/wait/true-for-timeout.js",
+    "built-ins/Atomics/wait/undefined-for-timeout.js",
+    "built-ins/Atomics/wait/undefined-index-defaults-to-zero.js",
+    "built-ins/Atomics/wait/waiterlist-block-indexedposition-wake.js",
+    "built-ins/Atomics/wait/waiterlist-order-of-operations-is-fifo.js",
+    "built-ins/Atomics/wait/was-woken-before-timeout.js",
+    "built-ins/Atomics/waitAsync/bigint/false-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/nan-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/negative-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-no-operation.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-add.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-and.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-compareExchange.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-exchange.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-or.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-store.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-sub.js",
+    "built-ins/Atomics/waitAsync/bigint/no-spurious-wakeup-on-xor.js",
+    "built-ins/Atomics/waitAsync/bigint/null-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/object-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/poisoned-object-for-timeout-throws-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/symbol-for-index-throws-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/symbol-for-timeout-throws-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/symbol-for-value-throws-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/true-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/true-for-timeout.js",
+    "built-ins/Atomics/waitAsync/bigint/undefined-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/undefined-for-timeout.js",
+    "built-ins/Atomics/waitAsync/bigint/undefined-index-defaults-to-zero-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/value-not-equal-agent.js",
+    "built-ins/Atomics/waitAsync/bigint/waiterlist-block-indexedposition-wake.js",
+    "built-ins/Atomics/waitAsync/bigint/was-woken-before-timeout.js",
+    "built-ins/Atomics/waitAsync/false-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/implicit-infinity-for-timeout.js",
+    "built-ins/Atomics/waitAsync/nan-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/negative-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-no-operation.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-add.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-and.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-compareExchange.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-exchange.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-or.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-store.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-sub.js",
+    "built-ins/Atomics/waitAsync/no-spurious-wakeup-on-xor.js",
+    "built-ins/Atomics/waitAsync/null-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/object-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/poisoned-object-for-timeout-throws-agent.js",
+    "built-ins/Atomics/waitAsync/retrieve-length-before-index-coercion.js",
+    "built-ins/Atomics/waitAsync/returns-result-object-value-is-promise-resolves-to-ok.js",
+    "built-ins/Atomics/waitAsync/returns-result-object-value-is-promise-resolves-to-timed-out.js",
+    "built-ins/Atomics/waitAsync/symbol-for-index-throws-agent.js",
+    "built-ins/Atomics/waitAsync/symbol-for-timeout-throws-agent.js",
+    "built-ins/Atomics/waitAsync/symbol-for-value-throws-agent.js",
+    "built-ins/Atomics/waitAsync/true-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/true-for-timeout.js",
+    "built-ins/Atomics/waitAsync/undefined-for-timeout-agent.js",
+    "built-ins/Atomics/waitAsync/undefined-for-timeout.js",
+    "built-ins/Atomics/waitAsync/undefined-index-defaults-to-zero-agent.js",
+    "built-ins/Atomics/waitAsync/value-not-equal-agent.js",
+    "built-ins/Atomics/waitAsync/waiterlist-block-indexedposition-wake.js",
+    "built-ins/Atomics/waitAsync/was-woken-before-timeout.js",
+    "built-ins/Atomics/xor/non-shared-bufferdata.js",
+    "built-ins/Atomics/xor/non-shared-int-views-throws.js",
+    "built-ins/Atomics/xor/non-views.js",
+    "built-ins/Atomics/xor/not-a-constructor.js",
+    "built-ins/Atomics/xor/validate-arraytype-before-index-coercion.js",
+    "built-ins/Atomics/xor/validate-arraytype-before-value-coercion.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

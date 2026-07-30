@@ -1,9 +1,19 @@
 # T26 — Zero-failure conformance closure and release gate
 
-**Status:** Blocked on all applicable task lanes  
+**Status:** Blocked — current pinned Wasm-AOT aggregate is not green or fully republished
+
 **Parallel group:** Final integration/closure  
 **Depends on:** T00-T25, T27  
 **Blocks:** A truthful 100% Test262 claim and conformance release
+
+## Current repository state
+
+The fake suites are green, but the README explicitly states that the current
+pinned real Wasm-AOT aggregate is not green and has not been fully republished.
+The shortcut audit is also red in the current working tree, the generated
+current-pin backlog is absent, and several architecture/feature lanes retain
+explicit unsupported cases. Formal closure entry criteria are therefore not
+met.
 
 ## Objective
 
@@ -36,7 +46,7 @@ Begin formal closure only when:
 
 Record:
 
-- Porffor commit and Rust toolchain;
+- Lila commit and Rust toolchain;
 - ecma262/Test262 revisions;
 - matrix/snapshot schema versions;
 - host platform, architecture and required locale/time-zone data versions;

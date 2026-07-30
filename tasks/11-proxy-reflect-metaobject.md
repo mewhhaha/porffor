@@ -1,9 +1,19 @@
 # T11 — Proxy and Reflect meta-object protocol
 
-**Status:** Blocked on T04/T06/T10  
+**Status:** In progress — Proxy/Reflect paths exist; materialized cases and invariants remain
+
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T06, T09, T10  
 **Blocks:** Proxy-sensitive closure in most other lanes
+
+## Current repository state
+
+Proxy and Reflect builtins are implemented through dedicated backend paths, and
+focused tests cover several traps and object-integrity interactions. The
+Test262 materializer still contains Proxy-specific exact-path rewrites,
+including creation, revocation, call/construct and descriptor traps. Until
+those rewrites are removed and the complete Proxy/Reflect trees are verified,
+this lane remains open.
 
 ## Objective
 

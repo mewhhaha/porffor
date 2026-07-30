@@ -1,9 +1,19 @@
 # T12 — Modules, linking, loading and namespace objects
 
-**Status:** Blocked on T06-T10  
+**Status:** In progress — module IR/emission exists; graph linking and dynamic import are incomplete
+
 **Parallel group:** Feature lane  
 **Depends on:** T06, T07, T08, T09, T10  
 **Blocks:** Module portion of T14, T23 and T26
+
+## Current repository state
+
+The IR and Wasm backend have module-related data and emission support, and
+`AbstractModuleSource` has focused coverage. The repository does not yet show a
+complete loader/resolver, live-binding/cycle/linking implementation and
+componentized dynamic-import path satisfying this task. The
+`language/module-code` current-pin closure and module namespace exotic
+acceptance criteria remain unverified.
 
 ## Objective
 

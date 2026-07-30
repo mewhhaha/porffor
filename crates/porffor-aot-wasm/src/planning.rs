@@ -513,6 +513,97 @@ mod tests {
     }
 
     #[test]
+    fn object_integrity_builtins_root_reflective_property_operations() {
+        for (integrity_builtin, dependencies) in [
+            (
+                StandardBuiltinId::ObjectSeal,
+                &[
+                    StandardBuiltinId::ReflectOwnKeys,
+                    StandardBuiltinId::ReflectDefineProperty,
+                    StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+                ][..],
+            ),
+            (
+                StandardBuiltinId::ObjectFreeze,
+                &[
+                    StandardBuiltinId::ReflectOwnKeys,
+                    StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+                    StandardBuiltinId::ReflectDefineProperty,
+                    StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+                ][..],
+            ),
+            (
+                StandardBuiltinId::ObjectIsSealed,
+                &[
+                    StandardBuiltinId::ReflectOwnKeys,
+                    StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+                    StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+                ][..],
+            ),
+            (
+                StandardBuiltinId::ObjectIsFrozen,
+                &[
+                    StandardBuiltinId::ReflectOwnKeys,
+                    StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+                    StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+                ][..],
+            ),
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(integrity_builtin);
+
+            assert!(plan.standard_roots.contains(&integrity_builtin));
+            for dependency in dependencies {
+                assert!(plan.standard_roots.contains(dependency));
+            }
+        }
+    }
+
+    #[test]
+    fn object_entries_and_values_root_reflective_property_operations() {
+        for enumerable_own_properties_builtin in [
+            StandardBuiltinId::ObjectEntries,
+            StandardBuiltinId::ObjectValues,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(enumerable_own_properties_builtin);
+
+            for builtin in [
+                enumerable_own_properties_builtin,
+                StandardBuiltinId::ReflectOwnKeys,
+                StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+                StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+            ] {
+                assert!(plan.standard_roots.contains(&builtin));
+            }
+        }
+    }
+
+    #[test]
+    fn object_property_copy_builtins_root_reflective_property_operations() {
+        for builtin in [
+            StandardBuiltinId::ObjectAssign,
+            StandardBuiltinId::ObjectGetOwnPropertyDescriptors,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+
+            for dependency in [
+                builtin,
+                StandardBuiltinId::ReflectOwnKeys,
+                StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+                StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+            ] {
+                assert!(plan.standard_roots.contains(&dependency));
+            }
+
+            if builtin == StandardBuiltinId::ObjectAssign {
+                assert!(plan.standard_roots.contains(&StandardBuiltinId::ReflectSet));
+            }
+        }
+    }
+
+    #[test]
     fn regexp_literal_roots_intrinsic_regexp_bootstrap() {
         let script = lower_script("/a/;");
         let StatementIr::Expression(literal) = &script.body.statements[0] else {
@@ -570,6 +661,7 @@ pub(crate) struct RuntimeBootstrapPlan {
     pub(crate) math_object: bool,
     pub(crate) json_object: bool,
     pub(crate) atomics_object: bool,
+    pub(crate) temporal_object: bool,
 }
 
 impl RuntimeBootstrapPlan {
@@ -630,6 +722,9 @@ impl RuntimeBootstrapPlan {
             ScriptGlobalBindingKind::AtomicsObject => {
                 self.full_standard_globals || self.atomics_object
             }
+            ScriptGlobalBindingKind::TemporalObject => {
+                self.full_standard_globals || self.temporal_object
+            }
             ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                 self.should_initialize_standard_builtin(builtin)
             }
@@ -650,6 +745,10 @@ impl RuntimeBootstrapPlan {
             ScriptGlobalBindingKind::MathObject => self.math_object = true,
             ScriptGlobalBindingKind::JsonObject => self.json_object = true,
             ScriptGlobalBindingKind::AtomicsObject => self.atomics_object = true,
+            ScriptGlobalBindingKind::TemporalObject => {
+                self.temporal_object = true;
+                self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+            }
             ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                 self.require_standard_builtin(builtin);
             }
@@ -694,6 +793,14 @@ impl RuntimeBootstrapPlan {
                 self.require_standard_builtin(dependency);
             }
         }
+        if builtin == StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose {
+            for dependency in [
+                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled,
+                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected,
+            ] {
+                self.require_standard_builtin(dependency);
+            }
+        }
         if is_typed_array_constructor(builtin) {
             for iterator_builtin in [
                 StandardBuiltinId::ArrayPrototypeValues,
@@ -722,15 +829,25 @@ impl RuntimeBootstrapPlan {
         }
         if builtin == StandardBuiltinId::ObjectConstructor {
             self.require_standard_builtin(StandardBuiltinId::ObjectGroupBy);
+            self.require_standard_builtin(StandardBuiltinId::ObjectFromEntries);
+            self.require_standard_builtin(StandardBuiltinId::ObjectAssign);
+            self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptors);
         }
         if matches!(
             builtin,
             StandardBuiltinId::MapConstructor
+                | StandardBuiltinId::WeakMapConstructor
+                | StandardBuiltinId::WeakSetConstructor
                 | StandardBuiltinId::SetConstructor
                 | StandardBuiltinId::ObjectGroupBy
+                | StandardBuiltinId::ObjectFromEntries
         ) {
             if builtin == StandardBuiltinId::MapConstructor {
                 self.require_standard_builtin(StandardBuiltinId::MapGroupBy);
+                self.require_standard_builtin(StandardBuiltinId::MapSpeciesGetter);
+            }
+            if builtin == StandardBuiltinId::SetConstructor {
+                self.require_standard_builtin(StandardBuiltinId::SetSpeciesGetter);
             }
             for iterator_builtin in [
                 StandardBuiltinId::ArrayPrototypeValues,
@@ -829,6 +946,49 @@ impl RuntimeBootstrapPlan {
         ) {
             self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
+        if builtin == StandardBuiltinId::IteratorZipKeyed {
+            self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
+            self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectAssign
+                | StandardBuiltinId::ObjectEntries
+                | StandardBuiltinId::ObjectGetOwnPropertyDescriptors
+                | StandardBuiltinId::ObjectValues
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
+            self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+        }
+        if builtin == StandardBuiltinId::ObjectAssign {
+            self.require_standard_builtin(StandardBuiltinId::ReflectSet);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectSeal
+                | StandardBuiltinId::ObjectFreeze
+                | StandardBuiltinId::ObjectIsSealed
+                | StandardBuiltinId::ObjectIsFrozen
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectSeal | StandardBuiltinId::ObjectFreeze
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ReflectDefineProperty);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectFreeze
+                | StandardBuiltinId::ObjectIsSealed
+                | StandardBuiltinId::ObjectIsFrozen
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+        }
+        if builtin == StandardBuiltinId::DatePrototypeToTemporalInstant {
+            self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+        }
         if matches!(
             builtin,
             StandardBuiltinId::ObjectDefineProperty
@@ -845,7 +1005,7 @@ impl RuntimeBootstrapPlan {
             self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
         }
         match builtin {
-            StandardBuiltinId::ObjectGroupBy => {
+            StandardBuiltinId::ObjectGroupBy | StandardBuiltinId::ObjectFromEntries => {
                 self.standard_roots
                     .insert(StandardBuiltinId::ObjectConstructor);
             }
@@ -936,9 +1096,84 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::AtomicsStore
             | StandardBuiltinId::AtomicsSub
             | StandardBuiltinId::AtomicsWait
-            | StandardBuiltinId::AtomicsWaitAsync
             | StandardBuiltinId::AtomicsXor
             | StandardBuiltinId::AtomicsIsLockFree => self.atomics_object = true,
+            StandardBuiltinId::AtomicsWaitAsync => {
+                self.atomics_object = true;
+                self.standard_roots
+                    .insert(StandardBuiltinId::PromiseConstructor);
+                self.standard_roots
+                    .insert(StandardBuiltinId::PromiseSpeciesGetter);
+            }
+            StandardBuiltinId::TemporalInstantConstructor
+            | StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
+            | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+            | StandardBuiltinId::TemporalInstantPrototypeEquals
+            | StandardBuiltinId::TemporalInstantPrototypeToString => {
+                self.temporal_object = true;
+                self.standard_roots
+                    .insert(StandardBuiltinId::TemporalInstantConstructor);
+                self.standard_roots
+                    .insert(StandardBuiltinId::TemporalInstantFrom);
+                self.standard_roots
+                    .insert(StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter);
+                self.standard_roots
+                    .insert(StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter);
+                self.standard_roots
+                    .insert(StandardBuiltinId::TemporalInstantPrototypeEquals);
+                self.standard_roots
+                    .insert(StandardBuiltinId::TemporalInstantPrototypeToString);
+            }
+            StandardBuiltinId::TemporalZonedDateTimeConstructor
+            | StandardBuiltinId::TemporalZonedDateTimeFrom
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
+                self.temporal_object = true;
+                for dependency in [
+                    StandardBuiltinId::TemporalInstantConstructor,
+                    StandardBuiltinId::TemporalZonedDateTimeConstructor,
+                    StandardBuiltinId::TemporalZonedDateTimeFrom,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
             StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
             | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
             | StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter
@@ -1000,7 +1235,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::ArrayFromAsync
             | StandardBuiltinId::AsyncGeneratorPrototypeNext
             | StandardBuiltinId::AsyncGeneratorPrototypeReturn
-            | StandardBuiltinId::AsyncGeneratorPrototypeThrow => {
+            | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose => {
                 self.standard_roots
                     .insert(StandardBuiltinId::PromiseConstructor);
                 self.standard_roots
@@ -1025,6 +1261,7 @@ impl RuntimeBootstrapPlan {
                         | StandardBuiltinId::AsyncGeneratorPrototypeNext
                         | StandardBuiltinId::AsyncGeneratorPrototypeReturn
                         | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+                        | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
                 ) {
                     self.standard_roots
                         .insert(StandardBuiltinId::PromiseCapabilityExecutor);
@@ -1081,7 +1318,8 @@ impl RuntimeBootstrapPlan {
                         .insert(StandardBuiltinId::PromiseResolve);
                 }
             }
-            StandardBuiltinId::MapGroupBy
+            StandardBuiltinId::MapSpeciesGetter
+            | StandardBuiltinId::MapGroupBy
             | StandardBuiltinId::MapPrototypeClear
             | StandardBuiltinId::MapPrototypeDelete
             | StandardBuiltinId::MapPrototypeForEach
@@ -1098,7 +1336,32 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::MapConstructor);
             }
-            StandardBuiltinId::SetPrototypeAdd
+            StandardBuiltinId::WeakMapPrototypeDelete
+            | StandardBuiltinId::WeakMapPrototypeGet
+            | StandardBuiltinId::WeakMapPrototypeGetOrInsert
+            | StandardBuiltinId::WeakMapPrototypeGetOrInsertComputed
+            | StandardBuiltinId::WeakMapPrototypeHas
+            | StandardBuiltinId::WeakMapPrototypeSet => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::WeakMapConstructor);
+            }
+            StandardBuiltinId::WeakSetPrototypeAdd
+            | StandardBuiltinId::WeakSetPrototypeDelete
+            | StandardBuiltinId::WeakSetPrototypeHas => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::WeakSetConstructor);
+            }
+            StandardBuiltinId::WeakRefPrototypeDeref => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::WeakRefConstructor);
+            }
+            StandardBuiltinId::FinalizationRegistryPrototypeRegister
+            | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::FinalizationRegistryConstructor);
+            }
+            StandardBuiltinId::SetSpeciesGetter
+            | StandardBuiltinId::SetPrototypeAdd
             | StandardBuiltinId::SetPrototypeClear
             | StandardBuiltinId::SetPrototypeDelete
             | StandardBuiltinId::SetPrototypeDifference
@@ -1176,7 +1439,14 @@ impl RuntimeBootstrapPlan {
                 self.standard_roots
                     .insert(StandardBuiltinId::DataViewConstructor);
             }
+            StandardBuiltinId::DatePrototypeToJson => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::DateConstructor);
+                self.standard_roots
+                    .insert(StandardBuiltinId::DatePrototypeToIsoString);
+            }
             StandardBuiltinId::DateNow
+            | StandardBuiltinId::DateParse
             | StandardBuiltinId::DateUtc
             | StandardBuiltinId::DatePrototypeGetTime
             | StandardBuiltinId::DatePrototypeSetTime
@@ -1214,6 +1484,15 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::DatePrototypeSetUtcSeconds
             | StandardBuiltinId::DatePrototypeSetMilliseconds
             | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeToIsoString
+            | StandardBuiltinId::DatePrototypeToPrimitive
+            | StandardBuiltinId::DatePrototypeToDateString
+            | StandardBuiltinId::DatePrototypeToLocaleDateString
+            | StandardBuiltinId::DatePrototypeToLocaleString
+            | StandardBuiltinId::DatePrototypeToLocaleTimeString
+            | StandardBuiltinId::DatePrototypeToTemporalInstant
+            | StandardBuiltinId::DatePrototypeToTimeString
+            | StandardBuiltinId::DatePrototypeToString
             | StandardBuiltinId::DatePrototypeToUtcString => {
                 self.standard_roots
                     .insert(StandardBuiltinId::DateConstructor);
@@ -1246,7 +1525,9 @@ impl RuntimeBootstrapPlan {
             }
             StandardBuiltinId::ArrayIteratorIdentity
             | StandardBuiltinId::IteratorFrom
+            | StandardBuiltinId::IteratorConcat
             | StandardBuiltinId::IteratorZip
+            | StandardBuiltinId::IteratorZipKeyed
             | StandardBuiltinId::IteratorHelperNext
             | StandardBuiltinId::IteratorHelperReturn
             | StandardBuiltinId::IteratorPrototypeToArray
@@ -1398,17 +1679,19 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             init.as_ref().is_some_and(for_init_exposes_global_object)
                 || test.as_ref().is_some_and(expr_exposes_global_object)
                 || update.as_ref().is_some_and(expr_exposes_global_object)
-                || before_yield.iter().any(statement_exposes_global_object)
-                || statement_exposes_global_object(yield_statement)
-                || after_yield.iter().any(statement_exposes_global_object)
+                || before_suspension
+                    .iter()
+                    .any(statement_exposes_global_object)
+                || statement_exposes_global_object(suspension_statement)
+                || after_suspension.iter().any(statement_exposes_global_object)
         }
         StatementIr::GeneratorIf {
             condition,
@@ -1535,6 +1818,7 @@ fn property_access_exposes_global_object(target: &TypedExpr, key: &PropertyKeyIr
 fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
     match property {
         ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Spread { source: value }
         | ObjectPropertyIr::Data { value, .. }
         | ObjectPropertyIr::NonEnumerableData { value, .. }
         | ObjectPropertyIr::Method {
@@ -1719,6 +2003,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::This
         | ExprIr::Arguments
         | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::GlobalIdentifierRead { .. }
         | ExprIr::UpdateIdentifier { .. }
         | ExprIr::GlobalPropertyUpdate { .. }
         | ExprIr::DeleteIdentifier { .. }
@@ -1807,9 +2092,9 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             if let Some(init) = init {
@@ -1821,11 +2106,11 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
             if let Some(update) = update {
                 collect_expr_global_property_names(update, names);
             }
-            for statement in before_yield {
+            for statement in before_suspension {
                 collect_statement_global_property_names(statement, names);
             }
-            collect_statement_global_property_names(yield_statement, names);
-            for statement in after_yield {
+            collect_statement_global_property_names(suspension_statement, names);
+            for statement in after_suspension {
                 collect_statement_global_property_names(statement, names);
             }
         }
@@ -1959,6 +2244,7 @@ fn collect_object_property_global_property_names(
 ) {
     match property {
         ObjectPropertyIr::PrototypeSetter { value }
+        | ObjectPropertyIr::Spread { source: value }
         | ObjectPropertyIr::Data { value, .. }
         | ObjectPropertyIr::NonEnumerableData { value, .. }
         | ObjectPropertyIr::Method {
@@ -1987,7 +2273,9 @@ fn collect_object_property_global_property_names(
 
 fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<String>) {
     match &expr.expr {
-        ExprIr::Identifier(name) | ExprIr::GlobalPropertyRead { name } => {
+        ExprIr::Identifier(name)
+        | ExprIr::GlobalPropertyRead { name }
+        | ExprIr::GlobalIdentifierRead { name } => {
             names.insert(name.clone());
         }
         ExprIr::GlobalPropertyWrite { name, value, .. }
@@ -2290,22 +2578,30 @@ pub(crate) fn script_references_standard_builtin(
         })
 }
 
+pub(crate) fn standard_builtin_uses_memory_atomics(builtin: StandardBuiltinId) -> bool {
+    matches!(
+        builtin,
+        StandardBuiltinId::AtomicsAdd
+            | StandardBuiltinId::AtomicsAnd
+            | StandardBuiltinId::AtomicsCompareExchange
+            | StandardBuiltinId::AtomicsExchange
+            | StandardBuiltinId::AtomicsLoad
+            | StandardBuiltinId::AtomicsNotify
+            | StandardBuiltinId::AtomicsOr
+            | StandardBuiltinId::AtomicsStore
+            | StandardBuiltinId::AtomicsSub
+            | StandardBuiltinId::AtomicsWait
+            | StandardBuiltinId::AtomicsWaitAsync
+            | StandardBuiltinId::AtomicsXor
+    )
+}
+
 pub(crate) fn script_references_memory_atomics(script: &ScriptIr) -> bool {
-    [
-        StandardBuiltinId::AtomicsAdd,
-        StandardBuiltinId::AtomicsAnd,
-        StandardBuiltinId::AtomicsCompareExchange,
-        StandardBuiltinId::AtomicsExchange,
-        StandardBuiltinId::AtomicsLoad,
-        StandardBuiltinId::AtomicsOr,
-        StandardBuiltinId::AtomicsStore,
-        StandardBuiltinId::AtomicsSub,
-        StandardBuiltinId::AtomicsWait,
-        StandardBuiltinId::AtomicsWaitAsync,
-        StandardBuiltinId::AtomicsXor,
-    ]
-    .into_iter()
-    .any(|builtin| script_references_standard_builtin(script, builtin))
+    StandardBuiltinId::all_functions()
+        .iter()
+        .copied()
+        .filter(|builtin| standard_builtin_uses_memory_atomics(*builtin))
+        .any(|builtin| script_references_standard_builtin(script, builtin))
 }
 
 /// Seed stub decision from the script text alone.
@@ -2335,6 +2631,9 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
             | StandardBuiltinId::AsyncGeneratorPrototypeNext
             | StandardBuiltinId::AsyncGeneratorPrototypeReturn
             | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected
     ) {
         return false;
     }
@@ -2399,7 +2698,9 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
             StandardBuiltinId::TypedArrayPrototypeEntries,
             StandardBuiltinId::TypedArrayPrototypeValues,
             StandardBuiltinId::IteratorFrom,
+            StandardBuiltinId::IteratorConcat,
             StandardBuiltinId::IteratorZip,
+            StandardBuiltinId::IteratorZipKeyed,
             StandardBuiltinId::IteratorPrototypeToArray,
             StandardBuiltinId::IteratorPrototypeForEach,
             StandardBuiltinId::IteratorPrototypeEvery,
@@ -2428,7 +2729,9 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
             StandardBuiltinId::ArrayFromAsync,
             StandardBuiltinId::TypedArrayFrom,
             StandardBuiltinId::IteratorFrom,
+            StandardBuiltinId::IteratorConcat,
             StandardBuiltinId::IteratorZip,
+            StandardBuiltinId::IteratorZipKeyed,
             StandardBuiltinId::IteratorPrototypeFlatMap,
         ]
         .into_iter()
@@ -2616,6 +2919,7 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::DataViewPrototypeSetBigUint64
                 | StandardBuiltinId::DateConstructor
                 | StandardBuiltinId::DateNow
+                | StandardBuiltinId::DateParse
                 | StandardBuiltinId::DateUtc
                 | StandardBuiltinId::DatePrototypeGetTime
                 | StandardBuiltinId::DatePrototypeSetTime
@@ -2653,6 +2957,16 @@ pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> 
                 | StandardBuiltinId::DatePrototypeSetUtcSeconds
                 | StandardBuiltinId::DatePrototypeSetMilliseconds
                 | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
+                | StandardBuiltinId::DatePrototypeToIsoString
+                | StandardBuiltinId::DatePrototypeToJson
+                | StandardBuiltinId::DatePrototypeToPrimitive
+                | StandardBuiltinId::DatePrototypeToDateString
+                | StandardBuiltinId::DatePrototypeToLocaleDateString
+                | StandardBuiltinId::DatePrototypeToLocaleString
+                | StandardBuiltinId::DatePrototypeToLocaleTimeString
+                | StandardBuiltinId::DatePrototypeToTemporalInstant
+                | StandardBuiltinId::DatePrototypeToTimeString
+                | StandardBuiltinId::DatePrototypeToString
                 | StandardBuiltinId::DatePrototypeToUtcString
                 | StandardBuiltinId::RegExpConstructor
                 | StandardBuiltinId::RegExpLegacyStaticGetter
@@ -2860,9 +3174,9 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             init.as_ref()
@@ -2873,11 +3187,11 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                 || update
                     .as_ref()
                     .is_some_and(|update| expr_references_function(update, target))
-                || before_yield
+                || before_suspension
                     .iter()
                     .any(|statement| statement_references_function(statement, target))
-                || statement_references_function(yield_statement, target)
-                || after_yield
+                || statement_references_function(suspension_statement, target)
+                || after_suspension
                     .iter()
                     .any(|statement| statement_references_function(statement, target))
         }
@@ -3060,6 +3374,11 @@ pub(crate) fn object_property_references_function(
         | ObjectPropertyIr::Setter {
             function: value, ..
         } => expr_references_function(value, target),
+        ObjectPropertyIr::Spread { source } => {
+            expr_references_function(source, target)
+                || *target == StandardBuiltinId::ReflectOwnKeys.function_id()
+                || *target == StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id()
+        }
         ObjectPropertyIr::ComputedData { key, value } => {
             expr_references_function(key, target) || expr_references_function(value, target)
         }
@@ -3174,6 +3493,13 @@ pub(crate) fn optimized_call_method_references_function(
     }
     if name == "zip" {
         return StandardBuiltinId::IteratorZip.function_id() == *target;
+    }
+    if name == "zipKeyed" {
+        return StandardBuiltinId::IteratorZipKeyed.function_id() == *target;
+    }
+    if name == "concat" {
+        return StandardBuiltinId::ArrayPrototypeConcat.function_id() == *target
+            || StandardBuiltinId::IteratorConcat.function_id() == *target;
     }
     if name == "findIndex" {
         return StandardBuiltinId::ArrayPrototypeFindIndex.function_id() == *target
@@ -3591,6 +3917,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::Arguments
         | ExprIr::Identifier(_)
         | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::GlobalIdentifierRead { .. }
         | ExprIr::UpdateIdentifier { .. }
         | ExprIr::GlobalPropertyUpdate { .. }
         | ExprIr::DeleteIdentifier { .. }
@@ -3623,6 +3950,13 @@ pub(crate) struct FunctionMetaRegistry {
     metas: BTreeMap<FunctionId, WasmFunctionMeta>,
     touched_standard_builtins: std::cell::RefCell<BTreeSet<StandardBuiltinId>>,
     touched_host_builtins: std::cell::RefCell<BTreeSet<HostBuiltinId>>,
+    number_pow_import_function_index: Option<u32>,
+    wall_clock_millis_import_function_index: Option<u32>,
+    shared_memory_alloc_function_index: Option<u32>,
+    monotonic_clock_nanos_import_function_index: Option<u32>,
+    sleep_nanos_import_function_index: Option<u32>,
+    agent_call_import_function_index: Option<u32>,
+    touched_number_pow_import: std::cell::Cell<bool>,
     /// When set, [`Self::record_standard_builtin`] / [`Self::record_host_builtin`]
     /// become no-ops. Codegen sets this while emitting a *provably dead* branch
     /// (guarded by a heap-shape/kind test whose constructor cannot exist in the
@@ -3634,13 +3968,59 @@ pub(crate) struct FunctionMetaRegistry {
 }
 
 impl FunctionMetaRegistry {
-    pub(crate) fn new(metas: BTreeMap<FunctionId, WasmFunctionMeta>) -> Self {
+    pub(crate) fn new(
+        metas: BTreeMap<FunctionId, WasmFunctionMeta>,
+        number_pow_import_function_index: Option<u32>,
+        wall_clock_millis_import_function_index: Option<u32>,
+        shared_memory_alloc_function_index: Option<u32>,
+        monotonic_clock_nanos_import_function_index: Option<u32>,
+        sleep_nanos_import_function_index: Option<u32>,
+        agent_call_import_function_index: Option<u32>,
+    ) -> Self {
         Self {
             metas,
             touched_standard_builtins: std::cell::RefCell::new(BTreeSet::new()),
             touched_host_builtins: std::cell::RefCell::new(BTreeSet::new()),
+            number_pow_import_function_index,
+            wall_clock_millis_import_function_index,
+            shared_memory_alloc_function_index,
+            monotonic_clock_nanos_import_function_index,
+            sleep_nanos_import_function_index,
+            agent_call_import_function_index,
+            touched_number_pow_import: std::cell::Cell::new(false),
             suppress_recording: std::cell::Cell::new(false),
         }
+    }
+
+    pub(crate) fn number_pow_import_function_index(&self) -> Option<u32> {
+        if !self.suppress_recording.get() {
+            self.touched_number_pow_import.set(true);
+        }
+        self.number_pow_import_function_index
+    }
+
+    pub(crate) fn touched_number_pow_import(&self) -> bool {
+        self.touched_number_pow_import.get()
+    }
+
+    pub(crate) fn wall_clock_millis_import_function_index(&self) -> Option<u32> {
+        self.wall_clock_millis_import_function_index
+    }
+
+    pub(crate) fn shared_memory_alloc_function_index(&self) -> Option<u32> {
+        self.shared_memory_alloc_function_index
+    }
+
+    pub(crate) fn monotonic_clock_nanos_import_function_index(&self) -> Option<u32> {
+        self.monotonic_clock_nanos_import_function_index
+    }
+
+    pub(crate) fn sleep_nanos_import_function_index(&self) -> Option<u32> {
+        self.sleep_nanos_import_function_index
+    }
+
+    pub(crate) fn agent_call_import_function_index(&self) -> Option<u32> {
+        self.agent_call_import_function_index
     }
 
     /// Set the recording-suppression flag, returning the previous value so the
@@ -3894,7 +4274,10 @@ pub(crate) fn function_length(params: &[FunctionParamIr]) -> u64 {
 
 pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
     match builtin {
-        StandardBuiltinId::FunctionConstructor => 1,
+        StandardBuiltinId::FunctionConstructor
+        | StandardBuiltinId::WeakRefConstructor
+        | StandardBuiltinId::FinalizationRegistryConstructor
+        | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => 1,
         StandardBuiltinId::PromiseConstructor
         | StandardBuiltinId::PromiseResolve
         | StandardBuiltinId::PromiseTry
@@ -3921,25 +4304,41 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::PromiseWithResolvers
         | StandardBuiltinId::PromiseValueThunk
         | StandardBuiltinId::PromiseThrower => 0,
-        StandardBuiltinId::PromisePrototypeThen => 2,
+        StandardBuiltinId::PromisePrototypeThen
+        | StandardBuiltinId::FinalizationRegistryPrototypeRegister => 2,
         StandardBuiltinId::PromiseCapabilityExecutor => 2,
         StandardBuiltinId::MapConstructor
+        | StandardBuiltinId::MapSpeciesGetter
         | StandardBuiltinId::MapPrototypeClear
         | StandardBuiltinId::MapPrototypeKeys
         | StandardBuiltinId::MapPrototypeValues
         | StandardBuiltinId::MapPrototypeEntries
         | StandardBuiltinId::MapIteratorNext
-        | StandardBuiltinId::MapPrototypeSizeGetter => 0,
+        | StandardBuiltinId::MapPrototypeSizeGetter
+        | StandardBuiltinId::WeakMapConstructor
+        | StandardBuiltinId::WeakSetConstructor
+        | StandardBuiltinId::WeakRefPrototypeDeref => 0,
         StandardBuiltinId::MapPrototypeDelete
         | StandardBuiltinId::MapPrototypeForEach
         | StandardBuiltinId::MapPrototypeGet
-        | StandardBuiltinId::MapPrototypeHas => 1,
+        | StandardBuiltinId::MapPrototypeHas
+        | StandardBuiltinId::WeakMapPrototypeDelete
+        | StandardBuiltinId::WeakMapPrototypeGet
+        | StandardBuiltinId::WeakMapPrototypeHas
+        | StandardBuiltinId::WeakSetPrototypeAdd
+        | StandardBuiltinId::WeakSetPrototypeDelete
+        | StandardBuiltinId::WeakSetPrototypeHas => 1,
+        StandardBuiltinId::ObjectFromEntries => 1,
         StandardBuiltinId::MapGroupBy
         | StandardBuiltinId::ObjectGroupBy
         | StandardBuiltinId::MapPrototypeGetOrInsert
         | StandardBuiltinId::MapPrototypeGetOrInsertComputed
-        | StandardBuiltinId::MapPrototypeSet => 2,
+        | StandardBuiltinId::MapPrototypeSet
+        | StandardBuiltinId::WeakMapPrototypeGetOrInsert
+        | StandardBuiltinId::WeakMapPrototypeGetOrInsertComputed
+        | StandardBuiltinId::WeakMapPrototypeSet => 2,
         StandardBuiltinId::SetConstructor
+        | StandardBuiltinId::SetSpeciesGetter
         | StandardBuiltinId::SetPrototypeClear
         | StandardBuiltinId::SetPrototypeValues
         | StandardBuiltinId::SetPrototypeEntries
@@ -3961,20 +4360,24 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::FunctionPrototypeApply => 2,
         StandardBuiltinId::FunctionPrototypeBind => 1,
         StandardBuiltinId::ObjectConstructor => 1,
+        StandardBuiltinId::ObjectAssign => 2,
         StandardBuiltinId::ObjectCreate => 2,
         StandardBuiltinId::ObjectGetPrototypeOf => 1,
         StandardBuiltinId::ObjectSetPrototypeOf => 2,
         StandardBuiltinId::ObjectDefineProperty => 3,
         StandardBuiltinId::ObjectDefineProperties => 2,
         StandardBuiltinId::ObjectGetOwnPropertyDescriptor => 2,
+        StandardBuiltinId::ObjectGetOwnPropertyDescriptors => 1,
         StandardBuiltinId::ObjectGetOwnPropertyNames => 1,
         StandardBuiltinId::ObjectGetOwnPropertySymbols => 1,
         StandardBuiltinId::ObjectKeys => 1,
         StandardBuiltinId::ObjectValues => 1,
+        StandardBuiltinId::ObjectEntries => 1,
         StandardBuiltinId::ObjectHasOwn => 2,
         StandardBuiltinId::ObjectIs => 2,
         StandardBuiltinId::ObjectIsSealed => 1,
         StandardBuiltinId::ObjectIsFrozen => 1,
+        StandardBuiltinId::ObjectSeal => 1,
         StandardBuiltinId::ObjectFreeze => 1,
         StandardBuiltinId::ObjectIsExtensible => 1,
         StandardBuiltinId::ObjectPreventExtensions => 1,
@@ -4089,10 +4492,17 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::AsyncGeneratorPrototypeNext
         | StandardBuiltinId::AsyncGeneratorPrototypeReturn
         | StandardBuiltinId::AsyncGeneratorPrototypeThrow => 1,
+        StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose => 0,
+        StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled
+        | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected => 1,
         StandardBuiltinId::StringPrototypeIterator => 0,
         StandardBuiltinId::IteratorConstructor => 0,
         StandardBuiltinId::IteratorFrom => 1,
+        StandardBuiltinId::IteratorConcat => 0,
+        StandardBuiltinId::IteratorConcatNext => 0,
+        StandardBuiltinId::IteratorConcatReturn => 0,
         StandardBuiltinId::IteratorZip => 1,
+        StandardBuiltinId::IteratorZipKeyed => 1,
         StandardBuiltinId::IteratorZipNext => 0,
         StandardBuiltinId::IteratorZipReturn => 0,
         StandardBuiltinId::IteratorHelperNext => 0,
@@ -4187,6 +4597,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::JsonRawJson => 1,
         StandardBuiltinId::JsonIsRawJson => 1,
         StandardBuiltinId::DateUtc => 7,
+        StandardBuiltinId::DateParse => 1,
         StandardBuiltinId::DateNow
         | StandardBuiltinId::DatePrototypeGetTime
         | StandardBuiltinId::DatePrototypeValueOf
@@ -4208,8 +4619,19 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
         | StandardBuiltinId::DatePrototypeGetTimezoneOffset
         | StandardBuiltinId::DatePrototypeGetYear
+        | StandardBuiltinId::DatePrototypeToIsoString
+        | StandardBuiltinId::DatePrototypeToDateString
+        | StandardBuiltinId::DatePrototypeToLocaleDateString
+        | StandardBuiltinId::DatePrototypeToLocaleString
+        | StandardBuiltinId::DatePrototypeToLocaleTimeString
+        | StandardBuiltinId::DatePrototypeToTemporalInstant
+        | StandardBuiltinId::DatePrototypeToTimeString
+        | StandardBuiltinId::DatePrototypeToString
         | StandardBuiltinId::DatePrototypeToUtcString => 0,
-        StandardBuiltinId::DatePrototypeSetTime | StandardBuiltinId::DatePrototypeSetYear => 1,
+        StandardBuiltinId::DatePrototypeSetTime
+        | StandardBuiltinId::DatePrototypeSetYear
+        | StandardBuiltinId::DatePrototypeToJson
+        | StandardBuiltinId::DatePrototypeToPrimitive => 1,
         StandardBuiltinId::DatePrototypeSetFullYear
         | StandardBuiltinId::DatePrototypeSetUtcFullYear
         | StandardBuiltinId::DatePrototypeSetMinutes
@@ -4373,7 +4795,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::StringPrototypeTrimEnd
         | StandardBuiltinId::StringPrototypeIsWellFormed
         | StandardBuiltinId::StringPrototypeToWellFormed => 0,
-        StandardBuiltinId::BooleanConstructor => 1,
+        StandardBuiltinId::BooleanConstructor
+        | StandardBuiltinId::TemporalInstantConstructor
+        | StandardBuiltinId::TemporalInstantFrom
+        | StandardBuiltinId::TemporalInstantPrototypeEquals
+        | StandardBuiltinId::TemporalZonedDateTimeFrom
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => 1,
+        StandardBuiltinId::TemporalZonedDateTimeConstructor => 2,
         StandardBuiltinId::ErrorIsError => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
         StandardBuiltinId::AggregateErrorConstructor => 2,
@@ -4392,8 +4821,33 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::FunctionPrototypeToString
         | StandardBuiltinId::ErrorPrototypeToString
         | StandardBuiltinId::ThrowTypeError
-        | StandardBuiltinId::BoundFunctionInvoker => 0,
-        StandardBuiltinId::Escape | StandardBuiltinId::Unescape => 1,
+        | StandardBuiltinId::BoundFunctionInvoker
+        | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
+        | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalInstantPrototypeToString => 0,
+        StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => 0,
+        StandardBuiltinId::Escape
+        | StandardBuiltinId::Unescape
+        | StandardBuiltinId::EncodeUri
+        | StandardBuiltinId::EncodeUriComponent
+        | StandardBuiltinId::DecodeUri
+        | StandardBuiltinId::DecodeUriComponent => 1,
     }
 }
 
@@ -4404,9 +4858,18 @@ pub(crate) fn host_builtin_length(builtin: HostBuiltinId) -> u64 {
         HostBuiltinId::AssertThrows => 2,
         HostBuiltinId::IsConstructor => 1,
         HostBuiltinId::CreateRealm => 0,
+        HostBuiltinId::CreateHTMLDDA | HostBuiltinId::HTMLDDA => 0,
         HostBuiltinId::ParseInt => 2,
         HostBuiltinId::ParseFloat => 1,
         HostBuiltinId::DetachArrayBuffer => 1,
+        HostBuiltinId::AgentStart => 1,
+        HostBuiltinId::AgentBroadcast => 1,
+        HostBuiltinId::AgentReceiveBroadcast => 0,
+        HostBuiltinId::AgentReport => 1,
+        HostBuiltinId::AgentGetReport => 0,
+        HostBuiltinId::AgentSleep => 1,
+        HostBuiltinId::AgentMonotonicNow => 0,
+        HostBuiltinId::AgentLeaving => 0,
     }
 }
 
@@ -4636,17 +5099,17 @@ pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             init.as_ref().is_some_and(for_init_uses_calls)
                 || test.as_ref().is_some_and(expr_uses_calls)
                 || update.as_ref().is_some_and(expr_uses_calls)
-                || before_yield.iter().any(statement_uses_calls)
-                || statement_uses_calls(yield_statement)
-                || after_yield.iter().any(statement_uses_calls)
+                || before_suspension.iter().any(statement_uses_calls)
+                || statement_uses_calls(suspension_statement)
+                || after_suspension.iter().any(statement_uses_calls)
         }
         StatementIr::GeneratorIf {
             condition,
@@ -4816,17 +5279,17 @@ pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             init.as_ref().is_some_and(for_init_uses_function_table)
                 || test.as_ref().is_some_and(expr_uses_function_table)
                 || update.as_ref().is_some_and(expr_uses_function_table)
-                || before_yield.iter().any(statement_uses_function_table)
-                || statement_uses_function_table(yield_statement)
-                || after_yield.iter().any(statement_uses_function_table)
+                || before_suspension.iter().any(statement_uses_function_table)
+                || statement_uses_function_table(suspension_statement)
+                || after_suspension.iter().any(statement_uses_function_table)
         }
         StatementIr::GeneratorIf {
             condition,
@@ -4917,7 +5380,9 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. } => true,
-        ExprIr::GlobalPropertyRead { .. } | ExprIr::GlobalPropertyUpdate { .. } => false,
+        ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::GlobalIdentifierRead { .. }
+        | ExprIr::GlobalPropertyUpdate { .. } => false,
         ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::GlobalPropertyCompoundAssign { value, .. } => expr_uses_function_table(value),
         ExprIr::AssignIdentifier { value, .. }
@@ -4937,6 +5402,7 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
         ExprIr::NewTarget => false,
         ExprIr::ObjectLiteral(properties) => properties.iter().any(|property| match property {
             ObjectPropertyIr::PrototypeSetter { value }
+            | ObjectPropertyIr::Spread { source: value }
             | ObjectPropertyIr::Data { value, .. }
             | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_uses_function_table(value),
             ObjectPropertyIr::ComputedData { key, value } => {
@@ -5117,7 +5583,9 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         | ExprIr::PrivateRead { .. }
         | ExprIr::PrivateWrite { .. }
         | ExprIr::PrivateIn { .. } => true,
-        ExprIr::GlobalPropertyRead { .. } | ExprIr::GlobalPropertyUpdate { .. } => false,
+        ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::GlobalIdentifierRead { .. }
+        | ExprIr::GlobalPropertyUpdate { .. } => false,
         ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::GlobalPropertyCompoundAssign { value, .. } => expr_uses_calls(value),
         ExprIr::AssignIdentifier { value, .. }
@@ -5137,6 +5605,7 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
         ExprIr::NewTarget => false,
         ExprIr::ObjectLiteral(properties) => properties.iter().any(|property| match property {
             ObjectPropertyIr::PrototypeSetter { value }
+            | ObjectPropertyIr::Spread { source: value }
             | ObjectPropertyIr::Data { value, .. }
             | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_uses_calls(value),
             ObjectPropertyIr::ComputedData { key, value } => {
@@ -5388,9 +5857,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         }
         StatementIr::GeneratorLoop {
             init,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             init.as_ref()
@@ -5400,12 +5869,12 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                     ForInitIr::Var(_) | ForInitIr::Expression(_) => 0,
                 })
                 .unwrap_or(0)
-                + before_yield
+                + before_suspension
                     .iter()
                     .map(count_statement_lexicals)
                     .sum::<usize>()
-                + count_statement_lexicals(yield_statement)
-                + after_yield
+                + count_statement_lexicals(suspension_statement)
+                + after_suspension
                     .iter()
                     .map(count_statement_lexicals)
                     .sum::<usize>()
@@ -5626,9 +6095,9 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => init
             .as_ref()
@@ -5637,10 +6106,10 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .max(test.as_ref().map(count_expr_temp_locals).unwrap_or(0))
             .max(update.as_ref().map(count_expr_temp_locals).unwrap_or(0))
             .max(
-                before_yield
+                before_suspension
                     .iter()
-                    .chain(std::iter::once(yield_statement.as_ref()))
-                    .chain(after_yield)
+                    .chain(std::iter::once(suspension_statement.as_ref()))
+                    .chain(after_suspension)
                     .map(count_statement_temp_locals)
                     .max()
                     .unwrap_or(0),
@@ -5741,6 +6210,7 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
         ExprIr::GlobalPropertyRead { .. } => 12,
+        ExprIr::GlobalIdentifierRead { .. } => 24,
         ExprIr::GlobalPropertyWrite { value, .. } => count_expr_temp_locals(value).max(12),
         ExprIr::GlobalPropertyUpdate { return_mode, .. } => match return_mode {
             UpdateReturnMode::Prefix => 12,
@@ -5756,6 +6226,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                         count_expr_temp_locals(value)
                     }
+                    ObjectPropertyIr::Spread { source } => count_expr_temp_locals(source).max(40),
                     ObjectPropertyIr::ComputedData { key, value } => {
                         count_expr_temp_locals(key).max(count_expr_temp_locals(value))
                     }
@@ -6407,9 +6878,9 @@ pub(crate) fn collect_hoisted_vars_statement(
         }
         StatementIr::GeneratorLoop {
             init,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             if let Some(ForInitIr::Var(declarators)) = init {
@@ -6417,11 +6888,11 @@ pub(crate) fn collect_hoisted_vars_statement(
                     names.insert(declarator.name.clone());
                 }
             }
-            for statement in before_yield {
+            for statement in before_suspension {
                 collect_hoisted_vars_statement(statement, names);
             }
-            collect_hoisted_vars_statement(yield_statement, names);
-            for statement in after_yield {
+            collect_hoisted_vars_statement(suspension_statement, names);
+            for statement in after_suspension {
                 collect_hoisted_vars_statement(statement, names);
             }
         }

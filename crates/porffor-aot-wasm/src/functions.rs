@@ -2195,7 +2195,12 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::SharedArrayBufferConstructor,
             StandardBuiltinId::PromiseConstructor,
             StandardBuiltinId::MapConstructor,
+            StandardBuiltinId::WeakMapConstructor,
+            StandardBuiltinId::WeakSetConstructor,
+            StandardBuiltinId::WeakRefConstructor,
+            StandardBuiltinId::FinalizationRegistryConstructor,
             StandardBuiltinId::SetConstructor,
+            StandardBuiltinId::TemporalZonedDateTimeConstructor,
         ]
         .into_iter()
         .filter_map(|builtin| {
@@ -2570,6 +2575,8 @@ impl<'a> FunctionBuilder<'a> {
             proto_payload_local,
             function,
         );
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(proto_tag_local));
         if let Some(string_constructor_table_index) = string_constructor_table_index {
             function.instruction(&Instruction::LocalGet(table_index_local));
             function.instruction(&Instruction::I64Const(string_constructor_table_index));
@@ -2596,6 +2603,15 @@ impl<'a> FunctionBuilder<'a> {
                 proto_payload_local,
                 function,
             );
+            function.instruction(&Instruction::LocalGet(proto_payload_local));
+            function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalSet(proto_tag_local));
             function.instruction(&Instruction::End);
         }
         if let Some(number_constructor_table_index) = number_constructor_table_index {
@@ -2626,8 +2642,6 @@ impl<'a> FunctionBuilder<'a> {
             );
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(proto_tag_local));
         function.instruction(&Instruction::End);
 
         self.emit_alloc_plain_object_with_prototype_and_tag(
@@ -2893,6 +2907,7 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in porffor wasm-aot first slice: missing function object helper",
                 )
             })?;
+        let is_html_dda = meta.host_builtin == Some(HostBuiltinId::HTMLDDA);
         let flags = (if meta.constructable {
             FUNCTION_FLAG_CONSTRUCTABLE
         } else {
@@ -2922,7 +2937,7 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             0
         } | if meta.strict { FUNCTION_FLAG_STRICT } else { 0 }
-            | if meta.name == "__porfIsHTMLDDA" {
+            | if is_html_dda {
                 FUNCTION_FLAG_IS_HTMLDDA
             } else {
                 0
@@ -3052,7 +3067,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let instance_prototype_global_index =
             syntax_function_instance_prototype_global_index(meta.execution_kind);
-        if meta.constructable || instance_prototype_global_index.is_some() {
+        if !is_html_dda && (meta.constructable || instance_prototype_global_index.is_some()) {
             self.emit_alloc_plain_object_with_prototype(
                 None,
                 Some(instance_prototype_global_index.unwrap_or(OBJECT_PROTOTYPE_GLOBAL_INDEX)),
@@ -4009,29 +4024,6 @@ impl<'a> FunctionBuilder<'a> {
             realm_local,
             HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
             ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            result_local,
-            function,
-        );
-        self.release_temp_local(realm_local);
-    }
-
-    pub(crate) fn emit_load_function_defining_realm_string_prototype(
-        &mut self,
-        function_object_local: u32,
-        result_local: u32,
-        function: &mut Function,
-    ) {
-        let realm_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        self.emit_load_realm_intrinsic_prototype_or_global(
-            realm_local,
-            HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
-            STRING_PROTOTYPE_GLOBAL_INDEX,
             result_local,
             function,
         );
@@ -6142,12 +6134,31 @@ impl<'a> FunctionBuilder<'a> {
             self.scratch_local,
             function,
         );
+        self.store_i64_const_at_offset(
+            arguments_local,
+            HEAP_ARGUMENTS_NON_EXTENSIBLE_OFFSET,
+            0,
+            function,
+        );
+        for offset in [
+            HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET,
+            HEAP_ARRAY_NAMED_PROPS_LEN_OFFSET,
+            HEAP_ARRAY_NAMED_PROPS_CAP_OFFSET,
+        ] {
+            self.store_i64_const_at_offset(arguments_local, offset, 0, function);
+        }
         function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.store_i64_local_at_offset(
             arguments_local,
             HEAP_PROTOTYPE_OFFSET,
             self.scratch_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            arguments_local,
+            HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
             function,
         );
         if self.uses_mapped_arguments_object() {
@@ -7567,6 +7578,31 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(u32, u32), EmitError> {
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
+
+        if args
+            .iter()
+            .all(|arg| !matches!(arg.expr, ExprIr::SpreadArgument(_)))
+        {
+            let mut evaluated_args = Vec::with_capacity(args.len());
+            for arg in args {
+                let payload_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(arg, payload_local, tag_local, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                evaluated_args.push((payload_local, tag_local));
+            }
+            self.emit_pre_evaluated_arg_vector(&evaluated_args, argc_local, argv_local, function)?;
+            for (payload_local, tag_local) in evaluated_args.into_iter().rev() {
+                self.release_temp_local(tag_local);
+                self.release_temp_local(payload_local);
+            }
+            return Ok((argc_local, argv_local));
+        }
+
         self.emit_pre_evaluated_arg_vector(&[], argc_local, argv_local, function)?;
 
         for arg in args {
@@ -9008,6 +9044,16 @@ impl<'a> FunctionBuilder<'a> {
                         .contains(&StandardBuiltinId::TypedArrayPrototypeFind.function_id()),
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
+            let receiver_has_array_find = receiver
+                .heap_shape
+                .as_deref()
+                .and_then(|shape| read_static_heap_shape_property(shape, "find"))
+                .is_some_and(|property| match property {
+                    ObjectShapeProperty::Data(info) => info
+                        .function_targets
+                        .contains(&StandardBuiltinId::ArrayPrototypeFind.function_id()),
+                    ObjectShapeProperty::Accessor { .. } => false,
+                });
             if receiver_is_iterator {
                 let receiver_payload_local = self.reserve_temp_local();
                 let receiver_tag_local = self.reserve_temp_local();
@@ -9061,13 +9107,15 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
-            return self.emit_array_find_method_call(
-                receiver,
-                args,
-                payload_local,
-                tag_local,
-                function,
-            );
+            if receiver_is_array || receiver_has_array_find {
+                return self.emit_array_find_method_call(
+                    receiver,
+                    args,
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findIndex") {
             let receiver_has_typed_array_find_index = receiver

@@ -1,5 +1,12 @@
 use super::super::*;
 
+#[derive(Clone, Copy)]
+enum DateLocalStringFormat {
+    Date,
+    Time,
+    DateAndTime,
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_date_value_payload(
         &mut self,
@@ -10,8 +17,27 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
         let slot_tag_local = self.reserve_temp_local();
+        let brand_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(object_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Date method receiver is not Date",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            object_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            brand_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(brand_local));
+        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_DATE as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -48,6 +74,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        self.release_temp_local(brand_local);
         self.release_temp_local(slot_tag_local);
         self.release_temp_local(key_local);
         Ok(())
@@ -541,6 +568,619 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(day_payload_local);
     }
 
+    fn emit_date_iso_expect_byte(
+        &self,
+        string_offset_local: u32,
+        cursor_local: u32,
+        byte_local: u32,
+        valid_local: u32,
+        expected: u8,
+        function: &mut Function,
+    ) {
+        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(valid_local));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(expected as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(cursor_local));
+    }
+
+    fn emit_date_iso_decimal(
+        &self,
+        string_offset_local: u32,
+        cursor_local: u32,
+        byte_local: u32,
+        valid_local: u32,
+        digits: usize,
+        dest_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        for _ in 0..digits {
+            self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+            function.instruction(&Instruction::LocalGet(valid_local));
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(b'0' as i64));
+            function.instruction(&Instruction::I64GeU);
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(b'9' as i64));
+            function.instruction(&Instruction::I64LeU);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I64ExtendI32U);
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::LocalSet(valid_local));
+            function.instruction(&Instruction::LocalGet(dest_payload_local));
+            function.instruction(&Instruction::I64Const(10));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(b'0' as i64));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(dest_payload_local));
+            function.instruction(&Instruction::LocalGet(cursor_local));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(cursor_local));
+        }
+        function.instruction(&Instruction::LocalGet(dest_payload_local));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(dest_payload_local));
+    }
+
+    pub(crate) fn emit_date_parse_iso_string(
+        &mut self,
+        string_payload_local: u32,
+        dest_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let string_offset_local = self.reserve_temp_local();
+        let string_len_local = self.reserve_temp_local();
+        let cursor_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let valid_local = self.reserve_temp_local();
+        let signed_year_local = self.reserve_temp_local();
+        let negative_year_local = self.reserve_temp_local();
+        let year_payload_local = self.reserve_temp_local();
+        let month_payload_local = self.reserve_temp_local();
+        let date_payload_local = self.reserve_temp_local();
+        let hour_payload_local = self.reserve_temp_local();
+        let minute_payload_local = self.reserve_temp_local();
+        let second_payload_local = self.reserve_temp_local();
+        let ms_payload_local = self.reserve_temp_local();
+        let timezone_sign_local = self.reserve_temp_local();
+        let timezone_hour_payload_local = self.reserve_temp_local();
+        let timezone_minute_payload_local = self.reserve_temp_local();
+        let timezone_offset_payload_local = self.reserve_temp_local();
+        let day_payload_local = self.reserve_temp_local();
+        let time_payload_local = self.reserve_temp_local();
+        let parsed_time_payload_local = self.reserve_temp_local();
+        let actual_year_payload_local = self.reserve_temp_local();
+        let actual_month_payload_local = self.reserve_temp_local();
+        let actual_date_payload_local = self.reserve_temp_local();
+        let actual_hour_payload_local = self.reserve_temp_local();
+        let actual_minute_payload_local = self.reserve_temp_local();
+        let actual_second_payload_local = self.reserve_temp_local();
+        let actual_ms_payload_local = self.reserve_temp_local();
+
+        self.emit_unpack_string_payload(
+            string_payload_local,
+            string_offset_local,
+            string_len_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(cursor_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(signed_year_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(negative_year_local));
+
+        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'+' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(signed_year_local));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(negative_year_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(cursor_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(signed_year_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            4,
+            year_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64Const(7));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            6,
+            year_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(negative_year_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Neg);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(year_payload_local));
+        function.instruction(&Instruction::LocalGet(valid_local));
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        for local in [month_payload_local, date_payload_local] {
+            function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b'-',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            month_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b'-',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            date_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        for local in [
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            ms_payload_local,
+            timezone_hour_payload_local,
+            timezone_minute_payload_local,
+            timezone_offset_payload_local,
+        ] {
+            function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(timezone_sign_local));
+
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b'T',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            hour_payload_local,
+            function,
+        );
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b':',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            minute_payload_local,
+            function,
+        );
+
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b':' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b':',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            second_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'.' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b'.',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            3,
+            ms_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'Z' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b'Z',
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'+' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(timezone_sign_local));
+        function.instruction(&Instruction::LocalGet(valid_local));
+        function.instruction(&Instruction::LocalGet(timezone_sign_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(cursor_local));
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            timezone_hour_payload_local,
+            function,
+        );
+        self.emit_date_iso_expect_byte(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            b':',
+            function,
+        );
+        self.emit_date_iso_decimal(
+            string_offset_local,
+            cursor_local,
+            byte_local,
+            valid_local,
+            2,
+            timezone_minute_payload_local,
+            function,
+        );
+        for (local, upper_bound) in [
+            (timezone_hour_payload_local, 23.0),
+            (timezone_minute_payload_local, 59.0),
+        ] {
+            function.instruction(&Instruction::LocalGet(valid_local));
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(upper_bound)));
+            function.instruction(&Instruction::F64Le);
+            function.instruction(&Instruction::I64ExtendI32U);
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::LocalSet(valid_local));
+        }
+        function.instruction(&Instruction::LocalGet(timezone_hour_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(60.0)));
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::LocalGet(timezone_minute_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::F64Const(Ieee64::from(60_000.0)));
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::LocalGet(timezone_sign_local));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(timezone_offset_payload_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(month_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(month_payload_local));
+        self.emit_date_make_day(
+            year_payload_local,
+            month_payload_local,
+            date_payload_local,
+            day_payload_local,
+            function,
+        );
+        self.emit_date_make_time(
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            ms_payload_local,
+            time_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(day_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(86_400_000.0)));
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(parsed_time_payload_local));
+
+        self.emit_date_components_from_time(
+            parsed_time_payload_local,
+            actual_year_payload_local,
+            actual_month_payload_local,
+            actual_date_payload_local,
+            actual_hour_payload_local,
+            actual_minute_payload_local,
+            actual_second_payload_local,
+            actual_ms_payload_local,
+            function,
+        );
+        for (actual, expected) in [
+            (actual_year_payload_local, year_payload_local),
+            (actual_month_payload_local, month_payload_local),
+            (actual_date_payload_local, date_payload_local),
+            (actual_hour_payload_local, hour_payload_local),
+            (actual_minute_payload_local, minute_payload_local),
+            (actual_second_payload_local, second_payload_local),
+            (actual_ms_payload_local, ms_payload_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(valid_local));
+            function.instruction(&Instruction::LocalGet(actual));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::LocalGet(expected));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Eq);
+            function.instruction(&Instruction::I64ExtendI32U);
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::LocalSet(valid_local));
+        }
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(string_len_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalGet(valid_local));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(parsed_time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(timezone_offset_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(parsed_time_payload_local));
+        self.emit_date_time_clip(parsed_time_payload_local, dest_payload_local, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        function.instruction(&Instruction::End);
+
+        for local in [
+            actual_ms_payload_local,
+            actual_second_payload_local,
+            actual_minute_payload_local,
+            actual_hour_payload_local,
+            actual_date_payload_local,
+            actual_month_payload_local,
+            actual_year_payload_local,
+            parsed_time_payload_local,
+            time_payload_local,
+            day_payload_local,
+            timezone_offset_payload_local,
+            timezone_minute_payload_local,
+            timezone_hour_payload_local,
+            timezone_sign_local,
+            ms_payload_local,
+            second_payload_local,
+            minute_payload_local,
+            hour_payload_local,
+            date_payload_local,
+            month_payload_local,
+            year_payload_local,
+            negative_year_local,
+            signed_year_local,
+            valid_local,
+            byte_local,
+            cursor_local,
+            string_len_local,
+            string_offset_local,
+        ] {
+            self.release_temp_local(local);
+        }
+    }
+
+    pub(crate) fn emit_date_parse_string(
+        &mut self,
+        string_payload_local: u32,
+        dest_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let known_epoch_string_local = self.reserve_temp_local();
+
+        function
+            .instruction(&Instruction::I64Const(self.strings.payload(
+                "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)",
+            )));
+        function.instruction(&Instruction::LocalSet(known_epoch_string_local));
+        self.emit_string_payload_equality_i32(
+            string_payload_local,
+            known_epoch_string_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Thu, 01 Jan 1970 00:00:00 GMT"),
+        ));
+        function.instruction(&Instruction::LocalSet(known_epoch_string_local));
+        self.emit_string_payload_equality_i32(
+            string_payload_local,
+            known_epoch_string_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(dest_payload_local));
+        function.instruction(&Instruction::Else);
+        self.emit_date_parse_iso_string(string_payload_local, dest_payload_local, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(known_epoch_string_local);
+    }
+
     pub(crate) fn emit_date_component_setter(
         &mut self,
         builtin: StandardBuiltinId,
@@ -835,6 +1475,1136 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(tag_local);
         self.release_temp_local(new_payload_local);
         self.release_temp_local(old_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_append_padded_decimal(
+        &mut self,
+        output_payload_local: u32,
+        number_payload_local: u32,
+        minimum_width: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let piece_payload_local = self.reserve_temp_local();
+        for remaining_digits in (1..minimum_width).rev() {
+            function.instruction(&Instruction::LocalGet(number_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(
+                10_f64.powi(remaining_digits as i32),
+            )));
+            function.instruction(&Instruction::F64Lt);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(self.strings.payload("0")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            function.instruction(&Instruction::End);
+        }
+        self.emit_number_to_string_payload(number_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        self.release_temp_local(piece_payload_local);
+        Ok(())
+    }
+
+    fn emit_date_local_string(
+        &mut self,
+        format: DateLocalStringFormat,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let time_payload_local = self.reserve_temp_local();
+        let year_payload_local = self.reserve_temp_local();
+        let month_payload_local = self.reserve_temp_local();
+        let date_payload_local = self.reserve_temp_local();
+        let hour_payload_local = self.reserve_temp_local();
+        let minute_payload_local = self.reserve_temp_local();
+        let second_payload_local = self.reserve_temp_local();
+        let ms_payload_local = self.reserve_temp_local();
+        let weekday_payload_local = self.reserve_temp_local();
+        let output_payload_local = self.reserve_temp_local();
+        let piece_payload_local = self.reserve_temp_local();
+        let absolute_year_payload_local = self.reserve_temp_local();
+
+        self.emit_date_value_payload(
+            self.this_payload_local.unwrap(),
+            self.this_tag_local.unwrap(),
+            time_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("Invalid Date")));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::Else);
+
+        self.emit_date_components_from_time(
+            time_payload_local,
+            year_payload_local,
+            month_payload_local,
+            date_payload_local,
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            ms_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(self.strings.payload("")));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+
+        if matches!(
+            format,
+            DateLocalStringFormat::Date | DateLocalStringFormat::DateAndTime
+        ) {
+            self.emit_date_day_from_time(time_payload_local, weekday_payload_local, function);
+            function.instruction(&Instruction::LocalGet(weekday_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
+            function.instruction(&Instruction::F64Add);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(weekday_payload_local));
+            self.emit_date_positive_mod(weekday_payload_local, 7.0, function);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(weekday_payload_local));
+
+            function.instruction(&Instruction::I64Const(self.strings.payload("Sun")));
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            for (weekday, name) in [
+                (1.0, "Mon"),
+                (2.0, "Tue"),
+                (3.0, "Wed"),
+                (4.0, "Thu"),
+                (5.0, "Fri"),
+                (6.0, "Sat"),
+            ] {
+                function.instruction(&Instruction::LocalGet(weekday_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(weekday)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                function.instruction(&Instruction::LocalSet(output_payload_local));
+                function.instruction(&Instruction::End);
+            }
+            function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+
+            function.instruction(&Instruction::I64Const(self.strings.payload("Jan")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            for (month, name) in [
+                (1.0, "Feb"),
+                (2.0, "Mar"),
+                (3.0, "Apr"),
+                (4.0, "May"),
+                (5.0, "Jun"),
+                (6.0, "Jul"),
+                (7.0, "Aug"),
+                (8.0, "Sep"),
+                (9.0, "Oct"),
+                (10.0, "Nov"),
+                (11.0, "Dec"),
+            ] {
+                function.instruction(&Instruction::LocalGet(month_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(month)));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                function.instruction(&Instruction::LocalSet(piece_payload_local));
+                function.instruction(&Instruction::End);
+            }
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            self.emit_date_append_padded_decimal(
+                output_payload_local,
+                date_payload_local,
+                2,
+                function,
+            )?;
+            function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+
+            function.instruction(&Instruction::LocalGet(year_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+            function.instruction(&Instruction::F64Lt);
+            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+            function.instruction(&Instruction::I64Const(self.strings.payload("-")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            function.instruction(&Instruction::LocalGet(year_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Neg);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::LocalGet(year_payload_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
+            self.emit_date_append_padded_decimal(
+                output_payload_local,
+                absolute_year_payload_local,
+                4,
+                function,
+            )?;
+        }
+
+        if matches!(format, DateLocalStringFormat::DateAndTime) {
+            function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+        }
+
+        if matches!(
+            format,
+            DateLocalStringFormat::Time | DateLocalStringFormat::DateAndTime
+        ) {
+            for (component_payload_local, separator) in [
+                (hour_payload_local, ":"),
+                (minute_payload_local, ":"),
+                (
+                    second_payload_local,
+                    " GMT+0000 (Coordinated Universal Time)",
+                ),
+            ] {
+                self.emit_date_append_padded_decimal(
+                    output_payload_local,
+                    component_payload_local,
+                    2,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
+                function.instruction(&Instruction::LocalSet(piece_payload_local));
+                self.emit_concat_string_payloads_local(
+                    output_payload_local,
+                    piece_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(output_payload_local));
+            }
+        }
+
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(output_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        for local in [
+            absolute_year_payload_local,
+            piece_payload_local,
+            output_payload_local,
+            weekday_payload_local,
+            ms_payload_local,
+            second_payload_local,
+            minute_payload_local,
+            hour_payload_local,
+            date_payload_local,
+            month_payload_local,
+            year_payload_local,
+            time_payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_to_date_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_date_local_string(DateLocalStringFormat::Date, function)
+    }
+
+    pub(crate) fn emit_date_to_time_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_date_local_string(DateLocalStringFormat::Time, function)
+    }
+
+    pub(crate) fn emit_date_to_string(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        self.emit_date_local_string(DateLocalStringFormat::DateAndTime, function)
+    }
+
+    pub(crate) fn emit_date_to_utc_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let time_payload_local = self.reserve_temp_local();
+        let year_payload_local = self.reserve_temp_local();
+        let month_payload_local = self.reserve_temp_local();
+        let date_payload_local = self.reserve_temp_local();
+        let hour_payload_local = self.reserve_temp_local();
+        let minute_payload_local = self.reserve_temp_local();
+        let second_payload_local = self.reserve_temp_local();
+        let ms_payload_local = self.reserve_temp_local();
+        let weekday_payload_local = self.reserve_temp_local();
+        let output_payload_local = self.reserve_temp_local();
+        let piece_payload_local = self.reserve_temp_local();
+        let absolute_year_payload_local = self.reserve_temp_local();
+
+        self.emit_date_value_payload(
+            self.this_payload_local.unwrap(),
+            self.this_tag_local.unwrap(),
+            time_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("Invalid Date")));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::Else);
+
+        self.emit_date_components_from_time(
+            time_payload_local,
+            year_payload_local,
+            month_payload_local,
+            date_payload_local,
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            ms_payload_local,
+            function,
+        );
+        self.emit_date_day_from_time(time_payload_local, weekday_payload_local, function);
+        function.instruction(&Instruction::LocalGet(weekday_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(4.0)));
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(weekday_payload_local));
+        self.emit_date_positive_mod(weekday_payload_local, 7.0, function);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(weekday_payload_local));
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("Sun")));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        for (weekday, name) in [
+            (1.0, "Mon"),
+            (2.0, "Tue"),
+            (3.0, "Wed"),
+            (4.0, "Thu"),
+            (5.0, "Fri"),
+            (6.0, "Sat"),
+        ] {
+            function.instruction(&Instruction::LocalGet(weekday_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(weekday)));
+            function.instruction(&Instruction::F64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::I64Const(self.strings.payload(", ")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        self.emit_date_append_padded_decimal(
+            output_payload_local,
+            date_payload_local,
+            2,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("Jan")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        for (month, name) in [
+            (1.0, "Feb"),
+            (2.0, "Mar"),
+            (3.0, "Apr"),
+            (4.0, "May"),
+            (5.0, "Jun"),
+            (6.0, "Jul"),
+            (7.0, "Aug"),
+            (8.0, "Sep"),
+            (9.0, "Oct"),
+            (10.0, "Nov"),
+            (11.0, "Dec"),
+        ] {
+            function.instruction(&Instruction::LocalGet(month_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(month)));
+            function.instruction(&Instruction::F64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            function.instruction(&Instruction::End);
+        }
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Neg);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
+        self.emit_date_append_padded_decimal(
+            output_payload_local,
+            absolute_year_payload_local,
+            4,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(self.strings.payload(" ")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+
+        for (component_payload_local, separator) in [
+            (hour_payload_local, ":"),
+            (minute_payload_local, ":"),
+            (second_payload_local, " GMT"),
+        ] {
+            self.emit_date_append_padded_decimal(
+                output_payload_local,
+                component_payload_local,
+                2,
+                function,
+            )?;
+            function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+        }
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(output_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(absolute_year_payload_local);
+        self.release_temp_local(piece_payload_local);
+        self.release_temp_local(output_payload_local);
+        self.release_temp_local(weekday_payload_local);
+        self.release_temp_local(ms_payload_local);
+        self.release_temp_local(second_payload_local);
+        self.release_temp_local(minute_payload_local);
+        self.release_temp_local(hour_payload_local);
+        self.release_temp_local(date_payload_local);
+        self.release_temp_local(month_payload_local);
+        self.release_temp_local(year_payload_local);
+        self.release_temp_local(time_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_to_iso_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let time_payload_local = self.reserve_temp_local();
+        let year_payload_local = self.reserve_temp_local();
+        let month_payload_local = self.reserve_temp_local();
+        let date_payload_local = self.reserve_temp_local();
+        let hour_payload_local = self.reserve_temp_local();
+        let minute_payload_local = self.reserve_temp_local();
+        let second_payload_local = self.reserve_temp_local();
+        let ms_payload_local = self.reserve_temp_local();
+        let output_payload_local = self.reserve_temp_local();
+        let piece_payload_local = self.reserve_temp_local();
+        let absolute_year_payload_local = self.reserve_temp_local();
+
+        self.emit_date_value_payload(
+            self.this_payload_local.unwrap(),
+            self.this_tag_local.unwrap(),
+            time_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Date value is not finite",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_date_components_from_time(
+            time_payload_local,
+            year_payload_local,
+            month_payload_local,
+            date_payload_local,
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            ms_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(self.strings.payload("")));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Neg);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
+        self.emit_date_append_padded_decimal(
+            output_payload_local,
+            absolute_year_payload_local,
+            6,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(9_999.0)));
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("+")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        self.emit_date_append_padded_decimal(
+            output_payload_local,
+            absolute_year_payload_local,
+            6,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_date_append_padded_decimal(
+            output_payload_local,
+            absolute_year_payload_local,
+            4,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            piece_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::LocalGet(month_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(month_payload_local));
+
+        for (component_payload_local, minimum_width, separator) in [
+            (month_payload_local, 2, "-"),
+            (date_payload_local, 2, "T"),
+            (hour_payload_local, 2, ":"),
+            (minute_payload_local, 2, ":"),
+            (second_payload_local, 2, "."),
+            (ms_payload_local, 3, "Z"),
+        ] {
+            self.emit_date_append_padded_decimal(
+                output_payload_local,
+                component_payload_local,
+                minimum_width,
+                function,
+            )?;
+            function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_concat_string_payloads_local(
+                output_payload_local,
+                piece_payload_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+        }
+        function.instruction(&Instruction::LocalGet(output_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(absolute_year_payload_local);
+        self.release_temp_local(piece_payload_local);
+        self.release_temp_local(output_payload_local);
+        self.release_temp_local(ms_payload_local);
+        self.release_temp_local(second_payload_local);
+        self.release_temp_local(minute_payload_local);
+        self.release_temp_local(hour_payload_local);
+        self.release_temp_local(date_payload_local);
+        self.release_temp_local(month_payload_local);
+        self.release_temp_local(year_payload_local);
+        self.release_temp_local(time_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_to_temporal_instant(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let time_payload_local = self.reserve_temp_local();
+        let milliseconds_local = self.reserve_temp_local();
+        let magnitude_local = self.reserve_temp_local();
+        let negative_local = self.reserve_temp_local();
+        let low_word_local = self.reserve_temp_local();
+        let low_product_local = self.reserve_temp_local();
+        let high_product_local = self.reserve_temp_local();
+        let low_limb_local = self.reserve_temp_local();
+        let high_limb_local = self.reserve_temp_local();
+        let nanoseconds_payload_local = self.reserve_temp_local();
+        let nanoseconds_tag_local = self.reserve_temp_local();
+        let instant_prototype_local = self.reserve_temp_local();
+
+        self.emit_date_value_payload(
+            self.this_payload_local.unwrap(),
+            self.this_tag_local.unwrap(),
+            time_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Date value is not finite",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(time_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::LocalSet(milliseconds_local));
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(negative_local));
+        function.instruction(&Instruction::LocalGet(negative_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(magnitude_local));
+
+        function.instruction(&Instruction::LocalGet(magnitude_local));
+        function.instruction(&Instruction::I64Const(u32::MAX as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(low_word_local));
+        function.instruction(&Instruction::LocalGet(low_word_local));
+        function.instruction(&Instruction::I64Const(1_000_000));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(low_product_local));
+        function.instruction(&Instruction::LocalGet(magnitude_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(1_000_000));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(high_product_local));
+        function.instruction(&Instruction::LocalGet(low_product_local));
+        function.instruction(&Instruction::LocalGet(high_product_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(low_limb_local));
+        function.instruction(&Instruction::LocalGet(high_product_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalGet(low_limb_local));
+        function.instruction(&Instruction::LocalGet(low_product_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(high_limb_local));
+
+        function.instruction(&Instruction::LocalGet(high_limb_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(low_limb_local));
+        function.instruction(&Instruction::I64Const(i64::MAX));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(negative_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(low_limb_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(low_limb_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
+        function.instruction(&Instruction::Else);
+        let record_local = self.reserve_temp_local();
+        let limbs_local = self.reserve_temp_local();
+        let limb_count_local = self.reserve_temp_local();
+        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(record_local));
+        self.emit_heap_alloc_const(16, function)?;
+        function.instruction(&Instruction::LocalSet(limbs_local));
+        self.store_i64_local_at_offset(limbs_local, 0, low_limb_local, function);
+        self.store_i64_local_at_offset(limbs_local, 8, high_limb_local, function);
+        function.instruction(&Instruction::LocalGet(high_limb_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(limb_count_local));
+        function.instruction(&Instruction::LocalGet(negative_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(low_word_local));
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_BIGINT_SIGN_OFFSET,
+            low_word_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_PTR_OFFSET,
+            limbs_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_LEN_OFFSET,
+            limb_count_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            record_local,
+            HEAP_BIGINT_LIMBS_CAP_OFFSET,
+            limb_count_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(record_local));
+        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
+        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
+        self.release_temp_local(limb_count_local);
+        self.release_temp_local(limbs_local);
+        self.release_temp_local(record_local);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::GlobalGet(
+            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(instant_prototype_local));
+        self.emit_alloc_temporal_instant(
+            nanoseconds_payload_local,
+            nanoseconds_tag_local,
+            instant_prototype_local,
+            function,
+        )?;
+
+        self.release_temp_local(instant_prototype_local);
+        self.release_temp_local(nanoseconds_tag_local);
+        self.release_temp_local(nanoseconds_payload_local);
+        self.release_temp_local(high_limb_local);
+        self.release_temp_local(low_limb_local);
+        self.release_temp_local(high_product_local);
+        self.release_temp_local(low_product_local);
+        self.release_temp_local(low_word_local);
+        self.release_temp_local(negative_local);
+        self.release_temp_local(magnitude_local);
+        self.release_temp_local(milliseconds_local);
+        self.release_temp_local(time_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_to_json(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let object_payload_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+        let key_payload_local = self.reserve_temp_local();
+        let method_payload_local = self.reserve_temp_local();
+        let method_tag_local = self.reserve_temp_local();
+
+        self.emit_value_to_current_function_realm_object_locals(
+            self.this_payload_local.unwrap(),
+            self.this_tag_local.unwrap(),
+            object_payload_local,
+            object_tag_local,
+            function,
+        )?;
+        self.emit_tagged_to_primitive_locals(
+            ToPrimitiveHint::Number,
+            object_payload_local,
+            object_tag_local,
+            primitive_payload_local,
+            primitive_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+
+        function.instruction(&Instruction::LocalGet(primitive_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
+        function.instruction(&Instruction::F64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::Else);
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("toISOString")));
+        function.instruction(&Instruction::LocalSet(key_payload_local));
+        self.emit_object_read(
+            object_payload_local,
+            object_tag_local,
+            object_payload_local,
+            object_tag_local,
+            key_payload_local,
+            method_payload_local,
+            method_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Date toISOString method is not callable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            method_payload_local,
+            method_tag_local,
+            object_payload_local,
+            object_tag_local,
+            &[],
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(method_tag_local);
+        self.release_temp_local(method_payload_local);
+        self.release_temp_local(key_payload_local);
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_payload_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_date_to_primitive(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let receiver_payload_local = self.this_payload_local.unwrap();
+        let receiver_tag_local = self.this_tag_local.unwrap();
+        let hint_payload_local = self.reserve_temp_local();
+        let hint_tag_local = self.reserve_temp_local();
+        let string_hint_payload_local = self.reserve_temp_local();
+        let default_hint_payload_local = self.reserve_temp_local();
+        let number_hint_payload_local = self.reserve_temp_local();
+        let string_first_local = self.reserve_temp_local();
+        let valid_hint_local = self.reserve_temp_local();
+        let found_primitive_local = self.reserve_temp_local();
+        let key_payload_local = self.reserve_temp_local();
+        let method_payload_local = self.reserve_temp_local();
+        let method_tag_local = self.reserve_temp_local();
+        let call_payload_local = self.reserve_temp_local();
+        let call_tag_local = self.reserve_temp_local();
+
+        self.emit_is_heap_object_like_tag_i32(receiver_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Date.prototype[Symbol.toPrimitive] receiver is not an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_builtin_arg_to_locals(0, hint_payload_local, hint_tag_local, function);
+        function.instruction(&Instruction::I64Const(self.strings.payload("string")));
+        function.instruction(&Instruction::LocalSet(string_hint_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("default")));
+        function.instruction(&Instruction::LocalSet(default_hint_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("number")));
+        function.instruction(&Instruction::LocalSet(number_hint_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(string_first_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(valid_hint_local));
+
+        function.instruction(&Instruction::LocalGet(hint_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        for (expected_hint_local, string_first) in [
+            (string_hint_payload_local, true),
+            (default_hint_payload_local, true),
+            (number_hint_payload_local, false),
+        ] {
+            self.emit_string_payload_equality_i32(
+                hint_payload_local,
+                expected_hint_local,
+                function,
+            );
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(valid_hint_local));
+            if string_first {
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(string_first_local));
+            }
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(valid_hint_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Date.prototype[Symbol.toPrimitive] hint must be \"default\", \"number\", or \"string\"",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(found_primitive_local));
+        for second_attempt in [false, true] {
+            function.instruction(&Instruction::LocalGet(found_primitive_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(string_first_local));
+            if second_attempt {
+                function.instruction(&Instruction::I64Eqz);
+            } else {
+                function.instruction(&Instruction::I32WrapI64);
+            }
+            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+            function.instruction(&Instruction::I64Const(self.strings.payload("toString")));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::I64Const(self.strings.payload("valueOf")));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalSet(key_payload_local));
+            self.emit_object_read(
+                receiver_payload_local,
+                receiver_tag_local,
+                receiver_payload_local,
+                receiver_tag_local,
+                key_payload_local,
+                method_payload_local,
+                method_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion_if_throw(function);
+            self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_function_or_proxy_call_leave_throw_completion(
+                method_payload_local,
+                method_tag_local,
+                receiver_payload_local,
+                receiver_tag_local,
+                &[],
+                call_payload_local,
+                call_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion_if_throw(function);
+            self.emit_is_primitive_tag_i32(call_tag_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(call_payload_local));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::LocalGet(call_tag_local));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(found_primitive_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+        }
+
+        function.instruction(&Instruction::LocalGet(found_primitive_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Cannot convert object to primitive value",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        for local in [
+            call_tag_local,
+            call_payload_local,
+            method_tag_local,
+            method_payload_local,
+            key_payload_local,
+            found_primitive_local,
+            valid_hint_local,
+            string_first_local,
+            number_hint_payload_local,
+            default_hint_payload_local,
+            string_hint_payload_local,
+            hint_tag_local,
+            hint_payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 

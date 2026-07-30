@@ -1,9 +1,19 @@
 # T18 — Strings, Unicode and the complete String API
 
-**Status:** Blocked on T04/T05/T10  
+**Status:** In progress — UTF-16-aware primitives exist; broad APIs still use materializations
+
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T10; regular-expression methods integrate with T19  
 **Blocks:** T19, T22, T23 and String-related T26 closure
+
+## Current repository state
+
+Heap strings and many String methods operate on UTF-16 code units, with focused
+coverage for surrogates, case conversion and symbol hooks. The Test262 harness
+still contains a large family of String method metadata, legacy and coercion
+rewrites, while full Unicode normalization/case data and RegExp/Intl
+integration are not proven complete. The complete current-pin String tree and
+materialization-removal gate remain open.
 
 ## Objective
 

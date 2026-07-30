@@ -20,30 +20,52 @@ pub const GC_NAME: &str = "gc";
 pub const ASSERT_THROWS_NAME: &str = "__porfAssertThrows";
 pub const IS_CONSTRUCTOR_NAME: &str = "__porfIsConstructor";
 pub const CREATE_REALM_NAME: &str = "__porfCreateRealm";
+pub const CREATE_HTMLDDA_NAME: &str = "__porfCreateHTMLDDA";
 pub const PARSE_INT_NAME: &str = "parseInt";
 pub const PARSE_FLOAT_NAME: &str = "parseFloat";
 pub const ESCAPE_NAME: &str = "escape";
 pub const UNESCAPE_NAME: &str = "unescape";
+pub const ENCODE_URI_NAME: &str = "encodeURI";
+pub const ENCODE_URI_COMPONENT_NAME: &str = "encodeURIComponent";
+pub const DECODE_URI_NAME: &str = "decodeURI";
+pub const DECODE_URI_COMPONENT_NAME: &str = "decodeURIComponent";
 pub const HOST_PRINT_FUNCTION_ID: &str = "$host.print";
 pub const HOST_GC_FUNCTION_ID: &str = "$host.gc";
 pub const HOST_ASSERT_THROWS_FUNCTION_ID: &str = "$host.assertThrows";
 pub const HOST_IS_CONSTRUCTOR_FUNCTION_ID: &str = "$host.isConstructor";
 pub const HOST_CREATE_REALM_FUNCTION_ID: &str = "$host.createRealm";
+pub const HOST_CREATE_HTMLDDA_FUNCTION_ID: &str = "$host.createHTMLDDA";
+pub const HOST_HTMLDDA_FUNCTION_ID: &str = "$host.htmlDDA";
 pub const HOST_PARSE_INT_FUNCTION_ID: &str = "$host.parseInt";
 pub const HOST_PARSE_FLOAT_FUNCTION_ID: &str = "$host.parseFloat";
 pub const DETACH_ARRAY_BUFFER_NAME: &str = "__porfDetachArrayBuffer";
 pub const HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID: &str = "$host.detachArrayBuffer";
+pub const AGENT_START_NAME: &str = "__porfAgentStart";
+pub const AGENT_BROADCAST_NAME: &str = "__porfAgentBroadcast";
+pub const AGENT_RECEIVE_BROADCAST_NAME: &str = "__porfAgentReceiveBroadcast";
+pub const AGENT_REPORT_NAME: &str = "__porfAgentReport";
+pub const AGENT_GET_REPORT_NAME: &str = "__porfAgentGetReport";
+pub const AGENT_SLEEP_NAME: &str = "__porfAgentSleep";
+pub const AGENT_MONOTONIC_NOW_NAME: &str = "__porfAgentMonotonicNow";
+pub const AGENT_LEAVING_NAME: &str = "__porfAgentLeaving";
+pub const HOST_AGENT_START_FUNCTION_ID: &str = "$host.agentStart";
+pub const HOST_AGENT_BROADCAST_FUNCTION_ID: &str = "$host.agentBroadcast";
+pub const HOST_AGENT_RECEIVE_BROADCAST_FUNCTION_ID: &str = "$host.agentReceiveBroadcast";
+pub const HOST_AGENT_REPORT_FUNCTION_ID: &str = "$host.agentReport";
+pub const HOST_AGENT_GET_REPORT_FUNCTION_ID: &str = "$host.agentGetReport";
+pub const HOST_AGENT_SLEEP_FUNCTION_ID: &str = "$host.agentSleep";
+pub const HOST_AGENT_MONOTONIC_NOW_FUNCTION_ID: &str = "$host.agentMonotonicNow";
+pub const HOST_AGENT_LEAVING_FUNCTION_ID: &str = "$host.agentLeaving";
 pub const FUNCTION_NAME: &str = "Function";
 pub const OBJECT_NAME: &str = "Object";
 pub const ARRAY_NAME: &str = "Array";
 pub const ARRAY_BUFFER_NAME: &str = "ArrayBuffer";
-pub const ARRAY_BUFFER_IMMUTABLE_SLOT: &str = "$ArrayBuffer.immutable";
-pub const ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT: &str = "$ArrayBuffer.maxByteLength";
-pub const ARRAY_BUFFER_RESIZABLE_SLOT: &str = "$ArrayBuffer.resizable";
-pub const ARRAY_BUFFER_SHARED_SLOT: &str = "$ArrayBuffer.shared";
 pub const SHARED_ARRAY_BUFFER_NAME: &str = "SharedArrayBuffer";
 pub const DATA_VIEW_NAME: &str = "DataView";
 pub const DATE_NAME: &str = "Date";
+pub const TEMPORAL_NAME: &str = "Temporal";
+pub const TEMPORAL_INSTANT_NAME: &str = "Instant";
+pub const TEMPORAL_ZONED_DATE_TIME_NAME: &str = "ZonedDateTime";
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";
 pub const ATOMICS_NAME: &str = "Atomics";
@@ -67,6 +89,10 @@ pub const BOOLEAN_NAME: &str = "Boolean";
 pub const SYMBOL_NAME: &str = "Symbol";
 pub const PROMISE_NAME: &str = "Promise";
 pub const MAP_NAME: &str = "Map";
+pub const WEAK_MAP_NAME: &str = "WeakMap";
+pub const WEAK_SET_NAME: &str = "WeakSet";
+pub const WEAK_REF_NAME: &str = "WeakRef";
+pub const FINALIZATION_REGISTRY_NAME: &str = "FinalizationRegistry";
 pub const SET_NAME: &str = "Set";
 pub const ERROR_NAME: &str = "Error";
 pub const EVAL_ERROR_NAME: &str = "EvalError";
@@ -86,6 +112,8 @@ pub const BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
 pub const BUILTIN_EVAL_FUNCTION_ID: &str = "$builtin.eval";
 pub const BUILTIN_OBJECT_FUNCTION_ID: &str = "$builtin.Object";
 pub const BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID: &str = "$builtin.Object.groupBy";
+pub const BUILTIN_OBJECT_FROM_ENTRIES_FUNCTION_ID: &str = "$builtin.Object.fromEntries";
+pub const BUILTIN_OBJECT_ASSIGN_FUNCTION_ID: &str = "$builtin.Object.assign";
 pub const BUILTIN_OBJECT_CREATE_FUNCTION_ID: &str = "$builtin.Object.create";
 pub const BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Object.getPrototypeOf";
 pub const BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID: &str = "$builtin.Object.setPrototypeOf";
@@ -93,16 +121,20 @@ pub const BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID: &str = "$builtin.Object.de
 pub const BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID: &str = "$builtin.Object.defineProperties";
 pub const BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID: &str =
     "$builtin.Object.getOwnPropertyDescriptor";
+pub const BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS_FUNCTION_ID: &str =
+    "$builtin.Object.getOwnPropertyDescriptors";
 pub const BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID: &str =
     "$builtin.Object.getOwnPropertyNames";
 pub const BUILTIN_OBJECT_GET_OWN_PROPERTY_SYMBOLS_FUNCTION_ID: &str =
     "$builtin.Object.getOwnPropertySymbols";
 pub const BUILTIN_OBJECT_KEYS_FUNCTION_ID: &str = "$builtin.Object.keys";
 pub const BUILTIN_OBJECT_VALUES_FUNCTION_ID: &str = "$builtin.Object.values";
+pub const BUILTIN_OBJECT_ENTRIES_FUNCTION_ID: &str = "$builtin.Object.entries";
 pub const BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID: &str = "$builtin.Object.hasOwn";
 pub const BUILTIN_OBJECT_IS_FUNCTION_ID: &str = "$builtin.Object.is";
 pub const BUILTIN_OBJECT_IS_SEALED_FUNCTION_ID: &str = "$builtin.Object.isSealed";
 pub const BUILTIN_OBJECT_IS_FROZEN_FUNCTION_ID: &str = "$builtin.Object.isFrozen";
+pub const BUILTIN_OBJECT_SEAL_FUNCTION_ID: &str = "$builtin.Object.seal";
 pub const BUILTIN_OBJECT_FREEZE_FUNCTION_ID: &str = "$builtin.Object.freeze";
 pub const BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID: &str = "$builtin.Object.isExtensible";
 pub const BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID: &str = "$builtin.Object.preventExtensions";
@@ -210,9 +242,19 @@ pub const BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID: &str =
     "$builtin.AsyncGenerator.prototype.return";
 pub const BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID: &str =
     "$builtin.AsyncGenerator.prototype.throw";
+pub const BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FUNCTION_ID: &str =
+    "$builtin.AsyncIterator.prototype.asyncDispose";
+pub const BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FULFILLED_FUNCTION_ID: &str =
+    "$builtin.AsyncIterator.prototype.asyncDispose.fulfilled";
+pub const BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_REJECTED_FUNCTION_ID: &str =
+    "$builtin.AsyncIterator.prototype.asyncDispose.rejected";
 pub const BUILTIN_ITERATOR_FUNCTION_ID: &str = "$builtin.Iterator";
 pub const BUILTIN_ITERATOR_FROM_FUNCTION_ID: &str = "$builtin.Iterator.from";
+pub const BUILTIN_ITERATOR_CONCAT_FUNCTION_ID: &str = "$builtin.Iterator.concat";
+pub const BUILTIN_ITERATOR_CONCAT_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.concat.next";
+pub const BUILTIN_ITERATOR_CONCAT_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.concat.return";
 pub const BUILTIN_ITERATOR_ZIP_FUNCTION_ID: &str = "$builtin.Iterator.zip";
+pub const BUILTIN_ITERATOR_ZIP_KEYED_FUNCTION_ID: &str = "$builtin.Iterator.zipKeyed";
 pub const BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.zip.next";
 pub const BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.zip.return";
 pub const BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.helper.next";
@@ -416,6 +458,7 @@ pub const BUILTIN_DATA_VIEW_PROTOTYPE_SET_BIGUINT64_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.setBigUint64";
 pub const BUILTIN_DATE_FUNCTION_ID: &str = "$builtin.Date";
 pub const BUILTIN_DATE_NOW_FUNCTION_ID: &str = "$builtin.Date.now";
+pub const BUILTIN_DATE_PARSE_FUNCTION_ID: &str = "$builtin.Date.parse";
 pub const BUILTIN_DATE_UTC_FUNCTION_ID: &str = "$builtin.Date.UTC";
 pub const BUILTIN_DATE_PROTOTYPE_GET_TIME_FUNCTION_ID: &str = "$builtin.Date.prototype.getTime";
 pub const BUILTIN_DATE_PROTOTYPE_SET_TIME_FUNCTION_ID: &str = "$builtin.Date.prototype.setTime";
@@ -477,8 +520,77 @@ pub const BUILTIN_DATE_PROTOTYPE_SET_MILLISECONDS_FUNCTION_ID: &str =
     "$builtin.Date.prototype.setMilliseconds";
 pub const BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID: &str =
     "$builtin.Date.prototype.setUTCMilliseconds";
+pub const BUILTIN_DATE_PROTOTYPE_TO_ISO_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toISOString";
+pub const BUILTIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID: &str = "$builtin.Date.prototype.toJSON";
+pub const BUILTIN_DATE_PROTOTYPE_TO_PRIMITIVE_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toPrimitive";
+pub const BUILTIN_DATE_PROTOTYPE_TO_DATE_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toDateString";
+pub const BUILTIN_DATE_PROTOTYPE_TO_LOCALE_DATE_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toLocaleDateString";
+pub const BUILTIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toLocaleString";
+pub const BUILTIN_DATE_PROTOTYPE_TO_LOCALE_TIME_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toLocaleTimeString";
+pub const BUILTIN_DATE_PROTOTYPE_TO_TEMPORAL_INSTANT_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toTemporalInstant";
+pub const BUILTIN_DATE_PROTOTYPE_TO_TIME_STRING_FUNCTION_ID: &str =
+    "$builtin.Date.prototype.toTimeString";
+pub const BUILTIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID: &str = "$builtin.Date.prototype.toString";
 pub const BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID: &str =
     "$builtin.Date.prototype.toUTCString";
+pub const BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID: &str = "$builtin.Temporal.Instant";
+pub const BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID: &str = "$builtin.Temporal.Instant.from";
+pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.prototype.epochMilliseconds.get";
+pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.prototype.epochNanoseconds.get";
+pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.prototype.equals";
+pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.prototype.toString";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID: &str = "$builtin.Temporal.ZonedDateTime";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.from";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.epochMilliseconds.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.epochNanoseconds.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.offset.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.offsetNanoseconds.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.timeZoneId.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.calendarId.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.year.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.month.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.monthCode.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.day.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.hour.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.minute.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.second.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.millisecond.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.microsecond.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.nanosecond.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.equals";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.toInstant";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.withTimeZone";
 pub const BUILTIN_REGEXP_FUNCTION_ID: &str = "$builtin.RegExp";
 pub const BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.RegExp[Symbol.species].get";
 pub const BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID: &str =
@@ -680,6 +792,7 @@ pub const BUILTIN_PROMISE_CAPABILITY_EXECUTOR_FUNCTION_ID: &str =
 pub const BUILTIN_PROMISE_RESOLVE_FUNCTION_ID: &str = "$builtin.PromiseResolveFunction";
 pub const BUILTIN_PROMISE_REJECT_FUNCTION_ID: &str = "$builtin.PromiseRejectFunction";
 pub const BUILTIN_MAP_FUNCTION_ID: &str = "$builtin.Map";
+pub const BUILTIN_MAP_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Map[Symbol.species].get";
 pub const BUILTIN_MAP_GROUP_BY_FUNCTION_ID: &str = "$builtin.Map.groupBy";
 pub const BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID: &str = "$builtin.Map.prototype.clear";
 pub const BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID: &str = "$builtin.Map.prototype.delete";
@@ -696,7 +809,28 @@ pub const BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID: &str =
 pub const BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID: &str = "$builtin.Map.prototype.has";
 pub const BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID: &str = "$builtin.Map.prototype.set";
 pub const BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID: &str = "$builtin.Map.prototype.size";
+pub const BUILTIN_WEAK_MAP_FUNCTION_ID: &str = "$builtin.WeakMap";
+pub const BUILTIN_WEAK_MAP_PROTOTYPE_DELETE_FUNCTION_ID: &str = "$builtin.WeakMap.prototype.delete";
+pub const BUILTIN_WEAK_MAP_PROTOTYPE_GET_FUNCTION_ID: &str = "$builtin.WeakMap.prototype.get";
+pub const BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID: &str =
+    "$builtin.WeakMap.prototype.getOrInsert";
+pub const BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID: &str =
+    "$builtin.WeakMap.prototype.getOrInsertComputed";
+pub const BUILTIN_WEAK_MAP_PROTOTYPE_HAS_FUNCTION_ID: &str = "$builtin.WeakMap.prototype.has";
+pub const BUILTIN_WEAK_MAP_PROTOTYPE_SET_FUNCTION_ID: &str = "$builtin.WeakMap.prototype.set";
+pub const BUILTIN_WEAK_SET_FUNCTION_ID: &str = "$builtin.WeakSet";
+pub const BUILTIN_WEAK_SET_PROTOTYPE_ADD_FUNCTION_ID: &str = "$builtin.WeakSet.prototype.add";
+pub const BUILTIN_WEAK_SET_PROTOTYPE_DELETE_FUNCTION_ID: &str = "$builtin.WeakSet.prototype.delete";
+pub const BUILTIN_WEAK_SET_PROTOTYPE_HAS_FUNCTION_ID: &str = "$builtin.WeakSet.prototype.has";
+pub const BUILTIN_WEAK_REF_FUNCTION_ID: &str = "$builtin.WeakRef";
+pub const BUILTIN_WEAK_REF_PROTOTYPE_DEREF_FUNCTION_ID: &str = "$builtin.WeakRef.prototype.deref";
+pub const BUILTIN_FINALIZATION_REGISTRY_FUNCTION_ID: &str = "$builtin.FinalizationRegistry";
+pub const BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_REGISTER_FUNCTION_ID: &str =
+    "$builtin.FinalizationRegistry.prototype.register";
+pub const BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID: &str =
+    "$builtin.FinalizationRegistry.prototype.unregister";
 pub const BUILTIN_SET_FUNCTION_ID: &str = "$builtin.Set";
+pub const BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Set[Symbol.species].get";
 pub const BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID: &str = "$builtin.Set.prototype.add";
 pub const BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID: &str = "$builtin.Set.prototype.clear";
 pub const BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID: &str = "$builtin.Set.prototype.delete";
@@ -733,18 +867,10 @@ pub const BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID: &str = "$builtin.%ThrowTypeError
 pub const BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID: &str = "$builtin.[[BoundFunctionInvoke]]";
 pub const BUILTIN_ESCAPE_FUNCTION_ID: &str = "$builtin.escape";
 pub const BUILTIN_UNESCAPE_FUNCTION_ID: &str = "$builtin.unescape";
-pub const ARRAY_BUFFER_DATA_PTR_SLOT: &str = "$ArrayBufferDataPtr";
-pub const ARRAY_BUFFER_BYTE_LENGTH_SLOT: &str = "$ArrayBufferByteLength";
-pub const DATA_VIEW_DATA_PTR_SLOT: &str = "$DataViewDataPtr";
-pub const DATA_VIEW_BYTE_OFFSET_SLOT: &str = "$DataViewByteOffset";
-pub const DATA_VIEW_BYTE_LENGTH_SLOT: &str = "$DataViewByteLength";
-pub const DATA_VIEW_LENGTH_TRACKING_SLOT: &str = "$DataViewLengthTracking";
-pub const TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT: &str = "$TypedArrayViewedArrayBuffer";
-pub const TYPED_ARRAY_BYTE_OFFSET_SLOT: &str = "$TypedArrayByteOffset";
-pub const TYPED_ARRAY_BYTE_LENGTH_SLOT: &str = "$TypedArrayByteLength";
-pub const TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT: &str = "$TypedArrayBytesPerElement";
-pub const TYPED_ARRAY_ELEMENT_KIND_SLOT: &str = "$TypedArrayElementKind";
-pub const TYPED_ARRAY_LENGTH_TRACKING_SLOT: &str = "$TypedArrayLengthTracking";
+pub const BUILTIN_ENCODE_URI_FUNCTION_ID: &str = "$builtin.encodeURI";
+pub const BUILTIN_ENCODE_URI_COMPONENT_FUNCTION_ID: &str = "$builtin.encodeURIComponent";
+pub const BUILTIN_DECODE_URI_FUNCTION_ID: &str = "$builtin.decodeURI";
+pub const BUILTIN_DECODE_URI_COMPONENT_FUNCTION_ID: &str = "$builtin.decodeURIComponent";
 pub const PORFFOR_GENERATOR_THROW_SLOT: &str = "$PorfforGeneratorThrow";
 pub const PORFFOR_ITERATOR_FROM_WRAPPER_SLOT: &str = "$PorfforIteratorFromWrapper";
 pub const PORFFOR_YIELD_STAR_GENERATOR_SLOT: &str = "$PorfforYieldStarGenerator";

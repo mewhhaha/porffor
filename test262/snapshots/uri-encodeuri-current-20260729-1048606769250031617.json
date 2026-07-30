@@ -1,0 +1,117 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1048606769250031617,
+  "run_kind": "full",
+  "total": 31,
+  "passed": 31,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 31
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/encodeURI/prop-desc.js",
+      "duration_ms": 43998
+    },
+    {
+      "path": "built-ins/encodeURI/name.js",
+      "duration_ms": 37530
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A2.4_T1.js",
+      "duration_ms": 34944
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A5.5.js",
+      "duration_ms": 33686
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A5.4.js",
+      "duration_ms": 33040
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A6_T1.js",
+      "duration_ms": 32037
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A5.7.js",
+      "duration_ms": 30228
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A2.3_T1.js",
+      "duration_ms": 29269
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A1.3_T1.js",
+      "duration_ms": 28935
+    },
+    {
+      "path": "built-ins/encodeURI/S15.1.3.3_A2.4_T2.js",
+      "duration_ms": 28671
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/encodeURI/S15.1.3.3_A1.1_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A1.1_T2.js",
+    "built-ins/encodeURI/S15.1.3.3_A1.2_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A1.2_T2.js",
+    "built-ins/encodeURI/S15.1.3.3_A1.3_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A2.1_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A2.2_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A2.3_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A2.4_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A2.4_T2.js",
+    "built-ins/encodeURI/S15.1.3.3_A2.5_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A3.1_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A3.2_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A3.2_T2.js",
+    "built-ins/encodeURI/S15.1.3.3_A3.2_T3.js",
+    "built-ins/encodeURI/S15.1.3.3_A3.3_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A4_T1.js",
+    "built-ins/encodeURI/S15.1.3.3_A4_T2.js",
+    "built-ins/encodeURI/S15.1.3.3_A4_T3.js",
+    "built-ins/encodeURI/S15.1.3.3_A4_T4.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.1.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.2.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.3.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.4.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.5.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.6.js",
+    "built-ins/encodeURI/S15.1.3.3_A5.7.js",
+    "built-ins/encodeURI/S15.1.3.3_A6_T1.js",
+    "built-ins/encodeURI/name.js",
+    "built-ins/encodeURI/not-a-constructor.js",
+    "built-ins/encodeURI/prop-desc.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

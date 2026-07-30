@@ -18,14 +18,17 @@ function assertStrictDeleteThrows(view, key, label) {
 }
 
 var numeric = new Uint8Array([42]);
+var dynamicNegativeZero = -0;
 assertSame(delete numeric[0], false, "numeric index");
 assertSame(delete numeric[-0], false, "numeric minus zero becomes zero");
+assertSame(delete numeric[dynamicNegativeZero], false, "dynamic numeric minus zero becomes zero");
 assertSame(delete numeric["-0"], true, "string minus zero");
 assertSame(delete numeric["1.1"], true, "fractional index");
 assertSame(delete numeric[-1], true, "negative index");
 assertSame(delete numeric[1], true, "out of bounds index");
 assertSame(delete numeric.Infinity, true, "infinity index");
 assertStrictDeleteThrows(numeric, 0, "strict numeric index");
+assertStrictDeleteThrows(numeric, -0, "strict dynamic numeric minus zero index");
 assertSame(deleteStrict(numeric, "-0"), true, "strict invalid index");
 
 var bigint = new BigInt64Array([42n]);

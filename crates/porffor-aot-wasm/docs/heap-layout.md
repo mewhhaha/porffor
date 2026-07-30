@@ -71,7 +71,11 @@ runtime meaning:
   resume completion, and result promise across Promise reaction jobs;
 - function objects and realm-owned prototype references;
 - realm records and realm-intrinsic tables, including each realm's
-  `%Map.prototype%` and `%Set.prototype%` fallbacks;
+  `%Map.prototype%`, `%Set.prototype%`, `%WeakSet.prototype%`,
+  `%WeakRef.prototype%` and `%FinalizationRegistry.prototype%` fallbacks;
+- FinalizationRegistry records, which strongly retain their cleanup callback
+  and cell storage, plus cells whose targets and unregister tokens are weak and
+  whose holdings are strong while the cell is present;
 - bound-function records;
 - array object headers and array-specific descriptor slots;
 - ordinary object property entries;
@@ -85,6 +89,8 @@ runtime meaning:
   including the realm, callback-kind discriminator, result and linked-list
   edges that must stay live until the job or reaction is drained.
 - Map and Set records and their ordered tagged entry payloads.
+- WeakRef records whose tagged target payload is registered only as a weak
+  edge, never as an ordinary traced pointer.
 
 Each slot records the record family, name, byte offset, width and whether the
 payload may contain a heap pointer. Unit tests assert that registered slots are
@@ -120,10 +126,13 @@ tagged values.
 Iterator.zip helpers keep their mutable state in an inaccessible ordinary
 state object. A helper with the `OBJECT_INTERNAL_BRAND_ITERATOR_ZIP_HELPER`
 brand holds that state's pointer in its `boxed_payload` header slot while its
-`boxed_kind` remains `NONE`; the state object's eight named slots are registered
+`boxed_kind` remains `NONE`; the state object's nine named slots are registered
 as `HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS`. This branded header reference is a
 strong edge, and the state object owns the iterator, next-method, open-array
-and padding-array edges that must be scanned.
+padding-array and keyed-property-array edges that must be scanned. Positional
+`Iterator.zip` stores `undefined` in the keyed-property slot. `Iterator.zipKeyed`
+stores its captured string and symbol keys there so shared helper advancement
+can finish each internal result array as a fresh null-prototype object.
 
 Iterator helper instances use one of the six exact-object internal brands for
 zip, map, filter, flatMap, take and drop. These unforgeable header brands select
@@ -184,11 +193,22 @@ the same `memory.grow` boundary. These fixtures intentionally prove stable
 addresses and visible reachability only; collection, weak clearing and finalizer
 scheduling remain guarded by the non-executable collector contract.
 
+## Temporal Records
+
+Temporal.Instant records retain the exact epoch-nanoseconds BigInt. The
+Temporal.ZonedDateTime record extends that model with strongly traced,
+canonical time-zone and calendar string slots. Both objects carry distinct
+private brands in the ordinary object header, so accessors and conversion fast
+paths read records directly and never consult shadowable JavaScript
+properties.
+
 ## Weak Reachability
 
 `HEAP_WEAK_EDGE_SLOTS` records the weak and ephemeron edge families required by
 WeakMap, WeakSet, WeakRef and FinalizationRegistry. WeakMap values are modeled
 as ephemeron values that become live only when their corresponding key is live.
+WeakSet entries use a distinct record family whose value payload is excluded
+from strong tracing and registered as an ephemeron key.
 WeakRef and FinalizationRegistry targets are weak targets and must not keep the
 target object alive through ordinary tracing. FinalizationRegistry holdings stay
 strongly live after the target becomes collectible so cleanup callbacks can
@@ -198,6 +218,26 @@ The records are a contract for the future collector; the collector itself is
 not executable yet. When `gc()` is wired to a real collection cycle, it must use
 these weak-edge kinds and advance `HEAP_COLLECTOR_CONTRACT` rather than
 test-specific shortcuts.
+
+`WeakRef` construction and synchronous `deref()` use the registered weak target
+record today. The target cannot clear while no collector runs, and the exposed
+`gc()` host hook remains unsupported, so clearing is not currently
+deterministically testable. The representation is nevertheless collector-ready:
+the target slot is excluded from strong layout tracing and the future
+`clear-weakrefs` phase owns replacing it with the empty state.
+
+`WeakSet` construction and synchronous `add`, `delete`, and `has` use the
+distinct weak-set object brand and entry layout today. Object and unregistered
+symbol values are recorded weakly; registered symbols and other primitives are
+rejected by `add` and treated as absent by `delete` and `has`. Entries cannot
+clear while no collector runs.
+
+`FinalizationRegistry` construction, registration and token-based
+unregistration use the registered record and cell layouts today. Unregistering
+a token clears every matching present cell, including its strong holdings
+payload. No cleanup callback is run without a collector: the future
+`queue-finalizers` phase owns detaching collectible cells and scheduling their
+holdings for delivery.
 
 ## Host Boundary
 

@@ -561,6 +561,9 @@ pub enum ObjectPropertyIr {
     PrototypeSetter {
         value: TypedExpr,
     },
+    Spread {
+        source: TypedExpr,
+    },
     Data {
         key: String,
         value: TypedExpr,
@@ -1328,6 +1331,9 @@ pub enum ExprIr {
     GlobalPropertyRead {
         name: String,
     },
+    GlobalIdentifierRead {
+        name: String,
+    },
     AssignIdentifier {
         name: String,
         value: Box<TypedExpr>,
@@ -1824,9 +1830,9 @@ pub enum StatementIr {
         init: Option<ForInitIr>,
         test: Option<TypedExpr>,
         update: Option<TypedExpr>,
-        before_yield: Vec<StatementIr>,
-        yield_statement: Box<StatementIr>,
-        after_yield: Vec<StatementIr>,
+        before_suspension: Vec<StatementIr>,
+        suspension_statement: Box<StatementIr>,
+        after_suspension: Vec<StatementIr>,
         entry_state: u32,
         resume_state: u32,
         exit_state: u32,
@@ -1990,6 +1996,7 @@ pub enum ScriptGlobalBindingKind {
     MathObject,
     JsonObject,
     AtomicsObject,
+    TemporalObject,
     BuiltinFunction(StandardBuiltinId),
     HostFunction(HostBuiltinId),
 }
@@ -2444,9 +2451,9 @@ impl IrSummaryCounts {
                 init,
                 test,
                 update,
-                before_yield,
-                yield_statement,
-                after_yield,
+                before_suspension,
+                suspension_statement,
+                after_suspension,
                 ..
             } => {
                 self.fors += 1;
@@ -2459,11 +2466,11 @@ impl IrSummaryCounts {
                 if let Some(update) = update {
                     self.visit_expr(update);
                 }
-                for statement in before_yield {
+                for statement in before_suspension {
                     self.visit_statement(statement);
                 }
-                self.visit_statement(yield_statement);
-                for statement in after_yield {
+                self.visit_statement(suspension_statement);
+                for statement in after_suspension {
                     self.visit_statement(statement);
                 }
             }
@@ -2624,7 +2631,7 @@ impl IrSummaryCounts {
                 self.assignments += 1;
                 self.visit_expr(value);
             }
-            ExprIr::GlobalPropertyRead { .. } => {
+            ExprIr::GlobalPropertyRead { .. } | ExprIr::GlobalIdentifierRead { .. } => {
                 self.global_property_reads += 1;
             }
             ExprIr::GlobalPropertyWrite {
@@ -2639,7 +2646,8 @@ impl IrSummaryCounts {
                 self.objects += 1;
                 for property in properties {
                     match property {
-                        ObjectPropertyIr::PrototypeSetter { value } => {
+                        ObjectPropertyIr::PrototypeSetter { value }
+                        | ObjectPropertyIr::Spread { source: value } => {
                             self.visit_expr(value);
                         }
                         ObjectPropertyIr::Data {

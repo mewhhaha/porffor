@@ -1,0 +1,655 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13737876247778637226,
+  "run_kind": "full",
+  "total": 91,
+  "passed": 38,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 52,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 52,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 38
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-string-decimal-places.js",
+      "duration_ms": 80853
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-string-basic-and-extended-format.js",
+      "duration_ms": 78093
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-function-object.js",
+      "duration_ms": 73878
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-monthcode-month.js",
+      "duration_ms": 73536
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-object.js",
+      "duration_ms": 73242
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-ignores-incorrect-properties.js",
+      "duration_ms": 70202
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-string-negative-extended-year.js",
+      "duration_ms": 70060
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-string-calendar-case-insensitive.js",
+      "duration_ms": 23861
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-iso-string.js",
+      "duration_ms": 19178
+    },
+    {
+      "path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-datetime.js",
+      "duration_ms": 18519
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1635160)",
+      "detail_hash": 7929648792555633042,
+      "duration_ms": 73242
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-case-insensitive.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1459000)",
+      "detail_hash": 1717156261654559059,
+      "duration_ms": 10663
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-invalid-iso-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1466144)",
+      "detail_hash": 1911693155893427672,
+      "duration_ms": 10169
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-iso-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1442232)",
+      "detail_hash": 5089111703580701336,
+      "duration_ms": 19178
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-leap-second.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1440832)",
+      "detail_hash": 14424920817427404753,
+      "duration_ms": 8300
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1440824)",
+      "detail_hash": 1022584399439847901,
+      "duration_ms": 8390
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-wrong-type.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1466056)",
+      "detail_hash": 8448442845909769073,
+      "duration_ms": 10382
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-year-zero.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1463800)",
+      "detail_hash": 3293974770230241205,
+      "duration_ms": 8461
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-function-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1636112)",
+      "detail_hash": 5278143332611022008,
+      "duration_ms": 73878
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-ignores-incorrect-properties.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1635624)",
+      "detail_hash": 148422399648217300,
+      "duration_ms": 70202
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-invalid-offset-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1468488)",
+      "detail_hash": 16483377716674952112,
+      "duration_ms": 11194
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-monthcode-month.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1635680)",
+      "detail_hash": 5657735098754065474,
+      "duration_ms": 73536
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-offset-not-agreeing-with-timezone.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1461392)",
+      "detail_hash": 16988622166359028538,
+      "duration_ms": 12868
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-optional-properties.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1459960)",
+      "detail_hash": 14924835031420358748,
+      "duration_ms": 17201
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1441440)",
+      "detail_hash": 12146273236159893507,
+      "duration_ms": 10250
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-datetime.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1462704)",
+      "detail_hash": 17520917735440994685,
+      "duration_ms": 18519
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-leap-second.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1459032)",
+      "detail_hash": 11523497858915971316,
+      "duration_ms": 11234
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-multiple-offsets.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1440768)",
+      "detail_hash": 1907950844896056891,
+      "duration_ms": 8293
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-sub-minute-offset.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1461952)",
+      "detail_hash": 18118153855959558481,
+      "duration_ms": 10371
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-year-zero.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1463248)",
+      "detail_hash": 4855274172524624909,
+      "duration_ms": 8540
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1442680)",
+      "detail_hash": 454202453552239784,
+      "duration_ms": 7461
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-wrong-type.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1480192)",
+      "detail_hash": 1761252680343141632,
+      "duration_ms": 11457
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string-basic-and-extended-format.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1646960)",
+      "detail_hash": 12281052747683413781,
+      "duration_ms": 78093
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string-decimal-places.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1638088)",
+      "detail_hash": 1235632462685968190,
+      "duration_ms": 80853
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string-limits.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1483248)",
+      "detail_hash": 8743171990727727019,
+      "duration_ms": 11774
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string-negative-extended-year.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1637792)",
+      "detail_hash": 8106588173922429928,
+      "duration_ms": 70060
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string-optional-parts.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1637752)",
+      "detail_hash": 6246174623701373439,
+      "duration_ms": 323
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string-variant-decimal-separator.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1637704)",
+      "detail_hash": 15135061027568373306,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/argument-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1635256)",
+      "detail_hash": 8343136807387836695,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/calendar-temporal-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1635744)",
+      "detail_hash": 6672386279222491877,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/calendarresolvefields-error-ordering.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1471952)",
+      "detail_hash": 5956644924856974507,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/disambiguation-invalid-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1468184)",
+      "detail_hash": 6054516453587526028,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/disambiguation-wrong-type.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1679688)",
+      "detail_hash": 13194524811815515106,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/infinity-throws-rangeerror.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: object literal spread. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8781943951821602475,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/monthcode-invalid.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1464064)",
+      "detail_hash": 7586527273747722879,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/negative-month-or-day.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1461216)",
+      "detail_hash": 8359613245654047797,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/observable-get-overflow-argument-primitive.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1716368)",
+      "detail_hash": 8527787042102730848,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/offset-does-not-match-iana-time-zone.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1461512)",
+      "detail_hash": 6486860328957536023,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/offset-invalid-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1465736)",
+      "detail_hash": 14597728470928106618,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/offset-string-invalid.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1464432)",
+      "detail_hash": 15102027175936748587,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/offset-undefined.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1461808)",
+      "detail_hash": 2228105717054484580,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/offset-wrong-type.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1679656)",
+      "detail_hash": 7852186638080310048,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/options-object.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1441152)",
+      "detail_hash": 6974244902372375327,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/options-read-before-algorithmic-validation.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1652856)",
+      "detail_hash": 10971365254975001445,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/order-of-operations.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1704168)",
+      "detail_hash": 14196671160592246987,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/overflow-invalid-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1483104)",
+      "detail_hash": 5108997207277407570,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/overflow-options.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1638304)",
+      "detail_hash": 12054130923962012230,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/overflow-undefined.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1457568)",
+      "detail_hash": 12237268148922997981,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/overflow-wrong-type.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1720824)",
+      "detail_hash": 13168939759307298792,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/roundtrip-from-property-bag.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1648904)",
+      "detail_hash": 8053165322970832227,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/roundtrip-from-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1635208)",
+      "detail_hash": 10246726644908909927,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/subclassing-ignored.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(year result Expected SameValue(undefined, 2000) to be true)",
+      "detail_hash": 10069397152321174559,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/Temporal/ZonedDateTime/from/timezone-case-insensitive.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1440704)",
+      "detail_hash": 17266850555088581512,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Temporal/ZonedDateTime/from/argument-object.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-case-insensitive.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-invalid-iso-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-iso-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-leap-second.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-year-zero.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-empty-throws.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-function-object.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-ignores-incorrect-properties.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-invalid-offset-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-monthcode-month.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-offset-not-agreeing-with-timezone.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-optional-properties.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-required-correctly-spelled-properties.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-required-prop-undefined-throws.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-object.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-datetime.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-leap-second.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-multiple-offsets.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-sub-minute-offset.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-year-zero.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-basic-and-extended-format.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-calendar-annotation-invalid-key.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-calendar-annotation.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-calendar-case-insensitive.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-calendar-invalid-iso-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-critical-unknown-annotation.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-date-with-utc-offset.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-decimal-places.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-invalid.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-limits.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-minus-sign.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-multiple-calendar.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-multiple-time-zone.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-negative-extended-year.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-no-junk-at-end.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-optional-parts.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-start-of-day-not-valid-epoch-nanoseconds.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-sub-minute-offset.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-time-separators.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-time-zone-annotation.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-too-many-decimals.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-unknown-annotation.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string-variant-decimal-separator.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/argument-zoneddatetime.js",
+    "built-ins/Temporal/ZonedDateTime/from/bad-disambiguation.js",
+    "built-ins/Temporal/ZonedDateTime/from/builtin.js",
+    "built-ins/Temporal/ZonedDateTime/from/calendar-temporal-object.js",
+    "built-ins/Temporal/ZonedDateTime/from/calendarresolvefields-error-ordering.js",
+    "built-ins/Temporal/ZonedDateTime/from/constrain-has-no-effect-on-invalid-iso-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/disambiguation-invalid-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/disambiguation-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/infinity-throws-rangeerror.js",
+    "built-ins/Temporal/ZonedDateTime/from/leap-second.js",
+    "built-ins/Temporal/ZonedDateTime/from/length.js",
+    "built-ins/Temporal/ZonedDateTime/from/month-code-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/monthcode-invalid.js",
+    "built-ins/Temporal/ZonedDateTime/from/name.js",
+    "built-ins/Temporal/ZonedDateTime/from/negative-month-or-day.js",
+    "built-ins/Temporal/ZonedDateTime/from/no-fractional-minutes-hours.js",
+    "built-ins/Temporal/ZonedDateTime/from/not-a-constructor.js",
+    "built-ins/Temporal/ZonedDateTime/from/observable-get-overflow-argument-primitive.js",
+    "built-ins/Temporal/ZonedDateTime/from/observable-get-overflow-argument-string-invalid.js",
+    "built-ins/Temporal/ZonedDateTime/from/offset-does-not-match-iana-time-zone.js",
+    "built-ins/Temporal/ZonedDateTime/from/offset-invalid-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/offset-overrides-critical-flag.js",
+    "built-ins/Temporal/ZonedDateTime/from/offset-string-invalid.js",
+    "built-ins/Temporal/ZonedDateTime/from/offset-undefined.js",
+    "built-ins/Temporal/ZonedDateTime/from/offset-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/options-object.js",
+    "built-ins/Temporal/ZonedDateTime/from/options-read-before-algorithmic-validation.js",
+    "built-ins/Temporal/ZonedDateTime/from/options-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/order-of-operations.js",
+    "built-ins/Temporal/ZonedDateTime/from/overflow-invalid-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/overflow-options.js",
+    "built-ins/Temporal/ZonedDateTime/from/overflow-undefined.js",
+    "built-ins/Temporal/ZonedDateTime/from/overflow-wrong-type.js",
+    "built-ins/Temporal/ZonedDateTime/from/prop-desc.js",
+    "built-ins/Temporal/ZonedDateTime/from/roundtrip-from-property-bag.js",
+    "built-ins/Temporal/ZonedDateTime/from/roundtrip-from-string.js",
+    "built-ins/Temporal/ZonedDateTime/from/subclassing-ignored.js",
+    "built-ins/Temporal/ZonedDateTime/from/timezone-case-insensitive.js",
+    "built-ins/Temporal/ZonedDateTime/from/year-zero.js",
+    "built-ins/Temporal/ZonedDateTime/from/zoneddatetime-string-multiple-offsets.js",
+    "built-ins/Temporal/ZonedDateTime/from/zoneddatetime-string.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

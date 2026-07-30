@@ -1,5 +1,7 @@
 use crate::{
-    FunctionId, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ASSERT_THROWS_NAME,
+    FunctionId, AGENT_BROADCAST_NAME, AGENT_GET_REPORT_NAME, AGENT_LEAVING_NAME,
+    AGENT_MONOTONIC_NOW_NAME, AGENT_RECEIVE_BROADCAST_NAME, AGENT_REPORT_NAME, AGENT_SLEEP_NAME,
+    AGENT_START_NAME, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ASSERT_THROWS_NAME,
     BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
     BUILTIN_AGGREGATE_ERROR_FUNCTION_ID, BUILTIN_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID,
@@ -40,16 +42,20 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID,
     BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
     BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
-    BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID, BUILTIN_ATOMICS_ADD_FUNCTION_ID,
-    BUILTIN_ATOMICS_AND_FUNCTION_ID, BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID,
-    BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID, BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID,
-    BUILTIN_ATOMICS_LOAD_FUNCTION_ID, BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID,
-    BUILTIN_ATOMICS_OR_FUNCTION_ID, BUILTIN_ATOMICS_PAUSE_FUNCTION_ID,
-    BUILTIN_ATOMICS_STORE_FUNCTION_ID, BUILTIN_ATOMICS_SUB_FUNCTION_ID,
-    BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID, BUILTIN_ATOMICS_WAIT_FUNCTION_ID,
-    BUILTIN_ATOMICS_XOR_FUNCTION_ID, BUILTIN_BIGINT64_ARRAY_FUNCTION_ID,
-    BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID, BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID,
-    BUILTIN_BIGINT_FUNCTION_ID, BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
+    BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FULFILLED_FUNCTION_ID,
+    BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FUNCTION_ID,
+    BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_REJECTED_FUNCTION_ID,
+    BUILTIN_ATOMICS_ADD_FUNCTION_ID, BUILTIN_ATOMICS_AND_FUNCTION_ID,
+    BUILTIN_ATOMICS_COMPARE_EXCHANGE_FUNCTION_ID, BUILTIN_ATOMICS_EXCHANGE_FUNCTION_ID,
+    BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID, BUILTIN_ATOMICS_LOAD_FUNCTION_ID,
+    BUILTIN_ATOMICS_NOTIFY_FUNCTION_ID, BUILTIN_ATOMICS_OR_FUNCTION_ID,
+    BUILTIN_ATOMICS_PAUSE_FUNCTION_ID, BUILTIN_ATOMICS_STORE_FUNCTION_ID,
+    BUILTIN_ATOMICS_SUB_FUNCTION_ID, BUILTIN_ATOMICS_WAIT_ASYNC_FUNCTION_ID,
+    BUILTIN_ATOMICS_WAIT_FUNCTION_ID, BUILTIN_ATOMICS_XOR_FUNCTION_ID,
+    BUILTIN_BIGINT64_ARRAY_FUNCTION_ID, BUILTIN_BIGINT_AS_INT_N_FUNCTION_ID,
+    BUILTIN_BIGINT_AS_UINT_N_FUNCTION_ID, BUILTIN_BIGINT_FUNCTION_ID,
+    BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_BIGINT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_BIGINT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID, BUILTIN_BOOLEAN_FUNCTION_ID,
     BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID, BUILTIN_DATA_VIEW_FUNCTION_ID,
@@ -78,9 +84,9 @@ use crate::{
     BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT16_FUNCTION_ID,
     BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT32_FUNCTION_ID,
     BUILTIN_DATA_VIEW_PROTOTYPE_SET_UINT8_FUNCTION_ID, BUILTIN_DATE_FUNCTION_ID,
-    BUILTIN_DATE_NOW_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_GET_DATE_FUNCTION_ID,
-    BUILTIN_DATE_PROTOTYPE_GET_DAY_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_GET_FULL_YEAR_FUNCTION_ID,
-    BUILTIN_DATE_PROTOTYPE_GET_HOURS_FUNCTION_ID,
+    BUILTIN_DATE_NOW_FUNCTION_ID, BUILTIN_DATE_PARSE_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_GET_DATE_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_GET_DAY_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_GET_FULL_YEAR_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_GET_HOURS_FUNCTION_ID,
     BUILTIN_DATE_PROTOTYPE_GET_MILLISECONDS_FUNCTION_ID,
     BUILTIN_DATE_PROTOTYPE_GET_MINUTES_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_GET_MONTH_FUNCTION_ID,
     BUILTIN_DATE_PROTOTYPE_GET_SECONDS_FUNCTION_ID,
@@ -105,17 +111,31 @@ use crate::{
     BUILTIN_DATE_PROTOTYPE_SET_UTC_MINUTES_FUNCTION_ID,
     BUILTIN_DATE_PROTOTYPE_SET_UTC_MONTH_FUNCTION_ID,
     BUILTIN_DATE_PROTOTYPE_SET_UTC_SECONDS_FUNCTION_ID,
-    BUILTIN_DATE_PROTOTYPE_SET_YEAR_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID,
-    BUILTIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID, BUILTIN_DATE_UTC_FUNCTION_ID,
-    BUILTIN_ERROR_FUNCTION_ID, BUILTIN_ERROR_IS_ERROR_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_SET_YEAR_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_TO_DATE_STRING_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_ISO_STRING_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_LOCALE_DATE_STRING_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_LOCALE_TIME_STRING_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_PRIMITIVE_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_TEMPORAL_INSTANT_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_TIME_STRING_FUNCTION_ID,
+    BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID, BUILTIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID,
+    BUILTIN_DATE_UTC_FUNCTION_ID, BUILTIN_DECODE_URI_COMPONENT_FUNCTION_ID,
+    BUILTIN_DECODE_URI_FUNCTION_ID, BUILTIN_ENCODE_URI_COMPONENT_FUNCTION_ID,
+    BUILTIN_ENCODE_URI_FUNCTION_ID, BUILTIN_ERROR_FUNCTION_ID, BUILTIN_ERROR_IS_ERROR_FUNCTION_ID,
     BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_ESCAPE_FUNCTION_ID,
-    BUILTIN_EVAL_ERROR_FUNCTION_ID, BUILTIN_EVAL_FUNCTION_ID, BUILTIN_FLOAT32_ARRAY_FUNCTION_ID,
-    BUILTIN_FLOAT64_ARRAY_FUNCTION_ID, BUILTIN_FUNCTION_FUNCTION_ID,
-    BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID, BUILTIN_FUNCTION_PROTOTYPE_BIND_FUNCTION_ID,
-    BUILTIN_FUNCTION_PROTOTYPE_CALL_FUNCTION_ID, BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID,
-    BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
-    BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID, BUILTIN_INT16_ARRAY_FUNCTION_ID,
-    BUILTIN_INT32_ARRAY_FUNCTION_ID, BUILTIN_INT8_ARRAY_FUNCTION_ID,
+    BUILTIN_EVAL_ERROR_FUNCTION_ID, BUILTIN_EVAL_FUNCTION_ID,
+    BUILTIN_FINALIZATION_REGISTRY_FUNCTION_ID,
+    BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_REGISTER_FUNCTION_ID,
+    BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID,
+    BUILTIN_FLOAT32_ARRAY_FUNCTION_ID, BUILTIN_FLOAT64_ARRAY_FUNCTION_ID,
+    BUILTIN_FUNCTION_FUNCTION_ID, BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID,
+    BUILTIN_FUNCTION_PROTOTYPE_BIND_FUNCTION_ID, BUILTIN_FUNCTION_PROTOTYPE_CALL_FUNCTION_ID,
+    BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
+    BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
+    BUILTIN_INT16_ARRAY_FUNCTION_ID, BUILTIN_INT32_ARRAY_FUNCTION_ID,
+    BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_ITERATOR_CONCAT_FUNCTION_ID,
+    BUILTIN_ITERATOR_CONCAT_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_CONCAT_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID,
@@ -135,21 +155,25 @@ use crate::{
     BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_GETTER_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_TO_STRING_TAG_SETTER_FUNCTION_ID,
     BUILTIN_ITERATOR_TAKE_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID,
-    BUILTIN_ITERATOR_ZIP_FUNCTION_ID, BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID,
-    BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID, BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID,
-    BUILTIN_JSON_PARSE_FUNCTION_ID, BUILTIN_JSON_RAW_JSON_FUNCTION_ID,
-    BUILTIN_JSON_STRINGIFY_FUNCTION_ID, BUILTIN_MAP_FUNCTION_ID, BUILTIN_MAP_GROUP_BY_FUNCTION_ID,
-    BUILTIN_MAP_ITERATOR_NEXT_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID,
-    BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_ENTRIES_FUNCTION_ID,
-    BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_GET_FUNCTION_ID,
+    BUILTIN_ITERATOR_ZIP_FUNCTION_ID, BUILTIN_ITERATOR_ZIP_KEYED_FUNCTION_ID,
+    BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID,
+    BUILTIN_JSON_IS_RAW_JSON_FUNCTION_ID, BUILTIN_JSON_PARSE_FUNCTION_ID,
+    BUILTIN_JSON_RAW_JSON_FUNCTION_ID, BUILTIN_JSON_STRINGIFY_FUNCTION_ID, BUILTIN_MAP_FUNCTION_ID,
+    BUILTIN_MAP_GROUP_BY_FUNCTION_ID, BUILTIN_MAP_ITERATOR_NEXT_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_ENTRIES_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID,
+    BUILTIN_MAP_PROTOTYPE_GET_FUNCTION_ID,
     BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID,
     BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID,
     BUILTIN_MAP_PROTOTYPE_KEYS_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID,
     BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID, BUILTIN_MAP_PROTOTYPE_VALUES_FUNCTION_ID,
-    BUILTIN_NUMBER_FUNCTION_ID, BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID,
+    BUILTIN_MAP_SPECIES_GETTER_FUNCTION_ID, BUILTIN_NUMBER_FUNCTION_ID,
+    BUILTIN_NUMBER_IS_INTEGER_FUNCTION_ID, BUILTIN_OBJECT_ASSIGN_FUNCTION_ID,
     BUILTIN_OBJECT_CREATE_FUNCTION_ID, BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID,
-    BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID, BUILTIN_OBJECT_FREEZE_FUNCTION_ID,
-    BUILTIN_OBJECT_FUNCTION_ID, BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
+    BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID, BUILTIN_OBJECT_ENTRIES_FUNCTION_ID,
+    BUILTIN_OBJECT_FREEZE_FUNCTION_ID, BUILTIN_OBJECT_FROM_ENTRIES_FUNCTION_ID,
+    BUILTIN_OBJECT_FUNCTION_ID, BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS_FUNCTION_ID,
+    BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
     BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID,
     BUILTIN_OBJECT_GET_OWN_PROPERTY_SYMBOLS_FUNCTION_ID,
     BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID,
@@ -166,8 +190,8 @@ use crate::{
     BUILTIN_OBJECT_PROTOTYPE_PROTO_SETTER_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
     BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_OBJECT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
-    BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID, BUILTIN_OBJECT_VALUES_FUNCTION_ID,
-    BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
+    BUILTIN_OBJECT_SEAL_FUNCTION_ID, BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID,
+    BUILTIN_OBJECT_VALUES_FUNCTION_ID, BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
     BUILTIN_PROMISE_ALL_RESOLVE_ELEMENT_FUNCTION_ID,
     BUILTIN_PROMISE_ALL_SETTLED_KEYED_REJECT_ELEMENT_FUNCTION_ID,
     BUILTIN_PROMISE_ALL_SETTLED_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
@@ -225,7 +249,7 @@ use crate::{
     BUILTIN_SET_PROTOTYPE_SIZE_GETTER_FUNCTION_ID,
     BUILTIN_SET_PROTOTYPE_SYMMETRIC_DIFFERENCE_FUNCTION_ID,
     BUILTIN_SET_PROTOTYPE_UNION_FUNCTION_ID, BUILTIN_SET_PROTOTYPE_VALUES_FUNCTION_ID,
-    BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
+    BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID, BUILTIN_SHARED_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROWABLE_GETTER_FUNCTION_ID,
     BUILTIN_SHARED_ARRAY_BUFFER_PROTOTYPE_GROW_FUNCTION_ID,
@@ -265,9 +289,35 @@ use crate::{
     BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_STRING_RAW_FUNCTION_ID, BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID,
     BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
-    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID,
-    BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID, BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID,
-    BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
+    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID, BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
@@ -302,17 +352,31 @@ use crate::{
     BUILTIN_TYPE_ERROR_FUNCTION_ID, BUILTIN_UINT16_ARRAY_FUNCTION_ID,
     BUILTIN_UINT32_ARRAY_FUNCTION_ID, BUILTIN_UINT8_ARRAY_FUNCTION_ID,
     BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID, BUILTIN_UNESCAPE_FUNCTION_ID,
-    BUILTIN_URI_ERROR_FUNCTION_ID, CREATE_REALM_NAME, DATA_VIEW_NAME, DATE_NAME,
-    DETACH_ARRAY_BUFFER_NAME, ERROR_NAME, ESCAPE_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME,
-    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GC_NAME, HOST_ASSERT_THROWS_FUNCTION_ID,
-    HOST_CREATE_REALM_FUNCTION_ID, HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID, HOST_GC_FUNCTION_ID,
+    BUILTIN_URI_ERROR_FUNCTION_ID, BUILTIN_WEAK_MAP_FUNCTION_ID,
+    BUILTIN_WEAK_MAP_PROTOTYPE_DELETE_FUNCTION_ID, BUILTIN_WEAK_MAP_PROTOTYPE_GET_FUNCTION_ID,
+    BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID,
+    BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID,
+    BUILTIN_WEAK_MAP_PROTOTYPE_HAS_FUNCTION_ID, BUILTIN_WEAK_MAP_PROTOTYPE_SET_FUNCTION_ID,
+    BUILTIN_WEAK_REF_FUNCTION_ID, BUILTIN_WEAK_REF_PROTOTYPE_DEREF_FUNCTION_ID,
+    BUILTIN_WEAK_SET_FUNCTION_ID, BUILTIN_WEAK_SET_PROTOTYPE_ADD_FUNCTION_ID,
+    BUILTIN_WEAK_SET_PROTOTYPE_DELETE_FUNCTION_ID, BUILTIN_WEAK_SET_PROTOTYPE_HAS_FUNCTION_ID,
+    CREATE_HTMLDDA_NAME, CREATE_REALM_NAME, DATA_VIEW_NAME, DATE_NAME, DECODE_URI_COMPONENT_NAME,
+    DECODE_URI_NAME, DETACH_ARRAY_BUFFER_NAME, ENCODE_URI_COMPONENT_NAME, ENCODE_URI_NAME,
+    ERROR_NAME, ESCAPE_NAME, EVAL_ERROR_NAME, FINALIZATION_REGISTRY_NAME, FLOAT32_ARRAY_NAME,
+    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GC_NAME, HOST_AGENT_BROADCAST_FUNCTION_ID,
+    HOST_AGENT_GET_REPORT_FUNCTION_ID, HOST_AGENT_LEAVING_FUNCTION_ID,
+    HOST_AGENT_MONOTONIC_NOW_FUNCTION_ID, HOST_AGENT_RECEIVE_BROADCAST_FUNCTION_ID,
+    HOST_AGENT_REPORT_FUNCTION_ID, HOST_AGENT_SLEEP_FUNCTION_ID, HOST_AGENT_START_FUNCTION_ID,
+    HOST_ASSERT_THROWS_FUNCTION_ID, HOST_CREATE_HTMLDDA_FUNCTION_ID, HOST_CREATE_REALM_FUNCTION_ID,
+    HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID, HOST_GC_FUNCTION_ID, HOST_HTMLDDA_FUNCTION_ID,
     HOST_IS_CONSTRUCTOR_FUNCTION_ID, HOST_PARSE_FLOAT_FUNCTION_ID, HOST_PARSE_INT_FUNCTION_ID,
     HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
     IS_CONSTRUCTOR_NAME, MAP_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME,
     PRINT_NAME, PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME,
     SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
-    SYNTAX_ERROR_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
-    UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME,
+    SYNTAX_ERROR_NAME, TEMPORAL_INSTANT_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
+    UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME,
+    WEAK_MAP_NAME, WEAK_REF_NAME, WEAK_SET_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -322,9 +386,19 @@ pub enum HostBuiltinId {
     AssertThrows,
     IsConstructor,
     CreateRealm,
+    CreateHTMLDDA,
+    HTMLDDA,
     ParseInt,
     ParseFloat,
     DetachArrayBuffer,
+    AgentStart,
+    AgentBroadcast,
+    AgentReceiveBroadcast,
+    AgentReport,
+    AgentGetReport,
+    AgentSleep,
+    AgentMonotonicNow,
+    AgentLeaving,
 }
 
 impl HostBuiltinId {
@@ -335,9 +409,19 @@ impl HostBuiltinId {
             Self::AssertThrows => ASSERT_THROWS_NAME,
             Self::IsConstructor => IS_CONSTRUCTOR_NAME,
             Self::CreateRealm => CREATE_REALM_NAME,
+            Self::CreateHTMLDDA => CREATE_HTMLDDA_NAME,
+            Self::HTMLDDA => "IsHTMLDDA",
             Self::ParseInt => PARSE_INT_NAME,
             Self::ParseFloat => PARSE_FLOAT_NAME,
             Self::DetachArrayBuffer => DETACH_ARRAY_BUFFER_NAME,
+            Self::AgentStart => AGENT_START_NAME,
+            Self::AgentBroadcast => AGENT_BROADCAST_NAME,
+            Self::AgentReceiveBroadcast => AGENT_RECEIVE_BROADCAST_NAME,
+            Self::AgentReport => AGENT_REPORT_NAME,
+            Self::AgentGetReport => AGENT_GET_REPORT_NAME,
+            Self::AgentSleep => AGENT_SLEEP_NAME,
+            Self::AgentMonotonicNow => AGENT_MONOTONIC_NOW_NAME,
+            Self::AgentLeaving => AGENT_LEAVING_NAME,
         }
     }
 
@@ -348,9 +432,19 @@ impl HostBuiltinId {
             Self::AssertThrows => HOST_ASSERT_THROWS_FUNCTION_ID.to_string(),
             Self::IsConstructor => HOST_IS_CONSTRUCTOR_FUNCTION_ID.to_string(),
             Self::CreateRealm => HOST_CREATE_REALM_FUNCTION_ID.to_string(),
+            Self::CreateHTMLDDA => HOST_CREATE_HTMLDDA_FUNCTION_ID.to_string(),
+            Self::HTMLDDA => HOST_HTMLDDA_FUNCTION_ID.to_string(),
             Self::ParseInt => HOST_PARSE_INT_FUNCTION_ID.to_string(),
             Self::ParseFloat => HOST_PARSE_FLOAT_FUNCTION_ID.to_string(),
             Self::DetachArrayBuffer => HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID.to_string(),
+            Self::AgentStart => HOST_AGENT_START_FUNCTION_ID.to_string(),
+            Self::AgentBroadcast => HOST_AGENT_BROADCAST_FUNCTION_ID.to_string(),
+            Self::AgentReceiveBroadcast => HOST_AGENT_RECEIVE_BROADCAST_FUNCTION_ID.to_string(),
+            Self::AgentReport => HOST_AGENT_REPORT_FUNCTION_ID.to_string(),
+            Self::AgentGetReport => HOST_AGENT_GET_REPORT_FUNCTION_ID.to_string(),
+            Self::AgentSleep => HOST_AGENT_SLEEP_FUNCTION_ID.to_string(),
+            Self::AgentMonotonicNow => HOST_AGENT_MONOTONIC_NOW_FUNCTION_ID.to_string(),
+            Self::AgentLeaving => HOST_AGENT_LEAVING_FUNCTION_ID.to_string(),
         }
     }
 
@@ -361,9 +455,19 @@ impl HostBuiltinId {
             HOST_ASSERT_THROWS_FUNCTION_ID => Some(Self::AssertThrows),
             HOST_IS_CONSTRUCTOR_FUNCTION_ID => Some(Self::IsConstructor),
             HOST_CREATE_REALM_FUNCTION_ID => Some(Self::CreateRealm),
+            HOST_CREATE_HTMLDDA_FUNCTION_ID => Some(Self::CreateHTMLDDA),
+            HOST_HTMLDDA_FUNCTION_ID => Some(Self::HTMLDDA),
             HOST_PARSE_INT_FUNCTION_ID => Some(Self::ParseInt),
             HOST_PARSE_FLOAT_FUNCTION_ID => Some(Self::ParseFloat),
             HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID => Some(Self::DetachArrayBuffer),
+            HOST_AGENT_START_FUNCTION_ID => Some(Self::AgentStart),
+            HOST_AGENT_BROADCAST_FUNCTION_ID => Some(Self::AgentBroadcast),
+            HOST_AGENT_RECEIVE_BROADCAST_FUNCTION_ID => Some(Self::AgentReceiveBroadcast),
+            HOST_AGENT_REPORT_FUNCTION_ID => Some(Self::AgentReport),
+            HOST_AGENT_GET_REPORT_FUNCTION_ID => Some(Self::AgentGetReport),
+            HOST_AGENT_SLEEP_FUNCTION_ID => Some(Self::AgentSleep),
+            HOST_AGENT_MONOTONIC_NOW_FUNCTION_ID => Some(Self::AgentMonotonicNow),
+            HOST_AGENT_LEAVING_FUNCTION_ID => Some(Self::AgentLeaving),
             _ => None,
         }
     }
@@ -379,20 +483,25 @@ pub enum StandardBuiltinId {
     EvalFunction,
     ObjectConstructor,
     ObjectGroupBy,
+    ObjectFromEntries,
+    ObjectAssign,
     ObjectCreate,
     ObjectGetPrototypeOf,
     ObjectSetPrototypeOf,
     ObjectDefineProperty,
     ObjectDefineProperties,
     ObjectGetOwnPropertyDescriptor,
+    ObjectGetOwnPropertyDescriptors,
     ObjectGetOwnPropertyNames,
     ObjectGetOwnPropertySymbols,
     ObjectKeys,
     ObjectValues,
+    ObjectEntries,
     ObjectHasOwn,
     ObjectIs,
     ObjectIsSealed,
     ObjectIsFrozen,
+    ObjectSeal,
     ObjectFreeze,
     ObjectIsExtensible,
     ObjectPreventExtensions,
@@ -476,9 +585,16 @@ pub enum StandardBuiltinId {
     AsyncGeneratorPrototypeNext,
     AsyncGeneratorPrototypeReturn,
     AsyncGeneratorPrototypeThrow,
+    AsyncIteratorPrototypeAsyncDispose,
+    AsyncIteratorPrototypeAsyncDisposeFulfilled,
+    AsyncIteratorPrototypeAsyncDisposeRejected,
     IteratorConstructor,
     IteratorFrom,
+    IteratorConcat,
+    IteratorConcatNext,
+    IteratorConcatReturn,
     IteratorZip,
+    IteratorZipKeyed,
     IteratorZipNext,
     IteratorZipReturn,
     IteratorHelperNext,
@@ -596,6 +712,7 @@ pub enum StandardBuiltinId {
     DataViewPrototypeSetBigUint64,
     DateConstructor,
     DateNow,
+    DateParse,
     DateUtc,
     DatePrototypeGetTime,
     DatePrototypeSetTime,
@@ -633,7 +750,44 @@ pub enum StandardBuiltinId {
     DatePrototypeSetUtcSeconds,
     DatePrototypeSetMilliseconds,
     DatePrototypeSetUtcMilliseconds,
+    DatePrototypeToIsoString,
+    DatePrototypeToJson,
+    DatePrototypeToPrimitive,
+    DatePrototypeToDateString,
+    DatePrototypeToLocaleDateString,
+    DatePrototypeToLocaleString,
+    DatePrototypeToLocaleTimeString,
+    DatePrototypeToTemporalInstant,
+    DatePrototypeToTimeString,
+    DatePrototypeToString,
     DatePrototypeToUtcString,
+    TemporalInstantConstructor,
+    TemporalInstantFrom,
+    TemporalInstantPrototypeEpochMillisecondsGetter,
+    TemporalInstantPrototypeEpochNanosecondsGetter,
+    TemporalInstantPrototypeEquals,
+    TemporalInstantPrototypeToString,
+    TemporalZonedDateTimeConstructor,
+    TemporalZonedDateTimeFrom,
+    TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
+    TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
+    TemporalZonedDateTimePrototypeOffsetGetter,
+    TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+    TemporalZonedDateTimePrototypeTimeZoneIdGetter,
+    TemporalZonedDateTimePrototypeCalendarIdGetter,
+    TemporalZonedDateTimePrototypeYearGetter,
+    TemporalZonedDateTimePrototypeMonthGetter,
+    TemporalZonedDateTimePrototypeMonthCodeGetter,
+    TemporalZonedDateTimePrototypeDayGetter,
+    TemporalZonedDateTimePrototypeHourGetter,
+    TemporalZonedDateTimePrototypeMinuteGetter,
+    TemporalZonedDateTimePrototypeSecondGetter,
+    TemporalZonedDateTimePrototypeMillisecondGetter,
+    TemporalZonedDateTimePrototypeMicrosecondGetter,
+    TemporalZonedDateTimePrototypeNanosecondGetter,
+    TemporalZonedDateTimePrototypeEquals,
+    TemporalZonedDateTimePrototypeToInstant,
+    TemporalZonedDateTimePrototypeWithTimeZone,
     RegExpConstructor,
     RegExpSpeciesGetter,
     RegExpPrototypeFlagsGetter,
@@ -829,6 +983,7 @@ pub enum StandardBuiltinId {
     PromiseResolveFunction,
     PromiseRejectFunction,
     MapConstructor,
+    MapSpeciesGetter,
     MapGroupBy,
     MapPrototypeClear,
     MapPrototypeDelete,
@@ -843,7 +998,24 @@ pub enum StandardBuiltinId {
     MapPrototypeHas,
     MapPrototypeSet,
     MapPrototypeSizeGetter,
+    WeakMapConstructor,
+    WeakMapPrototypeDelete,
+    WeakMapPrototypeGet,
+    WeakMapPrototypeGetOrInsert,
+    WeakMapPrototypeGetOrInsertComputed,
+    WeakMapPrototypeHas,
+    WeakMapPrototypeSet,
+    WeakSetConstructor,
+    WeakSetPrototypeAdd,
+    WeakSetPrototypeDelete,
+    WeakSetPrototypeHas,
+    WeakRefConstructor,
+    WeakRefPrototypeDeref,
+    FinalizationRegistryConstructor,
+    FinalizationRegistryPrototypeRegister,
+    FinalizationRegistryPrototypeUnregister,
     SetConstructor,
+    SetSpeciesGetter,
     SetPrototypeAdd,
     SetPrototypeClear,
     SetPrototypeDelete,
@@ -882,6 +1054,10 @@ pub enum StandardBuiltinId {
     BoundFunctionInvoker,
     Escape,
     Unescape,
+    EncodeUri,
+    EncodeUriComponent,
+    DecodeUri,
+    DecodeUriComponent,
 }
 
 impl StandardBuiltinId {
@@ -918,7 +1094,8 @@ impl StandardBuiltinId {
             | Self::PromiseResolveFunction
             | Self::PromiseRejectFunction => None,
             Self::MapConstructor => Some(MAP_NAME),
-            Self::MapGroupBy
+            Self::MapSpeciesGetter
+            | Self::MapGroupBy
             | Self::MapPrototypeClear
             | Self::MapPrototypeDelete
             | Self::MapPrototypeForEach
@@ -932,8 +1109,25 @@ impl StandardBuiltinId {
             | Self::MapPrototypeHas
             | Self::MapPrototypeSet
             | Self::MapPrototypeSizeGetter => None,
+            Self::WeakMapConstructor => Some(WEAK_MAP_NAME),
+            Self::WeakMapPrototypeDelete
+            | Self::WeakMapPrototypeGet
+            | Self::WeakMapPrototypeGetOrInsert
+            | Self::WeakMapPrototypeGetOrInsertComputed
+            | Self::WeakMapPrototypeHas
+            | Self::WeakMapPrototypeSet => None,
+            Self::WeakSetConstructor => Some(WEAK_SET_NAME),
+            Self::WeakSetPrototypeAdd
+            | Self::WeakSetPrototypeDelete
+            | Self::WeakSetPrototypeHas => None,
+            Self::WeakRefConstructor => Some(WEAK_REF_NAME),
+            Self::WeakRefPrototypeDeref => None,
+            Self::FinalizationRegistryConstructor => Some(FINALIZATION_REGISTRY_NAME),
+            Self::FinalizationRegistryPrototypeRegister
+            | Self::FinalizationRegistryPrototypeUnregister => None,
             Self::SetConstructor => Some(SET_NAME),
-            Self::SetPrototypeAdd
+            Self::SetSpeciesGetter
+            | Self::SetPrototypeAdd
             | Self::SetPrototypeClear
             | Self::SetPrototypeDelete
             | Self::SetPrototypeDifference
@@ -952,7 +1146,7 @@ impl StandardBuiltinId {
             Self::AggregateErrorConstructor => Some(AGGREGATE_ERROR_NAME),
             Self::SuppressedErrorConstructor => Some(SUPPRESSED_ERROR_NAME),
             Self::ObjectConstructor => Some(OBJECT_NAME),
-            Self::ObjectGroupBy => None,
+            Self::ObjectGroupBy | Self::ObjectFromEntries | Self::ObjectAssign => None,
             Self::ProxyConstructor => Some(PROXY_NAME),
             Self::IteratorConstructor => Some("Iterator"),
             Self::ArrayConstructor => Some(ARRAY_NAME),
@@ -960,6 +1154,33 @@ impl StandardBuiltinId {
             Self::SharedArrayBufferConstructor => Some(SHARED_ARRAY_BUFFER_NAME),
             Self::DataViewConstructor => Some(DATA_VIEW_NAME),
             Self::DateConstructor => Some(DATE_NAME),
+            Self::TemporalInstantConstructor
+            | Self::TemporalInstantFrom
+            | Self::TemporalInstantPrototypeEpochMillisecondsGetter
+            | Self::TemporalInstantPrototypeEpochNanosecondsGetter
+            | Self::TemporalInstantPrototypeEquals
+            | Self::TemporalInstantPrototypeToString
+            | Self::TemporalZonedDateTimeConstructor
+            | Self::TemporalZonedDateTimeFrom
+            | Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
+            | Self::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
+            | Self::TemporalZonedDateTimePrototypeOffsetGetter
+            | Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
+            | Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter
+            | Self::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | Self::TemporalZonedDateTimePrototypeYearGetter
+            | Self::TemporalZonedDateTimePrototypeMonthGetter
+            | Self::TemporalZonedDateTimePrototypeMonthCodeGetter
+            | Self::TemporalZonedDateTimePrototypeDayGetter
+            | Self::TemporalZonedDateTimePrototypeHourGetter
+            | Self::TemporalZonedDateTimePrototypeMinuteGetter
+            | Self::TemporalZonedDateTimePrototypeSecondGetter
+            | Self::TemporalZonedDateTimePrototypeMillisecondGetter
+            | Self::TemporalZonedDateTimePrototypeMicrosecondGetter
+            | Self::TemporalZonedDateTimePrototypeNanosecondGetter
+            | Self::TemporalZonedDateTimePrototypeEquals
+            | Self::TemporalZonedDateTimePrototypeToInstant
+            | Self::TemporalZonedDateTimePrototypeWithTimeZone => None,
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
@@ -1050,6 +1271,10 @@ impl StandardBuiltinId {
             Self::ReferenceErrorConstructor => Some(REFERENCE_ERROR_NAME),
             Self::Escape => Some(ESCAPE_NAME),
             Self::Unescape => Some(UNESCAPE_NAME),
+            Self::EncodeUri => Some(ENCODE_URI_NAME),
+            Self::EncodeUriComponent => Some(ENCODE_URI_COMPONENT_NAME),
+            Self::DecodeUri => Some(DECODE_URI_NAME),
+            Self::DecodeUriComponent => Some(DECODE_URI_COMPONENT_NAME),
             Self::FunctionPrototypeCall
             | Self::FunctionPrototypeApply
             | Self::FunctionPrototypeBind
@@ -1060,14 +1285,17 @@ impl StandardBuiltinId {
             | Self::ObjectDefineProperty
             | Self::ObjectDefineProperties
             | Self::ObjectGetOwnPropertyDescriptor
+            | Self::ObjectGetOwnPropertyDescriptors
             | Self::ObjectGetOwnPropertyNames
             | Self::ObjectGetOwnPropertySymbols
             | Self::ObjectKeys
             | Self::ObjectValues
+            | Self::ObjectEntries
             | Self::ObjectHasOwn
             | Self::ObjectIs
             | Self::ObjectIsSealed
             | Self::ObjectIsFrozen
+            | Self::ObjectSeal
             | Self::ObjectFreeze
             | Self::ObjectIsExtensible
             | Self::ObjectPreventExtensions
@@ -1149,8 +1377,15 @@ impl StandardBuiltinId {
             | Self::AsyncGeneratorPrototypeNext
             | Self::AsyncGeneratorPrototypeReturn
             | Self::AsyncGeneratorPrototypeThrow
+            | Self::AsyncIteratorPrototypeAsyncDispose
+            | Self::AsyncIteratorPrototypeAsyncDisposeFulfilled
+            | Self::AsyncIteratorPrototypeAsyncDisposeRejected
             | Self::IteratorFrom
+            | Self::IteratorConcat
+            | Self::IteratorConcatNext
+            | Self::IteratorConcatReturn
             | Self::IteratorZip
+            | Self::IteratorZipKeyed
             | Self::IteratorZipNext
             | Self::IteratorZipReturn
             | Self::IteratorHelperNext
@@ -1278,6 +1513,7 @@ impl StandardBuiltinId {
             | Self::DataViewPrototypeGetBigUint64
             | Self::DataViewPrototypeSetBigUint64
             | Self::DateNow
+            | Self::DateParse
             | Self::DateUtc
             | Self::DatePrototypeGetTime
             | Self::DatePrototypeSetTime
@@ -1315,6 +1551,16 @@ impl StandardBuiltinId {
             | Self::DatePrototypeSetUtcSeconds
             | Self::DatePrototypeSetMilliseconds
             | Self::DatePrototypeSetUtcMilliseconds
+            | Self::DatePrototypeToIsoString
+            | Self::DatePrototypeToJson
+            | Self::DatePrototypeToPrimitive
+            | Self::DatePrototypeToDateString
+            | Self::DatePrototypeToLocaleDateString
+            | Self::DatePrototypeToLocaleString
+            | Self::DatePrototypeToLocaleTimeString
+            | Self::DatePrototypeToTemporalInstant
+            | Self::DatePrototypeToTimeString
+            | Self::DatePrototypeToString
             | Self::DatePrototypeToUtcString
             | Self::RegExpSpeciesGetter
             | Self::RegExpPrototypeFlagsGetter
@@ -1411,20 +1657,25 @@ impl StandardBuiltinId {
             Self::EvalFunction => "eval",
             Self::ObjectConstructor => OBJECT_NAME,
             Self::ObjectGroupBy => "Object.groupBy",
+            Self::ObjectFromEntries => "Object.fromEntries",
+            Self::ObjectAssign => "Object.assign",
             Self::ObjectCreate => "Object.create",
             Self::ObjectGetPrototypeOf => "Object.getPrototypeOf",
             Self::ObjectSetPrototypeOf => "Object.setPrototypeOf",
             Self::ObjectDefineProperty => "Object.defineProperty",
             Self::ObjectDefineProperties => "Object.defineProperties",
             Self::ObjectGetOwnPropertyDescriptor => "Object.getOwnPropertyDescriptor",
+            Self::ObjectGetOwnPropertyDescriptors => "Object.getOwnPropertyDescriptors",
             Self::ObjectGetOwnPropertyNames => "Object.getOwnPropertyNames",
             Self::ObjectGetOwnPropertySymbols => "Object.getOwnPropertySymbols",
             Self::ObjectKeys => "Object.keys",
             Self::ObjectValues => "Object.values",
+            Self::ObjectEntries => "Object.entries",
             Self::ObjectHasOwn => "Object.hasOwn",
             Self::ObjectIs => "Object.is",
             Self::ObjectIsSealed => "Object.isSealed",
             Self::ObjectIsFrozen => "Object.isFrozen",
+            Self::ObjectSeal => "Object.seal",
             Self::ObjectFreeze => "Object.freeze",
             Self::ObjectIsExtensible => "Object.isExtensible",
             Self::ObjectPreventExtensions => "Object.preventExtensions",
@@ -1508,9 +1759,22 @@ impl StandardBuiltinId {
             Self::AsyncGeneratorPrototypeNext => "AsyncGenerator.prototype.next",
             Self::AsyncGeneratorPrototypeReturn => "AsyncGenerator.prototype.return",
             Self::AsyncGeneratorPrototypeThrow => "AsyncGenerator.prototype.throw",
+            Self::AsyncIteratorPrototypeAsyncDispose => {
+                "AsyncIterator.prototype[Symbol.asyncDispose]"
+            }
+            Self::AsyncIteratorPrototypeAsyncDisposeFulfilled => {
+                "AsyncIterator asyncDispose Fulfilled Function"
+            }
+            Self::AsyncIteratorPrototypeAsyncDisposeRejected => {
+                "AsyncIterator asyncDispose Rejected Function"
+            }
             Self::IteratorConstructor => "Iterator",
             Self::IteratorFrom => "Iterator.from",
+            Self::IteratorConcat => "Iterator.concat",
+            Self::IteratorConcatNext => "Iterator concat helper next",
+            Self::IteratorConcatReturn => "Iterator concat helper return",
             Self::IteratorZip => "Iterator.zip",
+            Self::IteratorZipKeyed => "Iterator.zipKeyed",
             Self::IteratorZipNext => "Iterator zip helper next",
             Self::IteratorZipReturn => "Iterator zip helper return",
             Self::IteratorHelperNext => "%IteratorHelperPrototype%.next",
@@ -1646,6 +1910,7 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigUint64 => "DataView.prototype.setBigUint64",
             Self::DateConstructor => DATE_NAME,
             Self::DateNow => "Date.now",
+            Self::DateParse => "Date.parse",
             Self::DateUtc => "Date.UTC",
             Self::DatePrototypeGetTime => "Date.prototype.getTime",
             Self::DatePrototypeSetTime => "Date.prototype.setTime",
@@ -1683,7 +1948,84 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcSeconds => "Date.prototype.setUTCSeconds",
             Self::DatePrototypeSetMilliseconds => "Date.prototype.setMilliseconds",
             Self::DatePrototypeSetUtcMilliseconds => "Date.prototype.setUTCMilliseconds",
+            Self::DatePrototypeToIsoString => "Date.prototype.toISOString",
+            Self::DatePrototypeToJson => "Date.prototype.toJSON",
+            Self::DatePrototypeToPrimitive => "Date.prototype[Symbol.toPrimitive]",
+            Self::DatePrototypeToDateString => "Date.prototype.toDateString",
+            Self::DatePrototypeToLocaleDateString => "Date.prototype.toLocaleDateString",
+            Self::DatePrototypeToLocaleString => "Date.prototype.toLocaleString",
+            Self::DatePrototypeToLocaleTimeString => "Date.prototype.toLocaleTimeString",
+            Self::DatePrototypeToTemporalInstant => "Date.prototype.toTemporalInstant",
+            Self::DatePrototypeToTimeString => "Date.prototype.toTimeString",
+            Self::DatePrototypeToString => "Date.prototype.toString",
             Self::DatePrototypeToUtcString => "Date.prototype.toUTCString",
+            Self::TemporalInstantConstructor => "Temporal.Instant",
+            Self::TemporalInstantFrom => "Temporal.Instant.from",
+            Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
+                "get Temporal.Instant.prototype.epochMilliseconds"
+            }
+            Self::TemporalInstantPrototypeEpochNanosecondsGetter => {
+                "get Temporal.Instant.prototype.epochNanoseconds"
+            }
+            Self::TemporalInstantPrototypeEquals => "Temporal.Instant.prototype.equals",
+            Self::TemporalInstantPrototypeToString => "Temporal.Instant.prototype.toString",
+            Self::TemporalZonedDateTimeConstructor => "Temporal.ZonedDateTime",
+            Self::TemporalZonedDateTimeFrom => "Temporal.ZonedDateTime.from",
+            Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
+                "get Temporal.ZonedDateTime.prototype.epochMilliseconds"
+            }
+            Self::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
+                "get Temporal.ZonedDateTime.prototype.epochNanoseconds"
+            }
+            Self::TemporalZonedDateTimePrototypeOffsetGetter => {
+                "get Temporal.ZonedDateTime.prototype.offset"
+            }
+            Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter => {
+                "get Temporal.ZonedDateTime.prototype.offsetNanoseconds"
+            }
+            Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter => {
+                "get Temporal.ZonedDateTime.prototype.timeZoneId"
+            }
+            Self::TemporalZonedDateTimePrototypeCalendarIdGetter => {
+                "get Temporal.ZonedDateTime.prototype.calendarId"
+            }
+            Self::TemporalZonedDateTimePrototypeYearGetter => {
+                "get Temporal.ZonedDateTime.prototype.year"
+            }
+            Self::TemporalZonedDateTimePrototypeMonthGetter => {
+                "get Temporal.ZonedDateTime.prototype.month"
+            }
+            Self::TemporalZonedDateTimePrototypeMonthCodeGetter => {
+                "get Temporal.ZonedDateTime.prototype.monthCode"
+            }
+            Self::TemporalZonedDateTimePrototypeDayGetter => {
+                "get Temporal.ZonedDateTime.prototype.day"
+            }
+            Self::TemporalZonedDateTimePrototypeHourGetter => {
+                "get Temporal.ZonedDateTime.prototype.hour"
+            }
+            Self::TemporalZonedDateTimePrototypeMinuteGetter => {
+                "get Temporal.ZonedDateTime.prototype.minute"
+            }
+            Self::TemporalZonedDateTimePrototypeSecondGetter => {
+                "get Temporal.ZonedDateTime.prototype.second"
+            }
+            Self::TemporalZonedDateTimePrototypeMillisecondGetter => {
+                "get Temporal.ZonedDateTime.prototype.millisecond"
+            }
+            Self::TemporalZonedDateTimePrototypeMicrosecondGetter => {
+                "get Temporal.ZonedDateTime.prototype.microsecond"
+            }
+            Self::TemporalZonedDateTimePrototypeNanosecondGetter => {
+                "get Temporal.ZonedDateTime.prototype.nanosecond"
+            }
+            Self::TemporalZonedDateTimePrototypeEquals => "Temporal.ZonedDateTime.prototype.equals",
+            Self::TemporalZonedDateTimePrototypeToInstant => {
+                "Temporal.ZonedDateTime.prototype.toInstant"
+            }
+            Self::TemporalZonedDateTimePrototypeWithTimeZone => {
+                "Temporal.ZonedDateTime.prototype.withTimeZone"
+            }
             Self::RegExpConstructor => REGEXP_NAME,
             Self::RegExpSpeciesGetter => "get RegExp [Symbol.species]",
             Self::RegExpPrototypeFlagsGetter => "get RegExp.prototype.flags",
@@ -1881,6 +2223,7 @@ impl StandardBuiltinId {
             Self::PromiseResolveFunction => "Promise Resolve Function",
             Self::PromiseRejectFunction => "Promise Reject Function",
             Self::MapConstructor => MAP_NAME,
+            Self::MapSpeciesGetter => "get Map [Symbol.species]",
             Self::MapGroupBy => "Map.groupBy",
             Self::MapPrototypeClear => "Map.prototype.clear",
             Self::MapPrototypeDelete => "Map.prototype.delete",
@@ -1895,7 +2238,28 @@ impl StandardBuiltinId {
             Self::MapPrototypeHas => "Map.prototype.has",
             Self::MapPrototypeSet => "Map.prototype.set",
             Self::MapPrototypeSizeGetter => "get Map.prototype.size",
+            Self::WeakMapConstructor => WEAK_MAP_NAME,
+            Self::WeakMapPrototypeDelete => "WeakMap.prototype.delete",
+            Self::WeakMapPrototypeGet => "WeakMap.prototype.get",
+            Self::WeakMapPrototypeGetOrInsert => "WeakMap.prototype.getOrInsert",
+            Self::WeakMapPrototypeGetOrInsertComputed => "WeakMap.prototype.getOrInsertComputed",
+            Self::WeakMapPrototypeHas => "WeakMap.prototype.has",
+            Self::WeakMapPrototypeSet => "WeakMap.prototype.set",
+            Self::WeakSetConstructor => WEAK_SET_NAME,
+            Self::WeakSetPrototypeAdd => "WeakSet.prototype.add",
+            Self::WeakSetPrototypeDelete => "WeakSet.prototype.delete",
+            Self::WeakSetPrototypeHas => "WeakSet.prototype.has",
+            Self::WeakRefConstructor => WEAK_REF_NAME,
+            Self::WeakRefPrototypeDeref => "WeakRef.prototype.deref",
+            Self::FinalizationRegistryConstructor => FINALIZATION_REGISTRY_NAME,
+            Self::FinalizationRegistryPrototypeRegister => {
+                "FinalizationRegistry.prototype.register"
+            }
+            Self::FinalizationRegistryPrototypeUnregister => {
+                "FinalizationRegistry.prototype.unregister"
+            }
             Self::SetConstructor => SET_NAME,
+            Self::SetSpeciesGetter => "get Set [Symbol.species]",
             Self::SetPrototypeAdd => "Set.prototype.add",
             Self::SetPrototypeClear => "Set.prototype.clear",
             Self::SetPrototypeDelete => "Set.prototype.delete",
@@ -1936,6 +2300,10 @@ impl StandardBuiltinId {
             Self::BoundFunctionInvoker => "[[BoundFunctionInvoke]]",
             Self::Escape => ESCAPE_NAME,
             Self::Unescape => UNESCAPE_NAME,
+            Self::EncodeUri => ENCODE_URI_NAME,
+            Self::EncodeUriComponent => ENCODE_URI_COMPONENT_NAME,
+            Self::DecodeUri => DECODE_URI_NAME,
+            Self::DecodeUriComponent => DECODE_URI_COMPONENT_NAME,
         }
     }
 
@@ -1953,6 +2321,8 @@ impl StandardBuiltinId {
             Self::EvalFunction => BUILTIN_EVAL_FUNCTION_ID.to_string(),
             Self::ObjectConstructor => BUILTIN_OBJECT_FUNCTION_ID.to_string(),
             Self::ObjectGroupBy => BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID.to_string(),
+            Self::ObjectFromEntries => BUILTIN_OBJECT_FROM_ENTRIES_FUNCTION_ID.to_string(),
+            Self::ObjectAssign => BUILTIN_OBJECT_ASSIGN_FUNCTION_ID.to_string(),
             Self::ObjectCreate => BUILTIN_OBJECT_CREATE_FUNCTION_ID.to_string(),
             Self::ObjectGetPrototypeOf => BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
             Self::ObjectSetPrototypeOf => BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID.to_string(),
@@ -1963,6 +2333,9 @@ impl StandardBuiltinId {
             Self::ObjectGetOwnPropertyDescriptor => {
                 BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID.to_string()
             }
+            Self::ObjectGetOwnPropertyDescriptors => {
+                BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS_FUNCTION_ID.to_string()
+            }
             Self::ObjectGetOwnPropertyNames => {
                 BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID.to_string()
             }
@@ -1971,10 +2344,12 @@ impl StandardBuiltinId {
             }
             Self::ObjectKeys => BUILTIN_OBJECT_KEYS_FUNCTION_ID.to_string(),
             Self::ObjectValues => BUILTIN_OBJECT_VALUES_FUNCTION_ID.to_string(),
+            Self::ObjectEntries => BUILTIN_OBJECT_ENTRIES_FUNCTION_ID.to_string(),
             Self::ObjectHasOwn => BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID.to_string(),
             Self::ObjectIs => BUILTIN_OBJECT_IS_FUNCTION_ID.to_string(),
             Self::ObjectIsSealed => BUILTIN_OBJECT_IS_SEALED_FUNCTION_ID.to_string(),
             Self::ObjectIsFrozen => BUILTIN_OBJECT_IS_FROZEN_FUNCTION_ID.to_string(),
+            Self::ObjectSeal => BUILTIN_OBJECT_SEAL_FUNCTION_ID.to_string(),
             Self::ObjectFreeze => BUILTIN_OBJECT_FREEZE_FUNCTION_ID.to_string(),
             Self::ObjectIsExtensible => BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID.to_string(),
             Self::ObjectPreventExtensions => {
@@ -2122,9 +2497,22 @@ impl StandardBuiltinId {
             Self::AsyncGeneratorPrototypeThrow => {
                 BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID.to_string()
             }
+            Self::AsyncIteratorPrototypeAsyncDispose => {
+                BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FUNCTION_ID.to_string()
+            }
+            Self::AsyncIteratorPrototypeAsyncDisposeFulfilled => {
+                BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FULFILLED_FUNCTION_ID.to_string()
+            }
+            Self::AsyncIteratorPrototypeAsyncDisposeRejected => {
+                BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_REJECTED_FUNCTION_ID.to_string()
+            }
             Self::IteratorConstructor => BUILTIN_ITERATOR_FUNCTION_ID.to_string(),
             Self::IteratorFrom => BUILTIN_ITERATOR_FROM_FUNCTION_ID.to_string(),
+            Self::IteratorConcat => BUILTIN_ITERATOR_CONCAT_FUNCTION_ID.to_string(),
+            Self::IteratorConcatNext => BUILTIN_ITERATOR_CONCAT_NEXT_FUNCTION_ID.to_string(),
+            Self::IteratorConcatReturn => BUILTIN_ITERATOR_CONCAT_RETURN_FUNCTION_ID.to_string(),
             Self::IteratorZip => BUILTIN_ITERATOR_ZIP_FUNCTION_ID.to_string(),
+            Self::IteratorZipKeyed => BUILTIN_ITERATOR_ZIP_KEYED_FUNCTION_ID.to_string(),
             Self::IteratorZipNext => BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID.to_string(),
             Self::IteratorZipReturn => BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID.to_string(),
             Self::IteratorHelperNext => BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID.to_string(),
@@ -2422,6 +2810,7 @@ impl StandardBuiltinId {
             }
             Self::DateConstructor => BUILTIN_DATE_FUNCTION_ID.to_string(),
             Self::DateNow => BUILTIN_DATE_NOW_FUNCTION_ID.to_string(),
+            Self::DateParse => BUILTIN_DATE_PARSE_FUNCTION_ID.to_string(),
             Self::DateUtc => BUILTIN_DATE_UTC_FUNCTION_ID.to_string(),
             Self::DatePrototypeGetTime => BUILTIN_DATE_PROTOTYPE_GET_TIME_FUNCTION_ID.to_string(),
             Self::DatePrototypeSetTime => BUILTIN_DATE_PROTOTYPE_SET_TIME_FUNCTION_ID.to_string(),
@@ -2507,8 +2896,118 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcMilliseconds => {
                 BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID.to_string()
             }
+            Self::DatePrototypeToIsoString => {
+                BUILTIN_DATE_PROTOTYPE_TO_ISO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToJson => BUILTIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string(),
+            Self::DatePrototypeToPrimitive => {
+                BUILTIN_DATE_PROTOTYPE_TO_PRIMITIVE_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToDateString => {
+                BUILTIN_DATE_PROTOTYPE_TO_DATE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToLocaleDateString => {
+                BUILTIN_DATE_PROTOTYPE_TO_LOCALE_DATE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToLocaleString => {
+                BUILTIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToLocaleTimeString => {
+                BUILTIN_DATE_PROTOTYPE_TO_LOCALE_TIME_STRING_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToTemporalInstant => {
+                BUILTIN_DATE_PROTOTYPE_TO_TEMPORAL_INSTANT_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToTimeString => {
+                BUILTIN_DATE_PROTOTYPE_TO_TIME_STRING_FUNCTION_ID.to_string()
+            }
+            Self::DatePrototypeToString => BUILTIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string(),
             Self::DatePrototypeToUtcString => {
                 BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantConstructor => BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID.to_string(),
+            Self::TemporalInstantFrom => BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID.to_string(),
+            Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeEpochNanosecondsGetter => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeEquals => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeToString => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimeConstructor => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimeFrom => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeOffsetGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeCalendarIdGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeYearGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeMonthGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeMonthCodeGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeDayGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeHourGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeMinuteGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeSecondGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeMillisecondGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeMicrosecondGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeNanosecondGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeEquals => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeToInstant => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeWithTimeZone => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID.to_string()
             }
             Self::RegExpConstructor => BUILTIN_REGEXP_FUNCTION_ID.to_string(),
             Self::RegExpSpeciesGetter => BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID.to_string(),
@@ -2833,6 +3332,7 @@ impl StandardBuiltinId {
             Self::PromiseResolveFunction => BUILTIN_PROMISE_RESOLVE_FUNCTION_ID.to_string(),
             Self::PromiseRejectFunction => BUILTIN_PROMISE_REJECT_FUNCTION_ID.to_string(),
             Self::MapConstructor => BUILTIN_MAP_FUNCTION_ID.to_string(),
+            Self::MapSpeciesGetter => BUILTIN_MAP_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::MapGroupBy => BUILTIN_MAP_GROUP_BY_FUNCTION_ID.to_string(),
             Self::MapPrototypeClear => BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID.to_string(),
             Self::MapPrototypeDelete => BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID.to_string(),
@@ -2853,7 +3353,38 @@ impl StandardBuiltinId {
             Self::MapPrototypeSizeGetter => {
                 BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID.to_string()
             }
+            Self::WeakMapConstructor => BUILTIN_WEAK_MAP_FUNCTION_ID.to_string(),
+            Self::WeakMapPrototypeDelete => {
+                BUILTIN_WEAK_MAP_PROTOTYPE_DELETE_FUNCTION_ID.to_string()
+            }
+            Self::WeakMapPrototypeGet => BUILTIN_WEAK_MAP_PROTOTYPE_GET_FUNCTION_ID.to_string(),
+            Self::WeakMapPrototypeGetOrInsert => {
+                BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID.to_string()
+            }
+            Self::WeakMapPrototypeGetOrInsertComputed => {
+                BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID.to_string()
+            }
+            Self::WeakMapPrototypeHas => BUILTIN_WEAK_MAP_PROTOTYPE_HAS_FUNCTION_ID.to_string(),
+            Self::WeakMapPrototypeSet => BUILTIN_WEAK_MAP_PROTOTYPE_SET_FUNCTION_ID.to_string(),
+            Self::WeakSetConstructor => BUILTIN_WEAK_SET_FUNCTION_ID.to_string(),
+            Self::WeakSetPrototypeAdd => BUILTIN_WEAK_SET_PROTOTYPE_ADD_FUNCTION_ID.to_string(),
+            Self::WeakSetPrototypeDelete => {
+                BUILTIN_WEAK_SET_PROTOTYPE_DELETE_FUNCTION_ID.to_string()
+            }
+            Self::WeakSetPrototypeHas => BUILTIN_WEAK_SET_PROTOTYPE_HAS_FUNCTION_ID.to_string(),
+            Self::WeakRefConstructor => BUILTIN_WEAK_REF_FUNCTION_ID.to_string(),
+            Self::WeakRefPrototypeDeref => BUILTIN_WEAK_REF_PROTOTYPE_DEREF_FUNCTION_ID.to_string(),
+            Self::FinalizationRegistryConstructor => {
+                BUILTIN_FINALIZATION_REGISTRY_FUNCTION_ID.to_string()
+            }
+            Self::FinalizationRegistryPrototypeRegister => {
+                BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_REGISTER_FUNCTION_ID.to_string()
+            }
+            Self::FinalizationRegistryPrototypeUnregister => {
+                BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID.to_string()
+            }
             Self::SetConstructor => BUILTIN_SET_FUNCTION_ID.to_string(),
+            Self::SetSpeciesGetter => BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::SetPrototypeAdd => BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID.to_string(),
             Self::SetPrototypeClear => BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID.to_string(),
             Self::SetPrototypeDelete => BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID.to_string(),
@@ -2912,6 +3443,10 @@ impl StandardBuiltinId {
             Self::BoundFunctionInvoker => BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID.to_string(),
             Self::Escape => BUILTIN_ESCAPE_FUNCTION_ID.to_string(),
             Self::Unescape => BUILTIN_UNESCAPE_FUNCTION_ID.to_string(),
+            Self::EncodeUri => BUILTIN_ENCODE_URI_FUNCTION_ID.to_string(),
+            Self::EncodeUriComponent => BUILTIN_ENCODE_URI_COMPONENT_FUNCTION_ID.to_string(),
+            Self::DecodeUri => BUILTIN_DECODE_URI_FUNCTION_ID.to_string(),
+            Self::DecodeUriComponent => BUILTIN_DECODE_URI_COMPONENT_FUNCTION_ID.to_string(),
         }
     }
 
@@ -2927,6 +3462,8 @@ impl StandardBuiltinId {
             BUILTIN_EVAL_FUNCTION_ID => Some(Self::EvalFunction),
             BUILTIN_OBJECT_FUNCTION_ID => Some(Self::ObjectConstructor),
             BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID => Some(Self::ObjectGroupBy),
+            BUILTIN_OBJECT_FROM_ENTRIES_FUNCTION_ID => Some(Self::ObjectFromEntries),
+            BUILTIN_OBJECT_ASSIGN_FUNCTION_ID => Some(Self::ObjectAssign),
             BUILTIN_OBJECT_CREATE_FUNCTION_ID => Some(Self::ObjectCreate),
             BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ObjectGetPrototypeOf),
             BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID => Some(Self::ObjectSetPrototypeOf),
@@ -2934,6 +3471,9 @@ impl StandardBuiltinId {
             BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID => Some(Self::ObjectDefineProperties),
             BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID => {
                 Some(Self::ObjectGetOwnPropertyDescriptor)
+            }
+            BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS_FUNCTION_ID => {
+                Some(Self::ObjectGetOwnPropertyDescriptors)
             }
             BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID => {
                 Some(Self::ObjectGetOwnPropertyNames)
@@ -2943,10 +3483,12 @@ impl StandardBuiltinId {
             }
             BUILTIN_OBJECT_KEYS_FUNCTION_ID => Some(Self::ObjectKeys),
             BUILTIN_OBJECT_VALUES_FUNCTION_ID => Some(Self::ObjectValues),
+            BUILTIN_OBJECT_ENTRIES_FUNCTION_ID => Some(Self::ObjectEntries),
             BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID => Some(Self::ObjectHasOwn),
             BUILTIN_OBJECT_IS_FUNCTION_ID => Some(Self::ObjectIs),
             BUILTIN_OBJECT_IS_SEALED_FUNCTION_ID => Some(Self::ObjectIsSealed),
             BUILTIN_OBJECT_IS_FROZEN_FUNCTION_ID => Some(Self::ObjectIsFrozen),
+            BUILTIN_OBJECT_SEAL_FUNCTION_ID => Some(Self::ObjectSeal),
             BUILTIN_OBJECT_FREEZE_FUNCTION_ID => Some(Self::ObjectFreeze),
             BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID => Some(Self::ObjectIsExtensible),
             BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID => Some(Self::ObjectPreventExtensions),
@@ -3060,9 +3602,22 @@ impl StandardBuiltinId {
             BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID => {
                 Some(Self::AsyncGeneratorPrototypeThrow)
             }
+            BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FUNCTION_ID => {
+                Some(Self::AsyncIteratorPrototypeAsyncDispose)
+            }
+            BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FULFILLED_FUNCTION_ID => {
+                Some(Self::AsyncIteratorPrototypeAsyncDisposeFulfilled)
+            }
+            BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_REJECTED_FUNCTION_ID => {
+                Some(Self::AsyncIteratorPrototypeAsyncDisposeRejected)
+            }
             BUILTIN_ITERATOR_FUNCTION_ID => Some(Self::IteratorConstructor),
             BUILTIN_ITERATOR_FROM_FUNCTION_ID => Some(Self::IteratorFrom),
+            BUILTIN_ITERATOR_CONCAT_FUNCTION_ID => Some(Self::IteratorConcat),
+            BUILTIN_ITERATOR_CONCAT_NEXT_FUNCTION_ID => Some(Self::IteratorConcatNext),
+            BUILTIN_ITERATOR_CONCAT_RETURN_FUNCTION_ID => Some(Self::IteratorConcatReturn),
             BUILTIN_ITERATOR_ZIP_FUNCTION_ID => Some(Self::IteratorZip),
+            BUILTIN_ITERATOR_ZIP_KEYED_FUNCTION_ID => Some(Self::IteratorZipKeyed),
             BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID => Some(Self::IteratorZipNext),
             BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID => Some(Self::IteratorZipReturn),
             BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID => Some(Self::IteratorHelperNext),
@@ -3320,6 +3875,7 @@ impl StandardBuiltinId {
             }
             BUILTIN_DATE_FUNCTION_ID => Some(Self::DateConstructor),
             BUILTIN_DATE_NOW_FUNCTION_ID => Some(Self::DateNow),
+            BUILTIN_DATE_PARSE_FUNCTION_ID => Some(Self::DateParse),
             BUILTIN_DATE_UTC_FUNCTION_ID => Some(Self::DateUtc),
             BUILTIN_DATE_PROTOTYPE_GET_TIME_FUNCTION_ID => Some(Self::DatePrototypeGetTime),
             BUILTIN_DATE_PROTOTYPE_SET_TIME_FUNCTION_ID => Some(Self::DatePrototypeSetTime),
@@ -3391,8 +3947,109 @@ impl StandardBuiltinId {
             BUILTIN_DATE_PROTOTYPE_SET_UTC_MILLISECONDS_FUNCTION_ID => {
                 Some(Self::DatePrototypeSetUtcMilliseconds)
             }
+            BUILTIN_DATE_PROTOTYPE_TO_ISO_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToIsoString)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID => Some(Self::DatePrototypeToJson),
+            BUILTIN_DATE_PROTOTYPE_TO_PRIMITIVE_FUNCTION_ID => Some(Self::DatePrototypeToPrimitive),
+            BUILTIN_DATE_PROTOTYPE_TO_DATE_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToDateString)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_LOCALE_DATE_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToLocaleDateString)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToLocaleString)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_LOCALE_TIME_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToLocaleTimeString)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_TEMPORAL_INSTANT_FUNCTION_ID => {
+                Some(Self::DatePrototypeToTemporalInstant)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_TIME_STRING_FUNCTION_ID => {
+                Some(Self::DatePrototypeToTimeString)
+            }
+            BUILTIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID => Some(Self::DatePrototypeToString),
             BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID => {
                 Some(Self::DatePrototypeToUtcString)
+            }
+            BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID => Some(Self::TemporalInstantConstructor),
+            BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID => Some(Self::TemporalInstantFrom),
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeEpochMillisecondsGetter)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeEpochNanosecondsGetter)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeEquals)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeToString)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimeConstructor)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimeFrom)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEpochNanosecondsGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeOffsetGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeCalendarIdGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeYearGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeMonthGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeMonthCodeGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeDayGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeHourGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeMinuteGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeSecondGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeMillisecondGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeMicrosecondGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeNanosecondGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEquals)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeToInstant)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeWithTimeZone)
             }
             BUILTIN_REGEXP_FUNCTION_ID => Some(Self::RegExpConstructor),
             BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID => Some(Self::RegExpSpeciesGetter),
@@ -3657,6 +4314,7 @@ impl StandardBuiltinId {
             BUILTIN_PROMISE_RESOLVE_FUNCTION_ID => Some(Self::PromiseResolveFunction),
             BUILTIN_PROMISE_REJECT_FUNCTION_ID => Some(Self::PromiseRejectFunction),
             BUILTIN_MAP_FUNCTION_ID => Some(Self::MapConstructor),
+            BUILTIN_MAP_SPECIES_GETTER_FUNCTION_ID => Some(Self::MapSpeciesGetter),
             BUILTIN_MAP_GROUP_BY_FUNCTION_ID => Some(Self::MapGroupBy),
             BUILTIN_MAP_PROTOTYPE_CLEAR_FUNCTION_ID => Some(Self::MapPrototypeClear),
             BUILTIN_MAP_PROTOTYPE_DELETE_FUNCTION_ID => Some(Self::MapPrototypeDelete),
@@ -3673,7 +4331,34 @@ impl StandardBuiltinId {
             BUILTIN_MAP_PROTOTYPE_HAS_FUNCTION_ID => Some(Self::MapPrototypeHas),
             BUILTIN_MAP_PROTOTYPE_SET_FUNCTION_ID => Some(Self::MapPrototypeSet),
             BUILTIN_MAP_PROTOTYPE_SIZE_GETTER_FUNCTION_ID => Some(Self::MapPrototypeSizeGetter),
+            BUILTIN_WEAK_MAP_FUNCTION_ID => Some(Self::WeakMapConstructor),
+            BUILTIN_WEAK_MAP_PROTOTYPE_DELETE_FUNCTION_ID => Some(Self::WeakMapPrototypeDelete),
+            BUILTIN_WEAK_MAP_PROTOTYPE_GET_FUNCTION_ID => Some(Self::WeakMapPrototypeGet),
+            BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID => {
+                Some(Self::WeakMapPrototypeGetOrInsert)
+            }
+            BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID => {
+                Some(Self::WeakMapPrototypeGetOrInsertComputed)
+            }
+            BUILTIN_WEAK_MAP_PROTOTYPE_HAS_FUNCTION_ID => Some(Self::WeakMapPrototypeHas),
+            BUILTIN_WEAK_MAP_PROTOTYPE_SET_FUNCTION_ID => Some(Self::WeakMapPrototypeSet),
+            BUILTIN_WEAK_SET_FUNCTION_ID => Some(Self::WeakSetConstructor),
+            BUILTIN_WEAK_SET_PROTOTYPE_ADD_FUNCTION_ID => Some(Self::WeakSetPrototypeAdd),
+            BUILTIN_WEAK_SET_PROTOTYPE_DELETE_FUNCTION_ID => Some(Self::WeakSetPrototypeDelete),
+            BUILTIN_WEAK_SET_PROTOTYPE_HAS_FUNCTION_ID => Some(Self::WeakSetPrototypeHas),
+            BUILTIN_WEAK_REF_FUNCTION_ID => Some(Self::WeakRefConstructor),
+            BUILTIN_WEAK_REF_PROTOTYPE_DEREF_FUNCTION_ID => Some(Self::WeakRefPrototypeDeref),
+            BUILTIN_FINALIZATION_REGISTRY_FUNCTION_ID => {
+                Some(Self::FinalizationRegistryConstructor)
+            }
+            BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_REGISTER_FUNCTION_ID => {
+                Some(Self::FinalizationRegistryPrototypeRegister)
+            }
+            BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID => {
+                Some(Self::FinalizationRegistryPrototypeUnregister)
+            }
             BUILTIN_SET_FUNCTION_ID => Some(Self::SetConstructor),
+            BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID => Some(Self::SetSpeciesGetter),
             BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID => Some(Self::SetPrototypeAdd),
             BUILTIN_SET_PROTOTYPE_CLEAR_FUNCTION_ID => Some(Self::SetPrototypeClear),
             BUILTIN_SET_PROTOTYPE_DELETE_FUNCTION_ID => Some(Self::SetPrototypeDelete),
@@ -3722,6 +4407,10 @@ impl StandardBuiltinId {
             BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID => Some(Self::BoundFunctionInvoker),
             BUILTIN_ESCAPE_FUNCTION_ID => Some(Self::Escape),
             BUILTIN_UNESCAPE_FUNCTION_ID => Some(Self::Unescape),
+            BUILTIN_ENCODE_URI_FUNCTION_ID => Some(Self::EncodeUri),
+            BUILTIN_ENCODE_URI_COMPONENT_FUNCTION_ID => Some(Self::EncodeUriComponent),
+            BUILTIN_DECODE_URI_FUNCTION_ID => Some(Self::DecodeUri),
+            BUILTIN_DECODE_URI_COMPONENT_FUNCTION_ID => Some(Self::DecodeUriComponent),
             _ => None,
         }
     }
@@ -3758,6 +4447,10 @@ impl StandardBuiltinId {
             Self::BooleanConstructor,
             Self::PromiseConstructor,
             Self::MapConstructor,
+            Self::WeakMapConstructor,
+            Self::WeakSetConstructor,
+            Self::WeakRefConstructor,
+            Self::FinalizationRegistryConstructor,
             Self::SetConstructor,
             Self::SymbolConstructor,
             Self::ErrorConstructor,
@@ -3771,6 +4464,10 @@ impl StandardBuiltinId {
             Self::ReferenceErrorConstructor,
             Self::Escape,
             Self::Unescape,
+            Self::EncodeUri,
+            Self::EncodeUriComponent,
+            Self::DecodeUri,
+            Self::DecodeUriComponent,
         ]
     }
 
@@ -3784,20 +4481,25 @@ impl StandardBuiltinId {
             Self::EvalFunction,
             Self::ObjectConstructor,
             Self::ObjectGroupBy,
+            Self::ObjectFromEntries,
+            Self::ObjectAssign,
             Self::ObjectCreate,
             Self::ObjectGetPrototypeOf,
             Self::ObjectSetPrototypeOf,
             Self::ObjectDefineProperty,
             Self::ObjectDefineProperties,
             Self::ObjectGetOwnPropertyDescriptor,
+            Self::ObjectGetOwnPropertyDescriptors,
             Self::ObjectGetOwnPropertyNames,
             Self::ObjectGetOwnPropertySymbols,
             Self::ObjectKeys,
             Self::ObjectValues,
+            Self::ObjectEntries,
             Self::ObjectHasOwn,
             Self::ObjectIs,
             Self::ObjectIsSealed,
             Self::ObjectIsFrozen,
+            Self::ObjectSeal,
             Self::ObjectFreeze,
             Self::ObjectIsExtensible,
             Self::ObjectPreventExtensions,
@@ -3881,9 +4583,16 @@ impl StandardBuiltinId {
             Self::AsyncGeneratorPrototypeNext,
             Self::AsyncGeneratorPrototypeReturn,
             Self::AsyncGeneratorPrototypeThrow,
+            Self::AsyncIteratorPrototypeAsyncDispose,
+            Self::AsyncIteratorPrototypeAsyncDisposeFulfilled,
+            Self::AsyncIteratorPrototypeAsyncDisposeRejected,
             Self::IteratorConstructor,
             Self::IteratorFrom,
+            Self::IteratorConcat,
+            Self::IteratorConcatNext,
+            Self::IteratorConcatReturn,
             Self::IteratorZip,
+            Self::IteratorZipKeyed,
             Self::IteratorZipNext,
             Self::IteratorZipReturn,
             Self::IteratorHelperNext,
@@ -4001,6 +4710,7 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigUint64,
             Self::DateConstructor,
             Self::DateNow,
+            Self::DateParse,
             Self::DateUtc,
             Self::DatePrototypeGetTime,
             Self::DatePrototypeSetTime,
@@ -4038,7 +4748,44 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcSeconds,
             Self::DatePrototypeSetMilliseconds,
             Self::DatePrototypeSetUtcMilliseconds,
+            Self::DatePrototypeToIsoString,
+            Self::DatePrototypeToJson,
+            Self::DatePrototypeToPrimitive,
+            Self::DatePrototypeToDateString,
+            Self::DatePrototypeToLocaleDateString,
+            Self::DatePrototypeToLocaleString,
+            Self::DatePrototypeToLocaleTimeString,
+            Self::DatePrototypeToTemporalInstant,
+            Self::DatePrototypeToTimeString,
+            Self::DatePrototypeToString,
             Self::DatePrototypeToUtcString,
+            Self::TemporalInstantConstructor,
+            Self::TemporalInstantFrom,
+            Self::TemporalInstantPrototypeEpochMillisecondsGetter,
+            Self::TemporalInstantPrototypeEpochNanosecondsGetter,
+            Self::TemporalInstantPrototypeEquals,
+            Self::TemporalInstantPrototypeToString,
+            Self::TemporalZonedDateTimeConstructor,
+            Self::TemporalZonedDateTimeFrom,
+            Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
+            Self::TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
+            Self::TemporalZonedDateTimePrototypeOffsetGetter,
+            Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+            Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
+            Self::TemporalZonedDateTimePrototypeCalendarIdGetter,
+            Self::TemporalZonedDateTimePrototypeYearGetter,
+            Self::TemporalZonedDateTimePrototypeMonthGetter,
+            Self::TemporalZonedDateTimePrototypeMonthCodeGetter,
+            Self::TemporalZonedDateTimePrototypeDayGetter,
+            Self::TemporalZonedDateTimePrototypeHourGetter,
+            Self::TemporalZonedDateTimePrototypeMinuteGetter,
+            Self::TemporalZonedDateTimePrototypeSecondGetter,
+            Self::TemporalZonedDateTimePrototypeMillisecondGetter,
+            Self::TemporalZonedDateTimePrototypeMicrosecondGetter,
+            Self::TemporalZonedDateTimePrototypeNanosecondGetter,
+            Self::TemporalZonedDateTimePrototypeEquals,
+            Self::TemporalZonedDateTimePrototypeToInstant,
+            Self::TemporalZonedDateTimePrototypeWithTimeZone,
             Self::RegExpConstructor,
             Self::RegExpSpeciesGetter,
             Self::RegExpPrototypeFlagsGetter,
@@ -4234,6 +4981,7 @@ impl StandardBuiltinId {
             Self::PromiseResolveFunction,
             Self::PromiseRejectFunction,
             Self::MapConstructor,
+            Self::MapSpeciesGetter,
             Self::MapGroupBy,
             Self::MapPrototypeClear,
             Self::MapPrototypeDelete,
@@ -4248,7 +4996,24 @@ impl StandardBuiltinId {
             Self::MapPrototypeHas,
             Self::MapPrototypeSet,
             Self::MapPrototypeSizeGetter,
+            Self::WeakMapConstructor,
+            Self::WeakMapPrototypeDelete,
+            Self::WeakMapPrototypeGet,
+            Self::WeakMapPrototypeGetOrInsert,
+            Self::WeakMapPrototypeGetOrInsertComputed,
+            Self::WeakMapPrototypeHas,
+            Self::WeakMapPrototypeSet,
+            Self::WeakSetConstructor,
+            Self::WeakSetPrototypeAdd,
+            Self::WeakSetPrototypeDelete,
+            Self::WeakSetPrototypeHas,
+            Self::WeakRefConstructor,
+            Self::WeakRefPrototypeDeref,
+            Self::FinalizationRegistryConstructor,
+            Self::FinalizationRegistryPrototypeRegister,
+            Self::FinalizationRegistryPrototypeUnregister,
             Self::SetConstructor,
+            Self::SetSpeciesGetter,
             Self::SetPrototypeAdd,
             Self::SetPrototypeClear,
             Self::SetPrototypeDelete,
@@ -4287,6 +5052,10 @@ impl StandardBuiltinId {
             Self::BoundFunctionInvoker,
             Self::Escape,
             Self::Unescape,
+            Self::EncodeUri,
+            Self::EncodeUriComponent,
+            Self::DecodeUri,
+            Self::DecodeUriComponent,
         ]
     }
 
@@ -4297,6 +5066,10 @@ impl StandardBuiltinId {
                 | Self::IteratorConstructor
                 | Self::PromiseConstructor
                 | Self::MapConstructor
+                | Self::WeakMapConstructor
+                | Self::WeakSetConstructor
+                | Self::WeakRefConstructor
+                | Self::FinalizationRegistryConstructor
                 | Self::SetConstructor
                 | Self::BoundFunctionInvoker
                 | Self::ObjectConstructor
@@ -4306,6 +5079,8 @@ impl StandardBuiltinId {
                 | Self::SharedArrayBufferConstructor
                 | Self::DataViewConstructor
                 | Self::DateConstructor
+                | Self::TemporalInstantConstructor
+                | Self::TemporalZonedDateTimeConstructor
                 | Self::RegExpConstructor
                 | Self::Float64ArrayConstructor
                 | Self::Float32ArrayConstructor
@@ -4354,15 +5129,18 @@ impl StandardBuiltinId {
         matches!(
             self,
             Self::ObjectCreate
+                | Self::ObjectAssign
                 | Self::ObjectGetPrototypeOf
                 | Self::ObjectSetPrototypeOf
                 | Self::ObjectDefineProperty
                 | Self::ObjectDefineProperties
                 | Self::ObjectGetOwnPropertyDescriptor
+                | Self::ObjectGetOwnPropertyDescriptors
                 | Self::ObjectGetOwnPropertyNames
                 | Self::ObjectGetOwnPropertySymbols
                 | Self::ObjectKeys
                 | Self::ObjectValues
+                | Self::ObjectEntries
                 | Self::ObjectHasOwn
                 | Self::ObjectIs
                 | Self::ProxyRevocable
@@ -4379,13 +5157,16 @@ impl StandardBuiltinId {
                 | Self::ReflectSetPrototypeOf
                 | Self::ReflectOwnKeys
                 | Self::IteratorFrom
+                | Self::IteratorConcat
                 | Self::IteratorZip
+                | Self::IteratorZipKeyed
                 | Self::ArrayFrom
                 | Self::ArrayFromAsync
                 | Self::ArrayOf
                 | Self::ArrayIsArray
                 | Self::ArrayBufferIsView
                 | Self::DateNow
+                | Self::DateParse
                 | Self::DateUtc
                 | Self::BigIntAsIntN
                 | Self::BigIntAsUintN
@@ -4514,20 +5295,25 @@ impl StandardBuiltinId {
             Self::EvalFunction => Some("eval"),
             Self::ObjectConstructor => Some(OBJECT_NAME),
             Self::ObjectGroupBy => Some("groupBy"),
+            Self::ObjectFromEntries => Some("fromEntries"),
+            Self::ObjectAssign => Some("assign"),
             Self::ObjectCreate => Some("create"),
             Self::ObjectGetPrototypeOf => Some("getPrototypeOf"),
             Self::ObjectSetPrototypeOf => Some("setPrototypeOf"),
             Self::ObjectDefineProperty => Some("defineProperty"),
             Self::ObjectDefineProperties => Some("defineProperties"),
             Self::ObjectGetOwnPropertyDescriptor => Some("getOwnPropertyDescriptor"),
+            Self::ObjectGetOwnPropertyDescriptors => Some("getOwnPropertyDescriptors"),
             Self::ObjectGetOwnPropertyNames => Some("getOwnPropertyNames"),
             Self::ObjectGetOwnPropertySymbols => Some("getOwnPropertySymbols"),
             Self::ObjectKeys => Some("keys"),
             Self::ObjectValues => Some("values"),
+            Self::ObjectEntries => Some("entries"),
             Self::ObjectHasOwn => Some("hasOwn"),
             Self::ObjectIs => Some("is"),
             Self::ObjectIsSealed => Some("isSealed"),
             Self::ObjectIsFrozen => Some("isFrozen"),
+            Self::ObjectSeal => Some("seal"),
             Self::ObjectFreeze => Some("freeze"),
             Self::ObjectIsExtensible => Some("isExtensible"),
             Self::ObjectPreventExtensions => Some("preventExtensions"),
@@ -4610,9 +5396,16 @@ impl StandardBuiltinId {
             Self::AsyncGeneratorPrototypeNext => Some("next"),
             Self::AsyncGeneratorPrototypeReturn => Some("return"),
             Self::AsyncGeneratorPrototypeThrow => Some("throw"),
+            Self::AsyncIteratorPrototypeAsyncDispose => Some("[Symbol.asyncDispose]"),
+            Self::AsyncIteratorPrototypeAsyncDisposeFulfilled
+            | Self::AsyncIteratorPrototypeAsyncDisposeRejected => Some(""),
             Self::IteratorConstructor => Some("Iterator"),
             Self::IteratorFrom => Some("from"),
+            Self::IteratorConcat => Some("concat"),
+            Self::IteratorConcatNext => Some("next"),
+            Self::IteratorConcatReturn => Some("return"),
             Self::IteratorZip => Some("zip"),
+            Self::IteratorZipKeyed => Some("zipKeyed"),
             Self::IteratorZipNext => Some("next"),
             Self::IteratorZipReturn => Some("return"),
             Self::IteratorHelperNext => Some("next"),
@@ -4748,6 +5541,7 @@ impl StandardBuiltinId {
             Self::DataViewPrototypeSetBigUint64 => Some("setBigUint64"),
             Self::DateConstructor => Some(DATE_NAME),
             Self::DateNow => Some("now"),
+            Self::DateParse => Some("parse"),
             Self::DateUtc => Some("UTC"),
             Self::DatePrototypeGetTime => Some("getTime"),
             Self::DatePrototypeSetTime => Some("setTime"),
@@ -4785,7 +5579,50 @@ impl StandardBuiltinId {
             Self::DatePrototypeSetUtcSeconds => Some("setUTCSeconds"),
             Self::DatePrototypeSetMilliseconds => Some("setMilliseconds"),
             Self::DatePrototypeSetUtcMilliseconds => Some("setUTCMilliseconds"),
+            Self::DatePrototypeToIsoString => Some("toISOString"),
+            Self::DatePrototypeToJson => Some("toJSON"),
+            Self::DatePrototypeToPrimitive => Some("[Symbol.toPrimitive]"),
+            Self::DatePrototypeToDateString => Some("toDateString"),
+            Self::DatePrototypeToLocaleDateString => Some("toLocaleDateString"),
+            Self::DatePrototypeToLocaleString => Some("toLocaleString"),
+            Self::DatePrototypeToLocaleTimeString => Some("toLocaleTimeString"),
+            Self::DatePrototypeToTemporalInstant => Some("toTemporalInstant"),
+            Self::DatePrototypeToTimeString => Some("toTimeString"),
+            Self::DatePrototypeToString => Some("toString"),
             Self::DatePrototypeToUtcString => Some("toUTCString"),
+            Self::TemporalInstantConstructor => Some(TEMPORAL_INSTANT_NAME),
+            Self::TemporalInstantFrom => Some("from"),
+            Self::TemporalInstantPrototypeEpochMillisecondsGetter => Some("get epochMilliseconds"),
+            Self::TemporalInstantPrototypeEpochNanosecondsGetter => Some("get epochNanoseconds"),
+            Self::TemporalInstantPrototypeEquals => Some("equals"),
+            Self::TemporalInstantPrototypeToString => Some("toString"),
+            Self::TemporalZonedDateTimeConstructor => Some("ZonedDateTime"),
+            Self::TemporalZonedDateTimeFrom => Some("from"),
+            Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
+                Some("get epochMilliseconds")
+            }
+            Self::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
+                Some("get epochNanoseconds")
+            }
+            Self::TemporalZonedDateTimePrototypeOffsetGetter => Some("get offset"),
+            Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter => {
+                Some("get offsetNanoseconds")
+            }
+            Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter => Some("get timeZoneId"),
+            Self::TemporalZonedDateTimePrototypeCalendarIdGetter => Some("get calendarId"),
+            Self::TemporalZonedDateTimePrototypeYearGetter => Some("get year"),
+            Self::TemporalZonedDateTimePrototypeMonthGetter => Some("get month"),
+            Self::TemporalZonedDateTimePrototypeMonthCodeGetter => Some("get monthCode"),
+            Self::TemporalZonedDateTimePrototypeDayGetter => Some("get day"),
+            Self::TemporalZonedDateTimePrototypeHourGetter => Some("get hour"),
+            Self::TemporalZonedDateTimePrototypeMinuteGetter => Some("get minute"),
+            Self::TemporalZonedDateTimePrototypeSecondGetter => Some("get second"),
+            Self::TemporalZonedDateTimePrototypeMillisecondGetter => Some("get millisecond"),
+            Self::TemporalZonedDateTimePrototypeMicrosecondGetter => Some("get microsecond"),
+            Self::TemporalZonedDateTimePrototypeNanosecondGetter => Some("get nanosecond"),
+            Self::TemporalZonedDateTimePrototypeEquals => Some("equals"),
+            Self::TemporalZonedDateTimePrototypeToInstant => Some("toInstant"),
+            Self::TemporalZonedDateTimePrototypeWithTimeZone => Some("withTimeZone"),
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::RegExpSpeciesGetter => Some("get [Symbol.species]"),
             Self::RegExpPrototypeFlagsGetter => Some("get flags"),
@@ -4960,6 +5797,7 @@ impl StandardBuiltinId {
             Self::PromiseCapabilityExecutor => Some(""),
             Self::PromiseResolveFunction | Self::PromiseRejectFunction => Some(""),
             Self::MapConstructor => Some(MAP_NAME),
+            Self::MapSpeciesGetter => Some("get [Symbol.species]"),
             Self::MapGroupBy => Some("groupBy"),
             Self::MapPrototypeClear => Some("clear"),
             Self::MapPrototypeDelete => Some("delete"),
@@ -4974,7 +5812,24 @@ impl StandardBuiltinId {
             Self::MapPrototypeHas => Some("has"),
             Self::MapPrototypeSet => Some("set"),
             Self::MapPrototypeSizeGetter => Some("get size"),
+            Self::WeakMapConstructor => Some(WEAK_MAP_NAME),
+            Self::WeakMapPrototypeDelete => Some("delete"),
+            Self::WeakMapPrototypeGet => Some("get"),
+            Self::WeakMapPrototypeGetOrInsert => Some("getOrInsert"),
+            Self::WeakMapPrototypeGetOrInsertComputed => Some("getOrInsertComputed"),
+            Self::WeakMapPrototypeHas => Some("has"),
+            Self::WeakMapPrototypeSet => Some("set"),
+            Self::WeakSetConstructor => Some(WEAK_SET_NAME),
+            Self::WeakSetPrototypeAdd => Some("add"),
+            Self::WeakSetPrototypeDelete => Some("delete"),
+            Self::WeakSetPrototypeHas => Some("has"),
+            Self::WeakRefConstructor => Some(WEAK_REF_NAME),
+            Self::WeakRefPrototypeDeref => Some("deref"),
+            Self::FinalizationRegistryConstructor => Some(FINALIZATION_REGISTRY_NAME),
+            Self::FinalizationRegistryPrototypeRegister => Some("register"),
+            Self::FinalizationRegistryPrototypeUnregister => Some("unregister"),
             Self::SetConstructor => Some(SET_NAME),
+            Self::SetSpeciesGetter => Some("get [Symbol.species]"),
             Self::SetPrototypeAdd => Some("add"),
             Self::SetPrototypeClear => Some("clear"),
             Self::SetPrototypeDelete => Some("delete"),
@@ -5015,6 +5870,10 @@ impl StandardBuiltinId {
             Self::BoundFunctionInvoker => None,
             Self::Escape => Some(ESCAPE_NAME),
             Self::Unescape => Some(UNESCAPE_NAME),
+            Self::EncodeUri => Some(ENCODE_URI_NAME),
+            Self::EncodeUriComponent => Some(ENCODE_URI_COMPONENT_NAME),
+            Self::DecodeUri => Some(DECODE_URI_NAME),
+            Self::DecodeUriComponent => Some(DECODE_URI_COMPONENT_NAME),
         }
     }
 }
@@ -5048,9 +5907,19 @@ mod tests {
             HostBuiltinId::AssertThrows,
             HostBuiltinId::IsConstructor,
             HostBuiltinId::CreateRealm,
+            HostBuiltinId::CreateHTMLDDA,
+            HostBuiltinId::HTMLDDA,
             HostBuiltinId::ParseInt,
             HostBuiltinId::ParseFloat,
             HostBuiltinId::DetachArrayBuffer,
+            HostBuiltinId::AgentStart,
+            HostBuiltinId::AgentBroadcast,
+            HostBuiltinId::AgentReceiveBroadcast,
+            HostBuiltinId::AgentReport,
+            HostBuiltinId::AgentGetReport,
+            HostBuiltinId::AgentSleep,
+            HostBuiltinId::AgentMonotonicNow,
+            HostBuiltinId::AgentLeaving,
         ] {
             let function_id = builtin.function_id();
             assert_eq!(
@@ -5075,6 +5944,83 @@ mod tests {
     }
 
     #[test]
+    fn iterator_concat_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (StandardBuiltinId::IteratorConcat, "concat"),
+            (StandardBuiltinId::IteratorConcatNext, "next"),
+            (StandardBuiltinId::IteratorConcatReturn, "return"),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            assert!(!builtin.constructable());
+        }
+    }
+
+    #[test]
+    fn iterator_zip_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (StandardBuiltinId::IteratorZip, "zip"),
+            (StandardBuiltinId::IteratorZipKeyed, "zipKeyed"),
+            (StandardBuiltinId::IteratorZipNext, "next"),
+            (StandardBuiltinId::IteratorZipReturn, "return"),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            assert!(!builtin.constructable());
+        }
+    }
+
+    #[test]
+    fn object_from_entries_builtin_is_registered_with_spec_function_name() {
+        let builtin = StandardBuiltinId::ObjectFromEntries;
+        let function_id = builtin.function_id();
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.native_function_name(), Some("fromEntries"));
+        assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        assert!(!builtin.constructable());
+    }
+
+    #[test]
+    fn async_iterator_async_dispose_builtins_are_registered() {
+        for (builtin, native_name) in [
+            (
+                StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose,
+                "[Symbol.asyncDispose]",
+            ),
+            (
+                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled,
+                "",
+            ),
+            (
+                StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected,
+                "",
+            ),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            assert!(!builtin.constructable());
+        }
+    }
+
+    #[test]
     fn typed_array_species_getter_is_registered_with_spec_function_name() {
         let builtin = StandardBuiltinId::TypedArraySpeciesGetter;
         let function_id = builtin.function_id();
@@ -5085,6 +6031,49 @@ mod tests {
         assert_eq!(builtin.debug_name(), "get TypedArray [Symbol.species]");
         assert_eq!(builtin.native_function_name(), Some("get [Symbol.species]"));
         assert!(!builtin.constructable());
+    }
+
+    #[test]
+    fn collection_species_getters_are_distinct_spec_named_builtins() {
+        let map_getter = StandardBuiltinId::MapSpeciesGetter;
+        let set_getter = StandardBuiltinId::SetSpeciesGetter;
+
+        assert_ne!(map_getter.function_id(), set_getter.function_id());
+        for builtin in [map_getter, set_getter] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some("get [Symbol.species]"));
+            assert!(!builtin.constructable());
+        }
+    }
+
+    #[test]
+    fn weak_set_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (StandardBuiltinId::WeakSetConstructor, "WeakSet"),
+            (StandardBuiltinId::WeakSetPrototypeAdd, "add"),
+            (StandardBuiltinId::WeakSetPrototypeDelete, "delete"),
+            (StandardBuiltinId::WeakSetPrototypeHas, "has"),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+        }
+        assert!(StandardBuiltinId::WeakSetConstructor.constructable());
+        assert!(StandardBuiltinId::all_globals().contains(&StandardBuiltinId::WeakSetConstructor));
+        for builtin in [
+            StandardBuiltinId::WeakSetPrototypeAdd,
+            StandardBuiltinId::WeakSetPrototypeDelete,
+            StandardBuiltinId::WeakSetPrototypeHas,
+        ] {
+            assert!(!builtin.constructable());
+        }
     }
 
     #[test]
@@ -5131,6 +6120,174 @@ mod tests {
 
         assert!(StandardBuiltinId::MapConstructor.constructable());
         assert!(StandardBuiltinId::all_globals().contains(&StandardBuiltinId::MapConstructor));
+    }
+
+    #[test]
+    fn weak_ref_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (StandardBuiltinId::WeakRefConstructor, "WeakRef"),
+            (StandardBuiltinId::WeakRefPrototypeDeref, "deref"),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+
+        assert!(StandardBuiltinId::WeakRefConstructor.constructable());
+        assert!(!StandardBuiltinId::WeakRefPrototypeDeref.constructable());
+        assert!(StandardBuiltinId::all_globals().contains(&StandardBuiltinId::WeakRefConstructor));
+    }
+
+    #[test]
+    fn finalization_registry_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (
+                StandardBuiltinId::FinalizationRegistryConstructor,
+                "FinalizationRegistry",
+            ),
+            (
+                StandardBuiltinId::FinalizationRegistryPrototypeRegister,
+                "register",
+            ),
+            (
+                StandardBuiltinId::FinalizationRegistryPrototypeUnregister,
+                "unregister",
+            ),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+
+        assert!(StandardBuiltinId::FinalizationRegistryConstructor.constructable());
+        assert!(!StandardBuiltinId::FinalizationRegistryPrototypeRegister.constructable());
+        assert!(!StandardBuiltinId::FinalizationRegistryPrototypeUnregister.constructable());
+        assert!(StandardBuiltinId::all_globals()
+            .contains(&StandardBuiltinId::FinalizationRegistryConstructor));
+    }
+
+    #[test]
+    fn temporal_instant_equals_is_registered_as_a_nonconstructable_method() {
+        let builtin = StandardBuiltinId::TemporalInstantPrototypeEquals;
+        let function_id = builtin.function_id();
+
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.debug_name(), "Temporal.Instant.prototype.equals");
+        assert_eq!(builtin.native_function_name(), Some("equals"));
+        assert!(!builtin.constructable());
+        assert!(StandardBuiltinId::all_functions().contains(&builtin));
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_offset_accessors_are_registered() {
+        for (builtin, debug_name, native_name) in [
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
+                "get Temporal.ZonedDateTime.prototype.offset",
+                "get offset",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+                "get Temporal.ZonedDateTime.prototype.offsetNanoseconds",
+                "get offsetNanoseconds",
+            ),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.debug_name(), debug_name);
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(!builtin.constructable());
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_civil_accessors_and_equals_are_registered() {
+        for (builtin, native_name) in [
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
+                "get year",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
+                "get month",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
+                "get monthCode",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter,
+                "get day",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter,
+                "get hour",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter,
+                "get minute",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter,
+                "get second",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter,
+                "get millisecond",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter,
+                "get microsecond",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
+                "get nanosecond",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
+                "equals",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(!builtin.constructable());
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_with_time_zone_is_registered_as_a_nonconstructable_method() {
+        let builtin = StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone;
+
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&builtin.function_id()),
+            Some(builtin)
+        );
+        assert_eq!(
+            builtin.debug_name(),
+            "Temporal.ZonedDateTime.prototype.withTimeZone"
+        );
+        assert_eq!(builtin.native_function_name(), Some("withTimeZone"));
+        assert!(!builtin.constructable());
+        assert!(StandardBuiltinId::all_functions().contains(&builtin));
     }
 
     #[test]

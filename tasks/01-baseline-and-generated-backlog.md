@@ -1,9 +1,20 @@
 # T01 — Reproducible baseline and generated failure backlog
 
-**Status:** Ready  
+**Status:** In progress — tooling landed; current-pin publication remains
+
 **Parallel group:** Bootstrap  
 **Depends on:** None  
 **Blocks:** Reliable prioritization and T26 closure
+
+## Current repository state
+
+Deterministic backlog generation, ownership mapping, snapshot comparison and
+pin-mismatch tests exist in `porffor-test262`, with CLI entry points for
+`generate-backlog` and `compare-snapshots`. The checked-in ownership map routes
+unknown cases to `T26-unclassified`. This task is not complete because the
+README still reports that the current pinned Wasm-AOT aggregate has not been
+fully republished, and there is no checked-in current-pin generated Wasm-AOT
+backlog artifact.
 
 ## Objective
 

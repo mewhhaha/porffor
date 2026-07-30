@@ -104,6 +104,16 @@ if (proxiedLength.length !== 23) throw "proxy spoofed length";
 if (proxyLengthReads !== "length,") throw "proxy length Get";
 
 let brandedLength = new Uint8Array(6);
+for (let internalName of [
+  "$TypedArrayViewedArrayBuffer",
+  "$TypedArrayByteOffset",
+  "$TypedArrayByteLength",
+  "$TypedArrayBytesPerElement",
+  "$TypedArrayElementKind",
+  "$TypedArrayLengthTracking"
+]) {
+  if (Object.hasOwn(brandedLength, internalName)) throw internalName + " exposed";
+}
 Object.defineProperty(brandedLength, "$TypedArrayByteLength", {
   get() {
     spoofedSlotReads = spoofedSlotReads + 1;
@@ -185,5 +195,11 @@ trackingBuffer.resize(2);
 if (trackingView.byteOffset !== 0) throw "tracking beyond byteOffset";
 if (trackingView.byteLength !== 0) throw "tracking beyond byteLength";
 if (trackingView.length !== 0) throw "tracking beyond length";
+
+let spoofedTypedArray = {
+  0: "ordinary value",
+  subarray: Uint8Array.prototype.subarray
+};
+if (spoofedTypedArray[0] !== "ordinary value") throw "spoofed typed array inference";
 
 123;

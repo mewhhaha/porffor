@@ -39,7 +39,7 @@ if ([7, {
 }].toLocaleString() !== "7,baz") failures |= 32;
 
 let separator = ["", ""].toLocaleString();
-Boolean.prototype.toString = function () {
+Boolean.prototype.toLocaleString = function () {
   return typeof this;
 };
 if ([true, false].toLocaleString() !== "boolean" + separator + "boolean") failures |= 64;

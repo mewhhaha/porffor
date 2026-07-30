@@ -1,9 +1,19 @@
 # T19 — Complete ECMAScript RegExp semantics
 
-**Status:** Blocked on T04/T05/T10/T18  
+**Status:** In progress — dedicated parser/emitter exists; broad ECMAScript grammar remains unsupported
+
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T10, T18  
 **Blocks:** String-RegExp integration and RegExp-related T26 closure
+
+## Current repository state
+
+Lila now has dedicated RegExp IR parsing and Wasm builtin support for a
+growing syntax/behavior subset, plus String symbol-dispatch integration. The
+README explicitly records broader RegExp syntax, Unicode-set classes and other
+combinations as unsupported, and focused Test262 rewrites remain. The required
+engine strategy document and complete zero-timeout RegExp/String-regexp trees
+are not yet present.
 
 ## Objective
 
@@ -13,7 +23,7 @@ Implement the ECMAScript regular-expression grammar, matching model and observab
 
 Write a short design document before broad implementation that evaluates:
 
-- translating ECMAScript patterns into a compatible Rust engine plus Porffor-managed semantics;
+- translating ECMAScript patterns into a compatible Rust engine plus Lila-managed semantics;
 - extending/forking the current engine for missing features;
 - implementing a dedicated bytecode/NFA/backtracking engine compiled into Wasm;
 - hybrid specialized engines selected by pattern features.

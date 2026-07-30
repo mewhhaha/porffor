@@ -42,9 +42,8 @@ let sharedGrowable = Object.getOwnPropertyDescriptor(
   "growable"
 ).get;
 
-let realBufferForPointer = new ArrayBuffer(8);
 let spoofedBuffer = {
-  $ArrayBufferDataPtr: realBufferForPointer.$ArrayBufferDataPtr,
+  $ArrayBufferDataPtr: 0,
   $ArrayBufferByteLength: 8,
   "$ArrayBuffer.maxByteLength": 8,
   "$ArrayBuffer.resizable": true,
@@ -70,9 +69,8 @@ assertTypeError(function () {
   ArrayBuffer.prototype.sliceToImmutable.call(spoofedBuffer, 0, 1);
 }, "spoofed immutable slice");
 
-let realSharedForPointer = new SharedArrayBuffer(8);
 let spoofedShared = {
-  $ArrayBufferDataPtr: realSharedForPointer.$ArrayBufferDataPtr,
+  $ArrayBufferDataPtr: 0,
   $ArrayBufferByteLength: 8,
   "$ArrayBuffer.maxByteLength": 8,
   "$ArrayBuffer.resizable": true,
@@ -125,6 +123,16 @@ function poisonSlot(object, key, value) {
 }
 
 let buffer = new ArrayBuffer(4, { maxByteLength: 8 });
+for (let internalName of [
+  "$ArrayBufferDataPtr",
+  "$ArrayBufferByteLength",
+  "$ArrayBuffer.maxByteLength",
+  "$ArrayBuffer.resizable",
+  "$ArrayBuffer.shared",
+  "$ArrayBuffer.immutable"
+]) {
+  if (Object.hasOwn(buffer, internalName)) throw internalName + " exposed";
+}
 let bytes = new Uint8Array(buffer);
 bytes[0] = 17;
 bytes[1] = 34;
@@ -148,6 +156,16 @@ let immutable = buffer.sliceToImmutable(1, 2);
 assertSame(immutable.byteLength, 1, "private immutable slice length");
 
 let shared = new SharedArrayBuffer(4, { maxByteLength: 8 });
+for (let internalName of [
+  "$ArrayBufferDataPtr",
+  "$ArrayBufferByteLength",
+  "$ArrayBuffer.maxByteLength",
+  "$ArrayBuffer.resizable",
+  "$ArrayBuffer.shared",
+  "$ArrayBuffer.immutable"
+]) {
+  if (Object.hasOwn(shared, internalName)) throw "shared " + internalName + " exposed";
+}
 let sharedBytes = new Uint8Array(shared);
 sharedBytes[0] = 51;
 poisonSlot(shared, "$ArrayBufferDataPtr", 0);

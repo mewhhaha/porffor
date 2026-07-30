@@ -1,4 +1,7 @@
-if (Date.now() !== 0) throw "Date.now deterministic";
+const beforeNow = Date.now();
+const afterNow = Date.now();
+if (beforeNow < 946684800000 || beforeNow > 4102444800000) throw "Date.now range";
+if (afterNow < beforeNow) throw "Date.now nondecreasing";
 if (new Date(6.54321).valueOf() !== 6) throw "positive TimeClip";
 if (new Date(-6.54321).valueOf() !== -6) throw "negative TimeClip";
 if (new Date(-0).valueOf() !== 0) throw "negative zero TimeClip";

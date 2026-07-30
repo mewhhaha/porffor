@@ -996,7 +996,8 @@ impl<'a> FunctionBuilder<'a> {
         match statement {
             StatementIr::AsyncAwait { suspend_state, .. } => Some(*suspend_state),
             StatementIr::GeneratorYield { suspend_state, .. } => Some(*suspend_state),
-            StatementIr::GeneratorLoop { entry_state, .. } => Some(*entry_state),
+            StatementIr::GeneratorLoop { entry_state, .. }
+            | StatementIr::GeneratorIf { entry_state, .. } => Some(*entry_state),
             StatementIr::LexicalBlock(statements) => statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
@@ -1032,7 +1033,8 @@ impl<'a> FunctionBuilder<'a> {
         match statement {
             StatementIr::AsyncAwait { resume_state, .. } => Some(*resume_state),
             StatementIr::GeneratorYield { resume_state, .. } => Some(*resume_state),
-            StatementIr::GeneratorLoop { exit_state, .. } => Some(*exit_state),
+            StatementIr::GeneratorLoop { exit_state, .. }
+            | StatementIr::GeneratorIf { exit_state, .. } => Some(*exit_state),
             StatementIr::LexicalBlock(statements) => statements
                 .iter()
                 .rev()
@@ -1270,9 +1272,9 @@ impl<'a> FunctionBuilder<'a> {
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             entry_state,
             resume_state,
             exit_state,
@@ -1305,15 +1307,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.push_control(ControlFrameKind::If);
-        self.initialize_direct_lexical_bindings(before_yield, function);
-        self.initialize_direct_lexical_bindings(after_yield, function);
+        self.initialize_direct_lexical_bindings(before_suspension, function);
+        self.initialize_direct_lexical_bindings(after_suspension, function);
         if let Some(init) = init {
             self.compile_for_init(init, function)?;
             self.emit_dispatch_async_completion(function)?;
         }
         function.instruction(&Instruction::Else);
-        self.compile_statement(yield_statement, function)?;
-        for statement in after_yield {
+        self.compile_statement(suspension_statement, function)?;
+        for statement in after_suspension {
             self.compile_statement(statement, function)?;
         }
         if let Some(update) = update {
@@ -1345,12 +1347,12 @@ impl<'a> FunctionBuilder<'a> {
             u64::from(*entry_state),
             function,
         );
-        self.initialize_direct_lexical_bindings(before_yield, function);
-        self.initialize_direct_lexical_bindings(after_yield, function);
-        for statement in before_yield {
+        self.initialize_direct_lexical_bindings(before_suspension, function);
+        self.initialize_direct_lexical_bindings(after_suspension, function);
+        for statement in before_suspension {
             self.compile_statement(statement, function)?;
         }
-        self.compile_statement(yield_statement, function)?;
+        self.compile_statement(suspension_statement, function)?;
         function.instruction(&Instruction::Else);
         self.store_i64_const_at_offset(
             activation_local,
@@ -1366,6 +1368,155 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.release_temp_local(state_local);
         Ok(())
+    }
+
+    fn compile_async_generator_if(
+        &mut self,
+        statement: &StatementIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let StatementIr::GeneratorIf {
+            condition,
+            then_before_yield,
+            then_yield_statement,
+            then_after_yield,
+            else_before_yield,
+            else_yield_statement,
+            else_after_yield,
+            entry_state,
+            then_resume_state,
+            else_resume_state,
+            exit_state,
+        } = statement
+        else {
+            unreachable!("async-generator branch compiler requires a generator branch");
+        };
+        let activation_local = self.new_target_payload_local().ok_or_else(|| {
+            EmitError::unsupported("async-generator branch requires the function call ABI")
+        })?;
+        let state_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            state_local,
+            function,
+        );
+
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(*entry_state as i64));
+        function.instruction(&Instruction::I64Eq);
+        for resume_state in [then_resume_state, else_resume_state].into_iter().flatten() {
+            function.instruction(&Instruction::LocalGet(state_local));
+            function.instruction(&Instruction::I64Const(*resume_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+
+        self.compile_async_generator_if_resume_test(*then_resume_state, state_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        if let Some(yield_statement) = then_yield_statement {
+            self.compile_statement(yield_statement, function)?;
+        }
+        for statement in then_after_yield {
+            self.compile_statement(statement, function)?;
+        }
+        self.complete_async_generator_if_branch(activation_local, *exit_state, function);
+        function.instruction(&Instruction::Else);
+
+        self.compile_async_generator_if_resume_test(*else_resume_state, state_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        if let Some(yield_statement) = else_yield_statement {
+            self.compile_statement(yield_statement, function)?;
+        }
+        for statement in else_after_yield {
+            self.compile_statement(statement, function)?;
+        }
+        self.complete_async_generator_if_branch(activation_local, *exit_state, function);
+        function.instruction(&Instruction::Else);
+
+        self.compile_truthy_i32(condition, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        for statement in then_before_yield {
+            self.compile_statement(statement, function)?;
+        }
+        self.compile_async_generator_if_initial_branch(
+            activation_local,
+            then_yield_statement.as_deref(),
+            *exit_state,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        for statement in else_before_yield {
+            self.compile_statement(statement, function)?;
+        }
+        self.compile_async_generator_if_initial_branch(
+            activation_local,
+            else_yield_statement.as_deref(),
+            *exit_state,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(state_local);
+        Ok(())
+    }
+
+    fn compile_async_generator_if_resume_test(
+        &self,
+        resume_state: Option<u32>,
+        state_local: u32,
+        function: &mut Function,
+    ) {
+        let Some(resume_state) = resume_state else {
+            function.instruction(&Instruction::I32Const(0));
+            return;
+        };
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(resume_state as i64));
+        function.instruction(&Instruction::I64Eq);
+    }
+
+    fn compile_async_generator_if_initial_branch(
+        &mut self,
+        activation_local: u32,
+        yield_statement: Option<&StatementIr>,
+        exit_state: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let Some(yield_statement) = yield_statement else {
+            self.complete_async_generator_if_branch(activation_local, exit_state, function);
+            return Ok(());
+        };
+        let StatementIr::GeneratorYield { suspend_state, .. } = yield_statement else {
+            return Err(EmitError::unsupported(
+                "async-generator branch must contain one direct yield",
+            ));
+        };
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            u64::from(*suspend_state),
+            function,
+        );
+        self.compile_statement(yield_statement, function)
+    }
+
+    fn complete_async_generator_if_branch(
+        &mut self,
+        activation_local: u32,
+        exit_state: u32,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            u64::from(exit_state),
+            function,
+        );
+        self.emit_statement_result(function, ValueKind::Undefined);
     }
 
     fn compile_async_generator_yield(
@@ -1757,6 +1908,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 StatementIr::GeneratorLoop { .. } => {
                     return self.compile_async_generator_loop(statement, function);
+                }
+                StatementIr::GeneratorIf { .. } => {
+                    return self.compile_async_generator_if(statement, function);
                 }
                 _ => {}
             }
@@ -2273,9 +2427,9 @@ impl<'a> FunctionBuilder<'a> {
                 init,
                 test,
                 update,
-                before_yield,
-                yield_statement,
-                after_yield,
+                before_suspension,
+                suspension_statement,
+                after_suspension,
                 entry_state,
                 resume_state,
                 exit_state,
@@ -2307,8 +2461,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.compile_for_init(init, function)?;
                 }
                 function.instruction(&Instruction::Else);
-                self.compile_statement(yield_statement, function)?;
-                for statement in after_yield {
+                self.compile_statement(suspension_statement, function)?;
+                for statement in after_suspension {
                     self.compile_statement(statement, function)?;
                 }
                 if let Some(update) = update {
@@ -2323,10 +2477,11 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I32Const(1));
                 }
                 function.instruction(&Instruction::If(BlockType::Empty));
-                for statement in before_yield {
+                for statement in before_suspension {
                     self.compile_statement(statement, function)?;
                 }
-                let StatementIr::GeneratorYield { value, .. } = yield_statement.as_ref() else {
+                let StatementIr::GeneratorYield { value, .. } = suspension_statement.as_ref()
+                else {
                     return Err(EmitError::unsupported(
                         "generator loop must contain one direct yield",
                     ));
@@ -3317,6 +3472,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::Block(BlockType::Empty));
+        let _outer_frame = self.push_control(ControlFrameKind::Block);
         function.instruction(&Instruction::Block(BlockType::Empty));
         let catch_frame = self.push_control(ControlFrameKind::Block);
         self.throw_handler_stack.push(catch_frame);
@@ -3359,6 +3515,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_leave_lexical_environment(function);
         }
         self.pop_scope();
+        self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         Ok(())
     }

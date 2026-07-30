@@ -1140,6 +1140,55 @@ pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool 
     yield_count == 1
 }
 
+pub(crate) fn simple_resumable_await_loop_body_is_supported(body: &Statement) -> bool {
+    if generator_loop_has_unsupported_construct(body, false) {
+        return false;
+    }
+    let statements = match body {
+        Statement::Block(block) => block.statement_list().statements(),
+        statement => {
+            return matches!(
+                statement,
+                Statement::Expression(Expression::Await(await_expression))
+                    if !contains(
+                        await_expression.target(),
+                        ContainsSymbol::AwaitExpression
+                    ) && !contains(
+                        await_expression.target(),
+                        ContainsSymbol::YieldExpression
+                    )
+            );
+        }
+    };
+    let mut await_count = 0usize;
+    for item in statements {
+        let StatementListItem::Statement(statement) = item else {
+            if contains(item, ContainsSymbol::AwaitExpression)
+                || contains(item, ContainsSymbol::YieldExpression)
+            {
+                return false;
+            }
+            continue;
+        };
+        match statement.as_ref() {
+            Statement::Expression(Expression::Await(await_expression))
+                if !contains(await_expression.target(), ContainsSymbol::AwaitExpression)
+                    && !contains(await_expression.target(), ContainsSymbol::YieldExpression) =>
+            {
+                await_count += 1;
+            }
+            statement
+                if contains(statement, ContainsSymbol::AwaitExpression)
+                    || contains(statement, ContainsSymbol::YieldExpression) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    await_count == 1
+}
+
 struct GeneratorLoopShapeVisitor {
     reject_nested_functions: bool,
 }

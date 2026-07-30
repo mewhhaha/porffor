@@ -6,7 +6,16 @@ pub(crate) const COMPLETION_AUX_EXPORT: &str = "completion_aux";
 pub(crate) const THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 
 pub(crate) const HOST_IMPORT_MODULE: &str = "porf_host";
+pub(crate) const HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
 pub(crate) const HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
+pub(crate) const HOST_IMPORT_NUMBER_POW: &str = "number_pow";
+pub(crate) const HOST_IMPORT_PRIVATE_MEMORY: &str = "private_memory";
+pub(crate) const HOST_IMPORT_SHARED_MEMORY: &str = "shared_memory";
+pub(crate) const HOST_IMPORT_SHARED_MEMORY_ALLOC: &str = "shared_memory_alloc";
+pub(crate) const HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
+pub(crate) const HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
+pub(crate) const HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
+pub(crate) const HOST_IMPORT_AGENT_CALL: &str = "agent_call";
 
 pub(crate) const RESULT_TAG_GLOBAL_INDEX: u32 = 0;
 pub(crate) const COMPLETION_KIND_GLOBAL_INDEX: u32 = 1;
@@ -118,6 +127,20 @@ pub(crate) const ASYNC_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX: u32 = 98;
 pub(crate) const ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 99;
 pub(crate) const ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX: u32 = 100;
 pub(crate) const ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX: u32 = 101;
+pub(crate) const WEAK_MAP_PROTOTYPE_GLOBAL_INDEX: u32 = 102;
+pub(crate) const WEAK_MAP_CONSTRUCTOR_GLOBAL_INDEX: u32 = 103;
+pub(crate) const ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX: u32 = 104;
+pub(crate) const TEMPORAL_OBJECT_GLOBAL_INDEX: u32 = 105;
+pub(crate) const TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX: u32 = 106;
+pub(crate) const TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 107;
+pub(crate) const WEAK_REF_PROTOTYPE_GLOBAL_INDEX: u32 = 108;
+pub(crate) const WEAK_REF_CONSTRUCTOR_GLOBAL_INDEX: u32 = 109;
+pub(crate) const FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX: u32 = 110;
+pub(crate) const FINALIZATION_REGISTRY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 111;
+pub(crate) const WEAK_SET_PROTOTYPE_GLOBAL_INDEX: u32 = 112;
+pub(crate) const WEAK_SET_CONSTRUCTOR_GLOBAL_INDEX: u32 = 113;
+pub(crate) const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX: u32 = 114;
+pub(crate) const TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 115;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -128,7 +151,14 @@ pub(crate) const FUNCTION_OBJECT_ALLOC_TYPE_INDEX: u32 = 5;
 pub(crate) const PLAIN_OBJECT_ALLOC_TYPE_INDEX: u32 = 6;
 pub(crate) const ARRAY_ALLOC_TYPE_INDEX: u32 = 7;
 pub(crate) const HOST_PRINT_IMPORT_TYPE_INDEX: u32 = 8;
-pub(crate) const HOST_PRINT_IMPORT_FUNCTION_INDEX: u32 = 0;
+pub(crate) const HOST_NUMBER_POW_IMPORT_TYPE_INDEX: u32 = 9;
+pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX: u32 = 10;
+pub(crate) const HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX: u32 = 11;
+pub(crate) const HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX: u32 = 12;
+pub(crate) const HOST_AGENT_CALL_IMPORT_TYPE_INDEX: u32 = 13;
+pub(crate) const HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX: u32 = 14;
+pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_FUNCTION_INDEX: u32 = 0;
+pub(crate) const HOST_PRINT_IMPORT_FUNCTION_INDEX: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct GlobalIndexSlot {
@@ -545,6 +575,62 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "%AsyncGeneratorFunction%",
         index: ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "WeakMap.prototype",
+        index: WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "WeakMap",
+        index: WEAK_MAP_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "[[AtomicsAsyncWaiterActiveListHead]]",
+        index: ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal",
+        index: TEMPORAL_OBJECT_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.Instant.prototype",
+        index: TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.Instant",
+        index: TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "WeakRef.prototype",
+        index: WEAK_REF_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "WeakRef",
+        index: WEAK_REF_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "FinalizationRegistry.prototype",
+        index: FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "FinalizationRegistry",
+        index: FINALIZATION_REGISTRY_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "WeakSet.prototype",
+        index: WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "WeakSet",
+        index: WEAK_SET_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.ZonedDateTime.prototype",
+        index: TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.ZonedDateTime",
+        index: TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -563,6 +649,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::FunctionConstructor => Some(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::PromiseConstructor => Some(PROMISE_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::MapConstructor => Some(MAP_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::WeakMapConstructor => Some(WEAK_MAP_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::WeakSetConstructor => Some(WEAK_SET_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::WeakRefConstructor => Some(WEAK_REF_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::FinalizationRegistryConstructor => {
+            Some(FINALIZATION_REGISTRY_CONSTRUCTOR_GLOBAL_INDEX)
+        }
         StandardBuiltinId::SetConstructor => Some(SET_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::AggregateErrorConstructor => {
             Some(AGGREGATE_ERROR_CONSTRUCTOR_GLOBAL_INDEX)
@@ -580,6 +672,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         }
         StandardBuiltinId::DataViewConstructor => Some(DATA_VIEW_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::DateConstructor => Some(DATE_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::TemporalInstantConstructor => {
+            Some(TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalZonedDateTimeConstructor => {
+            Some(TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
+        }
         StandardBuiltinId::RegExpConstructor => Some(REGEXP_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float64ArrayConstructor => Some(FLOAT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float32ArrayConstructor => Some(FLOAT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
@@ -674,6 +772,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::StringPrototypeIsWellFormed
         | StandardBuiltinId::StringPrototypeToWellFormed
         | StandardBuiltinId::DateNow
+        | StandardBuiltinId::DateParse
         | StandardBuiltinId::DateUtc
         | StandardBuiltinId::DatePrototypeGetTime
         | StandardBuiltinId::DatePrototypeSetTime
@@ -711,6 +810,16 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::DatePrototypeSetUtcSeconds
         | StandardBuiltinId::DatePrototypeSetMilliseconds
         | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
+        | StandardBuiltinId::DatePrototypeToIsoString
+        | StandardBuiltinId::DatePrototypeToJson
+        | StandardBuiltinId::DatePrototypeToPrimitive
+        | StandardBuiltinId::DatePrototypeToDateString
+        | StandardBuiltinId::DatePrototypeToLocaleDateString
+        | StandardBuiltinId::DatePrototypeToLocaleString
+        | StandardBuiltinId::DatePrototypeToLocaleTimeString
+        | StandardBuiltinId::DatePrototypeToTemporalInstant
+        | StandardBuiltinId::DatePrototypeToTimeString
+        | StandardBuiltinId::DatePrototypeToString
         | StandardBuiltinId::DatePrototypeToUtcString
         | StandardBuiltinId::RegExpLegacyStaticGetter
         | StandardBuiltinId::RegExpLegacyStaticSetter
@@ -737,14 +846,18 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ObjectDefineProperty
         | StandardBuiltinId::ObjectDefineProperties
         | StandardBuiltinId::ObjectGetOwnPropertyDescriptor
+        | StandardBuiltinId::ObjectGetOwnPropertyDescriptors
+        | StandardBuiltinId::ObjectAssign
         | StandardBuiltinId::ObjectGetOwnPropertyNames
         | StandardBuiltinId::ObjectGetOwnPropertySymbols
         | StandardBuiltinId::ObjectKeys
         | StandardBuiltinId::ObjectValues
+        | StandardBuiltinId::ObjectEntries
         | StandardBuiltinId::ObjectHasOwn
         | StandardBuiltinId::ObjectIs
         | StandardBuiltinId::ObjectIsSealed
         | StandardBuiltinId::ObjectIsFrozen
+        | StandardBuiltinId::ObjectSeal
         | StandardBuiltinId::ObjectFreeze
         | StandardBuiltinId::ObjectIsExtensible
         | StandardBuiltinId::ObjectPreventExtensions
@@ -827,8 +940,15 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::AsyncGeneratorPrototypeNext
         | StandardBuiltinId::AsyncGeneratorPrototypeReturn
         | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+        | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+        | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled
+        | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected
         | StandardBuiltinId::IteratorFrom
+        | StandardBuiltinId::IteratorConcat
+        | StandardBuiltinId::IteratorConcatNext
+        | StandardBuiltinId::IteratorConcatReturn
         | StandardBuiltinId::IteratorZip
+        | StandardBuiltinId::IteratorZipKeyed
         | StandardBuiltinId::IteratorZipNext
         | StandardBuiltinId::IteratorZipReturn
         | StandardBuiltinId::IteratorHelperNext
@@ -1020,6 +1140,10 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::AtomicsIsLockFree
         | StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
+        | StandardBuiltinId::EncodeUri
+        | StandardBuiltinId::EncodeUriComponent
+        | StandardBuiltinId::DecodeUri
+        | StandardBuiltinId::DecodeUriComponent
         | StandardBuiltinId::SymbolFor
         | StandardBuiltinId::SymbolKeyFor
         | StandardBuiltinId::SymbolPrototypeDescriptionGetter
@@ -1034,6 +1158,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::PromiseValueThunk
         | StandardBuiltinId::PromiseThrower
         | StandardBuiltinId::PromiseSpeciesGetter
+        | StandardBuiltinId::MapSpeciesGetter
+        | StandardBuiltinId::SetSpeciesGetter
         | StandardBuiltinId::PromiseResolve
         | StandardBuiltinId::PromiseWithResolvers
         | StandardBuiltinId::PromiseTry
@@ -1056,6 +1182,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::PromiseRejectFunction
         | StandardBuiltinId::MapGroupBy
         | StandardBuiltinId::ObjectGroupBy
+        | StandardBuiltinId::ObjectFromEntries
         | StandardBuiltinId::MapPrototypeClear
         | StandardBuiltinId::MapPrototypeDelete
         | StandardBuiltinId::MapPrototypeForEach
@@ -1069,6 +1196,15 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::MapPrototypeHas
         | StandardBuiltinId::MapPrototypeSet
         | StandardBuiltinId::MapPrototypeSizeGetter
+        | StandardBuiltinId::WeakMapPrototypeDelete
+        | StandardBuiltinId::WeakMapPrototypeGet
+        | StandardBuiltinId::WeakMapPrototypeGetOrInsert
+        | StandardBuiltinId::WeakMapPrototypeGetOrInsertComputed
+        | StandardBuiltinId::WeakMapPrototypeHas
+        | StandardBuiltinId::WeakMapPrototypeSet
+        | StandardBuiltinId::WeakSetPrototypeAdd
+        | StandardBuiltinId::WeakSetPrototypeDelete
+        | StandardBuiltinId::WeakSetPrototypeHas
         | StandardBuiltinId::SetPrototypeAdd
         | StandardBuiltinId::SetPrototypeClear
         | StandardBuiltinId::SetPrototypeDelete
@@ -1084,7 +1220,35 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::SetPrototypeEntries
         | StandardBuiltinId::SetIteratorNext
         | StandardBuiltinId::SetPrototypeHas
-        | StandardBuiltinId::SetPrototypeSizeGetter => None,
+        | StandardBuiltinId::SetPrototypeSizeGetter
+        | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
+        | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalInstantPrototypeEquals
+        | StandardBuiltinId::TemporalInstantFrom
+        | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalZonedDateTimeFrom
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        | StandardBuiltinId::WeakRefPrototypeDeref
+        | StandardBuiltinId::FinalizationRegistryPrototypeRegister
+        | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => None,
     }
 }
 
@@ -1109,7 +1273,7 @@ pub(crate) fn host_builtin_by_name(name: &str) -> Option<HostBuiltinId> {
     all_host_builtins()
         .iter()
         .copied()
-        .find(|builtin| builtin.as_str() == name)
+        .find(|builtin| *builtin != HostBuiltinId::HTMLDDA && builtin.as_str() == name)
 }
 
 pub(crate) fn all_host_builtins() -> &'static [HostBuiltinId] {
@@ -1119,9 +1283,19 @@ pub(crate) fn all_host_builtins() -> &'static [HostBuiltinId] {
         HostBuiltinId::AssertThrows,
         HostBuiltinId::IsConstructor,
         HostBuiltinId::CreateRealm,
+        HostBuiltinId::CreateHTMLDDA,
+        HostBuiltinId::HTMLDDA,
         HostBuiltinId::ParseInt,
         HostBuiltinId::ParseFloat,
         HostBuiltinId::DetachArrayBuffer,
+        HostBuiltinId::AgentStart,
+        HostBuiltinId::AgentBroadcast,
+        HostBuiltinId::AgentReceiveBroadcast,
+        HostBuiltinId::AgentReport,
+        HostBuiltinId::AgentGetReport,
+        HostBuiltinId::AgentSleep,
+        HostBuiltinId::AgentMonotonicNow,
+        HostBuiltinId::AgentLeaving,
     ]
 }
 
@@ -1346,6 +1520,12 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::FunctionConstructor => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::PromiseConstructor => Some(PROMISE_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::MapConstructor => Some(MAP_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::WeakMapConstructor => Some(WEAK_MAP_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::WeakSetConstructor => Some(WEAK_SET_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::WeakRefConstructor => Some(WEAK_REF_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::FinalizationRegistryConstructor => {
+            Some(FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX)
+        }
         StandardBuiltinId::SetConstructor => Some(SET_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::ArrayConstructor => Some(ARRAY_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::IteratorConstructor => Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
@@ -1369,6 +1549,12 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
             Some(REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX)
         }
         StandardBuiltinId::RegExpConstructor => Some(REGEXP_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::TemporalInstantConstructor => {
+            Some(TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalZonedDateTimeConstructor => {
+            Some(TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
+        }
         _ => None,
     }
 }
@@ -1446,7 +1632,19 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
         );
+    }
+
+    #[test]
+    fn iterator_concat_builtins_use_runtime_function_objects() {
+        for builtin in [
+            StandardBuiltinId::IteratorConcat,
+            StandardBuiltinId::IteratorConcatNext,
+            StandardBuiltinId::IteratorConcatReturn,
+        ] {
+            assert_eq!(standard_builtin_constructor_global_index(builtin), None);
+            assert_eq!(standard_builtin_function_global_index(builtin), None);
+        }
     }
 }

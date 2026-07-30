@@ -1,9 +1,19 @@
 # T21 — Symbols, collections, weak collections and weak references
 
-**Status:** Blocked on T05/T06/T10  
+**Status:** In progress — symbols/collections implemented; weak reachability awaits real GC
+
 **Parallel group:** Feature lane; split internally by Symbol, strong collections and weak reachability  
 **Depends on:** T05, T06, T10; iterators use T15; cleanup jobs use T14  
 **Blocks:** Collection and weak-reachability portions of T26
+
+## Current repository state
+
+Symbol, Map, Set, WeakMap, WeakSet, WeakRef and FinalizationRegistry have
+runtime records and builtin implementations, including ordered collection
+storage and registered weak/ephemeron edges. Because the collector is not
+executable, weak targets cannot clear and finalization cleanup jobs cannot be
+driven by reachability. Strong collection coverage has advanced, but the full
+weak-semantics and complete-tree criteria remain blocked on T05/T14.
 
 ## Objective
 

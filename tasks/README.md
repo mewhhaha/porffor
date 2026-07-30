@@ -1,10 +1,44 @@
-# Porffor Rust AOT + Test262 execution plan
+# Lila Rust AOT + Test262 execution plan
 
-This directory is the implementation backlog for the Rust rewrite. It is designed so multiple agents can work concurrently without turning `crates/porffor-ir/src/lib.rs` and `crates/porffor-aot-wasm/src/lib.rs` into permanent merge-conflict bottlenecks.
+This directory is the epic-level implementation backlog and current-status
+record for the Rust rewrite. It is designed so multiple contributors can work
+concurrently without turning the remaining large IR and Wasm backend modules
+into permanent merge-conflict bottlenecks. Individual task status fields and
+their dated current-state sections are authoritative only until the next
+current-pin aggregate or material repository change; generated Test262
+artifacts remain the authority for conformance counts.
 
-The north star is the repository contract in `AGENTS.md`: Porffor compiles JavaScript directly to Wasm, does not ship an interpreter/VM inside the artifact, and drives the pinned real Test262 suite to zero unowned failures. Fake-suite results are smoke tests only. An `Unsupported` result is visible debt, never a passing result, and must not be hidden in a skip list or status denominator.
+The north star is the repository contract in `AGENTS.md`: Lila compiles
+JavaScript directly to Wasm, does not ship an interpreter/VM inside the
+artifact, and drives the pinned real Test262 suite to zero unowned failures.
+Fake-suite results are smoke tests only. An `Unsupported` result is visible
+debt, never a passing result, and must not be hidden in a skip list or status
+denominator.
 
-Backend policy: `wasm-aot` is the product. It is the execution path every task targets, the only backend whose results may be published as Porffor conformance, and the only backend the T26 release gate accepts. `spec-exec` (the Boa-based engine in `crates/porffor-spec-exec`) is an internal differential-testing and debug oracle only, used by T25 and quarantined by T27 — never the CLI default, never a silent fallback, never part of an emitted artifact, and never a source of published conformance numbers. Wherever a task mentions running spec-exec, that run is oracle triage; the Wasm-AOT run is the requirement.
+Backend policy: `wasm-aot` is the product. It is the execution path every task
+targets, the only backend whose results may be published as Lila conformance,
+and the only backend the T26 release gate accepts. `spec-exec` (the Boa-based
+engine in `crates/porffor-spec-exec`) is an internal differential-testing and
+debug oracle only, used by T25 and quarantined by T27 — never the CLI default,
+never a silent fallback, never part of an emitted artifact, and never a source
+of published conformance numbers. Wherever a task mentions running spec-exec,
+that run is oracle triage; the Wasm-AOT run is the requirement.
+
+## Current status snapshot — 2026-07-30
+
+| State | Tasks | Repository evidence |
+|---|---|---|
+| Complete | T00 | Repository-contract scripts, PR template and CI wiring exist; the task-plan validator passes |
+| In progress | T01-T12, T14-T22, T24-T25, T27 | Substantial implementation exists, but each task retains unmet acceptance criteria described in its current-state section |
+| Policy selected; implementation/accounting open | T13 | Generic dynamic source stays explicit Wasm-AOT unsupported; ADR and any supported compilation subsets remain open |
+| Open | T23 | No complete product Wasm-AOT Intl architecture/service layer exists |
+| Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
+
+The current working tree passes the task-plan, module-boundary, host-ABI and
+interpreter-dependency audits. The Test262 shortcut audit is red because several
+path/source/helper categories exceed their allowlisted ceilings. Do not close a
+semantic task from focused green leaves while that task's full-tree and
+materialization-removal criteria remain unmet.
 
 ## Non-negotiable rules
 
@@ -31,7 +65,8 @@ Backend policy: `wasm-aot` is the product. It is the execution path every task t
 
 ### Bootstrap and coordination
 
-These can begin immediately. `T02` should land early because it creates merge-friendly ownership boundaries.
+T00 is complete. T01-T04 have landed useful infrastructure and module
+boundaries, but their remaining acceptance criteria are still active.
 
 | ID | Task | Parallel notes |
 |---|---|---|
@@ -43,7 +78,8 @@ These can begin immediately. `T02` should land early because it creates merge-fr
 
 ### Core semantic foundations
 
-Run these in parallel after the relevant portions of `T02`/`T04` are stable.
+These foundations are all in progress. Use the landed T02/T04 interfaces, and
+coordinate changes to remaining large shared modules.
 
 | ID | Task | Primary ownership |
 |---|---|---|
@@ -56,7 +92,9 @@ Run these in parallel after the relevant portions of `T02`/`T04` are stable.
 
 ### Feature lanes
 
-Once their listed foundations are present, these lanes should be owned by separate agents and merged independently.
+These lanes have partial implementations at different depths. Their dependency
+lists still identify semantic ownership; a dependency marked in progress does
+not forbid focused work when its required interface already exists.
 
 | ID | Task | Depends on |
 |---|---|---|
@@ -85,7 +123,11 @@ Once their listed foundations are present, these lanes should be owned by separa
 
 ## Merge-conflict policy
 
-Until `T02` lands, only one active PR should make broad edits to either giant `lib.rs`. Other agents should work in tests, harness code, runtime code, or narrowly isolated functions. After modularization, each feature lane must own a dedicated IR module, Wasm emitter module, builtin module, and focused fixture prefix. Shared ABI changes belong in `T04` and should land before dependent feature PRs.
+T02 has landed initial boundaries, but several IR/lowering, object/operation and
+builtin implementation files remain large shared hotspots. Coordinate broad
+edits to those files. Feature work should continue moving code toward dedicated
+IR, Wasm emitter, builtin and focused-fixture ownership. Shared ABI changes
+belong in T04 and should land before dependent feature changes.
 
 When two tasks require the same abstract operation, the first agent implements it in the shared operation layer with unit tests; the second consumes it. Do not copy slightly different `ToObject`, `ToLength`, `Get`, `Call`, iterator, descriptor, or completion logic into feature-specific code.
 

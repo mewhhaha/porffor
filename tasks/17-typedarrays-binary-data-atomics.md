@@ -1,9 +1,18 @@
 # T17 — ArrayBuffer, DataView, TypedArray, SharedArrayBuffer and Atomics
 
-**Status:** Blocked on T03-T06/T10  
+**Status:** In progress — broad binary-data support exists; GC/agents and full-tree closure remain
+
 **Parallel group:** Feature lane; split internally by API family  
 **Depends on:** T03, T04, T05, T06, T10; iterator paths use T15; `waitAsync` uses T14  
 **Blocks:** Binary-data and concurrency portions of T26
+
+## Current repository state
+
+ArrayBuffer, SharedArrayBuffer, DataView, TypedArray and Atomics have dedicated
+backend implementations, including resizable/growable backing-store and
+`waitAsync` work with focused fixtures. Binary-data-specific harness rewrites
+remain, real GC is unavailable, and the shortcut-free real-agent/full-tree
+acceptance criteria have not been demonstrated on a current complete matrix.
 
 ## Objective
 

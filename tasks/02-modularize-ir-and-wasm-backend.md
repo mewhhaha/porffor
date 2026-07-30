@@ -1,9 +1,20 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** Ready; land early  
+**Status:** In progress — initial boundaries landed; large ownership bottlenecks remain
+
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
 **Blocks:** Safe parallel work in T04-T24
+
+## Current repository state
+
+Both crates now expose dedicated IR, lowering, analysis, diagnostics,
+operations, ABI, heap, object, function, environment, control-flow and builtin
+modules, and `./scripts/check-module-boundaries.sh` passes. The split is only
+partial: `porffor-ir/src/lib.rs`, `lowering.rs`, several Wasm builtin files and
+object/operation emitters remain very large implementation stores. Treat the
+existing module boundaries as usable, but continue coordinating broad edits to
+those remaining hotspots.
 
 ## Objective
 

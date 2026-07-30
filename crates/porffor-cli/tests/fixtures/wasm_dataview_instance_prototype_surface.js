@@ -1,5 +1,15 @@
 let view = new DataView(new ArrayBuffer(4));
 if (!Object.isExtensible(view)) throw "extensible";
+for (let internalName of [
+  "$DataViewDataPtr",
+  "$DataViewByteOffset",
+  "$DataViewByteLength",
+  "$DataViewLengthTracking"
+]) {
+  if (Object.hasOwn(view, internalName)) throw internalName + " exposed";
+}
+if (Object.hasOwn(view, "buffer")) throw "own buffer";
+if (view.buffer.byteLength !== 4) throw "inherited buffer accessor";
 Object.defineProperty(view, "x", { value: 7 });
 if (view.x !== 7) throw "define property";
 if (view.constructor !== DataView) throw "constructor";

@@ -1,7 +1,8 @@
-# Grug Architecture Invariants
+# Lila Architecture Invariants
 
 ## Sacred Rule
-Porffor ship real JavaScript-to-Wasm compilation. Porffor does **not** ship a JavaScript interpreter or VM compiled to Wasm as the execution strategy.
+Lila ships real JavaScript-to-Wasm compilation. Lila does **not** ship a
+JavaScript interpreter or VM compiled to Wasm as the execution strategy.
 
 ## Product Path
 1. Parse source as script or module.

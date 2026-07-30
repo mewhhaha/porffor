@@ -166,24 +166,27 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
 
-                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
-                function.instruction(&Instruction::LocalSet(key_local));
-                function.instruction(&Instruction::LocalGet(object_local));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                function.instruction(&Instruction::GlobalGet(prototype_global_index));
-                function.instruction(&Instruction::LocalSet(prototype_object_local));
-                self.emit_object_append_data_property_with_flags(
-                    prototype_object_local,
-                    key_local,
-                    payload_local,
-                    tag_local,
-                    true,
-                    false,
-                    true,
-                    function,
-                )?;
+                if builtin != StandardBuiltinId::IteratorConstructor {
+                    function
+                        .instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    function.instruction(&Instruction::LocalGet(object_local));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    function.instruction(&Instruction::GlobalGet(prototype_global_index));
+                    function.instruction(&Instruction::LocalSet(prototype_object_local));
+                    self.emit_object_append_data_property_with_flags(
+                        prototype_object_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        true,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
             }
         }
 
@@ -416,6 +419,32 @@ impl<'a> FunctionBuilder<'a> {
                     &group_by_meta,
                     function,
                 )?;
+                let species_getter = self
+                    .functions
+                    .get(&StandardBuiltinId::MapSpeciesGetter.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Map[Symbol.species]`",
+                        )
+                    })?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.species"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(&species_getter, function)?;
+                function.instruction(&Instruction::LocalSet(getter_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(getter_tag_local));
+                self.emit_object_append_accessor_property_with_flags(
+                    object_local,
+                    key_local,
+                    Some((getter_payload_local, getter_tag_local)),
+                    None,
+                    false,
+                    true,
+                    function,
+                )?;
                 function.instruction(&Instruction::GlobalGet(MAP_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(map_prototype_local));
                 for (name, builtin) in [
@@ -505,12 +534,272 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::MapPrototypeGetOrInsertComputed
             | StandardBuiltinId::MapPrototypeHas
             | StandardBuiltinId::MapPrototypeSet
-            | StandardBuiltinId::MapPrototypeSizeGetter => {}
+            | StandardBuiltinId::MapPrototypeSizeGetter
+            | StandardBuiltinId::MapSpeciesGetter => {}
+            StandardBuiltinId::WeakMapConstructor => {
+                let weak_map_prototype_local = self.reserve_temp_local();
+                function.instruction(&Instruction::GlobalGet(WEAK_MAP_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(weak_map_prototype_local));
+                for (name, builtin) in [
+                    ("delete", StandardBuiltinId::WeakMapPrototypeDelete),
+                    ("get", StandardBuiltinId::WeakMapPrototypeGet),
+                    (
+                        "getOrInsert",
+                        StandardBuiltinId::WeakMapPrototypeGetOrInsert,
+                    ),
+                    (
+                        "getOrInsertComputed",
+                        StandardBuiltinId::WeakMapPrototypeGetOrInsertComputed,
+                    ),
+                    ("has", StandardBuiltinId::WeakMapPrototypeHas),
+                    ("set", StandardBuiltinId::WeakMapPrototypeSet),
+                ] {
+                    let meta = self.functions.get(&builtin.function_id()).cloned().ok_or_else(
+                        || {
+                            EmitError::unsupported(format!(
+                                "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                                builtin.debug_name()
+                            ))
+                        },
+                    )?;
+                    self.emit_object_define_function_data(
+                        weak_map_prototype_local,
+                        name,
+                        &meta,
+                        function,
+                    )?;
+                }
+                let key_local = self.reserve_temp_local();
+                let payload_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("WeakMap")));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    weak_map_prototype_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+                self.release_temp_local(tag_local);
+                self.release_temp_local(payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(weak_map_prototype_local);
+            }
+            StandardBuiltinId::WeakMapPrototypeDelete
+            | StandardBuiltinId::WeakMapPrototypeGet
+            | StandardBuiltinId::WeakMapPrototypeGetOrInsert
+            | StandardBuiltinId::WeakMapPrototypeGetOrInsertComputed
+            | StandardBuiltinId::WeakMapPrototypeHas
+            | StandardBuiltinId::WeakMapPrototypeSet => {}
+            StandardBuiltinId::WeakSetConstructor => {
+                let prototype_local = self.reserve_temp_local();
+                function.instruction(&Instruction::GlobalGet(WEAK_SET_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_local));
+                for (name, builtin) in [
+                    ("add", StandardBuiltinId::WeakSetPrototypeAdd),
+                    ("delete", StandardBuiltinId::WeakSetPrototypeDelete),
+                    ("has", StandardBuiltinId::WeakSetPrototypeHas),
+                ] {
+                    let meta = self.functions.get(&builtin.function_id()).cloned().ok_or_else(
+                        || {
+                            EmitError::unsupported(format!(
+                                "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                                builtin.debug_name()
+                            ))
+                        },
+                    )?;
+                    self.emit_object_define_function_data(prototype_local, name, &meta, function)?;
+                }
+                let key_local = self.reserve_temp_local();
+                let payload_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("WeakSet")));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+                self.release_temp_local(tag_local);
+                self.release_temp_local(payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(prototype_local);
+            }
+            StandardBuiltinId::WeakSetPrototypeAdd
+            | StandardBuiltinId::WeakSetPrototypeDelete
+            | StandardBuiltinId::WeakSetPrototypeHas => {}
+            StandardBuiltinId::WeakRefConstructor => {
+                let weak_ref_prototype_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let payload_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                let deref_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::WeakRefPrototypeDeref.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `WeakRef.prototype.deref`",
+                        )
+                    })?;
+
+                function.instruction(&Instruction::GlobalGet(WEAK_REF_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(weak_ref_prototype_local));
+                self.emit_object_define_function_data(
+                    weak_ref_prototype_local,
+                    "deref",
+                    &deref_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(self.strings.payload("WeakRef")));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    weak_ref_prototype_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+
+                self.release_temp_local(tag_local);
+                self.release_temp_local(payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(weak_ref_prototype_local);
+            }
+            StandardBuiltinId::WeakRefPrototypeDeref => {}
+            StandardBuiltinId::FinalizationRegistryConstructor => {
+                let prototype_local = self.reserve_temp_local();
+                let key_local = self.reserve_temp_local();
+                let payload_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                let register_meta = self
+                    .functions
+                    .get(
+                        &StandardBuiltinId::FinalizationRegistryPrototypeRegister.function_id(),
+                    )
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `FinalizationRegistry.prototype.register`",
+                        )
+                    })?;
+                let unregister_meta = self
+                    .functions
+                    .get(
+                        &StandardBuiltinId::FinalizationRegistryPrototypeUnregister.function_id(),
+                    )
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `FinalizationRegistry.prototype.unregister`",
+                        )
+                    })?;
+
+                function.instruction(&Instruction::GlobalGet(
+                    FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX,
+                ));
+                function.instruction(&Instruction::LocalSet(prototype_local));
+                self.emit_object_define_function_data(
+                    prototype_local,
+                    "register",
+                    &register_meta,
+                    function,
+                )?;
+                self.emit_object_define_function_data(
+                    prototype_local,
+                    "unregister",
+                    &unregister_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("FinalizationRegistry"),
+                ));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+
+                self.release_temp_local(tag_local);
+                self.release_temp_local(payload_local);
+                self.release_temp_local(key_local);
+                self.release_temp_local(prototype_local);
+            }
+            StandardBuiltinId::FinalizationRegistryPrototypeRegister
+            | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {}
             StandardBuiltinId::SetConstructor => {
                 let set_prototype_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let getter_payload_local = self.reserve_temp_local();
                 let getter_tag_local = self.reserve_temp_local();
+                let species_getter = self
+                    .functions
+                    .get(&StandardBuiltinId::SetSpeciesGetter.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Set[Symbol.species]`",
+                        )
+                    })?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.species"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_function_value_payload(&species_getter, function)?;
+                function.instruction(&Instruction::LocalSet(getter_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(getter_tag_local));
+                self.emit_object_append_accessor_property_with_flags(
+                    object_local,
+                    key_local,
+                    Some((getter_payload_local, getter_tag_local)),
+                    None,
+                    false,
+                    true,
+                    function,
+                )?;
                 function.instruction(&Instruction::GlobalGet(SET_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(set_prototype_local));
                 for (name, builtin) in [
@@ -623,7 +912,8 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::SetPrototypeEntries
             | StandardBuiltinId::SetIteratorNext
             | StandardBuiltinId::SetPrototypeHas
-            | StandardBuiltinId::SetPrototypeSizeGetter => {}
+            | StandardBuiltinId::SetPrototypeSizeGetter
+            | StandardBuiltinId::SetSpeciesGetter => {}
             StandardBuiltinId::ObjectConstructor => {
                 let prototype_object_local = self.reserve_temp_local();
                 let group_by_meta = self
@@ -639,6 +929,36 @@ impl<'a> FunctionBuilder<'a> {
                     object_local,
                     "groupBy",
                     &group_by_meta,
+                    function,
+                )?;
+                let from_entries_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectFromEntries.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.fromEntries`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "fromEntries",
+                    &from_entries_meta,
+                    function,
+                )?;
+                let assign_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectAssign.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.assign`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "assign",
+                    &assign_meta,
                     function,
                 )?;
                 let has_own_property_meta = self
@@ -892,6 +1212,20 @@ impl<'a> FunctionBuilder<'a> {
                     get_own_property_descriptor_meta,
                     function,
                 )?;
+                let get_own_property_descriptors_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectGetOwnPropertyDescriptors.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.getOwnPropertyDescriptors`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "getOwnPropertyDescriptors",
+                    get_own_property_descriptors_meta,
+                    function,
+                )?;
                 let get_own_property_names_meta = self
                     .functions
                     .get(&StandardBuiltinId::ObjectGetOwnPropertyNames.function_id())
@@ -941,6 +1275,20 @@ impl<'a> FunctionBuilder<'a> {
                     object_local,
                     "values",
                     values_meta,
+                    function,
+                )?;
+                let entries_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectEntries.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.entries`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "entries",
+                    entries_meta,
                     function,
                 )?;
                 let has_own_meta = self
@@ -1008,6 +1356,15 @@ impl<'a> FunctionBuilder<'a> {
                     is_frozen_meta,
                     function,
                 )?;
+                let seal_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::ObjectSeal.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Object.seal`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "seal", seal_meta, function)?;
                 let freeze_meta = self
                     .functions
                     .get(&StandardBuiltinId::ObjectFreeze.function_id())
@@ -1549,12 +1906,28 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.from`",
                         )
                     })?;
+                let concat_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorConcat.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.concat`",
+                        )
+                    })?;
                 let zip_meta = self
                     .functions
                     .get(&StandardBuiltinId::IteratorZip.function_id())
                     .ok_or_else(|| {
                         EmitError::unsupported(
                             "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.zip`",
+                        )
+                    })?;
+                let zip_keyed_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::IteratorZipKeyed.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.zipKeyed`",
                         )
                     })?;
                 let wrapper_return_meta = self
@@ -1623,7 +1996,19 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
 
                 self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "concat",
+                    concat_meta,
+                    function,
+                )?;
                 self.emit_object_define_function_data(object_local, "zip", zip_meta, function)?;
+                self.emit_object_define_function_data(
+                    object_local,
+                    "zipKeyed",
+                    zip_keyed_meta,
+                    function,
+                )?;
                 function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
@@ -2884,6 +3269,265 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(key_local);
                 self.release_temp_local(prototype_object_local);
             }
+            StandardBuiltinId::TemporalInstantConstructor => {
+                let from_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::TemporalInstantFrom.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.from`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+                function.instruction(&Instruction::GlobalGet(prototype_global_index));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                for (name, builtin) in [
+                    (
+                        "epochMilliseconds",
+                        StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
+                    ),
+                    (
+                        "epochNanoseconds",
+                        StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
+                    ),
+                ] {
+                    let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                            builtin.debug_name()
+                        ))
+                    })?;
+                    function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_function_value_payload(meta, function)?;
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_append_accessor_property_with_flags(
+                        prototype_object_local,
+                        key_local,
+                        Some((payload_local, tag_local)),
+                        None,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
+                let to_string_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::TemporalInstantPrototypeToString.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.prototype.toString`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "toString",
+                    to_string_meta,
+                    function,
+                )?;
+                let equals_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::TemporalInstantPrototypeEquals.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.prototype.equals`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "equals",
+                    equals_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Temporal.Instant"),
+                ));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimeConstructor => {
+                let from_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::TemporalZonedDateTimeFrom.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.from`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+                function.instruction(&Instruction::GlobalGet(prototype_global_index));
+                function.instruction(&Instruction::LocalSet(prototype_object_local));
+                for (name, builtin) in [
+                    (
+                        "epochMilliseconds",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
+                    ),
+                    (
+                        "epochNanoseconds",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
+                    ),
+                    (
+                        "offset",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
+                    ),
+                    (
+                        "offsetNanoseconds",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+                    ),
+                    (
+                        "timeZoneId",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
+                    ),
+                    (
+                        "calendarId",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
+                    ),
+                    (
+                        "year",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
+                    ),
+                    (
+                        "month",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
+                    ),
+                    (
+                        "monthCode",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
+                    ),
+                    (
+                        "day",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter,
+                    ),
+                    (
+                        "hour",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter,
+                    ),
+                    (
+                        "minute",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter,
+                    ),
+                    (
+                        "second",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter,
+                    ),
+                    (
+                        "millisecond",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter,
+                    ),
+                    (
+                        "microsecond",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter,
+                    ),
+                    (
+                        "nanosecond",
+                        StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
+                    ),
+                ] {
+                    let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                            builtin.debug_name()
+                        ))
+                    })?;
+                    function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                    function.instruction(&Instruction::LocalSet(key_local));
+                    self.emit_function_value_payload(meta, function)?;
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_append_accessor_property_with_flags(
+                        prototype_object_local,
+                        key_local,
+                        Some((payload_local, tag_local)),
+                        None,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
+                let equals_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::TemporalZonedDateTimePrototypeEquals.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.equals`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "equals",
+                    equals_meta,
+                    function,
+                )?;
+                let to_instant_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.toInstant`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "toInstant",
+                    to_instant_meta,
+                    function,
+                )?;
+                let with_time_zone_meta = self
+                    .functions
+                    .get(
+                        &StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+                            .function_id(),
+                    )
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.withTimeZone`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(
+                    prototype_object_local,
+                    "withTimeZone",
+                    with_time_zone_meta,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toStringTag"),
+                ));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Temporal.ZonedDateTime"),
+                ));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    prototype_object_local,
+                    key_local,
+                    payload_local,
+                    tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+            }
             StandardBuiltinId::DateConstructor => {
                 let now_meta = self.functions.get(&StandardBuiltinId::DateNow.function_id()).ok_or_else(|| {
                     EmitError::unsupported(
@@ -2891,6 +3535,15 @@ impl<'a> FunctionBuilder<'a> {
                     )
                 })?;
                 self.emit_object_define_function_data(object_local, "now", now_meta, function)?;
+                let parse_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::DateParse.function_id())
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Date.parse`",
+                        )
+                    })?;
+                self.emit_object_define_function_data(object_local, "parse", parse_meta, function)?;
                 let date_utc_meta = self.functions.get(&StandardBuiltinId::DateUtc.function_id()).ok_or_else(|| {
                     EmitError::unsupported(
                         "unsupported in porffor wasm-aot first slice: missing builtin meta `Date.UTC`",
@@ -2982,6 +3635,27 @@ impl<'a> FunctionBuilder<'a> {
                         "setUTCMilliseconds",
                         StandardBuiltinId::DatePrototypeSetUtcMilliseconds,
                     ),
+                    ("toISOString", StandardBuiltinId::DatePrototypeToIsoString),
+                    ("toJSON", StandardBuiltinId::DatePrototypeToJson),
+                    ("toDateString", StandardBuiltinId::DatePrototypeToDateString),
+                    (
+                        "toLocaleDateString",
+                        StandardBuiltinId::DatePrototypeToLocaleDateString,
+                    ),
+                    (
+                        "toLocaleString",
+                        StandardBuiltinId::DatePrototypeToLocaleString,
+                    ),
+                    (
+                        "toLocaleTimeString",
+                        StandardBuiltinId::DatePrototypeToLocaleTimeString,
+                    ),
+                    (
+                        "toTemporalInstant",
+                        StandardBuiltinId::DatePrototypeToTemporalInstant,
+                    ),
+                    ("toTimeString", StandardBuiltinId::DatePrototypeToTimeString),
+                    ("toString", StandardBuiltinId::DatePrototypeToString),
                 ] {
                     let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                         EmitError::unsupported(format!(
@@ -2991,6 +3665,39 @@ impl<'a> FunctionBuilder<'a> {
                     })?;
                     self.emit_object_define_function_data(object_local, name, meta, function)?;
                 }
+                let to_primitive_meta = self
+                    .functions
+                    .get(&StandardBuiltinId::DatePrototypeToPrimitive.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Date.prototype[Symbol.toPrimitive]`",
+                        )
+                    })?;
+                let to_primitive_key_local = self.reserve_temp_local();
+                let to_primitive_payload_local = self.reserve_temp_local();
+                let to_primitive_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload("Symbol.toPrimitive"),
+                ));
+                function.instruction(&Instruction::LocalSet(to_primitive_key_local));
+                self.emit_function_value_payload(&to_primitive_meta, function)?;
+                function.instruction(&Instruction::LocalSet(to_primitive_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(to_primitive_tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    object_local,
+                    to_primitive_key_local,
+                    to_primitive_payload_local,
+                    to_primitive_tag_local,
+                    false,
+                    false,
+                    true,
+                    function,
+                )?;
+                self.release_temp_local(to_primitive_tag_local);
+                self.release_temp_local(to_primitive_payload_local);
+                self.release_temp_local(to_primitive_key_local);
                 let utc_payload_local = self.reserve_temp_local();
                 let utc_tag_local = self.reserve_temp_local();
                 self.emit_function_value_payload(utc_meta, function)?;
@@ -3584,14 +4291,18 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::ObjectDefineProperty
             | StandardBuiltinId::ObjectDefineProperties
             | StandardBuiltinId::ObjectGetOwnPropertyDescriptor
+            | StandardBuiltinId::ObjectGetOwnPropertyDescriptors
+            | StandardBuiltinId::ObjectAssign
             | StandardBuiltinId::ObjectGetOwnPropertyNames
             | StandardBuiltinId::ObjectGetOwnPropertySymbols
             | StandardBuiltinId::ObjectKeys
             | StandardBuiltinId::ObjectValues
+            | StandardBuiltinId::ObjectEntries
             | StandardBuiltinId::ObjectHasOwn
             | StandardBuiltinId::ObjectIs
             | StandardBuiltinId::ObjectIsSealed
             | StandardBuiltinId::ObjectIsFrozen
+            | StandardBuiltinId::ObjectSeal
             | StandardBuiltinId::ObjectFreeze
             | StandardBuiltinId::ObjectIsExtensible
             | StandardBuiltinId::ObjectPreventExtensions
@@ -3885,6 +4596,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::StringPrototypeIsWellFormed
             | StandardBuiltinId::StringPrototypeToWellFormed
             | StandardBuiltinId::DateNow
+            | StandardBuiltinId::DateParse
             | StandardBuiltinId::DatePrototypeGetTime
             | StandardBuiltinId::DatePrototypeSetTime
             | StandardBuiltinId::DatePrototypeValueOf
@@ -3921,10 +4633,23 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::DatePrototypeSetUtcSeconds
             | StandardBuiltinId::DatePrototypeSetMilliseconds
             | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
+            | StandardBuiltinId::DatePrototypeToIsoString
+            | StandardBuiltinId::DatePrototypeToJson
+            | StandardBuiltinId::DatePrototypeToDateString
+            | StandardBuiltinId::DatePrototypeToLocaleDateString
+            | StandardBuiltinId::DatePrototypeToLocaleString
+            | StandardBuiltinId::DatePrototypeToLocaleTimeString
+            | StandardBuiltinId::DatePrototypeToTemporalInstant
+            | StandardBuiltinId::DatePrototypeToTimeString
+            | StandardBuiltinId::DatePrototypeToString
             | StandardBuiltinId::DatePrototypeToUtcString
             | StandardBuiltinId::DateUtc
             | StandardBuiltinId::ArrayOf
+            | StandardBuiltinId::IteratorConcat
+            | StandardBuiltinId::IteratorConcatNext
+            | StandardBuiltinId::IteratorConcatReturn
             | StandardBuiltinId::IteratorZip
+            | StandardBuiltinId::IteratorZipKeyed
             | StandardBuiltinId::IteratorZipNext
             | StandardBuiltinId::IteratorZipReturn
             | StandardBuiltinId::ErrorPrototypeToString
@@ -3960,19 +4685,53 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::AsyncGeneratorPrototypeNext
             | StandardBuiltinId::AsyncGeneratorPrototypeReturn
             | StandardBuiltinId::AsyncGeneratorPrototypeThrow
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeRejected
             | StandardBuiltinId::ThrowTypeError
             | StandardBuiltinId::Escape
             | StandardBuiltinId::Unescape
+            | StandardBuiltinId::EncodeUri
+            | StandardBuiltinId::EncodeUriComponent
+            | StandardBuiltinId::DecodeUri
+            | StandardBuiltinId::DecodeUriComponent
             | StandardBuiltinId::SymbolFor
             | StandardBuiltinId::SymbolKeyFor
             | StandardBuiltinId::MapGroupBy
             | StandardBuiltinId::ObjectGroupBy
+            | StandardBuiltinId::ObjectFromEntries
             | StandardBuiltinId::ObjectPrototypeProtoGetter
             | StandardBuiltinId::ObjectPrototypeProtoSetter
             | StandardBuiltinId::SymbolPrototypeDescriptionGetter
             | StandardBuiltinId::SymbolPrototypeToString
             | StandardBuiltinId::SymbolPrototypeValueOf
-            | StandardBuiltinId::SymbolPrototypeToPrimitive => {}
+            | StandardBuiltinId::SymbolPrototypeToPrimitive
+            | StandardBuiltinId::DatePrototypeToPrimitive
+            | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
+            | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+            | StandardBuiltinId::TemporalInstantPrototypeEquals
+            | StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimeFrom
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {}
         }
 
         self.release_temp_local(prototype_object_local);
@@ -4197,6 +4956,88 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_function_data(object_local, "ownKeys", own_keys_meta, function)?;
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(REFLECT_OBJECT_GLOBAL_INDEX));
+        self.release_temp_local(object_local);
+        Ok(())
+    }
+
+    pub(crate) fn init_temporal_object(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        let constructor_local = self.reserve_temp_local();
+        let constructor_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        function.instruction(&Instruction::GlobalGet(
+            TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(constructor_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        self.emit_object_append_local_data_property_with_flags(
+            object_local,
+            "Instant",
+            constructor_local,
+            constructor_tag_local,
+            true,
+            false,
+            true,
+            function,
+        )?;
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor)
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                "ZonedDateTime",
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("Temporal")));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::GlobalSet(TEMPORAL_OBJECT_GLOBAL_INDEX));
+
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(constructor_tag_local);
+        self.release_temp_local(constructor_local);
         self.release_temp_local(object_local);
         Ok(())
     }
@@ -5521,6 +6362,24 @@ impl<'a> FunctionBuilder<'a> {
             &identity_meta,
             function,
         )?;
+        let async_dispose_meta = self
+            .functions
+            .get(
+                &StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+                    .function_id(),
+            )
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing AsyncIterator asyncDispose builtin meta",
+                )
+            })?;
+        self.emit_object_define_function_data(
+            prototype_local,
+            "Symbol.asyncDispose",
+            &async_dispose_meta,
+            function,
+        )?;
         self.release_temp_local(prototype_local);
         Ok(())
     }
@@ -5807,6 +6666,19 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
+        let function_prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(function_prototype_local));
+        self.emit_object_define_number_data_from_f64_const_with_flags(
+            function_prototype_local,
+            "length",
+            0.0,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(function_prototype_local);
         // Array.prototype is itself an Array exotic object.  Allocate it with
         // the array layout, then repair the allocator's default prototype
         // (which would otherwise point back at the not-yet-initialized global).
@@ -6048,6 +6920,52 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(WEAK_MAP_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_WEAK_MAP_PROTOTYPE_OFFSET,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(WEAK_REF_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            WEAK_REF_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(WEAK_SET_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
+            HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         function.instruction(&Instruction::GlobalSet(SET_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             SET_PROTOTYPE_GLOBAL_INDEX,
@@ -6274,6 +7192,22 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         let regexp_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
         self.store_i64_const_at_offset(
@@ -6491,6 +7425,26 @@ impl<'a> FunctionBuilder<'a> {
         }
         if self
             .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalInstantConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalInstantConstructor,
+                TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalZonedDateTimeConstructor,
+                TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::RegExpConstructor)
         {
             self.init_builtin_constructor_object(
@@ -6644,6 +7598,46 @@ impl<'a> FunctionBuilder<'a> {
         }
         if self
             .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::WeakMapConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::WeakMapConstructor,
+                WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::WeakRefConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::WeakRefConstructor,
+                WEAK_REF_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::FinalizationRegistryConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::FinalizationRegistryConstructor,
+                FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::WeakSetConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::WeakSetConstructor,
+                WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::SetConstructor)
         {
             self.init_builtin_constructor_object(
@@ -6759,6 +7753,11 @@ impl<'a> FunctionBuilder<'a> {
             || self.runtime_bootstrap_plan.atomics_object
         {
             self.init_atomics_object(function)?;
+        }
+        if self.runtime_bootstrap_plan.full_standard_globals
+            || self.runtime_bootstrap_plan.temporal_object
+        {
+            self.init_temporal_object(function)?;
         }
         Ok(())
     }
@@ -6904,6 +7903,12 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 ScriptGlobalBindingKind::AtomicsObject => {
                     function.instruction(&Instruction::GlobalGet(ATOMICS_OBJECT_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                }
+                ScriptGlobalBindingKind::TemporalObject => {
+                    function.instruction(&Instruction::GlobalGet(TEMPORAL_OBJECT_GLOBAL_INDEX));
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));

@@ -1669,26 +1669,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
-        // Array `length` is an existing exotic own property even though it is
-        // not represented in the ordinary entry buffer. Let the dedicated
-        // ArraySetLength path below decide descriptor compatibility.
-        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(get_key_local));
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(proxy_key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
-        self.emit_string_payload_equality_i32(key_string_local, get_key_local, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
+        self.emit_ordinary_is_extensible_i32(
             target_payload_local,
-            HEAP_CAP_OFFSET,
+            target_tag_local,
             cap_local,
             function,
         );
@@ -2274,6 +2266,8 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_proxy_own_keys_array_result(
+            proxy_target_payload_local,
+            proxy_target_tag_local,
             trap_result_payload_local,
             trap_result_tag_local,
             function,
@@ -2359,6 +2353,8 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_proxy_own_keys_array_result(
+            proxy_target_payload_local,
+            proxy_target_tag_local,
             trap_result_payload_local,
             trap_result_tag_local,
             function,

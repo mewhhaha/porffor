@@ -1,6 +1,80 @@
 use super::super::*;
 
 impl<'a> FunctionBuilder<'a> {
+    pub(crate) fn emit_array_buffer_memory_load(
+        &self,
+        _buffer_flags_local: u32,
+        _result_type: ValType,
+        private_load: Instruction<'static>,
+        shared_load: Instruction<'static>,
+        function: &mut Function,
+    ) {
+        function.instruction(if self.buffer_memory_index() == 1 {
+            &shared_load
+        } else {
+            &private_load
+        });
+    }
+
+    pub(crate) fn emit_is_typed_array_i32(
+        &mut self,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(value_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.load_i64_from_offset(
+            value_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_load_typed_array_private_state(
+        &self,
+        typed_array_payload_local: u32,
+        buffer_payload_local: u32,
+        byte_offset_local: u32,
+        byte_length_local: u32,
+        bytes_per_element_local: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
+            buffer_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_BYTE_OFFSET,
+            byte_offset_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
+            byte_length_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
+            bytes_per_element_local,
+            function,
+        );
+    }
+
     pub(crate) fn emit_initialize_array_buffer_private_state(
         &mut self,
         buffer_payload_local: u32,
@@ -430,7 +504,6 @@ impl<'a> FunctionBuilder<'a> {
         let stored_key_payload_local = self.reserve_temp_local();
         let stored_key_tag_local = self.reserve_temp_local();
         let flags_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
 
         self.emit_require_array_buffer(
             buffer_payload_local,
@@ -492,24 +565,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        // Keep the legacy mirrors coherent until every binary-data consumer
-        // reads the private record. They are never used for brand or key checks.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        self.emit_object_define_number_data_from_i64_local(
-            buffer_payload_local,
-            ARRAY_BUFFER_DATA_PTR_SLOT,
-            zero_local,
-            function,
-        )?;
-        self.emit_object_define_number_data_from_i64_local(
-            buffer_payload_local,
-            ARRAY_BUFFER_BYTE_LENGTH_SLOT,
-            zero_local,
-            function,
-        )?;
-
-        self.release_temp_local(zero_local);
         self.release_temp_local(flags_local);
         self.release_temp_local(stored_key_tag_local);
         self.release_temp_local(stored_key_payload_local);

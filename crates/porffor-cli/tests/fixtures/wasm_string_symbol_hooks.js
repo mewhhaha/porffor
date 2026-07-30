@@ -1,9 +1,5 @@
-function __porfIsHTMLDDA() {
-  return null;
-}
-
 var $262 = {
-  IsHTMLDDA: __porfIsHTMLDDA
+  IsHTMLDDA: __porfCreateHTMLDDA()
 };
 
 var total = 0;

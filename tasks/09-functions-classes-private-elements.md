@@ -1,9 +1,19 @@
 # T09 — Functions, constructors, classes and private elements
 
-**Status:** Blocked on T04/T06/T08  
+**Status:** In progress — broad function/class support exists; full call/construct semantics remain
+
 **Parallel group:** Core foundations  
 **Depends on:** T04, T06, T08  
 **Blocks:** T12-T15, T24
+
+## Current repository state
+
+The IR and Wasm backend contain explicit function metadata, call/construct
+lowering, closures, bound functions, classes and private-element support, with
+many focused fixtures. Cross-realm Function construction remains an explicit
+dynamic-source exclusion, and complete Function/class/private-element
+subtrees have not been verified against the current pin without
+materializations. This remains an active foundation task.
 
 ## Objective
 

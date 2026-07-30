@@ -1,9 +1,20 @@
 # T04 — Shared ECMAScript operations and completion ABI
 
-**Status:** Ready after initial T02 boundaries  
+**Status:** In progress — shared catalogs exist; migration is incomplete
+
 **Parallel group:** Foundation  
 **Depends on:** T02  
 **Blocks:** Most semantic feature tasks
+
+## Current repository state
+
+`porffor-ir/src/operations.rs` and
+`porffor-aot-wasm/src/operations.rs` provide shared operation catalogs and
+emitters, while the backend has explicit ABI and control-flow modules. Feature
+emitters still contain substantial local coercion, property and completion
+logic, and the large Test262 materialization layer shows that shared operations
+are not yet authoritative across every family. Keep new cross-family semantics
+in the shared operation layer and delete local copies as callers migrate.
 
 ## Objective
 

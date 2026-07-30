@@ -163,6 +163,7 @@ impl<'a> FunctionBuilder<'a> {
             root_tag_local,
             JsonStaticPropertyKey::String(""),
             true,
+            0,
             reviver_payload_local,
             reviver_tag_local,
             payload_local,
@@ -187,6 +188,7 @@ impl<'a> FunctionBuilder<'a> {
         holder_tag_local: u32,
         key: JsonStaticPropertyKey<'_>,
         is_root_property: bool,
+        throw_extra_depth: u32,
         reviver_payload_local: u32,
         reviver_tag_local: u32,
         result_payload_local: u32,
@@ -216,7 +218,6 @@ impl<'a> FunctionBuilder<'a> {
                     current_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion_if_throw(function);
                 self.release_temp_local(index_local);
             }
             JsonStaticPropertyKey::String(_) => {
@@ -232,6 +233,12 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
         }
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            current_payload_local,
+            current_tag_local,
+            throw_extra_depth,
+            function,
+        )?;
 
         match value {
             JsonStaticValueIr::Array(values) => {
@@ -246,6 +253,7 @@ impl<'a> FunctionBuilder<'a> {
                         current_tag_local,
                         JsonStaticPropertyKey::ArrayIndex(index),
                         false,
+                        throw_extra_depth + 1,
                         reviver_payload_local,
                         reviver_tag_local,
                         self.scratch_local,
@@ -285,6 +293,7 @@ impl<'a> FunctionBuilder<'a> {
                         current_tag_local,
                         JsonStaticPropertyKey::String(property_key),
                         false,
+                        throw_extra_depth + 1,
                         reviver_payload_local,
                         reviver_tag_local,
                         self.scratch_local,
@@ -645,7 +654,6 @@ impl<'a> FunctionBuilder<'a> {
                 value_tag_local,
                 function,
             )?;
-            self.emit_return_current_completion_if_throw(function);
             function.instruction(&Instruction::Else);
             self.emit_object_read(
                 holder_payload_local,
@@ -670,6 +678,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
+        self.emit_propagate_current_completion_if_throw(function);
 
         self.emit_json_apply_reviver_with_source(
             None,
@@ -979,6 +988,11 @@ impl<'a> FunctionBuilder<'a> {
                 (value_payload_local, value_tag_local),
                 (context_payload_local, context_tag_local),
             ],
+            result_payload_local,
+            result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
             result_payload_local,
             result_tag_local,
             function,

@@ -1,0 +1,197 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7996032515168784249,
+  "run_kind": "full",
+  "total": 20,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 9,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 9,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Object/values/symbols-omitted.js",
+      "duration_ms": 27291
+    },
+    {
+      "path": "built-ins/Object/values/return-order.js",
+      "duration_ms": 25716
+    },
+    {
+      "path": "built-ins/Object/values/not-a-constructor.js",
+      "duration_ms": 21310
+    },
+    {
+      "path": "built-ins/Object/values/observable-operations.js",
+      "duration_ms": 21003
+    },
+    {
+      "path": "built-ins/Object/values/primitive-booleans.js",
+      "duration_ms": 17736
+    },
+    {
+      "path": "built-ins/Object/values/primitive-numbers.js",
+      "duration_ms": 17447
+    },
+    {
+      "path": "built-ins/Object/values/primitive-symbols.js",
+      "duration_ms": 17189
+    },
+    {
+      "path": "built-ins/Object/values/function-property-descriptor.js",
+      "duration_ms": 16131
+    },
+    {
+      "path": "built-ins/Object/values/order-after-define-property.js",
+      "duration_ms": 15358
+    },
+    {
+      "path": "built-ins/Object/values/function-name.js",
+      "duration_ms": 15153
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Object/values/exception-during-enumeration.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1462072)",
+      "detail_hash": 6390837366931131057,
+      "duration_ms": 13278
+    },
+    {
+      "test_path": "built-ins/Object/values/getter-adding-key.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(second value is \"B\" Expected SameValue(undefined, B) to be true)",
+      "detail_hash": 15917627213065750521,
+      "duration_ms": 14706
+    },
+    {
+      "test_path": "built-ins/Object/values/getter-making-future-key-nonenumerable.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(result has 2 items Expected SameValue(3, 2) to be true)",
+      "detail_hash": 17207669116717275742,
+      "duration_ms": 14394
+    },
+    {
+      "test_path": "built-ins/Object/values/getter-removing-future-key.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(result has 2 items Expected SameValue(3, 2) to be true)",
+      "detail_hash": 17207669116717275742,
+      "duration_ms": 11357
+    },
+    {
+      "test_path": "built-ins/Object/values/observable-operations.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string( Expected SameValue(, |ownKeys|getOwnPropertyDescriptor:a|get:a|getOwnPropertyDescriptor:b|get:b|getOwnPropertyDescriptor:c|get:c) to be true)",
+      "detail_hash": 1458036339330854523,
+      "duration_ms": 21003
+    },
+    {
+      "test_path": "built-ins/Object/values/order-after-define-property.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to contain the same values at 0: undefined !== a)",
+      "detail_hash": 5317520079959208820,
+      "duration_ms": 15358
+    },
+    {
+      "test_path": "built-ins/Object/values/primitive-strings.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(result has 3 items Expected SameValue(0, 3) to be true)",
+      "detail_hash": 1326568118382497629,
+      "duration_ms": 11615
+    },
+    {
+      "test_path": "built-ins/Object/values/return-order.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to contain the same values at 0: p2 !== 0)",
+      "detail_hash": 7757048292840700876,
+      "duration_ms": 25716
+    },
+    {
+      "test_path": "built-ins/Object/values/symbols-omitted.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(result has 1 item Expected SameValue(2, 1) to be true)",
+      "detail_hash": 4292569607511801857,
+      "duration_ms": 27291
+    },
+    {
+      "test_path": "built-ins/Object/values/tamper-with-global-object.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Object/values/exception-during-enumeration.js",
+    "built-ins/Object/values/exception-not-object-coercible.js",
+    "built-ins/Object/values/function-length.js",
+    "built-ins/Object/values/function-name.js",
+    "built-ins/Object/values/function-property-descriptor.js",
+    "built-ins/Object/values/getter-adding-key.js",
+    "built-ins/Object/values/getter-making-future-key-nonenumerable.js",
+    "built-ins/Object/values/getter-removing-future-key.js",
+    "built-ins/Object/values/inherited-properties-omitted.js",
+    "built-ins/Object/values/not-a-constructor.js",
+    "built-ins/Object/values/observable-operations.js",
+    "built-ins/Object/values/order-after-define-property.js",
+    "built-ins/Object/values/primitive-booleans.js",
+    "built-ins/Object/values/primitive-numbers.js",
+    "built-ins/Object/values/primitive-strings.js",
+    "built-ins/Object/values/primitive-symbols.js",
+    "built-ins/Object/values/return-order.js",
+    "built-ins/Object/values/symbols-omitted.js",
+    "built-ins/Object/values/tamper-with-global-object.js",
+    "built-ins/Object/values/tamper-with-object-keys.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

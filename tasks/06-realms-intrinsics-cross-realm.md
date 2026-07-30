@@ -1,9 +1,19 @@
 # T06 — Realms, intrinsics and cross-realm semantics
 
-**Status:** Blocked on T04/T05  
+**Status:** In progress — realm records and intrinsic metadata exist; full isolation is unverified
+
 **Parallel group:** Core foundations  
 **Depends on:** T03, T04, T05  
 **Blocks:** T11-T14, T17, T21-T24
+
+## Current repository state
+
+Realm IDs, realm records, intrinsic tables and realm-owned prototype references
+are present in the runtime/backend, and focused cross-realm cases are tracked in
+the README. Dynamic-source-dependent cross-realm cases remain explicit
+unsupported cases, and no current complete Wasm-AOT aggregate proves the full
+realm acceptance matrix. Realm creation, teardown, borrowed builtins and
+realm-correct errors therefore remain active work.
 
 ## Objective
 

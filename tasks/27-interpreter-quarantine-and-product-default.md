@@ -1,14 +1,32 @@
 # T27 — Interpreter quarantine and Wasm-AOT product default
 
-**Status:** Ready; labeling, reporting policy and dependency quarantine can start immediately, the default-backend flip lands as soon as Wasm-AOT passes the fake-suite smoke tests  
+**Status:** In progress — default/dependency quarantine landed; publication and artifact audits remain
+
 **Parallel group:** Validation/closure  
 **Blocks:** T26 release gate and any truthful "no interpreter" claim
 
 **Depends on:** T02, T03
 
+## Current repository state
+
+Wasm-AOT is now the engine and CLI default, `porffor-spec-exec`/`boa_engine` is
+behind the off-by-default `spec-exec-oracle` feature, and
+`./scripts/check-no-interpreter-in-product-graph.sh` passes. There is no silent
+fallback in the default product path. This task remains open because
+`publish-status` and README refresh coverage still permit/specify spec-exec
+publication, and the requested representative artifact audit proving absence
+of evaluator-consumed user source is not yet present.
+
 ## Objective
 
-Make the Wasm-AOT compiler the product execution path in code, not only in documentation. Today `porffor-spec-exec` wraps the Boa JavaScript engine — an interpreter — and it is the engine-wide default (`ExecutionBackend::SpecExec` is `#[default]` in `crates/porffor-engine/src/lib.rs`), a first-class CLI backend and a co-equal published conformance target. Under `AGENTS.md` an interpreter may exist only as a hidden debug/differential oracle: never the CLI runtime path, never the default, never a silent fallback, never linked into product builds or emitted artifacts, and never the source of published conformance numbers.
+Keep the Wasm-AOT compiler as the product execution path in code, not only in
+documentation. Before this task's core implementation landed,
+`porffor-spec-exec` wrapped the Boa JavaScript interpreter as the engine-wide
+default, a first-class CLI backend and a co-equal published conformance target.
+Under `AGENTS.md` an interpreter may exist only as a hidden
+debug/differential oracle: never the CLI runtime path, never the default, never
+a silent fallback, never linked into product builds or emitted artifacts, and
+never the source of published conformance numbers.
 
 ## Work items
 
@@ -31,7 +49,7 @@ Make the Wasm-AOT compiler the product execution path in code, not only in docum
 
 ### 4. Status and reporting policy
 
-- Published README/status artifacts report Wasm-AOT as the only Porffor conformance number.
+- Published README/status artifacts report Wasm-AOT as the only Lila conformance number.
 - `spec-exec` matrices/snapshots remain producible for oracle triage but are labeled oracle-diagnostic, stored separately and excluded from product status blocks.
 - Update `porf test262 publish-status` / `scripts/publish-real-status-low-ram.sh` so a spec-exec snapshot cannot be published as the product conformance block.
 

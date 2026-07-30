@@ -183,6 +183,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             for property in properties {
                 match property {
                     ObjectPropertyIr::PrototypeSetter { value }
+                    | ObjectPropertyIr::Spread { source: value }
                     | ObjectPropertyIr::Data { value, .. }
                     | ObjectPropertyIr::NonEnumerableData { value, .. }
                     | ObjectPropertyIr::Method {
@@ -240,6 +241,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         | ExprIr::Identifier(_)
         | ExprIr::NewTarget
         | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::GlobalIdentifierRead { .. }
         | ExprIr::AssignIdentifier { .. }
         | ExprIr::GlobalPropertyWrite { .. }
         | ExprIr::UpdateIdentifier { .. }
@@ -374,9 +376,9 @@ fn statement_contains_this_before_super(
             init,
             test,
             update,
-            before_yield,
-            yield_statement,
-            after_yield,
+            before_suspension,
+            suspension_statement,
+            after_suspension,
             ..
         } => {
             if let Some(init) = init {
@@ -404,11 +406,11 @@ fn statement_contains_this_before_super(
             if let Some(update) = update {
                 expr_contains_this_before_super(update, state);
             }
-            for statement in before_yield {
+            for statement in before_suspension {
                 statement_contains_this_before_super(statement, state);
             }
-            statement_contains_this_before_super(yield_statement, state);
-            for statement in after_yield {
+            statement_contains_this_before_super(suspension_statement, state);
+            for statement in after_suspension {
                 statement_contains_this_before_super(statement, state);
             }
         }

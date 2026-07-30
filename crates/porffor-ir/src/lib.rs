@@ -301,9 +301,9 @@ mod tests {
                 }
                 StatementIr::GeneratorLoop {
                     init,
-                    before_yield,
-                    yield_statement,
-                    after_yield,
+                    before_suspension,
+                    suspension_statement,
+                    after_suspension,
                     ..
                 } => {
                     if let Some(init) = init {
@@ -322,10 +322,10 @@ mod tests {
                             ForInitIr::Expression(_) => {}
                         }
                     }
-                    for statement in before_yield
+                    for statement in before_suspension
                         .iter()
-                        .chain(std::iter::once(yield_statement.as_ref()))
-                        .chain(after_yield)
+                        .chain(std::iter::once(suspension_statement.as_ref()))
+                        .chain(after_suspension)
                     {
                         collect(statement, names);
                     }
@@ -2846,6 +2846,24 @@ mod tests {
     }
 
     #[test]
+    fn lowers_object_seal_with_argument_result_shape() {
+        let program = lower_script("var target = { value: 1 }; Object.seal(target);");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[1] else {
+            panic!("expected Object.seal expression");
+        };
+        assert_eq!(expression.kind, ValueKind::Object);
+        let function_id = StandardBuiltinId::ObjectSeal.function_id();
+        let call = indirect_call_body(expression)
+            .unwrap_or_else(|| panic!("expected Object.seal call: {expression:?}"));
+        let ExprIr::CallIndirect { callee, .. } = &call.expr else {
+            unreachable!("indirect_call_body only returns indirect calls");
+        };
+        assert!(callee.function_targets.contains(&function_id));
+    }
+
+    #[test]
     fn lowers_heap_loose_equality_ir() {
         let program = lower_script("let object = {}; object == undefined; null != object;");
         assert!(program.is_wasm_supported());
@@ -2907,6 +2925,62 @@ mod tests {
             panic!("expected expression statement");
         };
         assert!(matches!(expr.expr, ExprIr::Boolean(true)));
+    }
+
+    #[test]
+    fn lowers_temporal_zoned_date_time_from_with_instance_result_shape() {
+        let program = lower_script("Temporal.ZonedDateTime.from(\"1970-01-01T00:00Z[UTC]\");");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[0] else {
+            panic!("expected Temporal.ZonedDateTime.from expression");
+        };
+        assert_eq!(expression.kind, ValueKind::Object);
+        assert!(expression.heap_shape.is_some());
+        let function_id = StandardBuiltinId::TemporalZonedDateTimeFrom.function_id();
+        let call = indirect_call_body(expression)
+            .unwrap_or_else(|| panic!("expected Temporal.ZonedDateTime.from call: {expression:?}"));
+        let ExprIr::CallIndirect { callee, .. } = &call.expr else {
+            unreachable!("indirect_call_body only returns indirect calls");
+        };
+        assert!(callee.function_targets.contains(&function_id));
+    }
+
+    #[test]
+    fn lowers_temporal_zoned_date_time_fixed_offset_accessors() {
+        let program = lower_script(
+            "const value = new Temporal.ZonedDateTime(0n, \"+01:30\"); \
+             value.offset; value.offsetNanoseconds;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(offset) = &script.body.statements[1] else {
+            panic!("expected Temporal.ZonedDateTime offset expression");
+        };
+        let StatementIr::Expression(offset_nanoseconds) = &script.body.statements[2] else {
+            panic!("expected Temporal.ZonedDateTime offsetNanoseconds expression");
+        };
+        assert_eq!(offset.kind, ValueKind::String);
+        assert_eq!(offset_nanoseconds.kind, ValueKind::Number);
+    }
+
+    #[test]
+    fn lowers_temporal_instant_equals_with_boolean_result() {
+        let program = lower_script("new Temporal.Instant(1n).equals(new Temporal.Instant(1n));");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[0] else {
+            panic!("expected Temporal.Instant.prototype.equals expression");
+        };
+        assert_eq!(expression.kind, ValueKind::Boolean);
+        let function_id = StandardBuiltinId::TemporalInstantPrototypeEquals.function_id();
+        let call = indirect_call_body(expression).unwrap_or_else(|| {
+            panic!("expected Temporal.Instant.prototype.equals call: {expression:?}")
+        });
+        let ExprIr::CallIndirect { callee, .. } = &call.expr else {
+            unreachable!("indirect_call_body only returns indirect calls");
+        };
+        assert!(callee.function_targets.contains(&function_id));
     }
 
     #[test]
@@ -3600,7 +3674,7 @@ mod tests {
     }
 
     #[test]
-    fn private_in_rhs_preserves_shift_precedence_and_unresolvable_reference() {
+    fn private_in_rhs_preserves_shift_precedence_and_runtime_global_resolution() {
         for (source, expected_rhs) in [
             (
                 "class C { #field; probe() { try { #field in {} << 0; } catch (error) {} } }",
@@ -3608,7 +3682,7 @@ mod tests {
             ),
             (
                 "class C { #field; probe() { try { #field in missingName; } catch (error) {} } }",
-                "reference-error",
+                "global-resolution",
             ),
         ] {
             let program = lower_script(source);
@@ -3638,12 +3712,9 @@ mod tests {
                         ..
                     }
                 )),
-                "reference-error" => assert!(matches!(
+                "global-resolution" => assert!(matches!(
                     &rhs.expr,
-                    ExprIr::RuntimeThrow {
-                        name: REFERENCE_ERROR_NAME,
-                        ..
-                    }
+                    ExprIr::GlobalIdentifierRead { name } if name == "missingName"
                 )),
                 _ => unreachable!(),
             }
@@ -4273,6 +4344,34 @@ mod tests {
             properties.as_slice(),
             [ObjectPropertyIr::Method { .. }]
         ));
+    }
+
+    #[test]
+    fn lowers_object_spreads_in_property_evaluation_order() {
+        let program =
+            lower_script("let source = { copied: 2 }; ({ before: 1, ...source, after: 3 });");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.expect("script ir should exist");
+        let StatementIr::Expression(object) =
+            script.body.statements.last().expect("object expression")
+        else {
+            panic!("expected object literal expression");
+        };
+        let ExprIr::ObjectLiteral(properties) = &object.expr else {
+            panic!("expected object literal");
+        };
+        assert!(matches!(
+            properties.as_slice(),
+            [
+                ObjectPropertyIr::Data { key: before, .. },
+                ObjectPropertyIr::Spread { .. },
+                ObjectPropertyIr::Data { key: after, .. },
+            ] if before == "before" && after == "after"
+        ));
+        assert!(
+            object.heap_shape.is_none(),
+            "spread keys make the object shape dynamic"
+        );
     }
 
     #[test]
@@ -5105,6 +5204,390 @@ mod tests {
     }
 
     #[test]
+    fn lowers_direct_await_elements_in_lexical_array_initializer() {
+        let program = lower_script(
+            "async function collect(before, first, between, second, after) {
+                 const reports = [
+                     before(),
+                     await first(),
+                     between(),
+                     await second(),
+                     after(),
+                 ];
+                 return reports;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "collect")
+            .expect("async function should be registered");
+        let StatementIr::LexicalBlock(statements) = &function.body.statements[0] else {
+            panic!(
+                "awaited array initializer should lower through a lexical block: {:?}",
+                function.body.statements
+            );
+        };
+        let await_states = statements
+            .iter()
+            .filter_map(|statement| {
+                let StatementIr::AsyncAwait {
+                    suspend_state,
+                    resume_state,
+                    ..
+                } = statement
+                else {
+                    return None;
+                };
+                Some((*suspend_state, *resume_state))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(await_states, vec![(0, 1), (1, 2)]);
+        let Some(StatementIr::Lexical {
+            name,
+            init:
+                TypedExpr {
+                    expr: ExprIr::ArrayLiteral(elements),
+                    ..
+                },
+            ..
+        }) = statements.last()
+        else {
+            panic!(
+                "resumed array elements should initialize the declared binding: {:?}",
+                function.body.statements
+            );
+        };
+        assert_eq!(name, "reports");
+        assert_eq!(elements.len(), 5);
+        assert!(elements
+            .iter()
+            .all(|element| matches!(element.expr, ExprIr::Identifier(_))));
+    }
+
+    #[test]
+    fn rejects_composite_and_spread_awaited_lexical_array_initializers() {
+        let composite = lower_script(
+            "async function collect(source) {
+                 const reports = [consume(await source)];
+                 return reports;
+             }",
+        );
+        assert!(!composite.is_wasm_supported());
+        assert!(composite.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("async lexical array initializer composite await element")));
+
+        let spread = lower_script(
+            "async function collect(source, rest) {
+                 const reports = [await source, ...rest];
+                 return reports;
+             }",
+        );
+        assert!(!spread.is_wasm_supported());
+        assert!(spread.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("async lexical array initializer spread")));
+    }
+
+    #[test]
+    fn lowers_eager_arithmetic_await_declaration_initializers() {
+        let program = lower_script(
+            "async function calculate(x, first, second) {
+                 let lexical = await first() * x;
+                 var variable = -(await second()) + lexical;
+                 return variable;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "calculate")
+            .expect("async function should be registered");
+        let await_states = function
+            .body
+            .statements
+            .iter()
+            .flat_map(|statement| match statement {
+                StatementIr::LexicalBlock(statements) => statements.as_slice(),
+                statement => std::slice::from_ref(statement),
+            })
+            .filter_map(|statement| {
+                let StatementIr::AsyncAwait {
+                    suspend_state,
+                    resume_state,
+                    ..
+                } = statement
+                else {
+                    return None;
+                };
+                Some((*suspend_state, *resume_state))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(await_states, vec![(0, 1), (1, 2)]);
+        let StatementIr::LexicalBlock(var_statements) = &function.body.statements[1] else {
+            panic!(
+                "awaited var initializer should preserve its predeclared binding: {:?}",
+                function.body.statements
+            );
+        };
+        assert!(matches!(
+            var_statements.first(),
+            Some(StatementIr::Var(declarators))
+                if matches!(
+                    declarators.as_slice(),
+                    [VarDeclaratorIr { name, init: None }] if name == "variable"
+                )
+        ));
+        assert!(matches!(
+            var_statements.last(),
+            Some(StatementIr::Expression(TypedExpr {
+                expr: ExprIr::AssignIdentifier { name, .. },
+                ..
+            })) if name == "variable"
+        ));
+    }
+
+    #[test]
+    fn stages_eager_arithmetic_operands_before_later_awaits() {
+        let program = lower_script(
+            "async function calculate(before, first, between, second) {
+                 const result =
+                     before() + await first() * between() + await second();
+                 return result;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "calculate")
+            .expect("async function should be registered");
+        let StatementIr::LexicalBlock(statements) = &function.body.statements[0] else {
+            panic!(
+                "composite await initializer should lower through a lexical block: {:?}",
+                function.body.statements
+            );
+        };
+        let await_indexes = statements
+            .iter()
+            .enumerate()
+            .filter_map(|(index, statement)| {
+                matches!(statement, StatementIr::AsyncAwait { .. }).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(await_indexes.len(), 2);
+        assert!(matches!(
+            statements.first(),
+            Some(StatementIr::Lexical {
+                name,
+                init:
+                    TypedExpr {
+                        expr: ExprIr::CallIndirect { .. },
+                        ..
+                    },
+                ..
+            }) if name.starts_with("$async.binary.lhs.")
+        ));
+        assert!(await_indexes[0] > 0);
+        assert!(statements[await_indexes[0] + 1..await_indexes[1]]
+            .iter()
+            .any(|statement| matches!(
+                statement,
+                StatementIr::Lexical { name, .. }
+                    if name.starts_with("$async.binary.lhs.")
+            )));
+        assert!(matches!(
+            statements.last(),
+            Some(StatementIr::Lexical { name, .. }) if name == "result"
+        ));
+    }
+
+    #[test]
+    fn rejects_branch_sensitive_await_declaration_initializers() {
+        for source in [
+            "async function inspect(source) { let value = source && await source; }",
+            "async function inspect(source) { var value = source ? await source : 0; }",
+            "async function inspect(source, key) { let value = source?.[await key]; }",
+        ] {
+            let program = lower_script(source);
+            assert!(!program.is_wasm_supported());
+            assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("branch-sensitive await expression")));
+        }
+    }
+
+    #[test]
+    fn lowers_awaited_optional_chain_in_var_initializer() {
+        let program = lower_script(
+            "async function inspect(source, key) {
+                 var result = await source?.[key()];
+                 return result;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "inspect")
+            .expect("async function should be registered");
+        let StatementIr::LexicalBlock(statements) = &function.body.statements[0] else {
+            panic!(
+                "awaited optional chain should lower through a lexical block: {:?}",
+                function.body.statements
+            );
+        };
+
+        assert!(statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                resume_mode: AsyncResumeModeIr::AssignIdentifier(_),
+                ..
+            }
+        )));
+        assert!(matches!(
+            statements.first(),
+            Some(StatementIr::Var(declarators))
+                if matches!(
+                    declarators.as_slice(),
+                    [VarDeclaratorIr {
+                        name,
+                        init: None,
+                    }] if name == "result"
+                )
+        ));
+    }
+
+    #[test]
+    fn awaited_var_redeclaration_discards_static_binding_facts() {
+        let program = lower_script(
+            "async function inspect(promise) {
+                 var value = 'old';
+                 var value = await promise;
+                 return value.length;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "inspect")
+            .expect("async function should be registered");
+        let return_value = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Return(value) => Some(value),
+                _ => None,
+            })
+            .expect("async function should return the awaited value length");
+
+        assert!(matches!(
+            return_value.expr,
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::GetV,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn skips_await_in_statically_nullish_optional_chain_key() {
+        let program = lower_script(
+            "async function inspect(reject) {
+                 assert.sameValue(undefined?.[await reject()], undefined);
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "inspect")
+            .expect("async function should be registered");
+        let StatementIr::LexicalBlock(statements) = &function.body.statements[0] else {
+            panic!(
+                "optional chain should retain its expression statement: {:?}",
+                function.body.statements
+            );
+        };
+
+        assert!(
+            !statements
+                .iter()
+                .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. })),
+            "short-circuited key must not suspend: {statements:?}"
+        );
+        assert!(matches!(
+            statements.as_slice(),
+            [StatementIr::Expression(_)]
+        ));
+    }
+
+    #[test]
+    fn skips_await_in_side_effecting_statically_nullish_optional_chain_key() {
+        let program = lower_script(
+            "async function inspect(reject) {
+                 let calls = 0;
+                 let value = (calls += 1, undefined)?.[await reject()];
+                 return value;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "inspect")
+            .expect("async function should be registered");
+        assert!(
+            !function
+                .body
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. })),
+            "short-circuited key must not suspend: {:?}",
+            function.body.statements
+        );
+        assert!(matches!(
+            &function.body.statements[1],
+            StatementIr::Lexical {
+                init: TypedExpr {
+                    expr: ExprIr::MaterializeBinding { .. },
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn collects_nested_async_generator_declarations_with_exact_source() {
         let declaration = "async function* stream(source) { yield await source; }";
         let program = lower_script(&format!(
@@ -5382,6 +5865,64 @@ mod tests {
     }
 
     #[test]
+    fn async_generator_yield_branches_reserve_a_distinct_merge_state() {
+        let program = lower_script(
+            "async function* choose(flag) { if (flag) yield 1; else yield 2; yield 3; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "choose")
+            .expect("async generator declaration should be collected");
+
+        assert_eq!(
+            function.resumable_plan,
+            Some(ResumablePlanIr {
+                entry_state: 0,
+                state_count: 5,
+                suspension_points: vec![
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 0,
+                        resume_state: 1,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 1,
+                        resume_state: 2,
+                    },
+                    ResumableSuspensionPointIr {
+                        kind: ResumableSuspensionKindIr::Yield,
+                        suspend_state: 3,
+                        resume_state: 4,
+                    },
+                ],
+            })
+        );
+        assert!(matches!(
+            function.body.statements.as_slice(),
+            [
+                StatementIr::GeneratorIf {
+                    entry_state: 0,
+                    then_resume_state: Some(1),
+                    else_resume_state: Some(2),
+                    exit_state: 3,
+                    ..
+                },
+                StatementIr::GeneratorYield {
+                    suspend_state: 3,
+                    resume_state: 4,
+                    ..
+                }
+            ]
+        ));
+    }
+
+    #[test]
     fn async_generator_loop_exits_into_the_next_preplanned_suspension() {
         let program = lower_script(
             "async function* stream() { for (let i = 0; i < 3; i++) { yield i; } yield 9; }",
@@ -5400,7 +5941,7 @@ mod tests {
             entry_state: 0,
             resume_state: 1,
             exit_state: 1,
-            yield_statement,
+            suspension_statement,
             ..
         }, StatementIr::GeneratorYield {
             suspend_state: 1,
@@ -5414,7 +5955,7 @@ mod tests {
             );
         };
         assert!(matches!(
-            yield_statement.as_ref(),
+            suspension_statement.as_ref(),
             StatementIr::GeneratorYield {
                 suspend_state: 0,
                 resume_state: 1,
@@ -5422,6 +5963,82 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn async_generator_loop_reuses_one_await_state_across_iterations() {
+        let program = lower_script(
+            "async function* callAsync(iterations, pushAwait) {
+                 for (let i = 0; i < iterations; i++) {
+                     await pushAwait(i);
+                 }
+                 return 0;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "callAsync")
+            .expect("async generator declaration should be collected");
+
+        let [StatementIr::GeneratorLoop {
+            init: Some(ForInitIr::Lexical { name, .. }),
+            test: Some(_),
+            update: Some(_),
+            suspension_statement,
+            entry_state: 0,
+            resume_state: 1,
+            exit_state: 1,
+            ..
+        }, StatementIr::AsyncAwait {
+            suspend_state: 1,
+            resume_state: 2,
+            resume_mode: AsyncResumeModeIr::Return,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected a reusable loop Await followed by return Await: {:#?}",
+                function.body.statements
+            );
+        };
+        assert!(matches!(
+            suspension_statement.as_ref(),
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                resume_mode: AsyncResumeModeIr::Ignore,
+                ..
+            }
+        ));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == *name));
+    }
+
+    #[test]
+    fn rejects_unplanned_resumable_async_loop_control() {
+        for source in [
+            "async function* stream() { for (;;) { await 0; break; } }",
+            "async function* stream() { for (let i = 0; i < 2; i++) { await 0; continue; } }",
+            "async function* stream() { for (let i = 0; i < 2; i++) { await 0; await 1; } }",
+            "async function* stream() { for (let i = 0; i < 2; await 0) {} }",
+        ] {
+            let program = lower_script(source);
+            assert!(!program.is_wasm_supported());
+            assert!(
+                program.diagnostics.iter().any(|diagnostic| diagnostic
+                    .message
+                    .contains("resumable async loop requires one direct body await")),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
     }
 
     #[test]
@@ -7053,6 +7670,7 @@ mod tests {
                 ExprIr::ObjectLiteral(properties) => {
                     properties.iter().any(|property| match property {
                         ObjectPropertyIr::PrototypeSetter { value }
+                        | ObjectPropertyIr::Spread { source: value }
                         | ObjectPropertyIr::Data { value, .. }
                         | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             has_reference_error_throw(value)
@@ -7624,7 +8242,7 @@ mod tests {
     }
 
     #[test]
-    fn computed_class_field_key_preserves_nested_unbound_reference_error() {
+    fn computed_class_field_key_preserves_nested_runtime_global_resolution() {
         let program = lower_script(
             "function evaluate() { class C { [missingComputedName] = 1; } } evaluate();",
         );
@@ -7659,11 +8277,8 @@ mod tests {
             panic!("expected one computed field key");
         };
         assert!(matches!(
-            key.expr,
-            ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
-                ..
-            }
+            &key.expr,
+            ExprIr::GlobalIdentifierRead { name } if name == "missingComputedName"
         ));
     }
 
@@ -8170,7 +8785,7 @@ mod tests {
     }
 
     #[test]
-    fn lowers_unbound_identifier_read_as_runtime_reference_error() {
+    fn lowers_unbound_identifier_read_as_runtime_global_resolution() {
         let program = lower_script("try { missingName; } catch (e) {}");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
@@ -8182,10 +8797,7 @@ mod tests {
         };
         assert!(matches!(
             expr.expr,
-            ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
-                ..
-            }
+            ExprIr::GlobalIdentifierRead { ref name } if name == "missingName"
         ));
     }
 
@@ -9917,14 +10529,11 @@ mod tests {
                 script.body.statements.iter().any(|statement| matches!(
                     statement,
                     StatementIr::Expression(TypedExpr {
-                        expr: ExprIr::RuntimeThrow {
-                            name: REFERENCE_ERROR_NAME,
-                            ..
-                        },
+                        expr: ExprIr::GlobalIdentifierRead { name },
                         ..
-                    })
+                    }) if name == "f"
                 )),
-                "{shape}: outer f read must throw ReferenceError"
+                "{shape}: outer f read must use runtime global resolution"
             );
 
             let outside = script

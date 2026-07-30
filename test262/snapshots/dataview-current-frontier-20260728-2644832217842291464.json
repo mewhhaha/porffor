@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2644832217842291464,
+  "run_kind": "resume-case-checkpoint",
+  "total": 20,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/DataView/prototype/setUint8/toindex-byteoffset.js",
+      "duration_ms": 37403
+    },
+    {
+      "path": "built-ins/DataView/prototype/setUint8/this-is-not-object.js",
+      "duration_ms": 33801
+    },
+    {
+      "path": "built-ins/DataView/return-instance.js",
+      "duration_ms": 31267
+    },
+    {
+      "path": "built-ins/DataView/prototype/setUint8/this-has-no-dataview-internal.js",
+      "duration_ms": 30245
+    },
+    {
+      "path": "built-ins/DataView/return-abrupt-tonumber-byteoffset-symbol.js",
+      "duration_ms": 28055
+    },
+    {
+      "path": "built-ins/DataView/toindex-byteoffset-sab.js",
+      "duration_ms": 27675
+    },
+    {
+      "path": "built-ins/DataView/toindex-bytelength.js",
+      "duration_ms": 27287
+    },
+    {
+      "path": "built-ins/DataView/toindex-byteoffset.js",
+      "duration_ms": 26912
+    },
+    {
+      "path": "built-ins/DataView/prototype/setUint8/set-values-return-undefined.js",
+      "duration_ms": 26709
+    },
+    {
+      "path": "built-ins/DataView/return-abrupt-tonumber-byteoffset-symbol-sab.js",
+      "duration_ms": 25671
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/DataView/proto-from-ctor-realm-sab.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/DataView/proto-from-ctor-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/DataView/proto-from-ctor-realm-sab.js",
+    "built-ins/DataView/proto-from-ctor-realm.js",
+    "built-ins/DataView/prototype/setUint8/set-values-return-undefined.js",
+    "built-ins/DataView/prototype/setUint8/this-has-no-dataview-internal.js",
+    "built-ins/DataView/prototype/setUint8/this-is-not-object.js",
+    "built-ins/DataView/prototype/setUint8/toindex-byteoffset.js",
+    "built-ins/DataView/return-abrupt-tonumber-bytelength-sab.js",
+    "built-ins/DataView/return-abrupt-tonumber-bytelength-symbol-sab.js",
+    "built-ins/DataView/return-abrupt-tonumber-bytelength-symbol.js",
+    "built-ins/DataView/return-abrupt-tonumber-bytelength.js",
+    "built-ins/DataView/return-abrupt-tonumber-byteoffset-sab.js",
+    "built-ins/DataView/return-abrupt-tonumber-byteoffset-symbol-sab.js",
+    "built-ins/DataView/return-abrupt-tonumber-byteoffset-symbol.js",
+    "built-ins/DataView/return-abrupt-tonumber-byteoffset.js",
+    "built-ins/DataView/return-instance-sab.js",
+    "built-ins/DataView/return-instance.js",
+    "built-ins/DataView/toindex-bytelength-sab.js",
+    "built-ins/DataView/toindex-bytelength.js",
+    "built-ins/DataView/toindex-byteoffset-sab.js",
+    "built-ins/DataView/toindex-byteoffset.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -3699,6 +3699,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_run_promise_thenable_job(reaction_record_local, function)?;
         function.instruction(&Instruction::End);
+        if self
+            .functions
+            .monotonic_clock_nanos_import_function_index()
+            .is_some()
+        {
+            self.emit_poll_atomics_wait_async_timeouts(function)?;
+            function.instruction(&Instruction::Drop);
+        }
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);

@@ -5,12 +5,15 @@ use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
 use wasmtime::{
     Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
-    Extern as WasmtimeExtern, Linker as WasmtimeLinker, Module as WasmtimeModule, OptLevel,
-    RegallocAlgorithm, Store as WasmtimeStore, StoreLimits as WasmtimeStoreLimits,
-    StoreLimitsBuilder as WasmtimeStoreLimitsBuilder, Trap as WasmtimeTrap, Val as WasmtimeVal,
+    Extern as WasmtimeExtern, ExternType as WasmtimeExternType, Linker as WasmtimeLinker,
+    Memory as WasmtimeMemory, Module as WasmtimeModule, OptLevel, RegallocAlgorithm,
+    SharedMemory as WasmtimeSharedMemory, Store as WasmtimeStore,
+    StoreLimits as WasmtimeStoreLimits, StoreLimitsBuilder as WasmtimeStoreLimitsBuilder,
+    Trap as WasmtimeTrap, Val as WasmtimeVal,
 };
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::io::Read;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -22,7 +25,16 @@ const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
+const WASM_HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
+const WASM_HOST_IMPORT_NUMBER_POW: &str = "number_pow";
+const WASM_HOST_IMPORT_PRIVATE_MEMORY: &str = "private_memory";
+const WASM_HOST_IMPORT_SHARED_MEMORY: &str = "shared_memory";
+const WASM_HOST_IMPORT_SHARED_MEMORY_ALLOC: &str = "shared_memory_alloc";
+const WASM_HOST_IMPORT_AGENT_CALL: &str = "agent_call";
+const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
+const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
+const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
 const WASM_MODULE_MEMORY_CACHE_ENTRIES: usize = 64;
 /// Cut over before the multi-megabyte function bodies seen in slow Test262
 /// artifacts can exhaust Cranelift's fast-compilation per-function limits.
@@ -33,6 +45,81 @@ const SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES: usize = 1024 * 1024;
 /// without deep JavaScript recursion. Keep half of the 64MiB worker stack
 /// available to Wasmtime while leaving the other half for host calls.
 const WASM_MAX_STACK_SIZE: usize = 32 * 1024 * 1024;
+
+fn wall_clock_millis() -> f64 {
+    match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as f64,
+        Err(error) => -(error.duration().as_millis() as f64),
+    }
+}
+
+fn number_is_odd_integer(value: f64) -> bool {
+    value.is_finite()
+        && value.trunc() == value
+        && value.abs() <= 9_007_199_254_740_991.0
+        && (value.abs() as u64) & 1 == 1
+}
+
+fn wasm_number_pow(base: f64, exponent: f64) -> f64 {
+    if exponent.is_nan() {
+        return f64::NAN;
+    }
+    if exponent == 0.0 {
+        return 1.0;
+    }
+    if base.is_nan() {
+        return f64::NAN;
+    }
+    if exponent.is_infinite() {
+        return match base.abs().partial_cmp(&1.0) {
+            Some(std::cmp::Ordering::Greater) if exponent.is_sign_positive() => f64::INFINITY,
+            Some(std::cmp::Ordering::Greater) => 0.0,
+            Some(std::cmp::Ordering::Less) if exponent.is_sign_positive() => 0.0,
+            Some(std::cmp::Ordering::Less) => f64::INFINITY,
+            _ => f64::NAN,
+        };
+    }
+    if base == f64::INFINITY {
+        return if exponent.is_sign_positive() {
+            f64::INFINITY
+        } else {
+            0.0
+        };
+    }
+    if base == f64::NEG_INFINITY {
+        if exponent.is_sign_positive() {
+            return if number_is_odd_integer(exponent) {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            };
+        }
+        return if number_is_odd_integer(exponent) {
+            -0.0
+        } else {
+            0.0
+        };
+    }
+    if base == 0.0 {
+        let negative_zero = base.to_bits() == (-0.0f64).to_bits();
+        if exponent.is_sign_positive() {
+            return if negative_zero && number_is_odd_integer(exponent) {
+                -0.0
+            } else {
+                0.0
+            };
+        }
+        return if negative_zero && number_is_odd_integer(exponent) {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+    }
+    if base < 0.0 && exponent.trunc() != exponent {
+        return f64::NAN;
+    }
+    base.powf(exponent)
+}
 #[cfg(test)]
 const WASM_STATIC_DATA_OFFSET: usize = 4096;
 
@@ -140,13 +227,70 @@ fn program_wasm_cache() -> Option<Arc<cache::FunctionCache>> {
         .clone()
 }
 
-fn compiler_fingerprint() -> &'static str {
-    env!("PORFFOR_COMPILER_FINGERPRINT")
+#[derive(Clone)]
+struct ProgramWasmCacheEntry {
+    cache: Arc<cache::FunctionCache>,
+    key: [u8; 32],
 }
 
-fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
+#[derive(Clone)]
+struct ProgramWasmArtifact {
+    bytes: Arc<[u8]>,
+    cached_entry: Option<ProgramWasmCacheEntry>,
+}
+
+impl ProgramWasmArtifact {
+    fn evict_if_invalid(&self, error: &EngineError) -> bool {
+        if !error
+            .message()
+            .starts_with("wasmtime module validation failed:")
+        {
+            return false;
+        }
+        let Some(entry) = &self.cached_entry else {
+            return false;
+        };
+        entry.cache.remove(&entry.key);
+        true
+    }
+}
+
+fn compiler_artifact_fingerprint(mut artifact: impl Read) -> std::io::Result<[u8; 32]> {
     let mut hash = Sha256::new();
-    hash.update(compiler_fingerprint().as_bytes());
+    hash.update(b"porffor-program-cache-compiler-v3");
+    hash.update(env!("PORFFOR_COMPILER_FINGERPRINT").as_bytes());
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let read = artifact.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hash.update(&buffer[..read]);
+    }
+    Ok(hash.finalize().into())
+}
+
+fn compiler_fingerprint() -> &'static [u8; 32] {
+    static FINGERPRINT: OnceLock<[u8; 32]> = OnceLock::new();
+    FINGERPRINT.get_or_init(|| {
+        std::env::current_exe()
+            .and_then(std::fs::File::open)
+            .and_then(compiler_artifact_fingerprint)
+            .unwrap_or_else(|_| {
+                compiler_artifact_fingerprint(std::io::empty())
+                    .expect("hashing an empty compiler artifact cannot fail")
+            })
+    })
+}
+
+fn program_wasm_cache_key_with_compiler_fingerprint(
+    source: &str,
+    goal: ParseGoal,
+    options: &CompileOptions,
+    compiler_fingerprint: &[u8; 32],
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(compiler_fingerprint);
     hash.update(std::env::consts::ARCH.as_bytes());
     hash.update(match goal {
         ParseGoal::Script => b"script" as &[u8],
@@ -161,6 +305,10 @@ fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOption
     }
     hash.update(source.as_bytes());
     hash.finalize().into()
+}
+
+fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
+    program_wasm_cache_key_with_compiler_fingerprint(source, goal, options, compiler_fingerprint())
 }
 
 fn wasm_aot_program_is_cached(source: &str, goal: ParseGoal, options: &CompileOptions) -> bool {
@@ -422,6 +570,7 @@ fn shared_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
             config.max_wasm_stack(WASM_MAX_STACK_SIZE);
             configure_wasm_linear_memory(&mut config);
             config.wasm_threads(true);
+            config.wasm_multi_memory(true);
             config.wasm_function_references(true);
             config.wasm_gc(true);
             config.wasm_exceptions(true);
@@ -467,6 +616,7 @@ fn shared_size_optimized_wasm_engine() -> Result<WasmtimeEngine, EngineError> {
             config.max_wasm_stack(WASM_MAX_STACK_SIZE);
             configure_wasm_linear_memory(&mut config);
             config.wasm_threads(true);
+            config.wasm_multi_memory(true);
             config.wasm_function_references(true);
             config.wasm_gc(true);
             config.wasm_exceptions(true);
@@ -607,7 +757,7 @@ impl Default for CompileOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOptions {
     pub backend: ExecutionBackend,
     pub argv: Vec<String>,
@@ -621,6 +771,19 @@ pub struct RunOptions {
     /// effectively-unbounded deadline, so it behaves as before this field
     /// existed. Ignored by other backends.
     pub timeout_ms: Option<u64>,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            backend: ExecutionBackend::default(),
+            argv: Vec::new(),
+            module_root: None,
+            test_path: None,
+            can_block: true,
+            timeout_ms: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -705,7 +868,337 @@ pub struct Engine {
 #[derive(Clone)]
 struct WasmHostState {
     realm: Realm,
+    can_block: bool,
+    monotonic_clock_origin: std::time::Instant,
+    shared_memory_backing: Option<Arc<WasmSharedMemoryBacking>>,
+    agent_group: Option<Arc<WasmAgentGroup>>,
+    agent_commands: Option<Arc<Mutex<std::sync::mpsc::Receiver<WasmAgentCommand>>>>,
+    agent_leaving: Option<Arc<std::sync::atomic::AtomicBool>>,
     limits: WasmtimeStoreLimits,
+}
+
+struct WasmSharedMemoryBacking {
+    memory: WasmtimeSharedMemory,
+    next_offset: Mutex<u64>,
+    async_waiters: Mutex<WasmAgentAsyncWaiterRegistry>,
+}
+
+#[derive(Clone, Copy)]
+struct WasmAgentBroadcast {
+    data_offset: i64,
+    byte_length: i64,
+    max_byte_length: i64,
+    flags: i64,
+}
+
+enum WasmAgentCommand {
+    Broadcast(WasmAgentBroadcast),
+    Shutdown,
+}
+
+struct WasmAgentWorker {
+    commands: std::sync::mpsc::Sender<WasmAgentCommand>,
+    join: std::thread::JoinHandle<Result<(), EngineError>>,
+}
+
+struct WasmAgentAsyncWaiter {
+    id: i64,
+    address: i64,
+    notified: bool,
+}
+
+struct WasmAgentAsyncWaiterRegistry {
+    next_id: i64,
+    waiters: VecDeque<WasmAgentAsyncWaiter>,
+}
+
+struct WasmAgentGroup {
+    engine: WasmtimeEngine,
+    realm: Realm,
+    shared_memory_backing: Arc<WasmSharedMemoryBacking>,
+    prelude: Arc<str>,
+    timeout_ms: Option<u64>,
+    started_at: std::time::Instant,
+    reports: Mutex<VecDeque<Vec<u8>>>,
+    worker_artifacts: Mutex<HashMap<String, ProgramWasmArtifact>>,
+    workers: Mutex<Vec<WasmAgentWorker>>,
+}
+
+struct WasmAgentExecution {
+    group: Arc<WasmAgentGroup>,
+    commands: Arc<Mutex<std::sync::mpsc::Receiver<WasmAgentCommand>>>,
+    leaving: Arc<std::sync::atomic::AtomicBool>,
+    ready: std::sync::mpsc::SyncSender<()>,
+}
+
+impl WasmSharedMemoryBacking {
+    fn allocate(&self, byte_length: i64) -> i64 {
+        const PAGE_BYTES: u64 = 64 * 1024;
+        let Ok(byte_length) = u64::try_from(byte_length) else {
+            return 0;
+        };
+        let mut next_offset = self
+            .next_offset
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let allocation_size = byte_length.max(1);
+        let Some(end) = next_offset.checked_add(allocation_size) else {
+            return 0;
+        };
+        if end > WASM_STORE_MEMORY_CAP_BYTES as u64 {
+            return 0;
+        }
+        let required_pages = end.div_ceil(PAGE_BYTES);
+        let current_pages = self.memory.size();
+        if required_pages > current_pages
+            && self.memory.grow(required_pages - current_pages).is_err()
+        {
+            return 0;
+        }
+        let allocation_offset = *next_offset;
+        *next_offset = (end + 7) & !7;
+        allocation_offset as i64
+    }
+
+    fn register_async_waiter(&self, address: i64) -> i64 {
+        let mut registry = self
+            .async_waiters
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let id = registry.next_id;
+        registry.next_id = registry.next_id.checked_add(1).unwrap_or(1);
+        registry.waiters.push_back(WasmAgentAsyncWaiter {
+            id,
+            address,
+            notified: false,
+        });
+        id
+    }
+
+    fn notify_async_waiters(&self, address: i64, count: i64) -> i64 {
+        let mut registry = self
+            .async_waiters
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut notified = 0;
+        for waiter in &mut registry.waiters {
+            if notified >= count {
+                break;
+            }
+            if waiter.address != address || waiter.notified {
+                continue;
+            }
+            waiter.notified = true;
+            notified += 1;
+        }
+        notified
+    }
+
+    fn poll_async_waiter(&self, id: i64) -> i64 {
+        let mut registry = self
+            .async_waiters
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(position) = registry.waiters.iter().position(|waiter| waiter.id == id) else {
+            return -1;
+        };
+        if !registry.waiters[position].notified {
+            return 0;
+        }
+        registry.waiters.remove(position);
+        1
+    }
+
+    fn cancel_async_waiter(&self, id: i64) -> i64 {
+        let mut registry = self
+            .async_waiters
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(position) = registry.waiters.iter().position(|waiter| waiter.id == id) else {
+            return -1;
+        };
+        let notified = registry.waiters[position].notified;
+        registry.waiters.remove(position);
+        i64::from(notified)
+    }
+}
+
+impl WasmAgentGroup {
+    fn start(self: &Arc<Self>, source: String) -> Result<(), EngineError> {
+        let worker_source = format!("{}\n{}", self.prelude, source);
+        let worker_options = CompileOptions {
+            filename: Some("<test262-agent>".to_string()),
+            ..CompileOptions::default()
+        };
+        let mut worker_artifact = self
+            .worker_artifacts
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&worker_source)
+            .cloned();
+        if worker_artifact.is_none() {
+            let worker_engine = Engine::new(self.realm.clone());
+            let artifact = worker_engine.load_or_compile_program_wasm_on_current_thread(
+                &worker_source,
+                ParseGoal::Script,
+                worker_options.clone(),
+                program_wasm_cache(),
+            )?;
+            self.worker_artifacts
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(worker_source.clone(), artifact.clone());
+            worker_artifact = Some(artifact);
+        }
+        let mut worker_artifact = worker_artifact.expect("worker artifact was initialized");
+        let mut may_retry_corrupt_cache = true;
+
+        loop {
+            let (commands_tx, commands_rx) = std::sync::mpsc::channel();
+            let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+            let execution = WasmAgentExecution {
+                group: Arc::clone(self),
+                commands: Arc::new(Mutex::new(commands_rx)),
+                leaving: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                ready: ready_tx,
+            };
+            let timeout_ms = self.timeout_ms;
+            let worker_engine = Engine::new(self.realm.clone());
+            let execution_artifact = worker_artifact.clone();
+            let join = std::thread::Builder::new()
+                .name("porffor-test262-wasm-agent".to_string())
+                .stack_size(ENGINE_WORKER_STACK_SIZE)
+                .spawn(move || {
+                    worker_engine
+                        .run_with_wasm_bytes_inner_with_agents(
+                            &execution_artifact.bytes,
+                            timeout_ms,
+                            true,
+                            WasmModuleMemoryCachePolicy::BypassRetention,
+                            None,
+                            Some(execution),
+                        )
+                        .map(|_| ())
+                })
+                .map_err(|err| EngineError::new(format!("failed to spawn Test262 agent: {err}")))?;
+            if ready_rx.recv().is_ok() {
+                self.workers
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .push(WasmAgentWorker {
+                        commands: commands_tx,
+                        join,
+                    });
+                return Ok(());
+            }
+
+            let error = match join.join() {
+                Ok(Err(error)) => error,
+                Ok(Ok(())) => EngineError::new("Test262 agent stopped before becoming ready"),
+                Err(payload) => {
+                    let message = payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| {
+                            payload
+                                .downcast_ref::<&str>()
+                                .map(|value| (*value).to_string())
+                        })
+                        .unwrap_or_else(|| "non-string panic payload".to_string());
+                    EngineError::new(format!(
+                        "Test262 agent panicked before becoming ready: {message}"
+                    ))
+                }
+            };
+            if !may_retry_corrupt_cache || !worker_artifact.evict_if_invalid(&error) {
+                return Err(error);
+            }
+
+            may_retry_corrupt_cache = false;
+            self.worker_artifacts
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&worker_source);
+            let worker_engine = Engine::new(self.realm.clone());
+            worker_artifact = worker_engine.compile_program_wasm_on_current_thread(
+                &worker_source,
+                ParseGoal::Script,
+                worker_options.clone(),
+                program_wasm_cache(),
+            )?;
+            self.worker_artifacts
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(worker_source.clone(), worker_artifact.clone());
+        }
+    }
+
+    fn broadcast(&self, broadcast: WasmAgentBroadcast) -> usize {
+        let mut workers = self
+            .workers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut sent = 0;
+        workers.retain(|worker| {
+            if worker
+                .commands
+                .send(WasmAgentCommand::Broadcast(broadcast))
+                .is_ok()
+            {
+                sent += 1;
+                true
+            } else {
+                false
+            }
+        });
+        sent
+    }
+
+    fn finish(&self) -> Result<(), EngineError> {
+        self.shared_memory_backing
+            .async_waiters
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .waiters
+            .clear();
+        let workers = {
+            let mut workers = self
+                .workers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            std::mem::take(&mut *workers)
+        };
+        for worker in &workers {
+            let _ = worker.commands.send(WasmAgentCommand::Shutdown);
+        }
+        let mut failures = Vec::new();
+        for worker in workers {
+            match worker.join.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failures.push(error.to_string()),
+                Err(payload) => {
+                    let message = payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| {
+                            payload
+                                .downcast_ref::<&str>()
+                                .map(|value| (*value).to_string())
+                        })
+                        .unwrap_or_else(|| "non-string panic payload".to_string());
+                    failures.push(format!("Test262 agent panicked: {message}"));
+                }
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(EngineError::new(format!(
+                "Test262 agent failed: {}",
+                failures.join("; ")
+            )))
+        }
+    }
 }
 
 impl Engine {
@@ -747,7 +1240,13 @@ impl Engine {
                 run,
             );
         }
-        self.run_source_with_cached_wasm(source, ParseGoal::Script, options, run.timeout_ms)
+        self.run_source_with_cached_wasm(
+            source,
+            ParseGoal::Script,
+            options,
+            run.timeout_ms,
+            run.can_block,
+        )
     }
 
     pub fn run_module(
@@ -764,7 +1263,13 @@ impl Engine {
                 run,
             );
         }
-        self.run_source_with_cached_wasm(source, ParseGoal::Module, options, run.timeout_ms)
+        self.run_source_with_cached_wasm(
+            source,
+            ParseGoal::Module,
+            options,
+            run.timeout_ms,
+            run.can_block,
+        )
     }
 
     /// Runs a script through the Wasm-AOT backend on the calling thread.
@@ -780,13 +1285,79 @@ impl Engine {
         source: &str,
         options: CompileOptions,
         timeout_ms: Option<u64>,
+        can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
         self.run_source_with_cached_wasm_on_current_thread(
             source,
             ParseGoal::Script,
             options,
             timeout_ms,
+            can_block,
             WasmModuleMemoryCachePolicy::BypassRetention,
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn run_wasm_aot_script_with_agents(
+        &self,
+        source: &str,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        agent_prelude: String,
+    ) -> Result<RunOutcome, EngineError> {
+        run_on_sized_stack(move || {
+            self.run_wasm_aot_script_with_agents_on_current_thread(
+                source,
+                options,
+                timeout_ms,
+                can_block,
+                agent_prelude,
+            )
+        })
+    }
+
+    #[doc(hidden)]
+    pub fn run_wasm_aot_script_with_agents_on_current_thread(
+        &self,
+        source: &str,
+        options: CompileOptions,
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        agent_prelude: String,
+    ) -> Result<RunOutcome, EngineError> {
+        let cache = program_wasm_cache();
+        let artifact = self.load_or_compile_program_wasm_on_current_thread(
+            source,
+            ParseGoal::Script,
+            options.clone(),
+            cache.clone(),
+        )?;
+        let agent_prelude: Arc<str> = Arc::from(agent_prelude);
+        let result = self.run_with_wasm_bytes_inner_with_agents(
+            &artifact.bytes,
+            timeout_ms,
+            can_block,
+            WasmModuleMemoryCachePolicy::BypassRetention,
+            Some(Arc::clone(&agent_prelude)),
+            None,
+        );
+        let Err(error) = &result else {
+            return result;
+        };
+        if !artifact.evict_if_invalid(error) {
+            return result;
+        }
+
+        let artifact =
+            self.compile_program_wasm_on_current_thread(source, ParseGoal::Script, options, cache)?;
+        self.run_with_wasm_bytes_inner_with_agents(
+            &artifact.bytes,
+            timeout_ms,
+            can_block,
+            WasmModuleMemoryCachePolicy::BypassRetention,
+            Some(agent_prelude),
+            None,
         )
     }
 
@@ -803,12 +1374,14 @@ impl Engine {
         source: &str,
         options: CompileOptions,
         timeout_ms: Option<u64>,
+        can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
         self.run_source_with_cached_wasm_on_current_thread(
             source,
             ParseGoal::Module,
             options,
             timeout_ms,
+            can_block,
             WasmModuleMemoryCachePolicy::BypassRetention,
         )
     }
@@ -819,6 +1392,7 @@ impl Engine {
         goal: ParseGoal,
         options: CompileOptions,
         timeout_ms: Option<u64>,
+        can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
         run_on_sized_stack(|| {
             self.run_source_with_cached_wasm_on_current_thread(
@@ -826,6 +1400,7 @@ impl Engine {
                 goal,
                 options,
                 timeout_ms,
+                can_block,
                 WasmModuleMemoryCachePolicy::Retain,
             )
         })
@@ -837,10 +1412,42 @@ impl Engine {
         goal: ParseGoal,
         options: CompileOptions,
         timeout_ms: Option<u64>,
+        can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
     ) -> Result<RunOutcome, EngineError> {
+        let cache = program_wasm_cache();
+        let artifact = self.load_or_compile_program_wasm_on_current_thread(
+            source,
+            goal,
+            options.clone(),
+            cache.clone(),
+        )?;
+        let result = self.run_with_wasm_bytes_inner(
+            &artifact.bytes,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+        );
+        let Err(error) = &result else {
+            return result;
+        };
+        if !artifact.evict_if_invalid(error) {
+            return result;
+        }
+
+        let artifact = self.compile_program_wasm_on_current_thread(source, goal, options, cache)?;
+        self.run_with_wasm_bytes_inner(&artifact.bytes, timeout_ms, can_block, memory_cache_policy)
+    }
+
+    fn load_or_compile_program_wasm_on_current_thread(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        cache: Option<Arc<cache::FunctionCache>>,
+    ) -> Result<ProgramWasmArtifact, EngineError> {
         let key = program_wasm_cache_key(source, goal, &options);
-        if let Some(cache) = program_wasm_cache() {
+        if let Some(cache) = &cache {
             let cache_started = std::time::Instant::now();
             if let Some(bytes) = cache.read(&key) {
                 if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
@@ -850,20 +1457,15 @@ impl Engine {
                         cache_started.elapsed()
                     );
                 }
-                match self.run_with_wasm_bytes_inner(&bytes, timeout_ms, memory_cache_policy) {
-                    Err(err)
-                        if err
-                            .message()
-                            .starts_with("wasmtime module validation failed:") =>
-                    {
-                        // An incomplete/corrupted local artifact is a cache
-                        // miss, never a product failure. Remove it and rebuild
-                        // from the JavaScript source below.
-                        cache.remove(&key);
-                    }
-                    result => return result,
-                }
-            } else if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                return Ok(ProgramWasmArtifact {
+                    bytes: Arc::from(bytes),
+                    cached_entry: Some(ProgramWasmCacheEntry {
+                        cache: Arc::clone(cache),
+                        key,
+                    }),
+                });
+            }
+            if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
                 eprintln!(
                     "porffor wasm trace: program-cache miss: {:?}",
                     cache_started.elapsed()
@@ -871,6 +1473,28 @@ impl Engine {
             }
         }
 
+        self.compile_program_wasm_with_key_on_current_thread(source, goal, options, cache, key)
+    }
+
+    fn compile_program_wasm_on_current_thread(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        cache: Option<Arc<cache::FunctionCache>>,
+    ) -> Result<ProgramWasmArtifact, EngineError> {
+        let key = program_wasm_cache_key(source, goal, &options);
+        self.compile_program_wasm_with_key_on_current_thread(source, goal, options, cache, key)
+    }
+
+    fn compile_program_wasm_with_key_on_current_thread(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        cache: Option<Arc<cache::FunctionCache>>,
+        key: [u8; 32],
+    ) -> Result<ProgramWasmArtifact, EngineError> {
         let unit = self.compile_on_current_thread(source, goal, options)?;
         let emit_started = std::time::Instant::now();
         let artifact = self.emit_wasm_on_current_thread(&unit)?;
@@ -881,7 +1505,7 @@ impl Engine {
                 artifact.bytes.len()
             );
         }
-        if let Some(cache) = program_wasm_cache() {
+        if let Some(cache) = cache {
             let cache_started = std::time::Instant::now();
             if !cache.write(&key, artifact.bytes.clone())
                 && std::env::var_os("PORFFOR_WASM_TRACE").is_some()
@@ -894,7 +1518,10 @@ impl Engine {
                 );
             }
         }
-        self.run_with_wasm_bytes_inner(&artifact.bytes, timeout_ms, memory_cache_policy)
+        Ok(ProgramWasmArtifact {
+            bytes: Arc::from(artifact.bytes),
+            cached_entry: None,
+        })
     }
 
     pub fn emit_wasm(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
@@ -1031,7 +1658,9 @@ impl Engine {
                 unit.source.goal,
                 run,
             ),
-            ExecutionBackend::WasmAot => self.run_with_wasm_aot(unit, run.timeout_ms),
+            ExecutionBackend::WasmAot => {
+                self.run_with_wasm_aot(unit, run.timeout_ms, run.can_block)
+            }
         }
     }
 
@@ -1091,14 +1720,16 @@ impl Engine {
         &self,
         unit: &CompilationUnit,
         timeout_ms: Option<u64>,
+        can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
-        run_on_sized_stack(|| self.run_with_wasm_aot_inner(unit, timeout_ms))
+        run_on_sized_stack(|| self.run_with_wasm_aot_inner(unit, timeout_ms, can_block))
     }
 
     fn run_with_wasm_aot_inner(
         &self,
         unit: &CompilationUnit,
         timeout_ms: Option<u64>,
+        can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
         let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
@@ -1129,6 +1760,7 @@ impl Engine {
         self.run_with_wasm_bytes_inner(
             &artifact.bytes,
             timeout_ms,
+            can_block,
             WasmModuleMemoryCachePolicy::Retain,
         )
     }
@@ -1137,7 +1769,27 @@ impl Engine {
         &self,
         bytes: &[u8],
         timeout_ms: Option<u64>,
+        can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
+    ) -> Result<RunOutcome, EngineError> {
+        self.run_with_wasm_bytes_inner_with_agents(
+            bytes,
+            timeout_ms,
+            can_block,
+            memory_cache_policy,
+            None,
+            None,
+        )
+    }
+
+    fn run_with_wasm_bytes_inner_with_agents(
+        &self,
+        bytes: &[u8],
+        timeout_ms: Option<u64>,
+        can_block: bool,
+        memory_cache_policy: WasmModuleMemoryCachePolicy,
+        agent_prelude: Option<Arc<str>>,
+        agent_execution: Option<WasmAgentExecution>,
     ) -> Result<RunOutcome, EngineError> {
         let trace_wasm = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
@@ -1169,9 +1821,13 @@ impl Engine {
             }
         }
         let engine_started = std::time::Instant::now();
-        let mut engine = match native_compilation_plan.mode {
-            WasmNativeCompilationMode::Fast => shared_wasm_engine()?,
-            WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine()?,
+        let mut engine = if let Some(agent_execution) = &agent_execution {
+            agent_execution.group.engine.clone()
+        } else {
+            match native_compilation_plan.mode {
+                WasmNativeCompilationMode::Fast => shared_wasm_engine()?,
+                WasmNativeCompilationMode::SizeOptimized => shared_size_optimized_wasm_engine()?,
+            }
         };
         trace_phase("engine", engine_started);
         ensure_wasm_epoch_ticker(&engine);
@@ -1182,15 +1838,22 @@ impl Engine {
             .map(|cache| cache.counters());
         let module_cache_before =
             wasmtime_module_cache().map(|cache| (cache.cache_hits(), cache.cache_misses()));
-        let (module, memory_cache_outcome) = match wasm_module_for_execution(
-            &engine,
-            bytes,
-            memory_cache_policy,
-            native_compilation_plan.mode,
-        ) {
+        let compiled_module = if agent_execution.is_some() {
+            compile_wasm_module(&engine, bytes)
+                .map(|module| (module, WasmModuleMemoryCacheOutcome::Bypassed))
+        } else {
+            wasm_module_for_execution(
+                &engine,
+                bytes,
+                memory_cache_policy,
+                native_compilation_plan.mode,
+            )
+        };
+        let (module, memory_cache_outcome) = match compiled_module {
             Ok(compiled) => compiled,
             Err(error)
                 if native_compilation_plan.mode == WasmNativeCompilationMode::Fast
+                    && agent_execution.is_none()
                     && error.to_string().contains("Code for function is too large") =>
             {
                 if trace_wasm {
@@ -1252,10 +1915,74 @@ impl Engine {
         }
         trace_phase("module", module_started);
         let store_started = std::time::Instant::now();
+        let shared_memory_type = module.imports().find_map(|import| {
+            (import.module() == WASM_HOST_IMPORT_NAMESPACE
+                && import.name() == WASM_HOST_IMPORT_SHARED_MEMORY)
+                .then(|| match import.ty() {
+                    WasmtimeExternType::Memory(memory_type) => Some(memory_type),
+                    _ => None,
+                })
+                .flatten()
+        });
+        let shared_memory_backing = if let Some(agent_execution) = &agent_execution {
+            Some(Arc::clone(&agent_execution.group.shared_memory_backing))
+        } else {
+            shared_memory_type
+                .map(|memory_type| {
+                    WasmtimeSharedMemory::new(&engine, memory_type)
+                        .map(|memory| {
+                            Arc::new(WasmSharedMemoryBacking {
+                                memory,
+                                next_offset: Mutex::new(8),
+                                async_waiters: Mutex::new(WasmAgentAsyncWaiterRegistry {
+                                    next_id: 1,
+                                    waiters: VecDeque::new(),
+                                }),
+                            })
+                        })
+                        .map_err(|err| {
+                            EngineError::new(format!("wasmtime shared-memory setup failed: {err}"))
+                        })
+                })
+                .transpose()?
+        };
+        let root_agent_group = match (agent_prelude, shared_memory_backing.as_ref()) {
+            (Some(prelude), Some(shared_memory_backing)) => Some(Arc::new(WasmAgentGroup {
+                engine: engine.clone(),
+                realm: self.realm.clone(),
+                shared_memory_backing: Arc::clone(shared_memory_backing),
+                prelude,
+                timeout_ms,
+                started_at: std::time::Instant::now(),
+                reports: Mutex::new(VecDeque::new()),
+                worker_artifacts: Mutex::new(HashMap::new()),
+                workers: Mutex::new(Vec::new()),
+            })),
+            (Some(_), None) => {
+                return Err(EngineError::new(
+                    "Test262 agent execution requires an imported shared memory",
+                ));
+            }
+            (None, _) => None,
+        };
+        let agent_group = agent_execution
+            .as_ref()
+            .map(|execution| Arc::clone(&execution.group))
+            .or_else(|| root_agent_group.as_ref().map(Arc::clone));
         let mut store = WasmtimeStore::new(
             &engine,
             WasmHostState {
                 realm: self.realm.clone(),
+                can_block,
+                monotonic_clock_origin: std::time::Instant::now(),
+                shared_memory_backing,
+                agent_group,
+                agent_commands: agent_execution
+                    .as_ref()
+                    .map(|execution| Arc::clone(&execution.commands)),
+                agent_leaving: agent_execution
+                    .as_ref()
+                    .map(|execution| Arc::clone(&execution.leaving)),
                 limits: WasmtimeStoreLimitsBuilder::new()
                     .memory_size(WASM_STORE_MEMORY_CAP_BYTES)
                     .build(),
@@ -1265,16 +1992,355 @@ impl Engine {
         // The engine has epoch interruption enabled process-wide (see
         // `shared_wasm_engine`); every store must set an explicit deadline or
         // it traps immediately (deadline defaults to epoch 0, which has
-        // already "elapsed"). Round the caller's timeout up to whole
-        // epoch-ticker ticks; with no caller-specified timeout, set a
-        // deadline so far in the future it is never practically reached, so
-        // behavior matches "no timeout" rather than "immediate trap".
-        let epoch_deadline_ticks = match timeout_ms {
-            Some(timeout_ms) => timeout_ms.div_ceil(WASM_EPOCH_TICK_MS).max(1),
-            None => u64::MAX / 2,
-        };
-        store.set_epoch_deadline(epoch_deadline_ticks);
+        // already "elapsed"). Instantiation and export lookup are setup, not
+        // user-program execution, so keep them outside the execution bound.
+        store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&engine);
+        if let Some(private_memory_type) = module.imports().find_map(|import| {
+            (import.module() == WASM_HOST_IMPORT_NAMESPACE
+                && import.name() == WASM_HOST_IMPORT_PRIVATE_MEMORY)
+                .then(|| match import.ty() {
+                    WasmtimeExternType::Memory(memory_type) => Some(memory_type),
+                    _ => None,
+                })
+                .flatten()
+        }) {
+            let private_memory =
+                WasmtimeMemory::new(&mut store, private_memory_type).map_err(|err| {
+                    EngineError::new(format!("wasmtime private-memory setup failed: {err}"))
+                })?;
+            linker
+                .define(
+                    &store,
+                    WASM_HOST_IMPORT_NAMESPACE,
+                    WASM_HOST_IMPORT_PRIVATE_MEMORY,
+                    private_memory,
+                )
+                .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        }
+        if let Some(shared_memory) = store
+            .data()
+            .shared_memory_backing
+            .as_ref()
+            .map(|backing| backing.memory.clone())
+        {
+            linker
+                .define(
+                    &store,
+                    WASM_HOST_IMPORT_NAMESPACE,
+                    WASM_HOST_IMPORT_SHARED_MEMORY,
+                    shared_memory,
+                )
+                .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        }
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_AGENT_CAN_SUSPEND,
+                |caller: WasmtimeCaller<'_, WasmHostState>| -> i32 {
+                    i32::from(caller.data().can_block)
+                },
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_SHARED_MEMORY_ALLOC,
+                |caller: WasmtimeCaller<'_, WasmHostState>, byte_length: i64| -> i64 {
+                    caller
+                        .data()
+                        .shared_memory_backing
+                        .as_ref()
+                        .map_or(0, |backing| backing.allocate(byte_length))
+                },
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_AGENT_CALL,
+                |mut caller: WasmtimeCaller<'_, WasmHostState>,
+                 operation: i64,
+                 first: i64,
+                 second: i64|
+                 -> wasmtime::Result<i64> {
+                    let group = caller.data().agent_group.clone();
+                    let shared_memory_backing = caller.data().shared_memory_backing.clone();
+                    let private_memory = match caller.get_export("memory") {
+                        Some(WasmtimeExtern::Memory(memory)) => memory,
+                        _ => {
+                            return Err(wasmtime::Error::msg(
+                                "Test262 agent host call requires exported private memory",
+                            ));
+                        }
+                    };
+                    let read_bytes =
+                        |caller: &WasmtimeCaller<'_, WasmHostState>,
+                         ptr: i64,
+                         len: i64|
+                         -> wasmtime::Result<Vec<u8>> {
+                            let ptr = usize::try_from(ptr).map_err(|_| {
+                                wasmtime::Error::msg("Test262 agent pointer is negative")
+                            })?;
+                            let len = usize::try_from(len).map_err(|_| {
+                                wasmtime::Error::msg("Test262 agent length is negative")
+                            })?;
+                            let mut bytes = vec![0; len];
+                            private_memory.read(caller, ptr, &mut bytes).map_err(|err| {
+                                wasmtime::Error::msg(format!(
+                                    "failed to read Test262 agent memory at {ptr} for {len} bytes: {err}"
+                                ))
+                            })?;
+                            Ok(bytes)
+                        };
+                    let write_bytes =
+                        |caller: &mut WasmtimeCaller<'_, WasmHostState>,
+                         ptr: i64,
+                         bytes: &[u8]|
+                         -> wasmtime::Result<()> {
+                            let ptr = usize::try_from(ptr).map_err(|_| {
+                                wasmtime::Error::msg("Test262 agent pointer is negative")
+                            })?;
+                            private_memory.write(caller, ptr, bytes).map_err(|err| {
+                                wasmtime::Error::msg(format!(
+                                    "failed to write Test262 agent memory at {ptr} for {} bytes: {err}",
+                                    bytes.len()
+                                ))
+                            })
+                        };
+
+                    match operation {
+                        1 => {
+                            let group = group.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "agent.start used without an active Test262 agent group",
+                                )
+                            })?;
+                            let source = String::from_utf8(read_bytes(&caller, first, second)?)
+                                .map_err(|err| {
+                                    wasmtime::Error::msg(format!(
+                                        "Test262 agent source is not UTF-8: {err}"
+                                    ))
+                                })?;
+                            group.start(source).map_err(|err| {
+                                wasmtime::Error::msg(format!(
+                                    "failed to compile or start Test262 agent: {err}"
+                                ))
+                            })?;
+                            if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                                eprintln!("porffor wasm trace: Test262 agent started");
+                            }
+                            Ok(0)
+                        }
+                        2 => {
+                            let group = group.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "agent.broadcast used without an active Test262 agent group",
+                                )
+                            })?;
+                            let descriptor = read_bytes(&caller, first, 32)?;
+                            let field = |offset: usize| {
+                                i64::from_le_bytes(
+                                    descriptor[offset..offset + 8]
+                                        .try_into()
+                                        .expect("agent descriptor field has fixed width"),
+                                )
+                            };
+                            let sent = group.broadcast(WasmAgentBroadcast {
+                                data_offset: field(0),
+                                byte_length: field(8),
+                                max_byte_length: field(16),
+                                flags: field(24),
+                            });
+                            if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                                eprintln!("porffor wasm trace: Test262 broadcast sent to {sent} agents");
+                            }
+                            Ok(sent as i64)
+                        }
+                        3 => {
+                            let _group = group.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "agent.receiveBroadcast used without an active Test262 agent group",
+                                )
+                            })?;
+                            let commands = caller.data().agent_commands.clone().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "agent.receiveBroadcast may only run inside an agent",
+                                )
+                            })?;
+                            let command = commands
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .recv()
+                                .map_err(|err| {
+                                    wasmtime::Error::msg(format!(
+                                        "Test262 agent broadcast channel closed: {err}"
+                                    ))
+                                })?;
+                            let WasmAgentCommand::Broadcast(broadcast) = command else {
+                                return Ok(-1);
+                            };
+                            let mut descriptor = Vec::with_capacity(32);
+                            descriptor.extend_from_slice(&broadcast.data_offset.to_le_bytes());
+                            descriptor.extend_from_slice(&broadcast.byte_length.to_le_bytes());
+                            descriptor.extend_from_slice(&broadcast.max_byte_length.to_le_bytes());
+                            descriptor.extend_from_slice(&broadcast.flags.to_le_bytes());
+                            write_bytes(&mut caller, first, &descriptor)?;
+                            if std::env::var_os("PORFFOR_WASM_TRACE").is_some() {
+                                eprintln!("porffor wasm trace: Test262 agent received broadcast");
+                            }
+                            Ok(0)
+                        }
+                        4 => {
+                            let group = group.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "agent.report used without an active Test262 agent group",
+                                )
+                            })?;
+                            let report = read_bytes(&caller, first, second)?;
+                            let trace_report = std::env::var_os("PORFFOR_WASM_TRACE")
+                                .is_some()
+                                .then(|| String::from_utf8_lossy(&report).into_owned());
+                            group
+                                .reports
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .push_back(report);
+                            if let Some(report) = trace_report {
+                                eprintln!(
+                                    "porffor wasm trace: Test262 agent queued report {report:?}"
+                                );
+                            }
+                            Ok(0)
+                        }
+                        5 => Ok(group.as_ref().map_or(-1, |group| {
+                            group
+                                .reports
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .front()
+                                .map_or(-1, |report| report.len() as i64)
+                        })),
+                        6 => {
+                            let report = group
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    wasmtime::Error::msg(
+                                        "agent.getReport used without an active Test262 agent group",
+                                    )
+                                })?
+                                .reports
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .pop_front()
+                                .ok_or_else(|| {
+                                    wasmtime::Error::msg(
+                                        "Test262 agent report queue changed before copy",
+                                    )
+                                })?;
+                            if report.len() != usize::try_from(second).unwrap_or(usize::MAX) {
+                                return Err(wasmtime::Error::msg(format!(
+                                    "Test262 agent report length changed: expected {second}, observed {}",
+                                    report.len()
+                                )));
+                            }
+                            write_bytes(&mut caller, first, &report)?;
+                            Ok(second)
+                        }
+                        7 => {
+                            let milliseconds = f64::from_bits(first as u64);
+                            if milliseconds.is_finite() && milliseconds > 0.0 {
+                                std::thread::sleep(std::time::Duration::from_secs_f64(
+                                    milliseconds / 1000.0,
+                                ));
+                            }
+                            Ok(0)
+                        }
+                        8 => {
+                            let elapsed = group.as_ref().map_or_else(
+                                || caller.data().monotonic_clock_origin.elapsed(),
+                                |group| group.started_at.elapsed(),
+                            );
+                            Ok((elapsed.as_secs_f64() * 1000.0).to_bits() as i64)
+                        }
+                        9 => {
+                            if let Some(leaving) = &caller.data().agent_leaving {
+                                leaving.store(true, std::sync::atomic::Ordering::Release);
+                            }
+                            Ok(0)
+                        }
+                        10 => {
+                            let shared_memory_backing =
+                                shared_memory_backing.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "Atomics.waitAsync registration requires imported shared memory",
+                                )
+                            })?;
+                            Ok(shared_memory_backing.register_async_waiter(first))
+                        }
+                        11 => {
+                            let shared_memory_backing =
+                                shared_memory_backing.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "Atomics.waitAsync polling requires imported shared memory",
+                                )
+                            })?;
+                            Ok(shared_memory_backing.poll_async_waiter(first))
+                        }
+                        12 => {
+                            let shared_memory_backing =
+                                shared_memory_backing.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "Atomics.notify requires imported shared memory",
+                                )
+                            })?;
+                            Ok(shared_memory_backing.notify_async_waiters(first, second))
+                        }
+                        13 => {
+                            let shared_memory_backing =
+                                shared_memory_backing.as_ref().ok_or_else(|| {
+                                wasmtime::Error::msg(
+                                    "Atomics.waitAsync cancellation requires imported shared memory",
+                                )
+                            })?;
+                            Ok(shared_memory_backing.cancel_async_waiter(first))
+                        }
+                        _ => Err(wasmtime::Error::msg(format!(
+                            "unknown Test262 agent host operation {operation}"
+                        ))),
+                    }
+                },
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_WALL_CLOCK_MILLIS,
+                wall_clock_millis,
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
+                |caller: WasmtimeCaller<'_, WasmHostState>| -> i64 {
+                    i64::try_from(caller.data().monotonic_clock_origin.elapsed().as_nanos())
+                        .unwrap_or(i64::MAX)
+                },
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_SLEEP_NANOS,
+                |_caller: WasmtimeCaller<'_, WasmHostState>, nanos: i64| {
+                    let Ok(nanos) = u64::try_from(nanos) else {
+                        return;
+                    };
+                    std::thread::sleep(std::time::Duration::from_nanos(nanos.min(1_000_000)));
+                },
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
@@ -1326,6 +2392,13 @@ impl Engine {
                 },
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_NUMBER_POW,
+                wasm_number_pow,
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         trace_phase("store + linker", store_started);
         let instantiate_started = std::time::Instant::now();
         let instance = linker
@@ -1337,8 +2410,21 @@ impl Engine {
             .get_typed_func::<(), i64>(&mut store, "main")
             .map_err(|err| EngineError::new(format!("wasmtime export lookup failed: {err}")))?;
         trace_phase("lookup main", lookup_started);
+        let epoch_deadline_ticks = match timeout_ms {
+            // The ticker's phase is independent of this Store. One guard
+            // tick ensures the deadline cannot expire before the requested
+            // wall time when arming happens just before a process-wide tick.
+            Some(timeout_ms) => timeout_ms.div_ceil(WASM_EPOCH_TICK_MS).max(1) + 1,
+            None => u64::MAX / 2,
+        };
+        store.set_epoch_deadline(epoch_deadline_ticks);
+        if let Some(agent_execution) = &agent_execution {
+            agent_execution.ready.send(()).map_err(|_| {
+                EngineError::new("Test262 agent owner stopped before the agent became ready")
+            })?;
+        }
         let execution_started = std::time::Instant::now();
-        let payload = main.call(&mut store, ()).map_err(|err| {
+        let execution_result = main.call(&mut store, ()).map_err(|err| {
             if is_wasm_epoch_interrupt(&err) {
                 // Distinguish this from other traps with the same "timeout
                 // exceeded" phrasing the child-process/elapsed-time timeout
@@ -1349,13 +2435,18 @@ impl Engine {
                 // OutcomeKind timeout bucketing, `RunSummary::timeouts`).
                 EngineError::new(format!(
                     "timeout exceeded after {}ms (wasm epoch interrupt, bound {}ms)",
-                    trace_start.elapsed().as_millis(),
+                    execution_started.elapsed().as_millis(),
                     timeout_ms.unwrap_or(0)
                 ))
             } else {
                 EngineError::new(format!("wasmtime execution trapped: {err:?}"))
             }
-        })?;
+        });
+        let agent_result = root_agent_group
+            .as_ref()
+            .map_or(Ok(()), |group| group.finish());
+        agent_result?;
+        let payload = execution_result?;
         trace_phase("execution", execution_started);
         let result_tag = instance
             .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
@@ -1572,6 +2663,157 @@ fn render_wasmtime_completion(
 mod tests {
     use super::*;
 
+    const TEST262_AGENT_PRELUDE: &str = r#"
+var $262 = {
+  agent: {
+    start: function (source) { return __porfAgentStart(source); },
+    broadcast: function (sab) { return __porfAgentBroadcast(sab); },
+    receiveBroadcast: function (callback) {
+      return callback(__porfAgentReceiveBroadcast());
+    },
+    report: function (value) { return __porfAgentReport(value); },
+    getReport: function () { return __porfAgentGetReport(); },
+    sleep: function (milliseconds) { return __porfAgentSleep(milliseconds); },
+    monotonicNow: function () { return __porfAgentMonotonicNow(); },
+    leaving: function () { return __porfAgentLeaving(); }
+  }
+};
+"#;
+
+    #[test]
+    fn wasm_agents_share_buffers_and_deliver_reports() {
+        let source = format!(
+            r#"{TEST262_AGENT_PRELUDE}
+$262.agent.start("$262.agent.receiveBroadcast(function (sab) {{ var view = new Int32Array(sab); $262.agent.report(Atomics.add(view, 0, 1) + 1); $262.agent.leaving(); }});");
+var sab = new SharedArrayBuffer(4);
+new Int32Array(sab)[0] = 41;
+$262.agent.broadcast(sab);
+var report = null;
+for (var attempt = 0; attempt < 10000 && report === null; attempt++) {{
+  $262.agent.sleep(1);
+  report = $262.agent.getReport();
+}}
+report;
+"#
+        );
+        let engine = Engine::new(RealmBuilder::new().build());
+        let outcome = engine
+            .run_wasm_aot_script_with_agents(
+                &source,
+                CompileOptions::default(),
+                Some(30_000),
+                true,
+                TEST262_AGENT_PRELUDE.to_string(),
+            )
+            .expect("agent should mutate the shared buffer and report its result");
+
+        assert!(outcome.note.contains("42"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_agents_notify_wait_async_promises_across_instances() {
+        let source = format!(
+            r#"{TEST262_AGENT_PRELUDE}
+$262.agent.start("$262.agent.receiveBroadcast(async function (sab) {{ var view = new Int32Array(sab); Atomics.add(view, 1, 1); var outcome = await Atomics.waitAsync(view, 0, 0).value; $262.agent.report(outcome); $262.agent.leaving(); }});");
+var sab = new SharedArrayBuffer(8);
+var view = new Int32Array(sab);
+$262.agent.broadcast(sab);
+while (Atomics.load(view, 1) !== 1) {{
+  $262.agent.sleep(1);
+}}
+var notified = 0;
+while (notified === 0) {{
+  notified = Atomics.notify(view, 0, 1);
+  $262.agent.sleep(1);
+}}
+var report = null;
+while (report === null) {{
+  $262.agent.sleep(1);
+  report = $262.agent.getReport();
+}}
+notified + ":" + report;
+"#
+        );
+        let outcome = engine()
+            .run_wasm_aot_script_with_agents(
+                &source,
+                CompileOptions::default(),
+                Some(30_000),
+                true,
+                TEST262_AGENT_PRELUDE.to_string(),
+            )
+            .expect("cross-instance notify should settle the originating waitAsync promise");
+
+        assert!(outcome.note.contains("1:ok"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_agent_wait_async_timeout_removes_the_host_waiter() {
+        let source = format!(
+            r#"{TEST262_AGENT_PRELUDE}
+$262.agent.start("$262.agent.receiveBroadcast(async function (sab) {{ var view = new Int32Array(sab); var outcome = await Atomics.waitAsync(view, 0, 0, 5).value; $262.agent.report(outcome); $262.agent.leaving(); }});");
+var sab = new SharedArrayBuffer(4);
+$262.agent.broadcast(sab);
+var report = null;
+while (report === null) {{
+  $262.agent.sleep(1);
+  report = $262.agent.getReport();
+}}
+report;
+"#
+        );
+        let outcome = engine()
+            .run_wasm_aot_script_with_agents(
+                &source,
+                CompileOptions::default(),
+                Some(30_000),
+                true,
+                TEST262_AGENT_PRELUDE.to_string(),
+            )
+            .expect("an agent waitAsync timeout should settle after canceling its host waiter");
+
+        assert!(outcome.note.contains("timed-out"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_agents_run_test262_wait_until_with_exact_assertions() {
+        let merged_harness = include_str!("../../../test262/harness-wasm-aot.js");
+        let section = |name: &str| {
+            merged_harness
+                .split("///")
+                .skip(1)
+                .find_map(|contents| {
+                    let mut lines = contents.lines();
+                    (lines.next()?.trim() == name).then(|| lines.collect::<Vec<_>>().join("\n"))
+                })
+                .unwrap_or_else(|| panic!("missing {name} in Wasm-AOT harness"))
+        };
+        let assert_harness = section("assert.js");
+        let atomics_harness =
+            include_str!("../../../test262/vendor/test262/harness/atomicsHelper.js");
+        let test_source = include_str!(
+            "../../../test262/vendor/test262/test/built-ins/Atomics/notify/notify-with-no-agents-waiting.js"
+        );
+        let source = format!(
+            "{}\n{}\n{}\n{}\ntrue;",
+            section("sta.js"),
+            assert_harness,
+            atomics_harness,
+            test_source,
+        );
+        let agent_prelude = format!("{}\n{}", assert_harness, section("sta.js"));
+        let outcome = engine()
+            .run_wasm_aot_script_with_agents(
+                &source,
+                CompileOptions::default(),
+                Some(60_000),
+                true,
+                agent_prelude,
+            )
+            .expect("exact Test262 assertions should run after the agent wait loop");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
     #[test]
     fn program_cache_key_tracks_source_goal_and_configuration() {
         let base = CompileOptions {
@@ -1597,6 +2839,119 @@ mod tests {
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed)
         );
+    }
+
+    #[test]
+    fn program_cache_key_changes_when_compiler_artifact_changes() {
+        let options = CompileOptions::default();
+        let before = compiler_artifact_fingerprint(std::io::Cursor::new(
+            b"compiler artifact containing emitter source version one",
+        ))
+        .unwrap();
+        let after = compiler_artifact_fingerprint(std::io::Cursor::new(
+            b"compiler artifact containing emitter source version two",
+        ))
+        .unwrap();
+
+        assert_ne!(before, after);
+        assert_ne!(
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "1 + 2",
+                ParseGoal::Script,
+                &options,
+                &before,
+            ),
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "1 + 2",
+                ParseGoal::Script,
+                &options,
+                &after,
+            )
+        );
+    }
+
+    #[test]
+    fn program_wasm_cache_reuses_emitted_artifact() {
+        let cache_root = std::env::temp_dir().join(format!(
+            "porffor-engine-program-cache-reuse-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&cache_root);
+        let cache = Arc::new(
+            cache::FunctionCache::new(cache_root.clone(), 64 * 1024 * 1024)
+                .expect("program cache should initialize"),
+        );
+        let source = "true;";
+        let options = CompileOptions {
+            filename: Some("cache-reuse.js".to_string()),
+            ..CompileOptions::default()
+        };
+        let key = program_wasm_cache_key(source, ParseGoal::Script, &options);
+        let engine = engine();
+
+        let first = run_on_sized_stack(|| {
+            engine.load_or_compile_program_wasm_on_current_thread(
+                source,
+                ParseGoal::Script,
+                options.clone(),
+                Some(Arc::clone(&cache)),
+            )
+        })
+        .expect("cache miss should emit Wasm");
+        assert!(first.cached_entry.is_none());
+        assert!(first.bytes.starts_with(b"\0asm"));
+        assert!(cache.contains(&key));
+
+        let second = engine
+            .load_or_compile_program_wasm_on_current_thread(
+                source,
+                ParseGoal::Script,
+                options,
+                Some(Arc::clone(&cache)),
+            )
+            .expect("cache hit should load emitted Wasm");
+        assert!(second.cached_entry.is_some());
+        assert_eq!(second.bytes, first.bytes);
+
+        let _ = std::fs::remove_dir_all(cache_root);
+    }
+
+    #[test]
+    fn program_wasm_cache_evicts_only_invalid_cached_artifacts() {
+        let cache_root = std::env::temp_dir().join(format!(
+            "porffor-engine-program-cache-corruption-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&cache_root);
+        let cache = Arc::new(
+            cache::FunctionCache::new(cache_root.clone(), 1024)
+                .expect("program cache should initialize"),
+        );
+        let source = "not valid JavaScript";
+        let options = CompileOptions::default();
+        let key = program_wasm_cache_key(source, ParseGoal::Script, &options);
+        assert!(cache.write(&key, vec![0, 1, 2, 3]));
+
+        let artifact = engine()
+            .load_or_compile_program_wasm_on_current_thread(
+                source,
+                ParseGoal::Script,
+                options,
+                Some(Arc::clone(&cache)),
+            )
+            .expect("cache hit should not compile its source");
+        assert_eq!(artifact.bytes.as_ref(), &[0, 1, 2, 3]);
+        assert!(!artifact
+            .evict_if_invalid(&EngineError::new("wasmtime execution trapped: unreachable")));
+        assert!(cache.contains(&key));
+        assert!(artifact.evict_if_invalid(&EngineError::new(
+            "wasmtime module validation failed: invalid magic"
+        )));
+        assert!(!cache.contains(&key));
+
+        let _ = std::fs::remove_dir_all(cache_root);
     }
 
     fn push_unsigned_leb128(output: &mut Vec<u8>, mut value: usize) {
@@ -1890,6 +3245,21 @@ mod tests {
         )
     }
 
+    #[test]
+    fn wasm_number_pow_matches_ecmascript_special_values() {
+        assert_eq!(wasm_number_pow(f64::NAN, 0.0), 1.0);
+        assert!(wasm_number_pow(1.0, f64::INFINITY).is_nan());
+        assert!(wasm_number_pow(-1.0, f64::NEG_INFINITY).is_nan());
+        assert_eq!(wasm_number_pow(f64::NEG_INFINITY, 3.0), f64::NEG_INFINITY);
+        assert_eq!(
+            wasm_number_pow(f64::NEG_INFINITY, -3.0).to_bits(),
+            (-0.0f64).to_bits()
+        );
+        assert_eq!(wasm_number_pow(-0.0, -3.0), f64::NEG_INFINITY);
+        assert_eq!(wasm_number_pow(-0.0, 3.0).to_bits(), (-0.0f64).to_bits());
+        assert!(wasm_number_pow(-4.0, 0.5).is_nan());
+    }
+
     fn run_wasm_raw(
         source: &str,
     ) -> (
@@ -1912,6 +3282,12 @@ mod tests {
             &wasm_engine,
             WasmHostState {
                 realm: engine.realm.clone(),
+                can_block: true,
+                monotonic_clock_origin: std::time::Instant::now(),
+                shared_memory_backing: None,
+                agent_group: None,
+                agent_commands: None,
+                agent_leaving: None,
                 limits: WasmtimeStoreLimitsBuilder::new()
                     .memory_size(WASM_STORE_MEMORY_CAP_BYTES)
                     .build(),
@@ -1923,6 +3299,13 @@ mod tests {
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_AGENT_CAN_SUSPEND,
+                |_caller: WasmtimeCaller<'_, WasmHostState>| -> i32 { 1 },
+            )
+            .expect("host agent capability import should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_PRINT_LINE_UTF8,
                 |_caller: WasmtimeCaller<'_, WasmHostState>,
                  _ptr: i32,
@@ -1930,6 +3313,20 @@ mod tests {
                  -> wasmtime::Result<()> { Ok(()) },
             )
             .expect("host print import should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_NUMBER_POW,
+                wasm_number_pow,
+            )
+            .expect("host number pow import should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_WALL_CLOCK_MILLIS,
+                wall_clock_millis,
+            )
+            .expect("host wall clock import should link");
         let instance = linker
             .instantiate(&mut store, &module)
             .expect("instance should instantiate");
@@ -1992,6 +3389,16 @@ mod tests {
             post_main_prefix,
             bytes,
         )
+    }
+
+    #[test]
+    fn raw_wasm_test_linker_supports_date_now_wall_clock_import() {
+        let (payload, tag, completion_kind, _, _, _) = run_wasm_raw("Date.now();");
+        let milliseconds = f64::from_bits(payload as u64);
+
+        assert_eq!(tag.value_kind(), ValueKind::Number);
+        assert_eq!(completion_kind, 0);
+        assert!((946_684_800_000.0..=4_102_444_800_000.0).contains(&milliseconds));
     }
 
     fn wasm_import_export_names(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
@@ -2074,12 +3481,11 @@ mod tests {
                 .emit_wasm(&unit)
                 .unwrap_or_else(|err| panic!("{label} should emit wasm: {err:?}"));
             let (imports, exports) = wasm_import_export_names(&artifact.bytes);
-            // None of these characterization sources call `print`/`console`,
-            // so the emitted module should carry no host imports at all —
-            // the backend now elides unused host imports instead of always
-            // pulling in `porf_host::print_line_utf8`, producing a leaner
-            // public surface than the previously locked expectation.
-            assert!(imports.is_empty(), "{label} imports: {imports:?}");
+            assert_eq!(
+                imports,
+                ["porf_host::agent_can_suspend"],
+                "{label} imports: {imports:?}"
+            );
             for export in [
                 "main",
                 "memory",
@@ -2132,12 +3538,60 @@ mod tests {
     }
 
     #[test]
+    fn wasm_atomics_wait_uses_host_agent_suspend_capability() {
+        let source = "
+            const view = new Int32Array(new SharedArrayBuffer(4));
+            try {
+                Atomics.wait(view, 0, 0, 0);
+                false;
+            } catch (error) {
+                error instanceof TypeError;
+            }
+        ";
+        let cannot_suspend = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    can_block: false,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("non-suspendable agent should run");
+        assert!(
+            cannot_suspend.note.contains("boolean(true)"),
+            "{}",
+            cannot_suspend.note
+        );
+
+        let can_suspend = engine()
+            .run_script(
+                "const view = new Int32Array(new SharedArrayBuffer(4));
+                 Atomics.wait(view, 0, 0, 0) === 'timed-out';",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    can_block: true,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("suspendable agent should run");
+        assert!(
+            can_suspend.note.contains("boolean(true)"),
+            "{}",
+            can_suspend.note
+        );
+    }
+
+    #[test]
     fn current_thread_wasm_aot_entry_runs_on_a_sized_worker() {
         let outcome = run_on_sized_stack(|| {
             engine().run_wasm_aot_script_on_current_thread(
                 "40 + 2;",
                 CompileOptions::default(),
                 None,
+                true,
             )
         })
         .expect("current-thread Wasm-AOT run should succeed");
@@ -2161,7 +3615,12 @@ mod tests {
         );
 
         run_on_sized_stack(|| {
-            engine().run_wasm_aot_script_on_current_thread(source, CompileOptions::default(), None)
+            engine().run_wasm_aot_script_on_current_thread(
+                source,
+                CompileOptions::default(),
+                None,
+                true,
+            )
         })
         .expect("current-thread Wasm-AOT run should succeed");
 
@@ -3627,6 +5086,1091 @@ try { otherRawJSON(Symbol("1")); } catch (error) {
     }
 
     #[test]
+    fn wasm_backend_object_seal_sets_integrity_level_and_observes_proxy_operations() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var target = { value: 1 };
+var symbol = Symbol("sealed");
+target[symbol] = 3;
+Object.defineProperty(target, "accessor", {
+  get: function() { return 2; },
+  configurable: true
+});
+var sealed = Object.seal(target);
+var valueDescriptor = Object.getOwnPropertyDescriptor(target, "value");
+var accessorDescriptor = Object.getOwnPropertyDescriptor(target, "accessor");
+var symbolDescriptor = Object.getOwnPropertyDescriptor(target, symbol);
+target.value = 4;
+target.extra = 5;
+var deleted = delete target.value;
+
+var array = [1];
+Object.seal(array);
+var elementDescriptor = Object.getOwnPropertyDescriptor(array, "0");
+var lengthDescriptor = Object.getOwnPropertyDescriptor(array, "length");
+array[0] = 2;
+var pushError = "none";
+try { array.push(3); } catch (error) { pushError = error.name; }
+
+var calls = [];
+var proxyTarget = { x: 1 };
+var proxy = new Proxy(proxyTarget, {
+  preventExtensions: function(target) {
+    calls.push("preventExtensions");
+    return Reflect.preventExtensions(target);
+  },
+  ownKeys: function(target) {
+    calls.push("ownKeys");
+    return Reflect.ownKeys(target);
+  },
+  defineProperty: function(target, key, descriptor) {
+    calls.push("defineProperty " + key);
+    return Reflect.defineProperty(target, key, descriptor);
+  }
+});
+var sealedProxy = Object.seal(proxy);
+
+var preventRejected = false;
+try {
+  Object.seal(new Proxy({}, {
+    preventExtensions: function() { return false; }
+  }));
+} catch (error) {
+  preventRejected = error instanceof TypeError;
+}
+var defineTarget = { x: 1 };
+var defineRejected = false;
+try {
+  Object.seal(new Proxy(defineTarget, {
+    preventExtensions: function(target) {
+      return Reflect.preventExtensions(target);
+    },
+    defineProperty: function() { return false; }
+  }));
+} catch (error) {
+  defineRejected = error instanceof TypeError;
+}
+var constructRejected = false;
+try { new Object.seal({}); } catch (error) {
+  constructRejected = error instanceof TypeError;
+}
+
+[
+  typeof Object.seal,
+  Object.seal.length,
+  Object.seal.name,
+  sealed === target,
+  Object.isSealed(target),
+  Object.isFrozen(target),
+  valueDescriptor.configurable,
+  valueDescriptor.writable,
+  accessorDescriptor.configurable,
+  symbolDescriptor.configurable,
+  target.value,
+  "extra" in target,
+  deleted,
+  Object.isSealed(array),
+  elementDescriptor.configurable,
+  elementDescriptor.writable,
+  lengthDescriptor.writable,
+  array[0],
+  array.length,
+  pushError,
+  sealedProxy === proxy,
+  Object.isSealed(proxyTarget),
+  calls.join(","),
+  preventRejected,
+  defineRejected,
+  constructRejected,
+  Object.seal(1) === 1,
+  Object.seal() === undefined
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.seal should implement SetIntegrityLevel semantics");
+        assert!(
+            outcome.note.contains(
+                "string(function|1|seal|true|true|false|false|true|false|false|4|false|false|true|false|true|true|2|1|TypeError|true|true|preventExtensions,ownKeys,defineProperty x|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_seal_preserves_arguments_properties() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function sealArguments() {
+  return arguments;
+}
+function freezeMapped(value) {
+  var values = arguments;
+  Object.freeze(values);
+  value = 2;
+  return values[0] === 1 && Object.isFrozen(values);
+}
+var values = sealArguments();
+values.foo = 10;
+Object.seal(values);
+var descriptor = Object.getOwnPropertyDescriptor(values, "foo");
+var specialOnly = sealArguments();
+Object.preventExtensions(specialOnly);
+var configurableNamed = sealArguments();
+Object.defineProperty(configurableNamed, "length", { configurable: false });
+Object.defineProperty(configurableNamed, "callee", { configurable: false });
+configurableNamed.foo = 1;
+Object.preventExtensions(configurableNamed);
+var frozen = sealArguments();
+frozen.foo = 1;
+Object.freeze(frozen);
+var frozenNamed = [];
+frozenNamed.foo = 1;
+Object.freeze(frozenNamed);
+var namedOnly = [];
+namedOnly.foo = 1;
+Object.defineProperty(namedOnly, "length", { writable: false });
+Object.preventExtensions(namedOnly);
+[
+  !Object.isExtensible(values),
+  Object.isSealed(values),
+  !Object.isFrozen(values),
+  descriptor.configurable === false,
+  descriptor.value === 10,
+  values.foo === 10,
+  !Object.isSealed(specialOnly),
+  !Object.isFrozen(specialOnly),
+  !Object.isSealed(configurableNamed),
+  !Object.isFrozen(configurableNamed),
+  Object.isSealed(frozen),
+  Object.isFrozen(frozen),
+  Object.isSealed(frozenNamed),
+  Object.isFrozen(frozenNamed),
+  freezeMapped(1),
+  !Object.isSealed(namedOnly),
+  !Object.isFrozen(namedOnly)
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.seal should preserve existing Arguments properties");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_freeze_preserves_sparse_array_elements() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var values = [0, 1];
+values[10000] = 10000;
+Object.freeze(values);
+var descriptor = Object.getOwnPropertyDescriptor(values, "10000");
+[
+  Object.isFrozen(values),
+  values[10000],
+  values.length,
+  descriptor.writable,
+  descriptor.configurable,
+  Object.hasOwn(values, "9999")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.freeze should preserve sparse array elements");
+        assert!(
+            outcome
+                .note
+                .contains("string(true|10000|10001|false|false|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_entries_and_values_expose_standard_metadata_and_coerce_primitives() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var entriesDescriptor = Object.getOwnPropertyDescriptor(Object, "entries");
+var valuesDescriptor = Object.getOwnPropertyDescriptor(Object, "values");
+var entriesNullError = "missing";
+var valuesUndefinedError = "missing";
+var entriesConstructionError = "missing";
+var valuesConstructionError = "missing";
+try {
+  Object.entries(null);
+} catch (error) {
+  entriesNullError = error.name;
+}
+try {
+  Object.values(undefined);
+} catch (error) {
+  valuesUndefinedError = error.name;
+}
+try {
+  new Object.entries({});
+} catch (error) {
+  entriesConstructionError = error.name;
+}
+try {
+  new Object.values({});
+} catch (error) {
+  valuesConstructionError = error.name;
+}
+var stringEntries = Object.entries("ab");
+var emptyPrimitiveCount =
+  Object.values(true).length +
+  Object.values(1).length +
+  Object.values(Symbol("s")).length +
+  Object.values(1n).length;
+var originalKeys = Object.keys;
+Object.keys = function() {
+  throw "Object.keys must not be called";
+};
+var tamperedValues = Object.values({ x: 7 });
+var tamperedEntries = Object.entries({ x: 7 });
+Object.keys = originalKeys;
+[
+  Object.entries.length,
+  Object.entries.name,
+  entriesDescriptor.writable,
+  entriesDescriptor.enumerable,
+  entriesDescriptor.configurable,
+  Object.values.length,
+  Object.values.name,
+  valuesDescriptor.writable,
+  valuesDescriptor.enumerable,
+  valuesDescriptor.configurable,
+  entriesNullError,
+  valuesUndefinedError,
+  entriesConstructionError,
+  valuesConstructionError,
+  Object.values("ab").join(","),
+  stringEntries[0].join(":") + "," + stringEntries[1].join(":"),
+  emptyPrimitiveCount,
+  tamperedValues[0],
+  tamperedEntries[0][0],
+  tamperedEntries[0][1]
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.entries and Object.values should coerce primitives");
+        assert!(
+            outcome.note.contains(
+                "string(1|entries|true|false|true|1|values|true|false|true|TypeError|TypeError|TypeError|TypeError|a,b|0:a,1:b|0|7|x|7)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_entries_and_values_snapshot_keys_and_recheck_descriptors() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var symbol = Symbol("symbol");
+var ordered = Object.create({ inherited: "inherited" });
+ordered.b = "old-b";
+ordered[2] = "two";
+ordered[1] = "one";
+ordered.a = "a";
+Object.defineProperty(ordered, "hidden", {
+  value: "hidden",
+  enumerable: false
+});
+ordered[symbol] = "symbol";
+Object.defineProperty(ordered, "a", {
+  value: "updated-a"
+});
+delete ordered.b;
+ordered.b = "b";
+var orderedEntries = Object.entries(ordered);
+
+function makeMutationObject() {
+  var target = {};
+  Object.defineProperty(target, "first", {
+    enumerable: true,
+    get: function() {
+      delete target.deleted;
+      Object.defineProperty(target, "later", {
+        enumerable: false
+      });
+      target.added = "added";
+      return "first";
+    }
+  });
+  Object.defineProperty(target, "deleted", {
+    value: "deleted",
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(target, "later", {
+    value: "later",
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(target, "last", {
+    enumerable: true,
+    get: function() {
+      return "last";
+    }
+  });
+  return target;
+}
+
+var mutationValues = Object.values(makeMutationObject());
+var mutationEntries = Object.entries(makeMutationObject());
+[
+  Object.values(ordered).join(","),
+  orderedEntries[0].join(":") + "," +
+    orderedEntries[1].join(":") + "," +
+    orderedEntries[2].join(":") + "," +
+    orderedEntries[3].join(":"),
+  orderedEntries.length,
+  orderedEntries[0] !== orderedEntries[1],
+  Array.isArray(orderedEntries[0]),
+  mutationValues.join(","),
+  mutationEntries[0].join(":") + "," + mutationEntries[1].join(":"),
+  mutationEntries.length
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.entries and Object.values should use live enumerable descriptors");
+        assert!(
+            outcome.note.contains(
+                "string(one,two,updated-a,b|1:one,2:two,a:updated-a,b:b|4|true|true|first,last|first:first,last:last|2)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_entries_and_values_observe_proxy_operations_and_abrupt_completion() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+var symbol = Symbol("symbol");
+var receiverIsProxy = false;
+var target = {};
+Object.defineProperty(target, "a", {
+  value: 1,
+  enumerable: true
+});
+Object.defineProperty(target, "hidden", {
+  value: 9,
+  enumerable: false
+});
+Object.defineProperty(target, "b", {
+  enumerable: true,
+  get: function() {
+    receiverIsProxy = this === proxy;
+    return 2;
+  }
+});
+var proxy = new Proxy(target, {
+  ownKeys: function() {
+    calls.push("ownKeys");
+    return ["a", symbol, "hidden", "b"];
+  },
+  getOwnPropertyDescriptor: function(target, key) {
+    calls.push("desc:" + key);
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  },
+  get: function(target, key, receiver) {
+    calls.push("get:" + key);
+    return Reflect.get(target, key, receiver);
+  }
+});
+var values = Object.values(proxy);
+var valuesCalls = calls.join(",");
+var valuesReceiverIsProxy = receiverIsProxy;
+calls.length = 0;
+receiverIsProxy = false;
+var entries = Object.entries(proxy);
+var entriesCalls = calls.join(",");
+var entriesReceiverIsProxy = receiverIsProxy;
+
+var ownKeysMarker = {};
+var ownKeysIdentity = false;
+try {
+  Object.values(new Proxy({}, {
+    ownKeys: function() {
+      throw ownKeysMarker;
+    }
+  }));
+} catch (error) {
+  ownKeysIdentity = error === ownKeysMarker;
+}
+
+calls.length = 0;
+var descriptorMarker = {};
+var descriptorIdentity = false;
+try {
+  Object.entries(new Proxy({ a: 1, b: 2 }, {
+    ownKeys: function() {
+      calls.push("ownKeys");
+      return ["a", "b"];
+    },
+    getOwnPropertyDescriptor: function(target, key) {
+      calls.push("desc:" + key);
+      throw descriptorMarker;
+    },
+    get: function() {
+      calls.push("unexpected get");
+    }
+  }));
+} catch (error) {
+  descriptorIdentity = error === descriptorMarker;
+}
+var descriptorCalls = calls.join(",");
+
+calls.length = 0;
+var getterMarker = {};
+var getterIdentity = false;
+var laterTouched = false;
+var abruptTarget = {};
+Object.defineProperty(abruptTarget, "a", {
+  enumerable: true,
+  get: function() {
+    throw getterMarker;
+  }
+});
+Object.defineProperty(abruptTarget, "b", {
+  enumerable: true,
+  get: function() {
+    laterTouched = true;
+    return 2;
+  }
+});
+try {
+  Object.values(new Proxy(abruptTarget, {
+    ownKeys: function() {
+      calls.push("ownKeys");
+      return ["a", "b"];
+    },
+    getOwnPropertyDescriptor: function(target, key) {
+      calls.push("desc:" + key);
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+    get: function(target, key, receiver) {
+      calls.push("get:" + key);
+      return Reflect.get(target, key, receiver);
+    }
+  }));
+} catch (error) {
+  getterIdentity = error === getterMarker;
+}
+[
+  values.join(","),
+  valuesCalls,
+  valuesReceiverIsProxy,
+  entries[0].join(":") + "," + entries[1].join(":"),
+  entriesCalls,
+  entriesReceiverIsProxy,
+  ownKeysIdentity,
+  descriptorIdentity,
+  descriptorCalls,
+  getterIdentity,
+  calls.join(","),
+  laterTouched
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.entries and Object.values should observe Proxy internal methods");
+        assert!(
+            outcome.note.contains(
+                "string(1,2|ownKeys,desc:a,get:a,desc:hidden,desc:b,get:b|true|a:1,b:2|ownKeys,desc:a,get:a,desc:hidden,desc:b,get:b|true|true|true|ownKeys,desc:a|true|ownKeys,desc:a,get:a|false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_assign_copies_live_enumerable_properties_with_strict_set() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+var symbol = Symbol("symbol");
+var sourceTarget = { a: 1 };
+Object.defineProperty(sourceTarget, "hidden", {
+  value: 2,
+  enumerable: false
+});
+sourceTarget[symbol] = 3;
+var source = new Proxy(sourceTarget, {
+  ownKeys: function() {
+    calls.push("ownKeys");
+    return ["a", "hidden", symbol];
+  },
+  getOwnPropertyDescriptor: function(target, key) {
+    calls.push("desc:" + (key === symbol ? "symbol" : key));
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  },
+  get: function(target, key, receiver) {
+    calls.push("get:" + (key === symbol ? "symbol" : key));
+    return Reflect.get(target, key, receiver);
+  }
+});
+var targetObject = {};
+var target = new Proxy(targetObject, {
+  set: function(object, key, value) {
+    calls.push("set:" + (key === symbol ? "symbol" : key));
+    object[key] = value;
+    return true;
+  }
+});
+var result = Object.assign(target, null, undefined, "xy", source, { z: 4 });
+var nonExtensibleError = "missing";
+try {
+  Object.assign(Object.preventExtensions({}), { q: 1 });
+} catch (error) {
+  nonExtensibleError = error.name;
+}
+var readOnlyStringError = "missing";
+try {
+  Object.assign("a", [1]);
+} catch (error) {
+  readOnlyStringError = error.name;
+}
+var nullTargetError = "missing";
+try {
+  Object.assign(null, {});
+} catch (error) {
+  nullTargetError = error.name;
+}
+var constructionError = "missing";
+try {
+  new Object.assign({}, {});
+} catch (error) {
+  constructionError = error.name;
+}
+var boxedTarget = Object.assign("a", { x: 1 });
+var descriptor = Object.getOwnPropertyDescriptor(Object, "assign");
+[
+  result === target,
+  targetObject[0],
+  targetObject[1],
+  targetObject.a,
+  targetObject[symbol],
+  targetObject.z,
+  calls.join(","),
+  nonExtensibleError,
+  readOnlyStringError,
+  nullTargetError,
+  constructionError,
+  typeof boxedTarget,
+  boxedTarget.x,
+  Object.assign.length,
+  Object.assign.name,
+  descriptor.writable,
+  descriptor.enumerable,
+  descriptor.configurable
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.assign should copy live enumerable own properties");
+        assert!(
+            outcome.note.contains(
+                "string(true|x|y|1|3|4|set:0,set:1,ownKeys,desc:a,get:a,set:a,desc:hidden,desc:symbol,get:symbol,set:symbol,set:z|TypeError|TypeError|TypeError|TypeError|object|1|2|assign|true|false|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_get_own_property_descriptors_preserves_descriptors_and_proxy_order() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var getter = function() {
+  throw "descriptor getter must not run";
+};
+var setter = function(value) {};
+var symbol = Symbol("symbol");
+var source = Object.create({ inherited: 9 });
+Object.defineProperty(source, "a", {
+  value: 1,
+  writable: false,
+  enumerable: true,
+  configurable: false
+});
+Object.defineProperty(source, "b", {
+  get: getter,
+  set: setter,
+  enumerable: false,
+  configurable: true
+});
+source[symbol] = 3;
+var calls = [];
+var proxy = new Proxy(source, {
+  ownKeys: function() {
+    calls.push("ownKeys");
+    return ["a", "missing", "b", symbol];
+  },
+  getOwnPropertyDescriptor: function(target, key) {
+    calls.push("desc:" + (key === symbol ? "symbol" : key));
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  },
+  get: function() {
+    calls.push("unexpected get");
+  }
+});
+var descriptors = Object.getOwnPropertyDescriptors(proxy);
+var resultProperty = Object.getOwnPropertyDescriptor(descriptors, "a");
+var stringDescriptors = Object.getOwnPropertyDescriptors("ab");
+var originalGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+Object.getOwnPropertyDescriptor = function() {
+  throw "the plural builtin must use the internal operation";
+};
+var untampered = Object.getOwnPropertyDescriptors({ x: 7 });
+Object.getOwnPropertyDescriptor = originalGetOwnPropertyDescriptor;
+var nullError = "missing";
+try {
+  Object.getOwnPropertyDescriptors(null);
+} catch (error) {
+  nullError = error.name;
+}
+var constructionError = "missing";
+try {
+  new Object.getOwnPropertyDescriptors({});
+} catch (error) {
+  constructionError = error.name;
+}
+var builtinDescriptor =
+  Object.getOwnPropertyDescriptor(Object, "getOwnPropertyDescriptors");
+[
+  descriptors.a.value,
+  descriptors.a.writable,
+  descriptors.a.enumerable,
+  descriptors.a.configurable,
+  descriptors.b.get === getter,
+  descriptors.b.set === setter,
+  descriptors.b.enumerable,
+  descriptors.b.configurable,
+  descriptors[symbol].value,
+  Object.hasOwn(descriptors, "missing"),
+  Object.hasOwn(descriptors, "inherited"),
+  calls.join(","),
+  resultProperty.writable,
+  resultProperty.enumerable,
+  resultProperty.configurable,
+  Object.getPrototypeOf(descriptors) === Object.prototype,
+  Object.getPrototypeOf(descriptors.a) === Object.prototype,
+  stringDescriptors[0].value,
+  stringDescriptors[1].value,
+  stringDescriptors.length.value,
+  stringDescriptors.length.enumerable,
+  untampered.x.value,
+  nullError,
+  constructionError,
+  Object.getOwnPropertyDescriptors.length,
+  Object.getOwnPropertyDescriptors.name,
+  builtinDescriptor.writable,
+  builtinDescriptor.enumerable,
+  builtinDescriptor.configurable
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.getOwnPropertyDescriptors should preserve property descriptors");
+        assert!(
+            outcome.note.contains(
+                "string(1|false|true|false|true|true|false|true|3|false|false|ownKeys,desc:a,desc:missing,desc:b,desc:symbol|true|true|true|true|true|a|b|2|false|7|TypeError|TypeError|1|getOwnPropertyDescriptors|true|false|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_integrity_queries_observe_proxy_operations() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var sealedCalls = [];
+var sealedSymbol = Symbol("sealed");
+var sealedTarget = {};
+Object.defineProperty(sealedTarget, "data", {
+  value: 1,
+  writable: true,
+  configurable: false
+});
+Object.defineProperty(sealedTarget, "disappearing", {
+  value: 2,
+  configurable: true
+});
+Object.defineProperty(sealedTarget, "accessor", {
+  get: function() { return 3; },
+  configurable: false
+});
+Object.defineProperty(sealedTarget, sealedSymbol, {
+  value: 4,
+  writable: true,
+  configurable: false
+});
+Object.preventExtensions(sealedTarget);
+var sealedProxy = new Proxy(sealedTarget, {
+  isExtensible: function(target) {
+    sealedCalls.push("isExtensible");
+    return Reflect.isExtensible(target);
+  },
+  ownKeys: function() {
+    sealedCalls.push("ownKeys");
+    return ["data", "disappearing", "accessor", sealedSymbol];
+  },
+  getOwnPropertyDescriptor: function(target, key) {
+    var name = key === sealedSymbol ? "symbol" : key;
+    sealedCalls.push("get " + name);
+    if (key === "disappearing") {
+      delete target.disappearing;
+      return undefined;
+    }
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  }
+});
+
+var frozenCalls = [];
+var frozenSymbol = Symbol("frozen");
+var frozenTarget = {};
+Object.defineProperty(frozenTarget, "data", {
+  value: 1,
+  writable: false,
+  configurable: false
+});
+Object.defineProperty(frozenTarget, "disappearing", {
+  value: 2,
+  configurable: true
+});
+Object.defineProperty(frozenTarget, "accessor", {
+  get: function() { return 3; },
+  configurable: false
+});
+Object.defineProperty(frozenTarget, frozenSymbol, {
+  value: 4,
+  writable: false,
+  configurable: false
+});
+Object.preventExtensions(frozenTarget);
+var frozenProxy = new Proxy(frozenTarget, {
+  isExtensible: function(target) {
+    frozenCalls.push("isExtensible");
+    return Reflect.isExtensible(target);
+  },
+  ownKeys: function() {
+    frozenCalls.push("ownKeys");
+    return ["data", "disappearing", "accessor", frozenSymbol];
+  },
+  getOwnPropertyDescriptor: function(target, key) {
+    var name = key === frozenSymbol ? "symbol" : key;
+    frozenCalls.push("get " + name);
+    if (key === "disappearing") {
+      delete target.disappearing;
+      return undefined;
+    }
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  }
+});
+
+var extensibleCalls = [];
+var extensibleProxy = new Proxy({}, {
+  isExtensible: function(target) {
+    extensibleCalls.push("isExtensible");
+    return Reflect.isExtensible(target);
+  },
+  ownKeys: function() {
+    throw "ownKeys must not run";
+  }
+});
+
+var sealedRejectCalls = [];
+var sealedRejectTarget = {};
+Object.defineProperty(sealedRejectTarget, "first", {
+  value: 1,
+  configurable: true
+});
+Object.defineProperty(sealedRejectTarget, "later", {
+  value: 2,
+  configurable: true
+});
+Object.preventExtensions(sealedRejectTarget);
+var sealedRejectProxy = new Proxy(sealedRejectTarget, {
+  getOwnPropertyDescriptor: function(target, key) {
+    sealedRejectCalls.push(key);
+    if (key === "later") {
+      throw "later sealed descriptor must not run";
+    }
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  }
+});
+
+var frozenRejectCalls = [];
+var frozenRejectTarget = {};
+Object.defineProperty(frozenRejectTarget, "first", {
+  value: 1,
+  writable: true,
+  configurable: false
+});
+Object.defineProperty(frozenRejectTarget, "later", {
+  value: 2,
+  writable: false,
+  configurable: false
+});
+Object.preventExtensions(frozenRejectTarget);
+var frozenRejectProxy = new Proxy(frozenRejectTarget, {
+  getOwnPropertyDescriptor: function(target, key) {
+    frozenRejectCalls.push(key);
+    if (key === "later") {
+      throw "later frozen descriptor must not run";
+    }
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  }
+});
+
+var extensibleMarker = {};
+var extensibleAbruptIdentity = false;
+try {
+  Object.isSealed(new Proxy({}, {
+    isExtensible: function() { throw extensibleMarker; }
+  }));
+} catch (error) {
+  extensibleAbruptIdentity = error === extensibleMarker;
+}
+
+var ownKeysMarker = {};
+var ownKeysAbruptIdentity = false;
+var ownKeysTarget = {};
+Object.preventExtensions(ownKeysTarget);
+try {
+  Object.isFrozen(new Proxy(ownKeysTarget, {
+    ownKeys: function() { throw ownKeysMarker; }
+  }));
+} catch (error) {
+  ownKeysAbruptIdentity = error === ownKeysMarker;
+}
+
+var descriptorMarker = {};
+var descriptorAbruptIdentity = false;
+var descriptorTarget = {};
+Object.defineProperty(descriptorTarget, "value", {
+  value: 1,
+  configurable: false
+});
+Object.preventExtensions(descriptorTarget);
+try {
+  Object.isSealed(new Proxy(descriptorTarget, {
+    getOwnPropertyDescriptor: function() { throw descriptorMarker; }
+  }));
+} catch (error) {
+  descriptorAbruptIdentity = error === descriptorMarker;
+}
+
+[
+  Object.isSealed(sealedProxy),
+  sealedCalls.join(","),
+  Object.isFrozen(frozenProxy),
+  frozenCalls.join(","),
+  !Object.isSealed(extensibleProxy),
+  !Object.isFrozen(extensibleProxy),
+  extensibleCalls.join(","),
+  !Object.isSealed(sealedRejectProxy),
+  sealedRejectCalls.join(","),
+  !Object.isFrozen(frozenRejectProxy),
+  frozenRejectCalls.join(","),
+  extensibleAbruptIdentity,
+  ownKeysAbruptIdentity,
+  descriptorAbruptIdentity,
+  Object.isSealed(1),
+  Object.isFrozen(null),
+  Object.isSealed(),
+  Object.isFrozen("text")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object integrity queries should use Proxy internal methods");
+        assert!(
+            outcome.note.contains(
+                "string(true|isExtensible,ownKeys,get data,get disappearing,get accessor,get symbol|true|isExtensible,ownKeys,get data,get disappearing,get accessor,get symbol|true|true|isExtensible,isExtensible|true|first|true|first|true|true|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_object_freeze_observes_proxy_integrity_operations() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+var symbol = Symbol("frozen");
+var setterValue = 0;
+var target = { data: 1, disappearing: 2 };
+Object.defineProperty(target, "accessor", {
+  get: function() { return setterValue; },
+  set: function(value) { setterValue = value; },
+  enumerable: true,
+  configurable: true
+});
+target[symbol] = 3;
+
+var proxy = new Proxy(target, {
+  preventExtensions: function(innerTarget) {
+    calls.push("preventExtensions");
+    return Reflect.preventExtensions(innerTarget);
+  },
+  ownKeys: function() {
+    calls.push("ownKeys");
+    return ["data", "disappearing", "accessor", symbol];
+  },
+  getOwnPropertyDescriptor: function(innerTarget, key) {
+    calls.push("get " + (key === symbol ? "symbol" : key));
+    if (key === "disappearing") {
+      delete innerTarget.disappearing;
+      return undefined;
+    }
+    return Reflect.getOwnPropertyDescriptor(innerTarget, key);
+  },
+  defineProperty: function(innerTarget, key, descriptor) {
+    var name = key === symbol ? "symbol" : key;
+    calls.push(
+      "define " + name + ":" +
+      Object.hasOwn(descriptor, "writable") + ":" +
+      descriptor.writable + ":" +
+      Object.hasOwn(descriptor, "value") + ":" +
+      Object.hasOwn(descriptor, "get") + ":" +
+      Object.hasOwn(descriptor, "set") + ":" +
+      Object.hasOwn(descriptor, "enumerable") + ":" +
+      descriptor.configurable
+    );
+    return Reflect.defineProperty(innerTarget, key, descriptor);
+  }
+});
+
+var returned = Object.freeze(proxy);
+target.accessor = 7;
+var dataDescriptor = Object.getOwnPropertyDescriptor(target, "data");
+var accessorDescriptor = Object.getOwnPropertyDescriptor(target, "accessor");
+var symbolDescriptor = Object.getOwnPropertyDescriptor(target, symbol);
+
+var preventFalseThrows = false;
+try {
+  Object.freeze(new Proxy({}, {
+    preventExtensions: function() { return false; }
+  }));
+} catch (error) {
+  preventFalseThrows = error instanceof TypeError;
+}
+
+var abruptMarker = {};
+var abruptPropagates = false;
+try {
+  Object.freeze(new Proxy({}, {
+    preventExtensions: function() { throw abruptMarker; }
+  }));
+} catch (error) {
+  abruptPropagates = error === abruptMarker;
+}
+
+var defineFalseTarget = { value: 1 };
+var defineFalseThrows = false;
+try {
+  Object.freeze(new Proxy(defineFalseTarget, {
+    preventExtensions: function(innerTarget) {
+      return Reflect.preventExtensions(innerTarget);
+    },
+    defineProperty: function() { return false; }
+  }));
+} catch (error) {
+  defineFalseThrows = error instanceof TypeError;
+}
+
+[
+  returned === proxy,
+  !Object.isExtensible(target),
+  dataDescriptor.writable === false && dataDescriptor.configurable === false,
+  accessorDescriptor.configurable === false && setterValue === 7,
+  symbolDescriptor.writable === false && symbolDescriptor.configurable === false,
+  !Object.hasOwn(target, "disappearing"),
+  preventFalseThrows,
+  abruptPropagates,
+  defineFalseThrows,
+  calls.join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Object.freeze should use Proxy integrity-level internal methods");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|true|true|true|true|preventExtensions,ownKeys,get data,define data:true:false:false:false:false:false:false,get disappearing,get accessor,define accessor:false:undefined:false:false:false:false:false,get symbol,define symbol:true:false:false:false:false:false:false)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_get_own_property_names_to_object_string() {
         let outcome = engine()
             .run_script(
@@ -3641,6 +6185,39 @@ try { otherRawJSON(Symbol("1")); } catch (error) {
         assert!(
             outcome.note.contains("boolean(true)"),
             "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_get_own_property_names_includes_boxed_string_custom_descriptors() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var boxed = new String("abc");
+Object.defineProperty(boxed, "dataProperty", {
+  value: 1,
+  configurable: true
+});
+Object.defineProperty(boxed, "accessorProperty", {
+  get: function() { return 2; },
+  configurable: true
+});
+Object.getOwnPropertyNames(boxed).join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("boxed String own descriptor names should run");
+
+        assert!(
+            outcome
+                .note
+                .contains("string(0,1,2,length,dataProperty,accessorProperty)"),
+            "unexpected boxed String own names: {}",
             outcome.note
         );
     }
@@ -4705,11 +7282,853 @@ if (Date.prototype.getYear.name !== "getYear" || Date.prototype.setYear.name !==
     }
 
     #[test]
+    fn wasm_backend_exposes_temporal_instant_private_epoch_slots() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (typeof Temporal !== "object") throw "Temporal";
+if (typeof Temporal.Instant !== "function") throw "Instant";
+if (Temporal.Instant.name !== "Instant" || Temporal.Instant.length !== 1) throw "metadata";
+var positive = new Temporal.Instant(217175010123456789n);
+if (!(positive instanceof Temporal.Instant)) throw "instanceof";
+if (positive.epochNanoseconds !== 217175010123456789n) throw "nanoseconds";
+if (positive.epochMilliseconds !== 217175010123) throw "milliseconds";
+var negative = new Temporal.Instant("-217175010123456789");
+if (negative.epochNanoseconds !== -217175010123456789n) throw "negative nanoseconds";
+if (negative.epochMilliseconds !== -217175010124) throw "negative milliseconds";
+if (new Temporal.Instant(true).epochNanoseconds !== 1n) throw "true";
+if (new Temporal.Instant(false).epochNanoseconds !== 0n) throw "false";
+var descriptor = Object.getOwnPropertyDescriptor(
+  Temporal.Instant.prototype,
+  "epochNanoseconds"
+);
+if (typeof descriptor.get !== "function") throw "getter";
+if (descriptor.set !== undefined || descriptor.enumerable || !descriptor.configurable) {
+  throw "descriptor";
+}
+var threw = 0;
+try { descriptor.get.call({}); } catch (error) {
+  if (error instanceof TypeError) threw += 1;
+}
+try { new Temporal.Instant("abc123"); } catch (error) {
+  if (error instanceof SyntaxError) threw += 1;
+}
+try { Temporal.Instant(0n); } catch (error) {
+  if (error instanceof TypeError) threw += 1;
+}
+if (threw !== 3) throw "errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should expose Temporal.Instant epoch slots");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_parses_temporal_instant_strings_exactly() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var epoch = Temporal.Instant.from("1970-01-01T00:00Z");
+if (epoch.epochNanoseconds !== 0n) throw "epoch";
+if (epoch.toString() !== "1970-01-01T00:00:00Z") throw "epoch string";
+var precise = Temporal.Instant.from("1976-11-18T15:23:30.123456789-02:00");
+if (precise.epochNanoseconds !== 217185810123456789n) throw "precise";
+if (precise.toString() !== "1976-11-18T17:23:30.123456789Z") throw "precise string";
+var annotated = Temporal.Instant.from(
+  "1976-11-18T15:23:30.123456Z[Europe/Vienna][u-ca=iso8601][foo=bar]"
+);
+if (annotated.epochNanoseconds !== 217178610123456000n) throw "annotations";
+var compact = Temporal.Instant.from("+0019761118T152330.1+0000");
+if (compact.epochNanoseconds !== 217178610100000000n) throw "compact";
+var leap = Temporal.Instant.from("2016-12-31T23:59:60Z");
+if (leap.epochNanoseconds !== 1483228799000000000n) throw "leap second";
+var original = new Temporal.Instant(217175010123456789n);
+var copy = Temporal.Instant.from(original);
+if (copy === original || copy.epochNanoseconds !== original.epochNanoseconds) throw "copy";
+var coercible = { toString: function () { return "1970-01-01T00:00Z"; } };
+if (Temporal.Instant.from(coercible).epochNanoseconds !== 0n) throw "ToPrimitive";
+var errors = 0;
+for (var invalid of [
+  "2021-02-29T00:00Z",
+  "1970-01-01T00:00",
+  "1970-01-01T00:00Z[!foo=bar]",
+  "1970-01-01T00:00:00.1234567890Z",
+  "-000000-03-30T00:45Z"
+]) {
+  try { Temporal.Instant.from(invalid); } catch (error) {
+    if (error instanceof RangeError) errors += 1;
+  }
+}
+try { Temporal.Instant.from(1); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { Temporal.Instant.from(Temporal.Instant.prototype); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+if (errors !== 7) throw "errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should parse Temporal.Instant strings exactly");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_compares_temporal_instants_by_epoch_nanoseconds() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var instant = new Temporal.Instant(1000000000987654321n);
+if (Temporal.Instant.prototype.equals.name !== "equals") throw "name";
+if (Temporal.Instant.prototype.equals.length !== 1) throw "length";
+if (instant.equals(new Temporal.Instant(1000000000987654321n)) !== true) throw "heap equal";
+if (instant.equals(new Temporal.Instant(1000000000987654322n)) !== false) throw "heap unequal";
+if (new Temporal.Instant(1n).equals("1970-01-01T00:00:00.000000001Z") !== true) {
+  throw "string conversion";
+}
+if (new Temporal.Instant(1n).equals(
+  new Temporal.ZonedDateTime(1n, "UTC")
+) !== true) throw "zoned date time conversion";
+var descriptor = Object.getOwnPropertyDescriptor(Temporal.Instant.prototype, "equals");
+if (!descriptor.writable || !descriptor.configurable || descriptor.enumerable) {
+  throw "descriptor";
+}
+var errors = 0;
+try { Temporal.Instant.prototype.equals.call({}, instant); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { instant.equals(1); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.Instant(0n).equals(); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.Instant(0n).equals(new Temporal.Instant(0n)); } catch (error) {
+  throw "nonconstructable setup";
+}
+try { new Temporal.Instant.prototype.equals(instant); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+if (errors !== 4) throw "errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should compare Temporal.Instant epoch nanoseconds");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_uses_branded_temporal_zoned_date_time_slots() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (typeof Temporal.ZonedDateTime !== "function") throw "constructor";
+if (Temporal.ZonedDateTime.name !== "ZonedDateTime") throw "name";
+if (Temporal.ZonedDateTime.length !== 2) throw "length";
+var epochNanoseconds = 1000000000987654321n;
+if (epochNanoseconds !== 1000000000987654321n) throw "epoch input";
+var datetime = new Temporal.ZonedDateTime(epochNanoseconds, "uTc");
+if (!(datetime instanceof Temporal.ZonedDateTime)) throw "instanceof";
+var smallEpochNanoseconds = new Temporal.ZonedDateTime(1n, "UTC").epochNanoseconds;
+if (smallEpochNanoseconds !== 1n) {
+  if (smallEpochNanoseconds === 0) throw "small getter routed to epochMilliseconds";
+  if (smallEpochNanoseconds === "UTC") throw "small getter routed to timeZoneId";
+  if (smallEpochNanoseconds === "iso8601") throw "small getter routed to calendarId";
+  if (smallEpochNanoseconds === undefined) throw "small getter returned undefined";
+  throw "small epochNanoseconds";
+}
+if (datetime.epochNanoseconds !== 1000000000987654321n) throw "epochNanoseconds";
+if (datetime.epochMilliseconds !== 1000000000987) throw "epochMilliseconds";
+if (datetime.timeZoneId !== "UTC") throw "timeZoneId";
+if (datetime.calendarId !== "iso8601") throw "calendarId";
+if (datetime.toInstant().epochNanoseconds !== epochNanoseconds) throw "toInstant";
+Object.defineProperty(datetime, "toString", {
+  get: function () { throw "must not read toString"; }
+});
+var instant = Temporal.Instant.from(datetime);
+if (instant.epochNanoseconds !== epochNanoseconds) throw "Instant.from";
+var offset = new Temporal.ZonedDateTime(0n, "+01:30", "ISO8601");
+if (offset.timeZoneId !== "+01:30" || offset.calendarId !== "iso8601") throw "ids";
+class CustomZonedDateTime extends Temporal.ZonedDateTime {}
+var custom = new CustomZonedDateTime(1n, "UTC");
+if (Object.getPrototypeOf(custom) !== CustomZonedDateTime.prototype) throw "subclass prototype";
+if (!(custom instanceof CustomZonedDateTime)) throw "subclass instanceof";
+var descriptor = Object.getOwnPropertyDescriptor(
+  Temporal.ZonedDateTime.prototype,
+  "epochNanoseconds"
+);
+if (typeof descriptor.get !== "function" || descriptor.set !== undefined) throw "descriptor";
+var errors = 0;
+try { Temporal.ZonedDateTime(0n, "UTC"); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.ZonedDateTime(); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.ZonedDateTime(0n, ""); } catch (error) {
+  if (error instanceof RangeError) errors += 1;
+}
+try { new Temporal.ZonedDateTime(0n, 1); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.ZonedDateTime(8640000000000000000001n, "UTC"); } catch (error) {
+  if (error instanceof RangeError) errors += 1;
+}
+try { descriptor.get.call({}); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+if (errors !== 6) throw "errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should use branded Temporal.ZonedDateTime slots");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_parses_fixed_offset_temporal_zoned_date_times() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (typeof Temporal.ZonedDateTime.from !== "function") throw "from";
+if (Temporal.ZonedDateTime.from.name !== "from") throw "name";
+if (Temporal.ZonedDateTime.from.length !== 1) throw "length";
+var descriptor = Object.getOwnPropertyDescriptor(Temporal.ZonedDateTime, "from");
+if (!descriptor.writable || !descriptor.configurable || descriptor.enumerable) {
+  throw "descriptor";
+}
+
+var utc = Temporal.ZonedDateTime.from("1970-01-01T00:00Z[UTC]");
+if (utc.epochNanoseconds !== 0n || utc.timeZoneId !== "UTC") throw "UTC";
+var absentOffset = Temporal.ZonedDateTime.from("1970-01-01T00:00[+01:00]");
+if (absentOffset.epochNanoseconds !== -3600000000000n) throw "absent offset";
+var exactZ = Temporal.ZonedDateTime.from("1970-01-01T00:00Z[+01:00]");
+if (exactZ.epochNanoseconds !== 0n) throw "Z exact";
+var exactNumeric = Temporal.ZonedDateTime.from("1970-01-01T00:00+01:00[+01:00]");
+if (exactNumeric.epochNanoseconds !== -3600000000000n) throw "numeric exact";
+var dateOnly = Temporal.ZonedDateTime.from("2020-01-01[+09:00]");
+if (dateOnly.epochNanoseconds !== 1577804400000000000n) throw "date only";
+var leap = Temporal.ZonedDateTime.from("2016-12-31T23:59:60+00:00[UTC]");
+if (leap.epochNanoseconds !== 1483228799000000000n) throw "leap second";
+var expanded = Temporal.ZonedDateTime.from("-009999-11-18T15:23:30.12+00:00[UTC]");
+if (expanded.epochNanoseconds !== -377677326989880000000n) throw "expanded year";
+var calendar = Temporal.ZonedDateTime.from(
+  "1976-11-18T00:00[UTC][u-ca=ISO8601]"
+);
+if (calendar.calendarId !== "iso8601") throw "calendar";
+
+var mismatch = "1970-01-01T00:00-04:15[+01:00]";
+var rejected = 0;
+try { Temporal.ZonedDateTime.from(mismatch); } catch (error) {
+  if (error instanceof RangeError) rejected += 1;
+}
+try { Temporal.ZonedDateTime.from(mismatch, { offset: "reject" }); } catch (error) {
+  if (error instanceof RangeError) rejected += 1;
+}
+if (rejected !== 2) throw "reject mismatch";
+if (Temporal.ZonedDateTime.from(mismatch, { offset: "use" }).epochNanoseconds
+    !== 15300000000000n) throw "use";
+if (Temporal.ZonedDateTime.from(mismatch, { offset: "prefer" }).epochNanoseconds
+    !== -3600000000000n) throw "prefer";
+if (Temporal.ZonedDateTime.from(mismatch, { offset: "ignore" }).epochNanoseconds
+    !== -3600000000000n) throw "ignore";
+
+var original = new Temporal.ZonedDateTime(946684800000000010n, "+01:30");
+for (var property of ["epochNanoseconds", "timeZoneId", "calendarId"]) {
+  Object.defineProperty(original, property, {
+    get: function () { throw "must not read " + property; }
+  });
+}
+var copy = Temporal.ZonedDateTime.from(original);
+if (copy === original || copy.epochNanoseconds !== 946684800000000010n) throw "copy";
+if (copy.timeZoneId !== "+01:30" || copy.calendarId !== "iso8601") throw "copy slots";
+
+var optionReads = [];
+var options = new Proxy({}, {
+  get: function (_target, property) {
+    optionReads.push(property);
+    return undefined;
+  }
+});
+Temporal.ZonedDateTime.from("1970-01-01T00:00Z[UTC]", options);
+if (optionReads.join(",") !== "disambiguation,offset,overflow") throw "option order";
+optionReads.length = 0;
+try {
+  Temporal.ZonedDateTime.from("2020-13-34T25:60:60+99:99[UTC]", options);
+} catch (error) {
+  if (!(error instanceof RangeError)) throw error;
+}
+if (optionReads.length !== 0) throw "invalid before options";
+
+var errors = 0;
+for (var invalid of [
+  "1970-01-01T00:00",
+  "1970-01-01T00:00[Europe/Vienna]",
+  "1970-01-01T00:00[+01]",
+  "1970-01-01T00:00[+24:00]",
+  "-000000-01-01T00:00Z[UTC]"
+]) {
+  try { Temporal.ZonedDateTime.from(invalid); } catch (error) {
+    if (error instanceof RangeError) errors += 1;
+  }
+}
+try { Temporal.ZonedDateTime.from({ year: 1970, timeZone: "UTC" }); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { Temporal.ZonedDateTime.from("1970-01-01T00:00Z[UTC]", null); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.ZonedDateTime.from("1970-01-01T00:00Z[UTC]"); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+if (errors !== 8) throw "errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should parse fixed-offset Temporal.ZonedDateTime strings");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_constructs_fixed_zone_temporal_zoned_date_times_from_property_bags() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function same(actual, expected, label) {
+  if (actual !== expected) throw label;
+}
+
+var plain = Temporal.ZonedDateTime.from({
+  year: 1976,
+  month: 11,
+  monthCode: "M11",
+  day: 18,
+  millisecond: 123,
+  timeZone: "uTc"
+});
+same(plain.epochNanoseconds, 217123200123000000n, "plain epoch");
+same(plain.timeZoneId, "UTC", "UTC canonicalization");
+
+var monthCodeOnly = Temporal.ZonedDateTime.from({
+  year: 1976,
+  monthCode: "M11",
+  day: 18,
+  timeZone: "+01:00"
+});
+same(monthCodeOnly.epochNanoseconds, 217119600000000000n, "monthCode");
+
+function functionBag() {}
+functionBag.year = 1970;
+functionBag.month = 1;
+functionBag.day = 1;
+functionBag.timeZone = "+01:30";
+same(
+  Temporal.ZonedDateTime.from(functionBag, function () {}).epochNanoseconds,
+  -5400000000000n,
+  "function bag and options"
+);
+
+var arrayBag = [];
+arrayBag.year = 1970;
+arrayBag.month = 1;
+arrayBag.day = 1;
+arrayBag.timeZone = "UTC";
+same(Temporal.ZonedDateTime.from(arrayBag, []).epochNanoseconds, 0n, "array bag");
+
+var constrained = Temporal.ZonedDateTime.from(
+  { year: 2019, month: 13, day: 32, hour: 25, timeZone: "UTC" },
+  { overflow: "constrain" }
+);
+same(constrained.epochNanoseconds, 1577833200000000000n, "constrain");
+
+var mismatch = {
+  year: 1970,
+  month: 1,
+  day: 1,
+  offset: "-07:00",
+  timeZone: "+01:00"
+};
+same(
+  Temporal.ZonedDateTime.from(mismatch, { offset: "use" }).epochNanoseconds,
+  25200000000000n,
+  "offset use"
+);
+same(
+  Temporal.ZonedDateTime.from(mismatch, { offset: "prefer" }).epochNanoseconds,
+  -3600000000000n,
+  "offset prefer"
+);
+same(
+  Temporal.ZonedDateTime.from(mismatch, { offset: "ignore" }).epochNanoseconds,
+  -3600000000000n,
+  "offset ignore"
+);
+
+var reads = [];
+var observed = new Proxy({
+  year: 2001,
+  month: 5,
+  monthCode: "M05",
+  day: 2,
+  hour: 6,
+  minute: 54,
+  second: 32,
+  millisecond: 987,
+  microsecond: 654,
+  nanosecond: 321,
+  offset: "+00:00",
+  calendar: "iso8601",
+  timeZone: "UTC"
+}, {
+  get: function (target, property) {
+    reads.push(property);
+    return target[property];
+  }
+});
+Temporal.ZonedDateTime.from(observed, {});
+same(
+  reads.join(","),
+  "calendar,day,hour,microsecond,millisecond,minute,month,monthCode,nanosecond,offset,second,timeZone,year",
+  "field order"
+);
+
+var errors = 0;
+for (var call of [
+  function () { Temporal.ZonedDateTime.from({ year: 1970, month: 1, timeZone: "UTC" }); },
+  function () { Temporal.ZonedDateTime.from({ year: 1970, day: 1, timeZone: "UTC" }); },
+  function () { Temporal.ZonedDateTime.from({ month: 1, day: 1, timeZone: "UTC" }); },
+  function () { Temporal.ZonedDateTime.from({ year: 1970, month: 1, day: 1 }); }
+]) {
+  try { call(); } catch (error) {
+    if (error instanceof TypeError) errors += 1;
+  }
+}
+try {
+  Temporal.ZonedDateTime.from(
+    { year: 2019, month: 1, day: 32, timeZone: "UTC" },
+    { overflow: "reject" }
+  );
+} catch (error) {
+  if (error instanceof RangeError) errors += 1;
+}
+try { Temporal.ZonedDateTime.from(mismatch); } catch (error) {
+  if (error instanceof RangeError) errors += 1;
+}
+try {
+  Temporal.ZonedDateTime.from({
+    year: 2000,
+    month: 1,
+    day: 1,
+    hour: Infinity,
+    timeZone: "UTC"
+  });
+} catch (error) {
+  if (error instanceof RangeError) errors += 1;
+}
+same(errors, 7, "errors");
+271;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should construct fixed-zone Temporal property bags");
+        assert!(outcome.note.contains("number(271"));
+    }
+
+    #[test]
+    fn wasm_backend_exposes_fixed_temporal_zoned_date_time_offsets() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var cases = [
+  ["UTC", "+00:00", 0],
+  ["+01:00", "+01:00", 3600000000000],
+  ["-05:00", "-05:00", -18000000000000],
+  ["+0130", "+01:30", 5400000000000]
+];
+for (var entry of cases) {
+  var datetime = new Temporal.ZonedDateTime(0n, entry[0]);
+  if (datetime.offset !== entry[1]) throw "offset " + entry[0];
+  if (datetime.offsetNanoseconds !== entry[2]) {
+    throw "offsetNanoseconds " + entry[0];
+  }
+}
+
+var offsetDescriptor = Object.getOwnPropertyDescriptor(
+  Temporal.ZonedDateTime.prototype,
+  "offset"
+);
+var nanosecondsDescriptor = Object.getOwnPropertyDescriptor(
+  Temporal.ZonedDateTime.prototype,
+  "offsetNanoseconds"
+);
+for (var descriptor of [offsetDescriptor, nanosecondsDescriptor]) {
+  if (typeof descriptor.get !== "function" || descriptor.set !== undefined) {
+    throw "accessor";
+  }
+  if (descriptor.enumerable || !descriptor.configurable) throw "descriptor";
+  if (descriptor.get.length !== 0) throw "length";
+}
+if (offsetDescriptor.get.name !== "get offset") throw "offset name";
+if (nanosecondsDescriptor.get.name !== "get offsetNanoseconds") {
+  throw "offsetNanoseconds name";
+}
+
+var brandErrors = 0;
+for (var getter of [offsetDescriptor.get, nanosecondsDescriptor.get]) {
+  for (var receiver of [
+    undefined,
+    null,
+    true,
+    "",
+    Symbol(),
+    1,
+    {},
+    Temporal.ZonedDateTime,
+    Temporal.ZonedDateTime.prototype
+  ]) {
+    try { getter.call(receiver); } catch (error) {
+      if (error instanceof TypeError) brandErrors += 1;
+    }
+  }
+}
+if (brandErrors !== 18) throw "branding";
+
+var constructErrors = 0;
+try { new offsetDescriptor.get(); } catch (error) {
+  if (error instanceof TypeError) constructErrors += 1;
+}
+try { new nanosecondsDescriptor.get(); } catch (error) {
+  if (error instanceof TypeError) constructErrors += 1;
+}
+if (constructErrors !== 2) throw "constructability";
+
+var namedZoneErrors = 0;
+try { new Temporal.ZonedDateTime(0n, "Europe/Vienna"); } catch (error) {
+  if (error instanceof RangeError) namedZoneErrors += 1;
+}
+if (namedZoneErrors !== 1) throw "named zone boundary";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should expose fixed Temporal.ZonedDateTime offsets");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_projects_temporal_zoned_date_time_civil_fields_and_compares_slots() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function same(actual, expected, label) {
+  if (actual !== expected) throw label;
+}
+
+var negative = new Temporal.ZonedDateTime(-1n, "UTC");
+for (var entry of [
+  ["year", 1969],
+  ["month", 12],
+  ["monthCode", "M12"],
+  ["day", 31],
+  ["hour", 23],
+  ["minute", 59],
+  ["second", 59],
+  ["millisecond", 999],
+  ["microsecond", 999],
+  ["nanosecond", 999]
+]) {
+  same(negative[entry[0]], entry[1], "negative " + entry[0]);
+}
+
+var offset = new Temporal.ZonedDateTime(0n, "+01:30");
+same(offset.year, 1970, "offset year");
+same(offset.month, 1, "offset month");
+same(offset.monthCode, "M01", "offset monthCode");
+same(offset.day, 1, "offset day");
+same(offset.hour, 1, "offset hour");
+same(offset.minute, 30, "offset minute");
+same(offset.second, 0, "offset second");
+
+var reference = new Temporal.ZonedDateTime(988786472987654321n, "UTC");
+same(reference.equals(new Temporal.ZonedDateTime(988786472987654321n, "UTC")), true, "equal slots");
+same(reference.equals(new Temporal.ZonedDateTime(988786472987654322n, "UTC")), false, "epoch");
+same(reference.equals(new Temporal.ZonedDateTime(988786472987654321n, "+00:00")), false, "zone");
+same(reference.equals(new Temporal.ZonedDateTime(988786472987654321n, "UTC", "iso8601")), true, "calendar");
+same(reference.equals({
+  year: 2001,
+  month: 5,
+  day: 2,
+  hour: 6,
+  minute: 54,
+  second: 32,
+  millisecond: 987,
+  microsecond: 654,
+  nanosecond: 321,
+  timeZone: "UTC"
+}), true, "property bag");
+
+var fields = ["year", "month", "monthCode", "day", "hour", "minute", "second",
+  "millisecond", "microsecond", "nanosecond"];
+var brandErrors = 0;
+for (var field of fields) {
+  var descriptor = Object.getOwnPropertyDescriptor(Temporal.ZonedDateTime.prototype, field);
+  if (descriptor.get.name !== "get " + field || descriptor.get.length !== 0) throw "metadata " + field;
+  if (descriptor.enumerable || !descriptor.configurable || descriptor.set !== undefined) {
+    throw "descriptor " + field;
+  }
+  try { descriptor.get.call({}); } catch (error) {
+    if (error instanceof TypeError) brandErrors += 1;
+  }
+}
+same(brandErrors, fields.length, "brands");
+same(Temporal.ZonedDateTime.prototype.equals.name, "equals", "equals name");
+same(Temporal.ZonedDateTime.prototype.equals.length, 1, "equals length");
+var equalsDescriptor = Object.getOwnPropertyDescriptor(Temporal.ZonedDateTime.prototype, "equals");
+if (!equalsDescriptor.writable || equalsDescriptor.enumerable || !equalsDescriptor.configurable) {
+  throw "equals descriptor";
+}
+var errors = 0;
+try { Temporal.ZonedDateTime.prototype.equals.call({}, reference); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { reference.equals(); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new Temporal.ZonedDateTime.prototype.equals(reference); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+same(errors, 3, "equals errors");
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should project and compare Temporal.ZonedDateTime slots");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_normalizes_fixed_time_zones_and_replaces_zoned_date_time_zone() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function same(actual, expected, label) {
+  if (actual !== expected) throw label;
+}
+
+var reference = new Temporal.ZonedDateTime(988786472987654321n, "UTC");
+for (var entry of [
+  ["utc", "UTC"],
+  ["+01", "+01:00"],
+  ["+0130", "+01:30"],
+  ["-0650", "-06:50"],
+  ["2021-08-19T17:30Z", "UTC"],
+  ["2021-08-19T17:30-07:00", "-07:00"],
+  ["2021-08-19T17:30[UTC]", "UTC"],
+  ["2021-08-19T17:30-12:12[+01:46]", "+01:46"],
+  ["2016-12-31T23:59:60Z", "UTC"]
+]) {
+  var changed = reference.withTimeZone(entry[0]);
+  same(changed.timeZoneId, entry[1], "normalized " + entry[0]);
+  same(changed.epochNanoseconds, reference.epochNanoseconds, "epoch " + entry[0]);
+  same(changed.calendarId, reference.calendarId, "calendar " + entry[0]);
+  if (changed === reference) throw "fresh object " + entry[0];
+}
+
+var donor = new Temporal.ZonedDateTime(1n, "+0130");
+Object.defineProperty(donor, "timeZoneId", {
+  get: function () { throw "observable timeZoneId access"; }
+});
+same(reference.withTimeZone(donor).timeZoneId, "+01:30", "branded argument slot");
+
+class CustomZonedDateTime extends Temporal.ZonedDateTime {}
+var custom = new CustomZonedDateTime(0n, "UTC");
+var replaced = custom.withTimeZone("-08");
+same(Object.getPrototypeOf(replaced), Temporal.ZonedDateTime.prototype, "intrinsic prototype");
+same(replaced.timeZoneId, "-08:00", "subclass normalized");
+
+same(
+  reference.withTimeZone("+0330").equals(reference.withTimeZone("+03:30")),
+  true,
+  "equivalent offsets"
+);
+same(
+  reference.withTimeZone("1994-11-05T13:15:30Z").equals(reference),
+  true,
+  "date-time UTC"
+);
+
+var epoch = new Temporal.ZonedDateTime(0n, "+00");
+same(epoch.timeZoneId, "+00:00", "constructor normalization");
+same(epoch.equals({
+  year: 1970,
+  month: 1,
+  day: 1,
+  timeZone: "+0000"
+}), true, "property bag offset normalization");
+same(new Temporal.ZonedDateTime(0n, "+01:30").equals({
+  year: 1970,
+  month: 1,
+  day: 1,
+  hour: 1,
+  minute: 30,
+  timeZone: donor
+}), true, "property bag branded time zone");
+
+for (var invalid of [
+  "2021-08-19T17:30",
+  "+01:30:01",
+  "2021-08-19T17:30-07:00:00",
+  "-000000-01-01T00:00Z",
+  "Europe/Vienna"
+]) {
+  var rangeError = false;
+  try { reference.withTimeZone(invalid); } catch (error) {
+    rangeError = error instanceof RangeError;
+  }
+  if (!rangeError) throw "range " + invalid;
+}
+
+var withTimeZone = Temporal.ZonedDateTime.prototype.withTimeZone;
+same(withTimeZone.name, "withTimeZone", "name");
+same(withTimeZone.length, 1, "length");
+var descriptor = Object.getOwnPropertyDescriptor(
+  Temporal.ZonedDateTime.prototype,
+  "withTimeZone"
+);
+if (!descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
+  throw "descriptor";
+}
+var errors = 0;
+try { withTimeZone.call({}, "UTC"); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { reference.withTimeZone({}); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+try { new withTimeZone("UTC"); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+same(errors, 3, "errors");
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should normalize and replace fixed Temporal time zones");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_formats_local_date_strings_in_utc() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var epoch = new Date(0);
+if (epoch.toDateString() !== "Thu Jan 01 1970") throw "epoch date";
+if (epoch.toTimeString() !== "00:00:00 GMT+0000 (Coordinated Universal Time)") {
+  throw "epoch time";
+}
+if (epoch.toString() !== "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)") {
+  throw "epoch string";
+}
+var leapDay = new Date("2000-02-29T23:04:05.006Z");
+if (leapDay.toDateString() !== "Tue Feb 29 2000") throw "leap date";
+if (leapDay.toTimeString() !== "23:04:05 GMT+0000 (Coordinated Universal Time)") {
+  throw "leap time";
+}
+var negativeYear = new Date("-000001-07-01T00:00:00.000Z");
+if (negativeYear.toDateString().split(" ")[3] !== "-0001") throw "negative date year";
+if (negativeYear.toString().split(" ")[3] !== "-0001") throw "negative string year";
+var invalid = new Date(NaN);
+if (invalid.toDateString() !== "Invalid Date") throw "invalid date";
+if (invalid.toTimeString() !== "Invalid Date") throw "invalid time";
+if (invalid.toString() !== "Invalid Date") throw "invalid string";
+var methods = [
+  ["toDateString", Date.prototype.toDateString],
+  ["toTimeString", Date.prototype.toTimeString],
+  ["toString", Date.prototype.toString]
+];
+var brandErrors = 0;
+var constructErrors = 0;
+for (var entry of methods) {
+  var name = entry[0];
+  var method = entry[1];
+  if (method.name !== name || method.length !== 0) throw name + " metadata";
+  var descriptor = Object.getOwnPropertyDescriptor(Date.prototype, name);
+  if (!descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
+    throw name + " descriptor";
+  }
+  try { method.call({}); } catch (error) {
+    if (error.name === "TypeError") brandErrors += 1;
+  }
+  try { new method(); } catch (error) {
+    if (error.name === "TypeError") constructErrors += 1;
+  }
+}
+if (brandErrors !== 3) throw "brand errors";
+if (constructErrors !== 3) throw "construct errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Wasm Date string methods should use deterministic UTC formatting");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
     fn wasm_backend_supports_date_core_time_values_and_timezone_offset() {
         let outcome = engine()
             .run_script(
                 r#"
-if (Date.now() !== 0) throw "Date.now deterministic";
+var beforeNow = Date.now();
+var afterNow = Date.now();
+if (beforeNow < 946684800000 || beforeNow > 4102444800000) throw "Date.now range";
+if (afterNow < beforeNow) throw "Date.now nondecreasing";
 if (new Date(6.54321).valueOf() !== 6) throw "positive TimeClip";
 if (new Date(-6.54321).valueOf() !== -6) throw "negative TimeClip";
 if (new Date(-0).valueOf() !== 0) throw "negative zero TimeClip";
@@ -4745,7 +8164,7 @@ if (constructThrew !== 1) throw "timezone construct";
     fn wasm_backend_keeps_date_now_body_available_across_control_flow() {
         let outcome = engine()
             .run_script(
-                "Date.now(); if (false) 1; if (Date.now() !== 0) throw 'Date.now'; 262;",
+                "var first = Date.now(); if (false) 1; var second = Date.now(); if (first < 946684800000 || second < first) throw 'Date.now'; 262;",
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
@@ -4754,6 +8173,67 @@ if (constructThrew !== 1) throw "timezone construct";
             )
             .expect("Date.now should not be replaced by the deferred builtin stub");
         assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_date_now_advances_promise_timer_retry_loop() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+function setTimeout(callback, delay) {
+  let promise = Promise.resolve();
+  let endTime = Date.now() + delay;
+  function check() {
+    if (endTime - Date.now() > 0) {
+      promise.then(check);
+    } else {
+      callback();
+    }
+  }
+  promise.then(check);
+}
+
+let polls = 0;
+let reports = ["B ok", "A ok"];
+function getReport() {
+  polls += 1;
+  if (polls <= 2) return null;
+  return reports.pop();
+}
+
+function getReportAsync() {
+  return new Promise(function (resolve) {
+    function retry() {
+      let result = getReport();
+      if (result !== null) {
+        resolve(result);
+      } else {
+        setTimeout(retry, 1);
+      }
+    }
+    retry();
+  });
+}
+
+(async function () {
+  let results = [await getReportAsync(), await getReportAsync()];
+  results.sort();
+  print(results.join(":"));
+})();
+"#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Date.now should let Promise-based timer polling reach its deadline");
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["A ok:B ok".to_string()]
+        );
     }
 
     #[test]
@@ -5011,7 +8491,7 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
     }
 
     #[test]
-    fn wasm_backend_rejects_const_assignment_precisely() {
+    fn wasm_backend_const_assignment_throws_type_error() {
         let err = engine()
             .run_script(
                 "const x = 1; x = 2;",
@@ -5021,10 +8501,12 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
                     ..RunOptions::default()
                 },
             )
-            .expect_err("const assignment should stay unsupported");
-        assert!(err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice: assignment to const binding"));
+            .expect_err("const assignment should throw");
+        assert!(
+            err.message().starts_with("uncaught throw: TypeError: "),
+            "{}",
+            err.message()
+        );
     }
 
     #[test]
@@ -5059,6 +8541,158 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
             "note: {}",
             outcome.note
         );
+    }
+
+    #[test]
+    fn wasm_backend_outlined_to_numeric_preserves_kind_order_and_abrupt_identity() {
+        let source = r#"
+            let order = "";
+            const left = {
+                [Symbol.toPrimitive]: function () {
+                    order += "L";
+                    return 2n;
+                }
+            };
+            const right = {
+                [Symbol.toPrimitive]: function () {
+                    order += "R";
+                    return 3n;
+                }
+            };
+            const bigintResult = left ** right;
+
+            let mixedThrows = false;
+            try {
+                left ** {
+                    [Symbol.toPrimitive]: function () {
+                        order += "M";
+                        return 2;
+                    }
+                };
+            } catch (error) {
+                mixedThrows = true;
+            }
+
+            const marker = {};
+            let preservesIdentity = false;
+            try {
+                ({
+                    [Symbol.toPrimitive]: function () {
+                        order += "T";
+                        throw marker;
+                    }
+                }) ** {
+                    [Symbol.toPrimitive]: function () {
+                        order += "U";
+                        return 1n;
+                    }
+                };
+            } catch (error) {
+                preservesIdentity = error === marker;
+            }
+
+            function exponentiate(base, exponent) {
+                return base ** exponent;
+            }
+            order + "|" +
+                bigintResult + "|" +
+                mixedThrows + "|" +
+                preservesIdentity + "|" +
+                exponentiate(3, 2) + "|" +
+                exponentiate(2n, 3n);
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("outlined ToNumeric should preserve dynamic coercion semantics");
+        assert!(
+            outcome.note.contains("string(LRLMT|8|true|true|9|8"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_outlined_to_numeric_uses_calling_realm_for_conversion_errors() {
+        let source = r#"
+            const other = __porfCreateRealm().global;
+
+            function throwsMainRealmTypeError(operation) {
+                try {
+                    operation();
+                    return false;
+                } catch (error) {
+                    return Object.getPrototypeOf(error) === TypeError.prototype &&
+                        error instanceof TypeError &&
+                        !(error instanceof other.TypeError);
+                }
+            }
+
+            const subtractionUsesCallingRealm = throwsMainRealmTypeError(function () {
+                return other.Symbol("subtraction") - 1;
+            });
+            const exponentiationUsesCallingRealm = throwsMainRealmTypeError(function () {
+                return other.Symbol("exponentiation") ** 1;
+            });
+
+            subtractionUsesCallingRealm && exponentiationUsesCallingRealm;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("outlined ToNumeric should create errors in the calling realm");
+        assert!(
+            outcome.note.contains("boolean(true"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_runs_repeated_dynamic_to_numeric_through_public_engine_path() {
+        let mut source = String::from("let result;");
+        for _ in 0..40 {
+            source.push_str(
+                r#"
+                    result = ({
+                        [Symbol.toPrimitive]: function () {
+                            return 2n;
+                        },
+                        valueOf: function () {
+                            throw new Error("unexpected valueOf");
+                        },
+                        toString: function () {
+                            throw new Error("unexpected toString");
+                        }
+                    }) ** 1n;
+                "#,
+            );
+        }
+        source.push_str("result;");
+
+        let outcome = engine()
+            .run_script(
+                &source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("repeated dynamic ToNumeric sites should compile and execute");
+        assert!(outcome.note.contains("bigint(2n"), "note: {}", outcome.note);
     }
 
     #[test]
@@ -5329,6 +8963,140 @@ if (d.valueOf() === d.valueOf()) throw "setYear malformed stores NaN";
                 },
             )
             .expect("wasm backend should evaluate a compound method receiver once");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_loose_equality_evaluates_operands_once() {
+        let source = r#"
+            let calls = 0;
+            let assigned;
+            function nextValue() {
+                calls += 1;
+                return calls === 1 ? "report" : {};
+            }
+            let equalsNull = (assigned = nextValue()) == null;
+            calls === 1 && assigned === "report" && equalsNull === false;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should evaluate loose equality operands once");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_loose_equality_compares_distinct_objects_without_coercion() {
+        let source = r#"
+            let coercions = 0;
+            function makeObject() {
+                return {
+                    valueOf: function () {
+                        coercions += 1;
+                        return 1;
+                    }
+                };
+            }
+            let left = makeObject();
+            let right = makeObject();
+            let equal = left == right;
+            equal === false && coercions === 0;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should compare distinct objects without coercion");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_loose_equality_compares_objects_to_null_without_coercion() {
+        let source = r#"
+            let coercions = 0;
+            let object = {
+                valueOf: function () {
+                    coercions += 1;
+                    return null;
+                }
+            };
+            let equal = object == null;
+            equal === false && coercions === 0;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should compare objects to null without coercion");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_loose_equality_matches_dynamic_null_and_undefined() {
+        let source = r#"
+            function nullable(useNull) {
+                return useNull ? null : {};
+            }
+            function optional(useUndefined) {
+                return useUndefined ? undefined : {};
+            }
+            nullable(true) == optional(true);
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should loosely equate dynamic null and undefined");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_loose_equality_routes_coercion_throws_to_catch() {
+        let source = r#"
+            let sentinel = {};
+            let caught = false;
+            try {
+                1 == {
+                    valueOf: function () {
+                        throw sentinel;
+                    }
+                };
+            } catch (error) {
+                caught = error === sentinel;
+            }
+            caught;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should route loose equality coercion throws to catch");
         assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 
@@ -7430,7 +11198,7 @@ let setResult = date.setUTCFullYear(2001, 1, 3);
   typeof other.Date.prototype.setUTCFullYear,
   typeof other.Date.prototype.toUTCString,
   other.Date.prototype.toGMTString === other.Date.prototype.toUTCString,
-  other.Date.now(),
+  other.Date.now() >= 946684800000,
   other.Date.UTC(1970, 0, 1),
   date.getTime(),
   date.getUTCFullYear(),
@@ -7449,7 +11217,7 @@ let setResult = date.setUTCFullYear(2001, 1, 3);
             .expect("synthetic realm should use realm-local Date constructor and prototype");
         assert!(
             outcome.note.contains(
-                "string(false|false|true|true|function|function|function|function|true|0|0|981158400000|2001|true|981158400000|0|1970)"
+                "string(false|false|true|true|function|function|function|function|true|true|0|981158400000|2001|true|981158400000|0|1970)"
             ),
             "note: {}",
             outcome.note
@@ -8034,10 +11802,19 @@ other.Object.defineProperty(object, symbol, { value: 3, enumerable: true });
 let names = other.Object.getOwnPropertyNames(object);
 let symbols = other.Object.getOwnPropertySymbols(object);
 let values = other.Object.values(object);
+let entries = other.Object.entries(object);
+let nullErrorFromOtherRealm = false;
+try {
+  other.Object.entries(null);
+} catch (error) {
+  nullErrorFromOtherRealm =
+    Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
 [
   typeof other.Object.getOwnPropertyNames,
   typeof other.Object.getOwnPropertySymbols,
   typeof other.Object.values,
+  typeof other.Object.entries,
   names.length,
   names[0],
   names[1],
@@ -8045,7 +11822,13 @@ let values = other.Object.values(object);
   symbols[0] === symbol,
   values.length,
   values[0],
-  values[1]
+  entries.length,
+  entries[0][0],
+  entries[0][1],
+  Object.getPrototypeOf(values) === other.Array.prototype,
+  Object.getPrototypeOf(entries) === other.Array.prototype,
+  Object.getPrototypeOf(entries[0]) === other.Array.prototype,
+  nullErrorFromOtherRealm
 ].join("|");
 "#,
                 CompileOptions::default(),
@@ -8058,7 +11841,61 @@ let values = other.Object.values(object);
         assert!(
             outcome
                 .note
-                .contains("string(function|function|function|2|a|hidden|1|true|2|1|3)"),
+                .contains("string(function|function|function|function|2|a|hidden|1|true|1|1|1|a|1|true|true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_create_realm_object_property_copy_methods_use_their_defining_realm() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let other = __porfCreateRealm().global;
+let target = {};
+let assigned = other.Object.assign(target, { a: 1 });
+let boxed = other.Object.assign("x", { a: 2 });
+let descriptors = other.Object.getOwnPropertyDescriptors({ a: 3 });
+let assignNullErrorFromOtherRealm = false;
+try {
+  other.Object.assign(null, {});
+} catch (error) {
+  assignNullErrorFromOtherRealm =
+    Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+let descriptorsNullErrorFromOtherRealm = false;
+try {
+  other.Object.getOwnPropertyDescriptors(null);
+} catch (error) {
+  descriptorsNullErrorFromOtherRealm =
+    Object.getPrototypeOf(error) === other.TypeError.prototype;
+}
+[
+  typeof other.Object.assign,
+  typeof other.Object.getOwnPropertyDescriptors,
+  assigned === target,
+  target.a,
+  boxed.a,
+  Object.getPrototypeOf(boxed) === other.String.prototype,
+  descriptors.a.value,
+  Object.getPrototypeOf(descriptors) === other.Object.prototype,
+  Object.getPrototypeOf(descriptors.a) === other.Object.prototype,
+  assignNullErrorFromOtherRealm,
+  descriptorsNullErrorFromOtherRealm
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("synthetic realm Object property-copy methods should use their defining realm");
+        assert!(
+            outcome
+                .note
+                .contains("string(function|function|true|1|2|true|3|true|true|true|true)"),
             "note: {}",
             outcome.note
         );
@@ -9127,6 +12964,10 @@ let indexDescriptor = Object.getOwnPropertyDescriptor(first, "0");
 [
   first === second,
   assignmentResult,
+  first[0],
+  first.raw[0],
+  Object.hasOwn(first, "0"),
+  Reflect.ownKeys(first).includes("0"),
   Object.isFrozen(first),
   Object.isFrozen(first.raw),
   rawDescriptor.enumerable,
@@ -9147,7 +12988,39 @@ let indexDescriptor = Object.getOwnPropertyDescriptor(first, "0");
         assert!(
             outcome
                 .note
-                .contains("string(true|TypeError|true|true|false|false|false|true|false|false)"),
+                .contains("string(true|TypeError|cooked|cooked|true|true|true|true|false|false|false|true|false|false)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_resolves_string_raw_as_a_live_tagged_template_method() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let calls = 0;
+let String = {
+  raw(template, value) {
+    calls++;
+    return [this === String, template[0], template.raw[0], value, template[1]].join("|");
+  }
+};
+[String.raw`cooked\n${7}tail`, calls].join(",");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "String.raw tagged calls should resolve the live method and preserve its receiver",
+            );
+        assert!(
+            outcome
+                .note
+                .contains("string(true|cooked\n|cooked\\n|7|tail,1)"),
             "note: {}",
             outcome.note
         );
@@ -10429,7 +14302,7 @@ try {
             .expect("String.raw should preserve raw segments and abrupt getter ordering");
         assert!(
             outcome.note.contains(
-                "string(abc|line\\\\nvalue|1|raw|length,first,substitution,second,substitution,substitution|segment)"
+                "string(abc|line\\\\nvalue|1|raw|length,first,substitution,second,substitution|segment)"
             ),
             "note: {}",
             outcome.note
@@ -11354,6 +15227,11 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
                 "mapped param write to arguments",
             ),
             (
+                "function f() { arguments.foo = 10; return arguments.foo; } f();",
+                "number(10",
+                "arguments named property write",
+            ),
+            (
                 "function f(x, x, x) { var before = arguments[0] + ',' + arguments[1] + ',' + arguments[2]; x = 4; return before + '|' + arguments[0] + ',' + arguments[1] + ',' + arguments[2]; } f(1, 2, 3);",
                 "string(1,2,3|1,2,4)",
                 "only the last duplicate parameter maps to arguments",
@@ -11552,6 +15430,11 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
                 "number(3",
                 "global compound assign",
             ),
+            (
+                "if (true) { globalThis.x = 1; } else {} x",
+                "number(1",
+                "global read after conditional write",
+            ),
         ] {
             let outcome = engine()
                 .run_script(
@@ -11576,7 +15459,6 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
         for source in [
             "x",
             "function f() { return q; } f()",
-            "if (true) { globalThis.x = 1; } else {} x",
             "topLevel = arguments",
         ] {
             let err = engine()
@@ -11620,6 +15502,264 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
             };
             assert!(!err.message().trim().is_empty());
         }
+    }
+
+    #[test]
+    fn wasm_backend_object_literal_spread_copies_own_enumerable_properties_in_order() {
+        let source = r#"
+var calls = [];
+var copiedSymbol = Symbol("copied");
+var source = {};
+Object.defineProperty(source, "visible", {
+  get: function() { calls.push("getter:visible"); return 2; },
+  enumerable: true
+});
+Object.defineProperty(source, "hidden", { value: 4, enumerable: false });
+source[copiedSymbol] = 3;
+var proxy = new Proxy(source, {
+  ownKeys: function(target) {
+    calls.push("ownKeys");
+    return ["visible", "hidden", copiedSymbol];
+  },
+  getOwnPropertyDescriptor: function(target, key) {
+    calls.push(key === copiedSymbol ? "descriptor:symbol" : "descriptor:" + key);
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  },
+  get: function(target, key) {
+    calls.push(key === copiedSymbol ? "get:symbol" : "get:" + key);
+    return Reflect.get(target, key);
+  }
+});
+function spreadSource(label, value) {
+  calls.push("source:" + label);
+  return value;
+}
+var result = {
+  before: 1,
+  ...spreadSource("null", null),
+  ...spreadSource("proxy", proxy),
+  visible: 5,
+  ...spreadSource("string", "xy"),
+  ...undefined
+};
+var ordinaryCalls = [];
+var ordinarySymbol = Symbol("ordinary");
+var ordinary = {
+  get z() { ordinaryCalls.push("z"); },
+  get a() { ordinaryCalls.push("a"); }
+};
+Object.defineProperty(ordinary, "1", {
+  get: function() { ordinaryCalls.push("1"); },
+  enumerable: true
+});
+Object.defineProperty(ordinary, ordinarySymbol, {
+  get: function() { ordinaryCalls.push("symbol"); return 8; },
+  enumerable: true
+});
+var ordinaryResult = { ...ordinary };
+var descriptor = Object.getOwnPropertyDescriptor(result, "visible");
+var setterOverwritten = Object.getOwnPropertyDescriptor(
+  { set value(next) {}, ...{ value: 7 } },
+  "value"
+);
+var marker = {};
+var abrupt = false;
+try {
+  ({ ...new Proxy({}, { ownKeys: function() { throw marker; } }) });
+} catch (error) {
+  abrupt = error === marker;
+}
+[
+  calls.join(","),
+  result.before,
+  result.visible,
+  result[copiedSymbol],
+  result.hidden === undefined,
+  result[0] + result[1],
+  ordinaryCalls.join(","),
+  ordinaryResult[ordinarySymbol] === 8,
+  descriptor.value === 5 && descriptor.writable && descriptor.enumerable && descriptor.configurable,
+  setterOverwritten.value === 7 && setterOverwritten.writable && setterOverwritten.enumerable && setterOverwritten.configurable,
+  abrupt
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("object literal spreads should run through CopyDataProperties");
+
+        assert!(
+            outcome.note.contains(
+                "string(source:null,source:proxy,ownKeys,descriptor:visible,get:visible,getter:visible,descriptor:hidden,descriptor:symbol,get:symbol,source:string|1|5|3|true|xy|1,z,a,symbol|true|true|true|true)"
+            ),
+            "unexpected object literal spread result: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_ordinary_own_keys_orders_array_indices_before_strings_and_symbols() {
+        let source = r#"
+var symbol = Symbol("last");
+var object = {};
+object.z = 1;
+object["4294967295"] = 2;
+object["4294967294"] = 3;
+object["91"] = 4;
+object["19"] = 5;
+object["2"] = 6;
+object["01"] = 7;
+object.a = 8;
+object[symbol] = 9;
+var names = Object.getOwnPropertyNames(object);
+var keys = Reflect.ownKeys(object);
+var proxyKeys = Reflect.ownKeys(new Proxy(object, {
+  ownKeys: function() {
+    return [symbol, "a", "01", "4294967295", "z", "4294967294", "91", "19", "2"];
+  }
+}));
+names.join(",") + "|" + keys.length + "|" + (keys[8] === symbol) + "|" +
+  (proxyKeys[0] === symbol) + "," + proxyKeys.slice(1).join(",");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("ordinary own-key order should run");
+
+        assert!(
+            outcome.note.contains(
+                "string(2,19,91,4294967294,z,4294967295,01,a|9|true|true,a,01,4294967295,z,4294967294,91,19,2)"
+            ),
+            "unexpected ordinary own-key order: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_proxy_own_keys_validates_symbols_before_public_filtering() {
+        let source = r#"
+var symbol = Symbol("invariant");
+var failures = 0;
+function expectsTypeError(callback) {
+  try {
+    callback();
+  } catch (error) {
+    if (error instanceof TypeError) failures += 1;
+  }
+}
+
+var nonConfigurableTarget = {};
+Object.defineProperty(nonConfigurableTarget, symbol, { configurable: false });
+var omitsNonConfigurable = new Proxy(nonConfigurableTarget, {
+  ownKeys: function() { return []; }
+});
+expectsTypeError(function() { Object.getOwnPropertyNames(omitsNonConfigurable); });
+
+var duplicatesSymbol = new Proxy({}, {
+  ownKeys: function() { return [symbol, symbol]; }
+});
+expectsTypeError(function() { Object.getOwnPropertyNames(duplicatesSymbol); });
+expectsTypeError(function() { Reflect.ownKeys(duplicatesSymbol); });
+
+var nonExtensibleTarget = {};
+nonExtensibleTarget[symbol] = 1;
+Object.preventExtensions(nonExtensibleTarget);
+var omitsNonExtensible = new Proxy(nonExtensibleTarget, {
+  ownKeys: function() { return []; }
+});
+expectsTypeError(function() { Object.getOwnPropertySymbols(omitsNonExtensible); });
+
+var emptyNonExtensibleTarget = Object.preventExtensions({});
+var addsToNonExtensible = new Proxy(emptyNonExtensibleTarget, {
+  ownKeys: function() { return [symbol]; }
+});
+expectsTypeError(function() { Object.getOwnPropertyNames(addsToNonExtensible); });
+expectsTypeError(function() { Reflect.ownKeys(addsToNonExtensible); });
+
+var nonExtensibleArray = [1];
+Object.preventExtensions(nonExtensibleArray);
+var omitsArrayIndex = new Proxy(nonExtensibleArray, {
+  ownKeys: function() { return ["length"]; }
+});
+expectsTypeError(function() { Reflect.ownKeys(omitsArrayIndex); });
+
+var emptyNonExtensibleArray = Object.preventExtensions([]);
+var addsToNonExtensibleArray = new Proxy(emptyNonExtensibleArray, {
+  ownKeys: function() { return ["length", "extra"]; }
+});
+expectsTypeError(function() { Object.getOwnPropertyNames(addsToNonExtensibleArray); });
+
+failures;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("proxy ownKeys symbol invariants should run");
+
+        assert!(
+            outcome.note.contains("number(8)"),
+            "unexpected proxy ownKeys invariant result: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_proxy_own_keys_coerces_array_like_length_and_propagates_errors() {
+        let source = r#"
+var arrayLikeKeys = new Proxy({}, {
+  ownKeys: function() { return { 0: "arrayLike", length: "1" }; }
+});
+var keys = Reflect.ownKeys(arrayLikeKeys);
+var lengthError = {};
+var observedLengthError = false;
+var throwingLength = new Proxy({}, {
+  ownKeys: function() {
+    return Object.defineProperty({}, "length", {
+      get: function() { throw lengthError; }
+    });
+  }
+});
+try {
+  Reflect.ownKeys(throwingLength);
+} catch (error) {
+  observedLengthError = error === lengthError;
+}
+[keys.length, keys[0], observedLengthError].join(",");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("proxy ownKeys array-like length should run");
+
+        assert!(
+            outcome.note.contains("string(1,arrayLike,true)"),
+            "unexpected proxy ownKeys array-like result: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -12003,6 +16143,10 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
                 "boolean(false)",
             ),
             (
+                "function F() {} let rhs; if (true) { rhs = F; } else { rhs = print; } ({} instanceof rhs);",
+                "boolean(false)",
+            ),
+            (
                 "class C { constructor() { this.x = 1; } } let c = new C(); c.x;",
                 "number(1)",
             ),
@@ -12042,29 +16186,24 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
     }
 
     #[test]
-    fn wasm_backend_rejects_non_constructable_new_and_instanceof_tails() {
-        for source in [
-            "new.target;",
-            "function F() {} let rhs; if (true) { rhs = F; } else { rhs = print; } ({} instanceof rhs);",
-        ] {
-            let err = engine()
-                .run_script(
-                    source,
-                    CompileOptions::default(),
-                    RunOptions {
-                        backend: ExecutionBackend::WasmAot,
-                        ..RunOptions::default()
-                    },
-                )
-                .expect_err("unsupported constructor edge should stay unsupported");
-            let message = err.message();
-            assert!(
-                message.contains("unsupported in porffor wasm-aot first slice")
-                    || message.contains("parse error")
-                    || message.contains("TypeError"),
-                "source: {source}, err: {message}"
-            );
-        }
+    fn wasm_backend_rejects_top_level_new_target() {
+        let err = engine()
+            .run_script(
+                "new.target;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("top-level new.target should be rejected");
+        let message = err.message();
+        assert!(
+            message.contains("unsupported in porffor wasm-aot first slice")
+                || message.contains("parse error")
+                || message.contains("TypeError"),
+            "err: {message}"
+        );
     }
 
     #[test]
@@ -12358,6 +16497,32 @@ let sized = new Sub(7);
                 .unwrap_or_else(|err| panic!("phase 24 case should run for `{source}`: {err:?}"));
             assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
         }
+    }
+
+    #[test]
+    fn wasm_backend_branches_from_catch_blocks_to_enclosing_loops() {
+        let outcome = engine()
+            .run_script(
+                r#"
+let continued = 0;
+for (let index = 0; index < 3; index++) {
+  try {
+    throw index;
+  } catch (error) {
+    if (error < 2) continue;
+  }
+  continued++;
+}
+continued;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("catch-block continue should branch to the enclosing loop");
+        assert!(outcome.note.contains("number(1)"), "note: {}", outcome.note);
     }
 
     #[test]
@@ -12862,11 +17027,11 @@ let sized = new Sub(7);
     fn wasm_backend_array_to_locale_string_preserves_primitive_receivers() {
         let source = r#"
 "use strict";
-Boolean.prototype.toString = function() {
+Boolean.prototype.toLocaleString = function() {
   return typeof this;
 };
 let direct = [true, false].toLocaleString();
-Object.defineProperty(Boolean.prototype, "toString", {
+Object.defineProperty(Boolean.prototype, "toLocaleString", {
   get: function() {
     let receiverType = typeof this;
     return function() {
@@ -14246,6 +18411,42 @@ Atomics.load(i8, 0) + "|" + Atomics.load(u32, 0) + "|" + Atomics.load(i64, 0) + 
     }
 
     #[test]
+    fn wasm_backend_preserves_global_object_method_return_after_loop_assignment() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+var assert = {
+  sameValue: function(actual, expected) {
+    return actual === expected;
+  }
+};
+function waitUntil(expected) {
+  var actual = 0;
+  while ((actual = expected) !== expected) {
+  }
+  return assert.sameValue(actual, expected);
+}
+print("wait-until-method:" + waitUntil(3));
+"#;
+        let outcome = engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect(
+                "global object method calls should preserve their result after loop assignment",
+            );
+        assert!(outcome.note.contains("undefined"), "note: {}", outcome.note);
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["wait-until-method:true".to_string()]
+        );
+    }
+
+    #[test]
     fn wasm_backend_atomics_notify_validates_views_and_returns_zero_without_waiters() {
         let source = r#"
 const sharedI32 = new Int32Array(new SharedArrayBuffer(8));
@@ -14536,6 +18737,28 @@ results.join("|") + "|" + wrongViewThrew + "|" + indexCoerced + "|" + countCoerc
             });
         assert!(
             outcome.note.contains("string(6|yuck|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_array_concat_preserves_inherited_function_indexes_across_calls() {
+        let source = "var own = function(a, b, c) {}; own[Symbol.isConcatSpreadable] = true; own[0] = 1; own[1] = 2; own[2] = 3; var first = [].concat(own); Function.prototype[Symbol.isConcatSpreadable] = true; var holes = [].concat(function(a, b, c) {}); Function.prototype[0] = 1; Function.prototype[1] = 2; Function.prototype[2] = 3; var inherited = function(a, b, c) {}; var second = [].concat(inherited); first.join(',') + '|' + holes.length + '|' + second.join(',') + '|' + Object.keys(second).join(',');";
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Array.prototype.concat should preserve inherited Function indexes: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("string(1,2,3|3|1,2,3|0,1,2)"),
             "note: {}",
             outcome.note
         );
@@ -15071,8 +19294,6 @@ resultIsArray();
             "new.target;",
             "class C { #x; m(obj) { delete obj.#x; } }",
             "class C extends Object { m() { delete super.x; } }",
-            "class C { async m() {} }",
-            "class C { *m() {} }",
         ] {
             let err = engine()
                 .run_script(
@@ -15092,6 +19313,239 @@ resultIsArray();
                 "source: {source}, err: {message}"
             );
         }
+    }
+
+    #[test]
+    fn wasm_backend_collection_species_getters_have_standard_descriptors_and_return_receivers() {
+        let source = r#"
+let mapDescriptor = Object.getOwnPropertyDescriptor(Map, Symbol.species);
+let setDescriptor = Object.getOwnPropertyDescriptor(Set, Symbol.species);
+let mapReceiver = {};
+let setReceiver = function () {};
+[
+  Map[Symbol.species] === Map,
+  Set[Symbol.species] === Set,
+  mapDescriptor.get !== setDescriptor.get,
+  mapDescriptor.get.call(mapReceiver) === mapReceiver,
+  setDescriptor.get.call(setReceiver) === setReceiver,
+  mapDescriptor.get.call(undefined) === undefined,
+  setDescriptor.get.call(42) === 42,
+  mapDescriptor.set === undefined,
+  setDescriptor.set === undefined,
+  mapDescriptor.enumerable,
+  setDescriptor.enumerable,
+  mapDescriptor.configurable,
+  setDescriptor.configurable,
+  mapDescriptor.get.name,
+  setDescriptor.get.name,
+  mapDescriptor.get.length,
+  setDescriptor.get.length
+].join("|");
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Map and Set species getters should expose their standard observable surface");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|true|true|true|true|false|false|true|true|get [Symbol.species]|get [Symbol.species]|0|0)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_weak_ref_uses_private_weak_targets_and_new_target_prototypes() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var target = {};
+var weakRef = new WeakRef(target);
+if (weakRef.deref() !== target) throw "object target";
+if (!(weakRef instanceof WeakRef)) throw "instanceof";
+if (Object.getPrototypeOf(weakRef) !== WeakRef.prototype) throw "prototype";
+var symbol = Symbol("target");
+if (new WeakRef(symbol).deref() !== symbol) throw "symbol target";
+if (new WeakRef(Symbol.hasInstance).deref() !== Symbol.hasInstance) {
+  throw "well-known symbol target";
+}
+var customPrototype = {};
+function NewTarget() {}
+NewTarget.prototype = customPrototype;
+weakRef = Reflect.construct(WeakRef, [{}], NewTarget);
+if (Object.getPrototypeOf(weakRef) !== customPrototype) throw "custom prototype";
+NewTarget.prototype = 1;
+weakRef = Reflect.construct(WeakRef, [{}], NewTarget);
+if (Object.getPrototypeOf(weakRef) !== WeakRef.prototype) throw "fallback prototype";
+var boundPrototypeGetterCalls = 0;
+var BoundNewTarget = function() {}.bind(null);
+Object.defineProperty(BoundNewTarget, "prototype", {
+  get: function() {
+    boundPrototypeGetterCalls += 1;
+    return Array.prototype;
+  }
+});
+weakRef = Reflect.construct(WeakRef, [{}], BoundNewTarget);
+if (Object.getPrototypeOf(weakRef) !== Array.prototype) {
+  throw "bound newTarget prototype accessor";
+}
+if (boundPrototypeGetterCalls !== 1) throw "bound prototype getter count";
+var descriptor = Object.getOwnPropertyDescriptor(WeakRef.prototype, "deref");
+if (descriptor.value !== WeakRef.prototype.deref) throw "deref value";
+if (!descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
+  throw "deref descriptor";
+}
+if (WeakRef.length !== 1 || WeakRef.name !== "WeakRef") throw "constructor metadata";
+if (WeakRef.prototype.deref.length !== 0 ||
+    WeakRef.prototype.deref.name !== "deref") throw "deref metadata";
+if (WeakRef.prototype[Symbol.toStringTag] !== "WeakRef") throw "toStringTag";
+var errors = 0;
+for (var invalid of [undefined, null, 1, "target", true, Symbol.for("target")]) {
+  try { new WeakRef(invalid); } catch (error) {
+    if (error instanceof TypeError) errors += 1;
+  }
+}
+for (var receiver of [undefined, null, {}, WeakRef, WeakRef.prototype]) {
+  try { WeakRef.prototype.deref.call(receiver); } catch (error) {
+    if (error instanceof TypeError) errors += 1;
+  }
+}
+try { WeakRef(target); } catch (error) {
+  if (error instanceof TypeError) errors += 1;
+}
+if (errors !== 12) throw "errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should expose real WeakRef private targets");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_finalization_registry_tracks_and_unregisters_weak_cells() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var cleanupCalls = 0;
+var registry = new FinalizationRegistry(function() {
+  cleanupCalls += 1;
+});
+if (!(registry instanceof FinalizationRegistry)) throw "instanceof";
+if (Object.getPrototypeOf(registry) !== FinalizationRegistry.prototype) throw "prototype";
+if (!Object.isExtensible(registry)) throw "extensible";
+if (cleanupCalls !== 0) throw "cleanup called";
+var target = {};
+var token = {};
+if (registry.register(target, "holdings", token) !== undefined) throw "register result";
+if (registry.unregister(token) !== true) throw "unregister existing";
+if (registry.unregister(token) !== false) throw "unregister removed";
+registry.register({}, "first", token);
+registry.register({}, "second", token);
+if (registry.unregister(token) !== true) throw "unregister duplicate token";
+if (registry.unregister(token) !== false) throw "unregister all matching cells";
+if (registry.unregister({}) !== false) throw "unregister missing";
+registry.register(target, "target is token", target);
+registry.register({}, token, token);
+var symbolTarget = Symbol("target");
+var symbolToken = Symbol("token");
+registry.register(symbolTarget, "symbol holdings", symbolToken);
+if (registry.unregister(symbolToken) !== true) throw "symbol token";
+registry.register(Symbol.iterator, "well-known target", Symbol.hasInstance);
+if (registry.unregister(Symbol.hasInstance) !== true) throw "well-known token";
+var descriptor = Object.getOwnPropertyDescriptor(
+  FinalizationRegistry.prototype,
+  "register"
+);
+if (descriptor.value !== FinalizationRegistry.prototype.register ||
+    !descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
+  throw "register descriptor";
+}
+descriptor = Object.getOwnPropertyDescriptor(
+  FinalizationRegistry.prototype,
+  "unregister"
+);
+if (descriptor.value !== FinalizationRegistry.prototype.unregister ||
+    !descriptor.writable || descriptor.enumerable || !descriptor.configurable) {
+  throw "unregister descriptor";
+}
+descriptor = Object.getOwnPropertyDescriptor(FinalizationRegistry, "prototype");
+if (descriptor.writable || descriptor.enumerable || descriptor.configurable) {
+  throw "constructor prototype descriptor";
+}
+if (FinalizationRegistry.length !== 1 ||
+    FinalizationRegistry.name !== "FinalizationRegistry") throw "constructor metadata";
+if (FinalizationRegistry.prototype.register.length !== 2 ||
+    FinalizationRegistry.prototype.register.name !== "register") throw "register metadata";
+if (FinalizationRegistry.prototype.unregister.length !== 1 ||
+    FinalizationRegistry.prototype.unregister.name !== "unregister") throw "unregister metadata";
+if (FinalizationRegistry.prototype[Symbol.toStringTag] !== "FinalizationRegistry") {
+  throw "toStringTag";
+}
+var prototypeGetterCalls = 0;
+var NewTarget = function() {}.bind(null);
+Object.defineProperty(NewTarget, "prototype", {
+  get: function() {
+    prototypeGetterCalls += 1;
+    return Array.prototype;
+  }
+});
+var custom = Reflect.construct(FinalizationRegistry, [function() {}], NewTarget);
+if (Object.getPrototypeOf(custom) !== Array.prototype) throw "custom prototype";
+if (prototypeGetterCalls !== 1) throw "prototype getter count";
+NewTarget = function() {};
+NewTarget.prototype = 1;
+custom = Reflect.construct(FinalizationRegistry, [function() {}], NewTarget);
+if (Object.getPrototypeOf(custom) !== FinalizationRegistry.prototype) {
+  throw "fallback prototype";
+}
+function expectTypeError(callback) {
+  try {
+    callback();
+  } catch (error) {
+    if (error instanceof TypeError) return;
+  }
+  throw "expected TypeError";
+}
+expectTypeError(function() { FinalizationRegistry(function() {}); });
+expectTypeError(function() { new FinalizationRegistry(1); });
+expectTypeError(function() { registry.register(1, "holdings"); });
+expectTypeError(function() { registry.register(Symbol.for("target"), "holdings"); });
+expectTypeError(function() { registry.register(target, target); });
+expectTypeError(function() { registry.register(symbolTarget, symbolTarget); });
+expectTypeError(function() { registry.register({}, "holdings", 1); });
+expectTypeError(function() { registry.register({}, "holdings", Symbol.for("token")); });
+expectTypeError(function() { registry.unregister(undefined); });
+expectTypeError(function() { registry.unregister(Symbol.for("token")); });
+expectTypeError(function() {
+  FinalizationRegistry.prototype.register.call({}, {}, "holdings");
+});
+expectTypeError(function() {
+  FinalizationRegistry.prototype.unregister.call(Object.create(
+    FinalizationRegistry.prototype
+  ), {});
+});
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should expose real FinalizationRegistry weak cells");
+        assert!(outcome.note.contains("number(262"));
     }
 
     #[test]
@@ -15740,6 +20194,321 @@ try {
             outcome
                 .note
                 .contains("string(function|true|true|true|true|true|true|true|true)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_weak_map_supports_weak_keys_descriptors_and_cross_brand_checks() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var objectKey = {};
+var symbolKey = Symbol("local");
+var registeredKey = Symbol.for("registered");
+var weakMap = new WeakMap([[objectKey, 1], [symbolKey, 2]]);
+var primitiveSetThrows = false;
+var registeredSetThrows = false;
+var weakMethodRejectsMap = false;
+var mapMethodRejectsWeakMap = false;
+try { weakMap.set(1, 3); } catch (error) { primitiveSetThrows = error instanceof TypeError; }
+try { weakMap.set(registeredKey, 3); } catch (error) {
+  registeredSetThrows = error instanceof TypeError;
+}
+try { WeakMap.prototype.get.call(new Map(), objectKey); } catch (error) {
+  weakMethodRejectsMap = error instanceof TypeError;
+}
+try { Map.prototype.get.call(weakMap, objectKey); } catch (error) {
+  mapMethodRejectsWeakMap = error instanceof TypeError;
+}
+var tagDescriptor = Object.getOwnPropertyDescriptor(WeakMap.prototype, Symbol.toStringTag);
+[
+  typeof WeakMap,
+  WeakMap.length,
+  WeakMap.name,
+  WeakMap.prototype.constructor === WeakMap,
+  Object.prototype.toString.call(weakMap),
+  tagDescriptor.value,
+  tagDescriptor.writable,
+  tagDescriptor.enumerable,
+  tagDescriptor.configurable,
+  weakMap.get(objectKey),
+  weakMap.get(symbolKey),
+  weakMap.has(1),
+  weakMap.get(1),
+  weakMap.delete(1),
+  primitiveSetThrows,
+  registeredSetThrows,
+  weakMethodRejectsMap,
+  mapMethodRejectsWeakMap
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("WeakMap should enforce weak-key, descriptor, and brand contracts");
+        assert!(
+            outcome.note.contains(
+                "string(function|0|WeakMap|true|[object WeakMap]|WeakMap|false|false|true|1|2|false||false|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_weak_map_observes_setter_and_closes_iterator_on_abrupt_completion() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var events = [];
+var intrinsicSet = WeakMap.prototype.set;
+var key = {};
+class DerivedWeakMap extends WeakMap {}
+Object.defineProperty(DerivedWeakMap.prototype, "set", {
+  configurable: true,
+  get: function() {
+    events.push("get set");
+    return function(entryKey, value) {
+      events.push("set");
+      return intrinsicSet.call(this, entryKey, value);
+    };
+  }
+});
+var iterable = {
+  [Symbol.iterator]: function() {
+    events.push("iterator");
+    var done = false;
+    return {
+      next: function() {
+        if (done) return { done: true };
+        done = true;
+        return { done: false, value: [key, 7] };
+      }
+    };
+  }
+};
+var weakMap = new DerivedWeakMap(iterable);
+var closeCount = 0;
+var invalidIterable = {
+  [Symbol.iterator]: function() {
+    return {
+      next: function() { return { done: false, value: [1, 9] }; },
+      return: function() { closeCount += 1; return {}; }
+    };
+  }
+};
+var invalidKeyThrows = false;
+try { new WeakMap(invalidIterable); } catch (error) {
+  invalidKeyThrows = error instanceof TypeError;
+}
+[events.join(","), weakMap.get(key), invalidKeyThrows, closeCount].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("WeakMap construction should observe overridden set and IteratorClose");
+        assert!(
+            outcome
+                .note
+                .contains("string(get set,iterator,set|7|true|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_weak_set_supports_weak_values_descriptors_and_brand_checks() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var objectValue = {};
+var symbolValue = Symbol("local");
+var registeredValue = Symbol.for("registered");
+var weakSet = new WeakSet([objectValue, symbolValue]);
+var primitiveAddThrows = false;
+var registeredAddThrows = false;
+var weakMethodRejectsSet = false;
+var setMethodRejectsWeakSet = false;
+function NewTarget() {}
+var customPrototype = [];
+NewTarget.prototype = customPrototype;
+var customPrototypeWeakSet = Reflect.construct(WeakSet, [], NewTarget);
+NewTarget.prototype = null;
+var fallbackPrototypeWeakSet = Reflect.construct(WeakSet, [], NewTarget);
+try { weakSet.add(1); } catch (error) { primitiveAddThrows = error instanceof TypeError; }
+try { weakSet.add(registeredValue); } catch (error) {
+  registeredAddThrows = error instanceof TypeError;
+}
+try { WeakSet.prototype.has.call(new Set(), objectValue); } catch (error) {
+  weakMethodRejectsSet = error instanceof TypeError;
+}
+try { Set.prototype.has.call(weakSet, objectValue); } catch (error) {
+  setMethodRejectsWeakSet = error instanceof TypeError;
+}
+var tagDescriptor = Object.getOwnPropertyDescriptor(WeakSet.prototype, Symbol.toStringTag);
+[
+  typeof WeakSet,
+  WeakSet.length,
+  WeakSet.name,
+  WeakSet.prototype.constructor === WeakSet,
+  Object.prototype.toString.call(weakSet),
+  tagDescriptor.value,
+  tagDescriptor.writable,
+  tagDescriptor.enumerable,
+  tagDescriptor.configurable,
+  weakSet.has(objectValue),
+  weakSet.has(symbolValue),
+  weakSet.add(objectValue) === weakSet,
+  weakSet.delete(objectValue),
+  weakSet.has(objectValue),
+  weakSet.has(1),
+  weakSet.delete(1),
+  primitiveAddThrows,
+  registeredAddThrows,
+  weakMethodRejectsSet,
+  setMethodRejectsWeakSet,
+  Object.getPrototypeOf(customPrototypeWeakSet) === customPrototype,
+  Object.getPrototypeOf(fallbackPrototypeWeakSet) === WeakSet.prototype
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("WeakSet should enforce weak-value, descriptor, and brand contracts");
+        assert!(
+            outcome.note.contains(
+                "string(function|0|WeakSet|true|[object WeakSet]|WeakSet|false|false|true|true|true|true|true|false|false|false|true|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_weak_set_observes_adder_and_closes_iterator_on_abrupt_completion() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var events = [];
+var intrinsicAdd = WeakSet.prototype.add;
+var value = {};
+class DerivedWeakSet extends WeakSet {}
+Object.defineProperty(DerivedWeakSet.prototype, "add", {
+  configurable: true,
+  get: function() {
+    events.push("get add");
+    return function(entryValue) {
+      events.push("add");
+      return intrinsicAdd.call(this, entryValue);
+    };
+  }
+});
+var iterable = {
+  [Symbol.iterator]: function() {
+    events.push("iterator");
+    var done = false;
+    return {
+      next: function() {
+        if (done) return { done: true };
+        done = true;
+        return { done: false, value: value };
+      }
+    };
+  }
+};
+var weakSet = new DerivedWeakSet(iterable);
+var closeCount = 0;
+var invalidIterable = {
+  [Symbol.iterator]: function() {
+    return {
+      next: function() { return { done: false, value: 1 }; },
+      return: function() { closeCount += 1; return {}; }
+    };
+  }
+};
+var invalidValueThrows = false;
+try { new WeakSet(invalidIterable); } catch (error) {
+  invalidValueThrows = error instanceof TypeError;
+}
+[events.join(","), weakSet.has(value), invalidValueThrows, closeCount].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("WeakSet construction should observe overridden add and IteratorClose");
+        assert!(
+            outcome
+                .note
+                .contains("string(get add,iterator,add|true|true|1)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_weak_map_upsert_methods_preserve_order_and_abrupt_completion() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var key = {};
+var weakMap = new WeakMap();
+var callbackCount = 0;
+var inserted = weakMap.getOrInsert(key, 3);
+var existing = weakMap.getOrInsert(key, 4);
+var computedKey = {};
+var computed = weakMap.getOrInsertComputed(computedKey, function(observedKey) {
+  callbackCount += 1;
+  return observedKey === computedKey ? 5 : 0;
+});
+var callbackError = {};
+var propagated = false;
+try {
+  weakMap.getOrInsertComputed({}, function() { throw callbackError; });
+} catch (error) {
+  propagated = error === callbackError;
+}
+var invalidCallbackThrows = false;
+try {
+  weakMap.getOrInsertComputed(1, null);
+} catch (error) {
+  invalidCallbackThrows = error instanceof TypeError;
+}
+[
+  inserted,
+  existing,
+  weakMap.get(key),
+  computed,
+  weakMap.get(computedKey),
+  callbackCount,
+  propagated,
+  invalidCallbackThrows,
+  WeakMap.prototype.getOrInsert.length,
+  WeakMap.prototype.getOrInsertComputed.length
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("WeakMap upsert methods should preserve insertion and abrupt completion");
+        assert!(
+            outcome.note.contains("string(3|3|3|5|5|1|true|true|2|2)"),
             "note: {}",
             outcome.note
         );
@@ -18625,6 +23394,286 @@ try {
     }
 
     #[test]
+    fn wasm_backend_awaited_lexical_array_preserves_element_evaluation_order() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            function record(label) {
+                print(label);
+                return label;
+            }
+            function throwBetweenAwaits() {
+                print("throw-between");
+                throw "stop";
+            }
+            async function collect() {
+                const values = [
+                    record("before"),
+                    await Promise.resolve("a"),
+                    record("between"),
+                    await Promise.resolve("b"),
+                    record("after"),
+                ];
+                print(values.join("|"));
+                const sparse = [, await Promise.resolve("held"), ,];
+                print(
+                    sparse.length + ":" +
+                    (0 in sparse) + ":" +
+                    sparse[1] + ":" +
+                    (2 in sparse)
+                );
+            }
+            async function failBetweenAwaits() {
+                const values = [
+                    record("fail-before"),
+                    await Promise.resolve("first"),
+                    throwBetweenAwaits(),
+                    await Promise.resolve("second"),
+                    record("unreachable"),
+                ];
+                return values;
+            }
+            collect()
+                .then(function () { return failBetweenAwaits(); })
+                .then(undefined, function (reason) { print("rejected:" + reason); });
+            print("sync");
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("awaited lexical array elements should resume in source order: {err:?}")
+            });
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &[
+                "before".to_string(),
+                "sync".to_string(),
+                "between".to_string(),
+                "after".to_string(),
+                "before|a|between|b|after".to_string(),
+                "3:false:held:false".to_string(),
+                "fail-before".to_string(),
+                "throw-between".to_string(),
+                "rejected:stop".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_composite_await_declarations_preserve_order_and_abrupt_completion() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            function record(label, value) {
+                print(label);
+                return value;
+            }
+            function stop() {
+                print("stop");
+                throw "abrupt";
+            }
+            function stopBeforeAwait() {
+                print("stop-before-await");
+                throw "before-await";
+            }
+            async function calculate() {
+                const lexical =
+                    record("lex-left", 10) +
+                    await Promise.resolve(record("lex-await", 2)) *
+                    record("lex-right", 3);
+                print("lexical:" + lexical);
+                var variable =
+                    -(await Promise.resolve(record("var-await", 4))) +
+                    record("var-right", 1);
+                print("variable:" + variable);
+            }
+            async function failBeforeAwait() {
+                const unreachable =
+                    stopBeforeAwait() +
+                    await Promise.resolve(record("skipped-await", 1));
+                return unreachable;
+            }
+            async function fail() {
+                const unreachable =
+                    record("fail-left", 1) +
+                    await Promise.resolve(record("fail-await", 2)) *
+                    stop() +
+                    await Promise.resolve(record("after-abrupt", 3));
+                return unreachable;
+            }
+            calculate()
+                .then(function () { return failBeforeAwait(); })
+                .then(undefined, function (reason) {
+                    print("rejected:" + reason);
+                    return fail();
+                })
+                .then(undefined, function (reason) { print("rejected:" + reason); });
+            print("sync");
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("composite await declarations should resume in source order: {err:?}")
+            });
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &[
+                "lex-left".to_string(),
+                "lex-await".to_string(),
+                "sync".to_string(),
+                "lex-right".to_string(),
+                "lexical:16".to_string(),
+                "var-await".to_string(),
+                "var-right".to_string(),
+                "variable:-3".to_string(),
+                "stop-before-await".to_string(),
+                "rejected:before-await".to_string(),
+                "fail-left".to_string(),
+                "fail-await".to_string(),
+                "stop".to_string(),
+                "rejected:abrupt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_awaited_optional_property_fulfills_with_property_value() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            async function read(source) {
+                var value = await source?.value;
+                return value;
+            }
+            read({ value: Promise.resolve(7) }).then(function (value) {
+                print("fulfilled:" + value);
+            });
+            print("sync");
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("awaited optional property should fulfill: {err:?}"));
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["sync".to_string(), "fulfilled:7".to_string()]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_awaited_var_redeclaration_uses_resumed_runtime_type() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            async function lengthAfterAwait(promise) {
+                var value = "old";
+                var value = await promise;
+                return value.length;
+            }
+            lengthAfterAwait(Promise.resolve([1, 2])).then(function (length) {
+                print("length:" + length);
+            });
+            print("sync");
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("awaited var redeclaration should use its resumed runtime type: {err:?}")
+            });
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["sync".to_string(), "length:2".to_string()]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_nullish_optional_chain_skips_awaited_computed_key() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            let baseCalls = 0;
+            async function read() {
+                let value = (baseCalls += 1, undefined)?.[
+                    await Promise.reject("unreachable")
+                ];
+                return value === undefined;
+            }
+            read().then(function (skipped) {
+                print("skipped:" + skipped + ":" + baseCalls);
+            });
+            print("sync");
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("nullish optional chain should skip its awaited key: {err:?}")
+            });
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["sync".to_string(), "skipped:true:1".to_string()]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_awaited_optional_property_propagates_rejection() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            async function read(source) {
+                var value = await source?.value;
+                return value;
+            }
+            read({ value: Promise.reject("bad") }).then(
+                function () { print("unreachable"); },
+                function (reason) { print("rejected:" + reason); }
+            );
+            print("sync");
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("awaited optional property should reject: {err:?}"));
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["sync".to_string(), "rejected:bad".to_string()]
+        );
+    }
+
+    #[test]
     fn wasm_backend_async_generator_await_resumes_once_and_drains_queued_next_requests() {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let source = r#"
@@ -18667,6 +23716,219 @@ try {
                 "sync:1:0".to_string(),
                 "first:42:true:1:1".to_string(),
                 "second:undefined:true".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_async_generator_invalid_receivers_reject_intrinsic_promises() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            const other = __porfCreateRealm().global;
+            async function* stream() {}
+            function* syncStream() {}
+
+            const methods = [
+                stream.prototype.next,
+                stream.prototype.return,
+                stream.prototype.throw
+            ];
+            const receivers = [1, {}, function () {}, syncStream()];
+            const rejections = [];
+            let synchronous = true;
+            let synchronousThrows = 0;
+            let intrinsicPromises = 0;
+            let rejected = 0;
+            let fulfilled = 0;
+            let asynchronousRejections = 0;
+            let definingRealmTypeErrors = 0;
+
+            function observe(method, receiver) {
+                let promise;
+                try {
+                    promise = method.call(receiver);
+                } catch (error) {
+                    synchronousThrows += 1;
+                    return;
+                }
+                if (promise instanceof Promise) intrinsicPromises += 1;
+                rejections.push(promise.then(
+                    function () {
+                        fulfilled += 1;
+                    },
+                    function (error) {
+                        rejected += 1;
+                        if (!synchronous) asynchronousRejections += 1;
+                        if (
+                            Object.getPrototypeOf(error) === TypeError.prototype &&
+                            error instanceof TypeError &&
+                            !(error instanceof other.TypeError)
+                        ) {
+                            definingRealmTypeErrors += 1;
+                        }
+                    }
+                ));
+            }
+
+            for (let methodIndex = 0; methodIndex < methods.length; methodIndex += 1) {
+                for (let receiverIndex = 0; receiverIndex < receivers.length; receiverIndex += 1) {
+                    observe(methods[methodIndex], receivers[receiverIndex]);
+                }
+            }
+
+            synchronous = false;
+            print("sync:" + synchronousThrows + ":" + rejections.length + ":" + rejected);
+            Promise.all(rejections).then(function () {
+                print(
+                    "settled:" +
+                    rejected + ":" +
+                    fulfilled + ":" +
+                    asynchronousRejections + ":" +
+                    intrinsicPromises + ":" +
+                    definingRealmTypeErrors
+                );
+            });
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("invalid async-generator receivers should reject promises: {err:?}")
+            });
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &[
+                "sync:0:12:0".to_string(),
+                "settled:12:0:12:12:12".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_async_iterator_async_dispose_awaits_return_and_rejects_abrupt_completion() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            async function* stream() {}
+            const prototype = Object.getPrototypeOf(Object.getPrototypeOf(stream.prototype));
+            const method = prototype[Symbol.asyncDispose];
+            const other = __porfCreateRealm().global;
+            const getterError = {};
+            const callError = {};
+            const rejection = {};
+            const observations = [];
+            let synchronous = true;
+            let synchronousThrows = 0;
+            let intrinsicPromises = 0;
+            let asynchronousSettlements = 0;
+            let fulfilledUndefined = 0;
+            let rejectedByIdentity = 0;
+            let definingRealmTypeErrors = 0;
+            let returnCalls = 0;
+            let returnArgumentCount = 0;
+            let returnArgumentUndefined = 0;
+            let returnThisPreserved = 0;
+
+            function observe(receiver, expectedRejection) {
+                let promise;
+                try {
+                    promise = method.call(receiver);
+                } catch (error) {
+                    synchronousThrows += 1;
+                    return;
+                }
+                if (promise instanceof Promise) intrinsicPromises += 1;
+                observations.push(promise.then(
+                    function (value) {
+                        if (!synchronous) asynchronousSettlements += 1;
+                        if (value === undefined) fulfilledUndefined += 1;
+                    },
+                    function (error) {
+                        if (!synchronous) asynchronousSettlements += 1;
+                        if (error === expectedRejection) rejectedByIdentity += 1;
+                        if (
+                            expectedRejection === TypeError &&
+                            Object.getPrototypeOf(error) === TypeError.prototype &&
+                            error instanceof TypeError &&
+                            !(error instanceof other.TypeError)
+                        ) {
+                            definingRealmTypeErrors += 1;
+                        }
+                    }
+                ));
+            }
+
+            const successful = Object.create(prototype);
+            successful.return = function (value) {
+                returnCalls += 1;
+                returnArgumentCount += arguments.length;
+                if (value === undefined) returnArgumentUndefined += 1;
+                if (this === successful) returnThisPreserved += 1;
+                return Promise.resolve({ done: true });
+            };
+            observe(successful);
+            observe(Object.create(prototype));
+
+            const throwingGetter = Object.create(prototype);
+            Object.defineProperty(throwingGetter, "return", {
+                get: function () { throw getterError; }
+            });
+            observe(throwingGetter, getterError);
+
+            const throwingCall = Object.create(prototype);
+            throwingCall.return = function () { throw callError; };
+            observe(throwingCall, callError);
+
+            const rejectingCall = Object.create(prototype);
+            rejectingCall.return = function () { return Promise.reject(rejection); };
+            observe(rejectingCall, rejection);
+
+            const nonCallable = Object.create(prototype);
+            nonCallable.return = 1;
+            observe(nonCallable, TypeError);
+            observe(undefined, TypeError);
+
+            synchronous = false;
+            print("sync:" + synchronousThrows + ":" + intrinsicPromises);
+            Promise.all(observations).then(function () {
+                print(
+                    "return:" +
+                    returnCalls + ":" +
+                    returnArgumentCount + ":" +
+                    returnArgumentUndefined + ":" +
+                    returnThisPreserved
+                );
+                print(
+                    "settled:" +
+                    asynchronousSettlements + ":" +
+                    fulfilledUndefined + ":" +
+                    rejectedByIdentity + ":" +
+                    definingRealmTypeErrors
+                );
+            });
+        "#;
+
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("AsyncIterator asyncDispose should execute: {err:?}"));
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &[
+                "sync:0:7".to_string(),
+                "return:1:1:1:1".to_string(),
+                "settled:7:2:3:2".to_string(),
             ]
         );
     }
@@ -18902,6 +24164,61 @@ try {
     }
 
     #[test]
+    fn wasm_backend_async_generator_resumes_the_selected_yield_branch_without_retesting() {
+        for (flag, expected_lines) in [
+            ("true", ["yield:11:false", "return:13:true:1"]),
+            ("false", ["yield:23:false", "return:27:true:1"]),
+        ] {
+            let lines = Arc::new(Mutex::new(Vec::new()));
+            let source = format!(
+                r#"
+                    let conditionCalls = 0;
+                    function select(value) {{
+                        conditionCalls += 1;
+                        return value;
+                    }}
+                    async function* choose(flag) {{
+                        var value = flag ? 10 : 20;
+                        if (select(flag)) {{
+                            value += 1;
+                            yield value;
+                            value += 2;
+                        }} else {{
+                            value += 3;
+                            yield value;
+                            value += 4;
+                        }}
+                        return value;
+                    }}
+                    let iterator = choose({flag});
+                    iterator.next().then(function (result) {{
+                        print("yield:" + result.value + ":" + result.done);
+                    }});
+                    iterator.next().then(function (result) {{
+                        print("return:" + result.value + ":" + result.done + ":" + conditionCalls);
+                    }});
+                "#
+            );
+            engine_with_captured_prints(Arc::clone(&lines))
+                .run_script(
+                    &source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("async-generator conditional yield should run for {flag}: {err:?}")
+                });
+            assert_eq!(
+                lines.lock().expect("capture mutex poisoned").as_slice(),
+                expected_lines
+            );
+        }
+    }
+
+    #[test]
     fn wasm_backend_async_generator_yield_assimilates_resolve_first_thenables_once() {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let source = r#"
@@ -19076,6 +24393,48 @@ try {
                 "second:false".to_string(),
                 "done:true".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_async_generator_await_loop_interleaves_and_retains_iteration_binding() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let source = r#"
+            const events = [];
+            async function pushAwait(iteration) {
+                events.push("await:" + iteration);
+            }
+            async function* callAsync() {
+                for (let i = 0; i < 2; i++) {
+                    await pushAwait(i);
+                }
+                return 0;
+            }
+            callAsync().next();
+            new Promise(function (resolve) {
+                events.push("promise:1");
+                resolve();
+            }).then(function () {
+                events.push("promise:2");
+            }).then(function () {
+                print(events.join("|"));
+            });
+        "#;
+        engine_with_captured_prints(Arc::clone(&lines))
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("async-generator Await loop should reuse its suspension state: {err:?}")
+            });
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["await:0|promise:1|await:1|promise:2".to_string()]
         );
     }
 
@@ -23628,6 +28987,352 @@ try {
                 },
             )
             .unwrap_or_else(|err| panic!("generator methods should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_iterator_concat_is_eager_about_methods_and_lazy_about_iterators() {
+        let source = r#"
+            let events = [];
+            function source(name, values) {
+                return {
+                    get [Symbol.iterator]() {
+                        events.push("get " + name);
+                        return function() {
+                            events.push("open " + name);
+                            let index = 0;
+                            return {
+                                next() {
+                                    if (index === values.length) return { done: true };
+                                    return { done: false, value: values[index++] };
+                                }
+                            };
+                        };
+                    }
+                };
+            }
+            let iterator = Iterator.concat(source("a", [1]), source("b", [2]));
+            let eager = events.join(",") === "get a,get b";
+            let first = iterator.next();
+            let second = iterator.next();
+            let done = iterator.next();
+            eager
+                && events.join(",") === "get a,get b,open a,open b"
+                && first.value === 1 && !first.done
+                && second.value === 2 && !second.done
+                && done.done;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Iterator.concat should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_iterator_zip_keyed_preserves_keys_and_result_descriptors() {
+        let source = r#"
+            const symbolKey = Symbol("symbol");
+            const iterables = Object.create({ inherited: [99] });
+            iterables.second = ["second"];
+            Object.defineProperty(iterables, "hidden", {
+                value: ["hidden"],
+                enumerable: false
+            });
+            iterables[symbolKey] = ["symbol"];
+            iterables.omitted = undefined;
+            iterables[1] = ["one"];
+            iterables[0] = ["zero"];
+
+            const iterator = Iterator.zipKeyed(iterables);
+            const result = iterator.next();
+            const value = result.value;
+            const keys = Reflect.ownKeys(value);
+            const descriptor = Object.getOwnPropertyDescriptor(value, symbolKey);
+
+            !result.done
+                && Object.getPrototypeOf(value) === null
+                && keys.length === 4
+                && keys[0] === "0"
+                && keys[1] === "1"
+                && keys[2] === "second"
+                && keys[3] === symbolKey
+                && value[0] === "zero"
+                && value[1] === "one"
+                && value.second === "second"
+                && value[symbolKey] === "symbol"
+                && !Object.prototype.hasOwnProperty.call(value, "omitted")
+                && !Object.prototype.hasOwnProperty.call(value, "hidden")
+                && !Object.prototype.hasOwnProperty.call(value, "inherited")
+                && descriptor.writable
+                && descriptor.enumerable
+                && descriptor.configurable
+                && iterator.next().done;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Iterator.zipKeyed should preserve keys: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_iterator_zip_keyed_reads_options_before_sources_and_padding_after_them() {
+        let source = r#"
+            const events = [];
+            const iterablesTarget = {
+                left: [1],
+                right: [2, 3]
+            };
+            const iterables = new Proxy(iterablesTarget, {
+                ownKeys(target) {
+                    events.push("ownKeys");
+                    return Reflect.ownKeys(target);
+                },
+                getOwnPropertyDescriptor(target, key) {
+                    events.push("descriptor " + key);
+                    return Reflect.getOwnPropertyDescriptor(target, key);
+                },
+                get(target, key, receiver) {
+                    events.push("get " + key);
+                    return Reflect.get(target, key, receiver);
+                }
+            });
+            const padding = new Proxy({ left: 9 }, {
+                get(target, key, receiver) {
+                    events.push("padding " + key);
+                    return Reflect.get(target, key, receiver);
+                }
+            });
+            const options = {
+                get mode() {
+                    events.push("mode");
+                    return "longest";
+                },
+                get padding() {
+                    events.push("padding");
+                    return padding;
+                }
+            };
+
+            const iterator = Iterator.zipKeyed(iterables, options);
+            const constructionOrder = events.join(",") ===
+                "mode,padding,ownKeys,descriptor left,get left,descriptor right,get right,padding left,padding right";
+            const first = iterator.next();
+            const second = iterator.next();
+            const done = iterator.next();
+
+            constructionOrder
+                && first.value.left === 1
+                && first.value.right === 2
+                && !first.done
+                && second.value.left === 9
+                && second.value.right === 3
+                && !second.done
+                && done.done;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Iterator.zipKeyed ordering should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_object_from_entries_consumes_entries_and_closes_on_abrupt_completion() {
+        let source = r#"
+            const empty = Object.fromEntries([]);
+            const symbol = Symbol("entry");
+            const result = Object.fromEntries([["key", 1], [symbol, 2], ["key", 3]]);
+            const descriptor = Object.getOwnPropertyDescriptor(result, "key");
+            let closed = false;
+            const original = new Error("original");
+            const iterable = {
+                [Symbol.iterator]() {
+                    return {
+                        next() {
+                            return {
+                                done: false,
+                                value: {
+                                    get 0() { throw original; },
+                                    1: 1
+                                }
+                            };
+                        },
+                        return() {
+                            closed = true;
+                            return {};
+                        }
+                    };
+                }
+            };
+            let caught;
+            try {
+                Object.fromEntries(iterable);
+            } catch (error) {
+                caught = error;
+            }
+            let stepClosed = false;
+            const stepError = new Error("step");
+            const stepIterable = {
+                [Symbol.iterator]() {
+                    return {
+                        next() {
+                            throw stepError;
+                        },
+                        return() {
+                            stepClosed = true;
+                            return {};
+                        }
+                    };
+                }
+            };
+            let stepCaught;
+            try {
+                Object.fromEntries(stepIterable);
+            } catch (error) {
+                stepCaught = error;
+            }
+
+            Object.getPrototypeOf(empty) === Object.prototype
+                && Reflect.ownKeys(empty).length === 0
+                && result.key === 3
+                && result[symbol] === 2
+                && descriptor.writable
+                && descriptor.enumerable
+                && descriptor.configurable
+                && caught === original
+                && closed
+                && stepCaught === stepError
+                && !stepClosed;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Object.fromEntries should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_iterator_zip_keyed_closes_acquired_iterators_in_reverse_order() {
+        let source = r#"
+            const events = [];
+            const original = new Error("original");
+            function iterator(name) {
+                return {
+                    next() {
+                        return { done: true };
+                    },
+                    return() {
+                        events.push(name);
+                        throw new Error("ignored " + name);
+                    }
+                };
+            }
+            const bad = {
+                get [Symbol.iterator]() {
+                    throw original;
+                }
+            };
+            let caught;
+            try {
+                Iterator.zipKeyed({
+                    first: iterator("first"),
+                    second: iterator("second"),
+                    bad
+                });
+            } catch (error) {
+                caught = error;
+            }
+
+            caught === original && events.join(",") === "second,first";
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Iterator.zipKeyed closing should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_iterator_zip_keyed_closes_iterators_when_a_descriptor_lookup_throws() {
+        let source = r#"
+            const events = [];
+            const original = new Error("descriptor");
+            function iterator(name) {
+                return {
+                    next() {
+                        return { done: true };
+                    },
+                    return() {
+                        events.push(name);
+                        throw new Error("ignored " + name);
+                    }
+                };
+            }
+            const iterables = new Proxy({
+                first: iterator("first"),
+                second: iterator("second"),
+                third: null
+            }, {
+                getOwnPropertyDescriptor(target, key) {
+                    if (key === "third") {
+                        throw original;
+                    }
+                    return Reflect.getOwnPropertyDescriptor(target, key);
+                }
+            });
+            let caught;
+            try {
+                Iterator.zipKeyed(iterables);
+            } catch (error) {
+                caught = error;
+            }
+
+            caught === original && events.join(",") === "second,first";
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("Iterator.zipKeyed descriptor closing should run: {err:?}")
+            });
         assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 }

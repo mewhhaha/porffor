@@ -1,0 +1,99 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12943894304489876868,
+  "run_kind": "full",
+  "total": 13,
+  "passed": 13,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 13
+  },
+  "slowest_tests": [
+    {
+      "path": "language/expressions/call/spread-obj-getter-descriptor.js",
+      "duration_ms": 18521
+    },
+    {
+      "path": "language/expressions/call/spread-obj-override-immutable.js",
+      "duration_ms": 18377
+    },
+    {
+      "path": "language/expressions/call/spread-obj-with-overrides.js",
+      "duration_ms": 16975
+    },
+    {
+      "path": "language/expressions/call/spread-obj-spread-order.js",
+      "duration_ms": 16348
+    },
+    {
+      "path": "language/expressions/call/spread-obj-manipulate-outter-obj-in-getter.js",
+      "duration_ms": 16060
+    },
+    {
+      "path": "language/expressions/call/spread-obj-symbol-property.js",
+      "duration_ms": 16029
+    },
+    {
+      "path": "language/expressions/call/spread-obj-null.js",
+      "duration_ms": 15183
+    },
+    {
+      "path": "language/expressions/call/spread-obj-mult-spread-getter.js",
+      "duration_ms": 14891
+    },
+    {
+      "path": "language/expressions/call/spread-obj-getter-init.js",
+      "duration_ms": 14884
+    },
+    {
+      "path": "language/expressions/call/spread-obj-overrides-prev-properties.js",
+      "duration_ms": 14837
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "language/expressions/call/spread-obj-getter-descriptor.js",
+    "language/expressions/call/spread-obj-getter-init.js",
+    "language/expressions/call/spread-obj-manipulate-outter-obj-in-getter.js",
+    "language/expressions/call/spread-obj-mult-spread-getter.js",
+    "language/expressions/call/spread-obj-mult-spread.js",
+    "language/expressions/call/spread-obj-null.js",
+    "language/expressions/call/spread-obj-override-immutable.js",
+    "language/expressions/call/spread-obj-overrides-prev-properties.js",
+    "language/expressions/call/spread-obj-skip-non-enumerable.js",
+    "language/expressions/call/spread-obj-spread-order.js",
+    "language/expressions/call/spread-obj-symbol-property.js",
+    "language/expressions/call/spread-obj-undefined.js",
+    "language/expressions/call/spread-obj-with-overrides.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

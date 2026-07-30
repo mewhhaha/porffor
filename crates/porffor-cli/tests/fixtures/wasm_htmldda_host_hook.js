@@ -1,9 +1,17 @@
 function __porfIsHTMLDDA() {
-  return null;
+  return "ordinary";
+}
+
+if (typeof __porfIsHTMLDDA !== "function") throw "ordinary typeof";
+if (!__porfIsHTMLDDA) throw "ordinary truthy";
+if (__porfIsHTMLDDA == null) throw "ordinary loose null";
+if (__porfIsHTMLDDA() !== "ordinary") throw "ordinary call";
+if (new __porfIsHTMLDDA() instanceof __porfIsHTMLDDA !== true) {
+  throw "ordinary construct";
 }
 
 var $262 = {
-  IsHTMLDDA: __porfIsHTMLDDA
+  IsHTMLDDA: __porfCreateHTMLDDA()
 };
 
 if ($262.IsHTMLDDA === undefined) throw "strict undefined";
@@ -13,10 +21,36 @@ if (!($262.IsHTMLDDA == null)) throw "loose null";
 if (!($262.IsHTMLDDA == undefined)) throw "loose undefined";
 if (Object.is($262.IsHTMLDDA, undefined) !== false) throw "object is undefined";
 if ($262.IsHTMLDDA() !== null) throw "call result";
+let coercionCalls = 0;
+Object.defineProperty($262.IsHTMLDDA, Symbol.toPrimitive, {
+  configurable: true,
+  value() {
+    coercionCalls++;
+    throw "same-type equality coerced";
+  }
+});
+if (!($262.IsHTMLDDA == $262.IsHTMLDDA) || coercionCalls !== 0) {
+  throw "same-type identity";
+}
+
+let threw = false;
+for (let construct of [
+  function () { return new $262.IsHTMLDDA(); },
+  function () { return Reflect.construct($262.IsHTMLDDA, []); },
+  function () { return new ($262.IsHTMLDDA.bind(null))(); }
+]) {
+  threw = false;
+  try {
+    construct();
+  } catch (error) {
+    threw = error instanceof TypeError;
+  }
+  if (!threw) throw "constructable";
+}
 
 let items = {};
 items[Symbol.iterator] = $262.IsHTMLDDA;
-let threw = false;
+threw = false;
 try {
   Array.from(items);
 } catch (error) {

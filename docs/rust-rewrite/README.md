@@ -1,6 +1,7 @@
-# Grug Rust Rewrite
+# Lila Rust Rewrite
 
-Big rule first: Porffor compile JavaScript directly to Wasm. Porffor not sneak interpreter into Wasm and call that victory.
+Big rule first: Lila compiles JavaScript directly to Wasm. Lila does not sneak
+an interpreter into Wasm and call that victory.
 
 ## Phase 0 Ground
 - Root `AGENTS.md` freezes rewrite goal and product bans.

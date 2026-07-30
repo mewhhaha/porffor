@@ -1,5 +1,11 @@
 use super::super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UriCodecKind {
+    Uri,
+    Component,
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_string_concat_builtin(
         &mut self,
@@ -2921,7 +2927,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_advance_string_index_from_locals(
+    pub(crate) fn emit_advance_string_index_from_locals(
         &mut self,
         string_payload_local: u32,
         string_length_local: u32,
@@ -3646,12 +3652,12 @@ impl<'a> FunctionBuilder<'a> {
             receiver_payload_local,
             receiver_tag_local,
             key_local,
-            global_local,
+            flags_payload_local,
             flags_tag_local,
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
-        self.emit_value_to_string_payload(global_local, flags_tag_local, function)?;
+        self.emit_value_to_string_payload(flags_payload_local, flags_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(flags_payload_local));
         self.emit_return_current_completion_if_throw(function);
         self.emit_string_payload_contains_ascii_byte_i32(
@@ -5397,7 +5403,7 @@ impl<'a> FunctionBuilder<'a> {
             species_argv_local,
             function,
         )?;
-        self.emit_function_handle_construct_with_argv(
+        self.emit_function_or_proxy_construct_with_argv(
             species_payload_local,
             species_tag_local,
             species_payload_local,
@@ -18055,6 +18061,667 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(lhs_len);
         self.release_temp_local(lhs_offset);
         Ok(())
+    }
+
+    pub(crate) fn emit_uri_encode_string_payload(
+        &mut self,
+        input_string_local: u32,
+        codec_kind: UriCodecKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let src_offset_local = self.reserve_temp_local();
+        let src_len_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let codepoint_local = self.reserve_temp_local();
+        let advance_local = self.reserve_temp_local();
+        let next_index_local = self.reserve_temp_local();
+        let next_byte_local = self.reserve_temp_local();
+        let next_codepoint_local = self.reserve_temp_local();
+        let next_advance_local = self.reserve_temp_local();
+        let dst_capacity_local = self.reserve_temp_local();
+        let dst_offset_local = self.reserve_temp_local();
+        let dst_pos_local = self.reserve_temp_local();
+        let digit_local = self.reserve_temp_local();
+        let temp_local = self.reserve_temp_local();
+
+        self.emit_unpack_string_payload(
+            input_string_local,
+            src_offset_local,
+            src_len_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(dst_capacity_local));
+        self.emit_heap_alloc_from_local(dst_capacity_local, function)?;
+        function.instruction(&Instruction::LocalSet(dst_offset_local));
+        function.instruction(&Instruction::LocalGet(dst_offset_local));
+        function.instruction(&Instruction::LocalSet(dst_pos_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+
+        self.emit_load_string_byte(src_offset_local, index_local, byte_local, function);
+        self.emit_decode_utf8_scalar_at_index(
+            src_offset_local,
+            index_local,
+            src_len_local,
+            byte_local,
+            codepoint_local,
+            advance_local,
+            temp_local,
+            function,
+        );
+        self.emit_is_high_surrogate_i32(codepoint_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(next_index_local));
+        function.instruction(&Instruction::LocalGet(next_index_local));
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return("URI contains a trailing high surrogate", function)?;
+        function.instruction(&Instruction::End);
+        self.emit_load_string_byte(
+            src_offset_local,
+            next_index_local,
+            next_byte_local,
+            function,
+        );
+        self.emit_decode_utf8_scalar_at_index(
+            src_offset_local,
+            next_index_local,
+            src_len_local,
+            next_byte_local,
+            next_codepoint_local,
+            next_advance_local,
+            temp_local,
+            function,
+        );
+        self.emit_is_low_surrogate_i32(next_codepoint_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return(
+            "URI contains a high surrogate without a following low surrogate",
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0xD800));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalGet(next_codepoint_local));
+        function.instruction(&Instruction::I64Const(0xDC00));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(codepoint_local));
+        function.instruction(&Instruction::LocalGet(advance_local));
+        function.instruction(&Instruction::LocalGet(next_advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(advance_local));
+        function.instruction(&Instruction::Else);
+        self.emit_is_low_surrogate_i32(codepoint_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return("URI contains an unpaired low surrogate", function)?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.emit_uri_unescaped_codepoint_i32(codepoint_local, codec_kind, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_store_byte_local(dst_pos_local, codepoint_local, function);
+        self.emit_increment_local(dst_pos_local, 1, function);
+        function.instruction(&Instruction::Else);
+        self.emit_store_uri_percent_encoded_codepoint(
+            dst_pos_local,
+            codepoint_local,
+            byte_local,
+            digit_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(dst_pos_local));
+        function.instruction(&Instruction::LocalGet(dst_offset_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(dst_capacity_local));
+        self.emit_pack_string_payload(dst_offset_local, dst_capacity_local, function);
+
+        self.release_temp_local(temp_local);
+        self.release_temp_local(digit_local);
+        self.release_temp_local(dst_pos_local);
+        self.release_temp_local(dst_offset_local);
+        self.release_temp_local(dst_capacity_local);
+        self.release_temp_local(next_advance_local);
+        self.release_temp_local(next_codepoint_local);
+        self.release_temp_local(next_byte_local);
+        self.release_temp_local(next_index_local);
+        self.release_temp_local(advance_local);
+        self.release_temp_local(codepoint_local);
+        self.release_temp_local(byte_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(src_len_local);
+        self.release_temp_local(src_offset_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_uri_decode_string_payload(
+        &mut self,
+        input_string_local: u32,
+        codec_kind: UriCodecKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let src_offset_local = self.reserve_temp_local();
+        let src_len_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let percent_index_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let first_hex_local = self.reserve_temp_local();
+        let second_hex_local = self.reserve_temp_local();
+        let sequence_len_local = self.reserve_temp_local();
+        let sequence_index_local = self.reserve_temp_local();
+        let codepoint_local = self.reserve_temp_local();
+        let dst_offset_local = self.reserve_temp_local();
+        let dst_pos_local = self.reserve_temp_local();
+        let temp_local = self.reserve_temp_local();
+
+        self.emit_unpack_string_payload(
+            input_string_local,
+            src_offset_local,
+            src_len_local,
+            function,
+        );
+        self.emit_heap_alloc_from_local(src_len_local, function)?;
+        function.instruction(&Instruction::LocalSet(dst_offset_local));
+        function.instruction(&Instruction::LocalGet(dst_offset_local));
+        function.instruction(&Instruction::LocalSet(dst_pos_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+
+        self.emit_load_string_byte(src_offset_local, index_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'%' as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_store_byte_local(dst_pos_local, byte_local, function);
+        self.emit_increment_local(dst_pos_local, 1, function);
+        self.emit_increment_local(index_local, 1, function);
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalSet(percent_index_local));
+        self.emit_uri_percent_byte_at_index(
+            src_offset_local,
+            src_len_local,
+            percent_index_local,
+            byte_local,
+            first_hex_local,
+            second_hex_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0x80));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        if codec_kind == UriCodecKind::Uri {
+            self.emit_uri_reserved_ascii_i32(byte_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            for delta in 0..3 {
+                self.emit_load_string_byte_at_delta(
+                    src_offset_local,
+                    index_local,
+                    delta,
+                    temp_local,
+                    function,
+                );
+                self.emit_store_byte_local(dst_pos_local, temp_local, function);
+                self.emit_increment_local(dst_pos_local, 1, function);
+            }
+            function.instruction(&Instruction::Else);
+            self.emit_store_byte_local(dst_pos_local, byte_local, function);
+            self.emit_increment_local(dst_pos_local, 1, function);
+            function.instruction(&Instruction::End);
+        } else {
+            self.emit_store_byte_local(dst_pos_local, byte_local, function);
+            self.emit_increment_local(dst_pos_local, 1, function);
+        }
+        self.emit_increment_local(index_local, 3, function);
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xC2));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xDF));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::LocalSet(sequence_len_local));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0x1F));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(codepoint_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xE0));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xEF));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::LocalSet(sequence_len_local));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0x0F));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(codepoint_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xF0));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xF4));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::LocalSet(sequence_len_local));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0x07));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(codepoint_local));
+        function.instruction(&Instruction::Else);
+        self.emit_uri_error_and_return(
+            "URI percent encoding starts with an invalid UTF-8 byte",
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(sequence_index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(sequence_index_local));
+        function.instruction(&Instruction::LocalGet(sequence_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(sequence_index_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(percent_index_local));
+        self.emit_uri_percent_byte_at_index(
+            src_offset_local,
+            src_len_local,
+            percent_index_local,
+            byte_local,
+            first_hex_local,
+            second_hex_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0x80));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0xBF));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return(
+            "URI percent encoding contains an invalid UTF-8 continuation byte",
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(6));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(0x3F));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(codepoint_local));
+        self.emit_increment_local(sequence_index_local, 1, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.emit_uri_decoded_scalar_is_valid_i32(codepoint_local, sequence_len_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return(
+            "URI percent encoding is not a shortest-form Unicode scalar",
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(sequence_len_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(dst_pos_local));
+        function.instruction(&Instruction::LocalGet(dst_offset_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(src_len_local));
+        self.emit_pack_string_payload(dst_offset_local, src_len_local, function);
+
+        self.release_temp_local(temp_local);
+        self.release_temp_local(dst_pos_local);
+        self.release_temp_local(dst_offset_local);
+        self.release_temp_local(codepoint_local);
+        self.release_temp_local(sequence_index_local);
+        self.release_temp_local(sequence_len_local);
+        self.release_temp_local(second_hex_local);
+        self.release_temp_local(first_hex_local);
+        self.release_temp_local(byte_local);
+        self.release_temp_local(percent_index_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(src_len_local);
+        self.release_temp_local(src_offset_local);
+        Ok(())
+    }
+
+    fn emit_uri_error_and_return(
+        &mut self,
+        message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_throw_current_function_realm_uri_error(
+            message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        Ok(())
+    }
+
+    fn emit_uri_unescaped_codepoint_i32(
+        &self,
+        codepoint_local: u32,
+        codec_kind: UriCodecKind,
+        function: &mut Function,
+    ) {
+        for (index, (low, high)) in [(b'A', b'Z'), (b'a', b'z'), (b'0', b'9')]
+            .into_iter()
+            .enumerate()
+        {
+            function.instruction(&Instruction::LocalGet(codepoint_local));
+            function.instruction(&Instruction::I64Const(low as i64));
+            function.instruction(&Instruction::I64GeU);
+            function.instruction(&Instruction::LocalGet(codepoint_local));
+            function.instruction(&Instruction::I64Const(high as i64));
+            function.instruction(&Instruction::I64LeU);
+            function.instruction(&Instruction::I32And);
+            if index > 0 {
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+        let punctuation = match codec_kind {
+            UriCodecKind::Uri => b"-_.!~*'();/?:@&=+$,#".as_slice(),
+            UriCodecKind::Component => b"-_.!~*'()".as_slice(),
+        };
+        for byte in punctuation {
+            function.instruction(&Instruction::LocalGet(codepoint_local));
+            function.instruction(&Instruction::I64Const(*byte as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+    }
+
+    fn emit_uri_reserved_ascii_i32(&self, byte_local: u32, function: &mut Function) {
+        for (index, byte) in b";/?:@&=+$,#".iter().enumerate() {
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(*byte as i64));
+            function.instruction(&Instruction::I64Eq);
+            if index > 0 {
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+    }
+
+    fn emit_store_uri_percent_encoded_codepoint(
+        &self,
+        dst_pos_local: u32,
+        codepoint_local: u32,
+        byte_local: u32,
+        digit_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x80));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::LocalSet(byte_local));
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x800));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_utf8_head_byte(codepoint_local, byte_local, 6, 0xC0, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        self.emit_uri_utf8_tail_byte(codepoint_local, byte_local, 0, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_utf8_head_byte(codepoint_local, byte_local, 12, 0xE0, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        self.emit_uri_utf8_tail_byte(codepoint_local, byte_local, 6, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        self.emit_uri_utf8_tail_byte(codepoint_local, byte_local, 0, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        function.instruction(&Instruction::Else);
+        self.emit_uri_utf8_head_byte(codepoint_local, byte_local, 18, 0xF0, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        self.emit_uri_utf8_tail_byte(codepoint_local, byte_local, 12, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        self.emit_uri_utf8_tail_byte(codepoint_local, byte_local, 6, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        self.emit_uri_utf8_tail_byte(codepoint_local, byte_local, 0, function);
+        self.emit_store_uri_percent_byte(dst_pos_local, byte_local, digit_local, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    fn emit_uri_utf8_head_byte(
+        &self,
+        codepoint_local: u32,
+        byte_local: u32,
+        shift: i64,
+        prefix: i64,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(shift));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(prefix));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(byte_local));
+    }
+
+    fn emit_uri_utf8_tail_byte(
+        &self,
+        codepoint_local: u32,
+        byte_local: u32,
+        shift: i64,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        if shift != 0 {
+            function.instruction(&Instruction::I64Const(shift));
+            function.instruction(&Instruction::I64ShrU);
+        }
+        function.instruction(&Instruction::I64Const(0x3F));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0x80));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(byte_local));
+    }
+
+    fn emit_store_uri_percent_byte(
+        &self,
+        dst_pos_local: u32,
+        byte_local: u32,
+        digit_local: u32,
+        function: &mut Function,
+    ) {
+        self.store_ascii_byte_i64(dst_pos_local, b'%', function);
+        self.emit_increment_local(dst_pos_local, 1, function);
+        self.emit_store_hex_digit_from_byte(byte_local, digit_local, 4, dst_pos_local, function);
+        self.emit_increment_local(dst_pos_local, 1, function);
+        self.emit_store_hex_digit_from_byte(byte_local, digit_local, 0, dst_pos_local, function);
+        self.emit_increment_local(dst_pos_local, 1, function);
+    }
+
+    fn emit_uri_percent_byte_at_index(
+        &mut self,
+        src_offset_local: u32,
+        src_len_local: u32,
+        percent_index_local: u32,
+        byte_local: u32,
+        first_hex_local: u32,
+        second_hex_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::LocalGet(percent_index_local));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(src_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return("URI contains an incomplete percent escape", function)?;
+        function.instruction(&Instruction::End);
+        self.emit_load_string_byte(src_offset_local, percent_index_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'%' as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return(
+            "URI UTF-8 continuation byte is not percent-escaped",
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.emit_load_string_byte_at_delta(
+            src_offset_local,
+            percent_index_local,
+            1,
+            byte_local,
+            function,
+        );
+        self.emit_hex_value_or_minus_one(byte_local, first_hex_local, function);
+        self.emit_load_string_byte_at_delta(
+            src_offset_local,
+            percent_index_local,
+            2,
+            byte_local,
+            function,
+        );
+        self.emit_hex_value_or_minus_one(byte_local, second_hex_local, function);
+        function.instruction(&Instruction::LocalGet(first_hex_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::LocalGet(second_hex_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_uri_error_and_return("URI percent escape contains a non-hex digit", function)?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(first_hex_local));
+        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalGet(second_hex_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(byte_local));
+        Ok(())
+    }
+
+    fn emit_uri_decoded_scalar_is_valid_i32(
+        &self,
+        codepoint_local: u32,
+        sequence_len_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(sequence_len_local));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x80));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(sequence_len_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x800));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0xD800));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0xDFFF));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(0x10FFFF));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_annexb_escape_string_payload(

@@ -17,24 +17,19 @@ use porffor_ir::{
     PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptGlobalBindingIr,
     ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr,
     SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryNumericOp, UpdateReturnMode, ValueInfo,
-    ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_BYTE_LENGTH_SLOT,
-    ARRAY_BUFFER_DATA_PTR_SLOT, ARRAY_BUFFER_IMMUTABLE_SLOT, ARRAY_BUFFER_MAX_BYTE_LENGTH_SLOT,
-    ARRAY_BUFFER_NAME, ARRAY_BUFFER_RESIZABLE_SLOT, ARRAY_BUFFER_SHARED_SLOT, ARRAY_NAME,
-    ATOMICS_NAME, BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
-    DATA_VIEW_BYTE_LENGTH_SLOT, DATA_VIEW_BYTE_OFFSET_SLOT, DATA_VIEW_DATA_PTR_SLOT,
-    DATA_VIEW_LENGTH_TRACKING_SLOT, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME,
-    EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
-    LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, MAP_NAME, MATH_NAME,
-    NUMBER_NAME, OBJECT_NAME, PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
+    ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME,
+    BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
+    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
+    FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
+    INT32_ARRAY_NAME, INT8_ARRAY_NAME, IS_CONSTRUCTOR_NAME, JSON_NAME,
+    JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME,
+    LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME,
+    PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
     PORFFOR_STATIC_GENERATOR_VALUES_METHOD, PRINT_NAME, PROXY_NAME, RANGE_ERROR_NAME,
     REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SET_NAME, SHARED_ARRAY_BUFFER_NAME,
-    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
-    TYPED_ARRAY_BYTES_PER_ELEMENT_SLOT, TYPED_ARRAY_BYTE_LENGTH_SLOT, TYPED_ARRAY_BYTE_OFFSET_SLOT,
-    TYPED_ARRAY_ELEMENT_KIND_SLOT, TYPED_ARRAY_LENGTH_TRACKING_SLOT,
-    TYPED_ARRAY_VIEWED_ARRAY_BUFFER_SLOT, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME,
-    UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
+    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TYPE_ERROR_NAME,
+    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
+    URI_ERROR_NAME,
 };
 use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
 
@@ -153,6 +148,38 @@ new Derived(source);
     }
 
     #[test]
+    fn object_literal_copy_data_properties_module_validates() {
+        let artifact = emit_script(
+            r#"
+let calls = [];
+let symbol = Symbol("copied");
+let source = { get visible() { calls.push("get"); return 2; } };
+source[symbol] = 3;
+Object.defineProperty(source, "hidden", { value: 4, enumerable: false });
+let proxy = new Proxy(source, {
+  ownKeys(target) {
+    calls.push("keys");
+    return ["visible", "hidden", symbol];
+  },
+  getOwnPropertyDescriptor(target, key) {
+    calls.push(key === symbol ? "descriptor:symbol" : "descriptor:" + key);
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  },
+  get(target, key) {
+    calls.push(key === symbol ? "get:symbol" : "get:" + key);
+    return Reflect.get(target, key);
+  }
+});
+let result = { before: 1, ...null, ...undefined, ...proxy, visible: 5, ..."xy" };
+result.visible + result[symbol] + result[0] + result[1] + calls.length;
+"#,
+        )
+        .expect("object literal CopyDataProperties paths should emit");
+
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
     fn generator_parameter_modules_emit_valid_intrinsic_global_references() {
         let artifact = emit_script("function* f({ value }) {} f({ value: 1 });")
             .expect("generator parameter script should emit");
@@ -171,6 +198,26 @@ new Derived(source);
     }
 
     #[test]
+    fn async_generator_invalid_receiver_rejection_module_validates() {
+        let artifact = emit_script(
+            "async function* stream() {} function* syncStream() {} let methods = [stream.prototype.next, stream.prototype.return, stream.prototype.throw]; let receivers = [1, {}, function () {}, syncStream()]; for (let methodIndex = 0; methodIndex < methods.length; methodIndex += 1) { for (let receiverIndex = 0; receiverIndex < receivers.length; receiverIndex += 1) { methods[methodIndex].call(receivers[receiverIndex]).then(undefined, function () {}); } }",
+        )
+        .expect("invalid async-generator receivers should emit rejected promises");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
+    fn async_iterator_async_dispose_module_validates() {
+        let artifact = emit_script(
+            "async function* stream() {} let prototype = Object.getPrototypeOf(Object.getPrototypeOf(stream.prototype)); let fulfilled = Object.create(prototype); fulfilled.return = function (value) { return Promise.resolve(value); }; let rejected = Object.create(prototype); rejected.return = function () { return Promise.reject(1); }; let absent = Object.create(prototype); prototype[Symbol.asyncDispose].call(fulfilled); prototype[Symbol.asyncDispose].call(rejected).catch(function () {}); prototype[Symbol.asyncDispose].call(absent);",
+        )
+        .expect("AsyncIterator asyncDispose paths should emit");
+
+        expect_valid_module(&artifact, 1);
+    }
+
+    #[test]
     fn async_generator_no_suspension_conditional_module_validates() {
         let artifact = emit_script(
             "async function* choose(flag) { let value = 0; if (flag) { value = 1; if (false) value = 2; } else { value = 3; } return value; } choose(true).next(); choose(false).next();",
@@ -181,11 +228,24 @@ new Derived(source);
     }
 
     #[test]
-    fn async_generator_conditional_suspension_remains_explicit() {
+    fn async_generator_direct_yield_conditionals_validate() {
+        for source in [
+            "async function* choose(flag) { if (flag) yield 1; return 2; } choose(true).next(); choose(false).next();",
+            "async function* choose(flag) { if (flag) yield 1; else yield 2; return 3; } choose(true).next(); choose(false).next();",
+            "async function* choose(flag) { var value = flag ? 1 : 3; if (flag) { value += 1; yield value; value += 1; } else { value += 2; yield value; value += 2; } return value; } choose(true).next(); choose(false).next();",
+        ] {
+            let artifact =
+                emit_script(source).expect("async-generator direct-yield branch should emit");
+            expect_valid_module(&artifact, 1);
+        }
+    }
+
+    #[test]
+    fn async_generator_await_conditional_suspension_remains_explicit() {
         let error = emit_script(
             "async function* choose(flag) { if (flag) await 1; return 2; } choose(true).next();",
         )
-        .expect_err("async-generator conditional suspension should remain explicit");
+        .expect_err("async-generator conditional Await should remain explicit");
 
         assert!(error
             .to_string()
@@ -389,6 +449,45 @@ Promise.reject(3)
     }
 
     #[test]
+    fn iterator_zip_keyed_module_validates() {
+        let artifact = emit_script(
+            r#"
+const key = Symbol("key");
+const inputs = { first: [1], second: [2, 3], [key]: [4] };
+const iterator = Iterator.zipKeyed(inputs, {
+  mode: "longest",
+  padding: { first: 5, [key]: 6 },
+});
+const first = iterator.next().value;
+const second = iterator.next().value;
+Object.getPrototypeOf(first) === null
+  && first.first === 1
+  && first.second === 2
+  && first[key] === 4
+  && second.first === 5
+  && second.second === 3
+  && second[key] === 6;
+"#,
+        )
+        .expect("Iterator.zipKeyed should emit");
+
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn object_from_entries_module_validates() {
+        let artifact = emit_script(
+            r#"
+const result = Object.fromEntries([["first", 1], ["second", 2]]);
+result.first === 1 && result.second === 2;
+"#,
+        )
+        .expect("Object.fromEntries should emit");
+
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
     fn async_generator_mixed_await_and_yield_module_validates() {
         let artifact = emit_script(
             "async function* stream(value) { await value; yield value; } stream(1).next();",
@@ -411,6 +510,23 @@ Promise.reject(3)
                 emit_script(source).expect("async-generator resumable loop should emit");
             expect_valid_module(&artifact, 1);
         }
+    }
+
+    #[test]
+    fn async_generator_resumable_await_loop_module_validates() {
+        let artifact = emit_script(
+            "async function tick(value) { return value; }
+             async function* stream() {
+                 for (let i = 0; i < 2; i++) {
+                     await tick(i);
+                 }
+                 return 0;
+             }
+             stream().next();",
+        )
+        .expect("async-generator resumable Await loop should emit");
+
+        expect_valid_module(&artifact, 1);
     }
 
     #[test]
@@ -855,6 +971,125 @@ pick(true);"#,
         let program = lower(&source);
         assert!(program.ir_summary().contains("spec_operations=1"));
         let artifact = emit(&program).expect("StrictEqualityComparison spec operation should emit");
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_instant_equals_builtin_emits() {
+        let source = parse(
+            "new Temporal.Instant(1n).equals(new Temporal.Instant(1n));",
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact = emit(&program).expect("Temporal.Instant.prototype.equals should emit");
+
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_from_builtin_emits() {
+        let source = parse(
+            "Temporal.ZonedDateTime.from(\"1970-01-01T00:00Z[UTC]\");",
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact = emit(&program).expect("Temporal.ZonedDateTime.from should emit");
+
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_from_property_bags_emit() {
+        let source = parse(
+            r#"
+            Temporal.ZonedDateTime.from({
+                year: 1976,
+                monthCode: "M11",
+                day: 18,
+                timeZone: "+01:00"
+            }, { overflow: "constrain" });
+            var arrayBag = [];
+            arrayBag.year = 1970;
+            arrayBag.month = 1;
+            arrayBag.day = 1;
+            arrayBag.timeZone = "UTC";
+            Temporal.ZonedDateTime.from(arrayBag);
+            function functionBag() {}
+            functionBag.year = 1970;
+            functionBag.month = 1;
+            functionBag.day = 1;
+            functionBag.timeZone = "UTC";
+            Temporal.ZonedDateTime.from(functionBag, function () {});
+            "#,
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact =
+            emit(&program).expect("Temporal.ZonedDateTime.from property bags should emit");
+
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_offset_accessors_emit() {
+        let source = parse(
+            "const value = new Temporal.ZonedDateTime(0n, \"+01:30\"); \
+             value.offset; value.offsetNanoseconds;",
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact = emit(&program).expect("Temporal.ZonedDateTime offset accessors should emit");
+
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_civil_accessors_and_equals_emit() {
+        let source = parse(
+            r#"
+            const value = new Temporal.ZonedDateTime(-1n, "+01:30");
+            value.year;
+            value.month;
+            value.monthCode;
+            value.day;
+            value.hour;
+            value.minute;
+            value.second;
+            value.millisecond;
+            value.microsecond;
+            value.nanosecond;
+            value.equals({ year: 1970, month: 1, day: 1, timeZone: "+01:30" });
+            "#,
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact =
+            emit(&program).expect("Temporal.ZonedDateTime civil accessors and equals should emit");
+
+        assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_with_time_zone_emits() {
+        let source = parse(
+            r#"
+            const value = new Temporal.ZonedDateTime(0n, "UTC");
+            value.withTimeZone("+0130");
+            value.withTimeZone("2021-08-19T17:30Z");
+            value.withTimeZone(new Temporal.ZonedDateTime(1n, "-08"));
+            "#,
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact =
+            emit(&program).expect("Temporal.ZonedDateTime.prototype.withTimeZone should emit");
+
         assert!(!artifact.bytes.is_empty());
     }
 
@@ -1366,6 +1601,46 @@ pick(true);"#,
         expect_valid_module(&artifact, 0);
         assert!(artifact.debug_dump.contains("export func: main"));
         assert!(artifact.debug_dump.contains("export global: result_tag"));
+    }
+
+    #[test]
+    fn dynamic_number_exponentiation_module_validates_with_runtime_pow_import() {
+        let artifact = emit_script(
+            "let base = 9; let exponent = 0.5; base ** exponent + Math.pow(base, exponent);",
+        )
+        .expect("dynamic Number exponentiation should emit");
+
+        expect_valid_module(&artifact, 0);
+        assert!(
+            artifact
+                .debug_dump
+                .contains("import func: porf_host.number_pow"),
+            "{}",
+            artifact.debug_dump
+        );
+    }
+
+    #[test]
+    fn date_now_module_imports_wall_clock_milliseconds() {
+        let artifact = emit_script("Date.now();").expect("Date.now script should emit");
+
+        expect_valid_module(&artifact, 0);
+        assert!(
+            artifact
+                .debug_dump
+                .contains("import func: porf_host.wall_clock_millis"),
+            "{}",
+            artifact.debug_dump
+        );
+
+        let artifact = emit_script("262;").expect("constant script should emit");
+        assert!(
+            !artifact
+                .debug_dump
+                .contains("import func: porf_host.wall_clock_millis"),
+            "{}",
+            artifact.debug_dump
+        );
     }
 
     #[test]
@@ -2127,14 +2402,34 @@ calls;
     }
 
     #[test]
-    fn object_and_array_scripts_emit_memory_without_imports() {
+    fn object_and_array_scripts_emit_memory_with_agent_capability_import() {
         let artifact =
             emit_script("let o = { x: 1 }; let a = [1]; a[2] = 4; o.x;").expect("emit should work");
         expect_valid_module(&artifact, 0);
         assert!(artifact
             .debug_dump
+            .contains("import func: porf_host.agent_can_suspend"));
+        assert!(artifact
+            .debug_dump
             .contains("memory: exported linear memory"));
         assert!(artifact.debug_dump.contains("data segments: 1"));
+    }
+
+    #[test]
+    fn test262_agent_builtins_import_the_agent_call_and_split_memories() {
+        let artifact =
+            emit_script("__porfAgentSleep(1);").expect("Test262 agent host call should emit");
+        expect_valid_module(&artifact, 0);
+
+        assert!(artifact
+            .debug_dump
+            .contains("import func: porf_host.agent_call"));
+        assert!(artifact
+            .debug_dump
+            .contains("import memory: porf_host.private_memory"));
+        assert!(artifact
+            .debug_dump
+            .contains("import memory: porf_host.shared_memory"));
     }
 
     #[test]
@@ -2292,6 +2587,31 @@ Reflect.ownKeys(view);"#,
     }
 
     #[test]
+    fn object_seal_module_validates() {
+        let artifact = emit_script(
+            r#"var target = { value: 1 };
+Object.seal(target);
+Object.getOwnPropertyDescriptor(target, "value");
+var array = [1];
+Object.seal(array);
+var proxy = new Proxy({ x: 1 }, {
+  preventExtensions: function(target) {
+    return Reflect.preventExtensions(target);
+  },
+  ownKeys: function(target) {
+    return Reflect.ownKeys(target);
+  },
+  defineProperty: function(target, key, descriptor) {
+    return Reflect.defineProperty(target, key, descriptor);
+  }
+});
+Object.seal(proxy);"#,
+        )
+        .expect("Object.seal script should emit");
+        expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
     fn typedarray_get_own_property_descriptor_module_validates() {
         let artifact = emit_script(
             r#"var numeric = new Uint8Array([42]);
@@ -2362,6 +2682,110 @@ delete proxy[0];"#,
         )
         .expect("typed array delete script should emit");
         expect_valid_module(&artifact, 0);
+    }
+
+    #[test]
+    fn atomics_modules_import_private_and_capped_shared_memories() {
+        for source in [
+            "var view = new Int32Array(new SharedArrayBuffer(8)); view[0] = 1; Atomics.add(view, 0, 2); Atomics.compareExchange(view, 0, 3, 4); view[0];",
+            "var view = new Int32Array(new SharedArrayBuffer(8)); var add = Atomics['add']; add(view, 0, 2);",
+        ] {
+            let artifact = emit_script(source).expect("Atomics script should emit");
+            expect_valid_module(&artifact, 0);
+
+            let mut memory_imports = Vec::new();
+            let mut atomic_memory_indexes = Vec::new();
+            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+                match payload.expect("wasm parse should succeed") {
+                Payload::ImportSection(reader) => {
+                    for imports in reader {
+                        match imports.expect("import should decode") {
+                            wasmparser::Imports::Single(_, import) => {
+                                if let wasmparser::TypeRef::Memory(memory) = import.ty {
+                                    memory_imports.push((
+                                        import.name.to_string(),
+                                        memory.shared,
+                                        memory.maximum,
+                                    ));
+                                }
+                            }
+                            wasmparser::Imports::Compact1 { items, .. } => {
+                                for import in items {
+                                    let import = import.expect("compact import should decode");
+                                    if let wasmparser::TypeRef::Memory(memory) = import.ty {
+                                        memory_imports.push((
+                                            import.name.to_string(),
+                                            memory.shared,
+                                            memory.maximum,
+                                        ));
+                                    }
+                                }
+                            }
+                            wasmparser::Imports::Compact2 { ty, names, .. } => {
+                                if let wasmparser::TypeRef::Memory(memory) = ty {
+                                    for name in names {
+                                        memory_imports.push((
+                                            name.expect("compact import name should decode")
+                                                .to_string(),
+                                            memory.shared,
+                                            memory.maximum,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Payload::CodeSectionEntry(body) => {
+                    let mut reader = body
+                        .get_operators_reader()
+                        .expect("operators should decode");
+                    while !reader.eof() {
+                        match reader.read().expect("operator should decode") {
+                            Operator::I32AtomicRmwAdd { memarg }
+                            | Operator::I32AtomicRmwCmpxchg { memarg }
+                            | Operator::I32AtomicLoad { memarg }
+                            | Operator::I32AtomicStore { memarg } => {
+                                atomic_memory_indexes.push(memarg.memory);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+            }
+
+            assert_eq!(
+                memory_imports,
+                vec![
+                    ("private_memory".to_string(), false, None),
+                    ("shared_memory".to_string(), true, Some(16_384)),
+                ],
+                "source: {source}"
+            );
+            assert!(!atomic_memory_indexes.is_empty(), "source: {source}");
+            assert!(
+                atomic_memory_indexes.iter().all(|index| *index == 1),
+                "source: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn atomics_wait_async_modules_import_monotonic_timeout_host_functions() {
+        let artifact = emit_script(
+            "var view = new Int32Array(new SharedArrayBuffer(4)); Atomics.waitAsync(view, 0, 0, 1);",
+        )
+        .expect("Atomics.waitAsync script should emit");
+        expect_valid_module(&artifact, 0);
+
+        assert!(artifact
+            .debug_dump
+            .contains("import func: porf_host.monotonic_clock_nanos"));
+        assert!(artifact
+            .debug_dump
+            .contains("import func: porf_host.sleep_nanos"));
     }
 
     #[test]

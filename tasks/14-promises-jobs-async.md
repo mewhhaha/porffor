@@ -1,9 +1,19 @@
 # T14 — Promise jobs, async functions and async iteration
 
-**Status:** Blocked on T04-T06/T09  
+**Status:** In progress — Promise/job machinery is substantial; suspended async closure remains
+
 **Parallel group:** Feature lane  
 **Depends on:** T03, T04, T05, T06, T09  
 **Blocks:** Async modules in T12, async iterators in T15, Atomics.waitAsync in T17
+
+## Current repository state
+
+The backend has Promise records, reaction/job queues, combinators, async
+activation records and extensive focused real-suite coverage. README notes
+still identify unsupported suspended-body and dynamic-source families, and
+async generators, async iteration, module jobs and `waitAsync` share unfinished
+boundaries with T12/T15/T17. The complete Promise/async filters have not met the
+zero-failure acceptance gate for the current pin.
 
 ## Objective
 

@@ -1,0 +1,61 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17927197132283714503,
+  "run_kind": "full",
+  "total": 1,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 1,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Atomics/notify/notify-one.js",
+      "duration_ms": 31157
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/Atomics/notify/notify-one.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0xc4fcbb - <unknown>!<wasm function 589>\n    1: 0xc50284 - <unknown>!<wasm function 594>\n    2: 0x213276 - <unknown>!<wasm function 38>\n    3: 0xc86491 - <unknown>!<wasm function 598>\n    4: 0x11723c - <unknown>!<wasm function 6>\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 10669180331482003461,
+      "duration_ms": 31157
+    }
+  ],
+  "completed_paths": [
+    "built-ins/Atomics/notify/notify-one.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

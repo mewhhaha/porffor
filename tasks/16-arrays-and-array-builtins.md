@@ -1,9 +1,19 @@
 # T16 — Array exotic semantics and complete Array API
 
-**Status:** Blocked on T04/T05/T10  
+**Status:** In progress — many Array leaves are green; materialization-free full-tree closure remains
+
 **Parallel group:** Feature lane  
 **Depends on:** T04, T05, T10; iterator consumers use T15  
 **Blocks:** Array-related T26 closure
+
+## Current repository state
+
+Array exotic storage, descriptors, species and most prototype families have
+substantial implementations and many focused complete-leaf results recorded in
+the README. `crates/porffor-aot-wasm/src/builtins/array.rs` remains a very large
+shared implementation file, and the Test262 harness still contains numerous
+Array-specific path rewrites and source reductions. This task cannot close
+until the full current-pin Array tree is green through general semantics.
 
 ## Objective
 

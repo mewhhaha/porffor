@@ -1,0 +1,91 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 18285022158249903236,
+  "run_kind": "full",
+  "total": 9,
+  "passed": 9,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 9
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+      "duration_ms": 26554
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+      "duration_ms": 23616
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+      "duration_ms": 20155
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+      "duration_ms": 19087
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+      "duration_ms": 17422
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+      "duration_ms": 13410
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+      "duration_ms": 11770
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+      "duration_ms": 11612
+    },
+    {
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/is-function.js",
+      "duration_ms": 11215
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/is-function.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+    "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

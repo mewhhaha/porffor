@@ -1,9 +1,19 @@
 # T08 — Environments, references, control flow and abrupt completion
 
-**Status:** Blocked on T04/T07  
+**Status:** In progress — dedicated lowering/emission modules exist; conformance closure remains
+
 **Parallel group:** Core foundations  
 **Depends on:** T04, T07  
 **Blocks:** T09, T12-T15, T24
+
+## Current repository state
+
+Environment, reference-adjacent lowering and structured control-flow emitters
+now support substantial lexical scope, closure, loop, destructuring and
+try/finally behavior. The parse-once prerequisite remains open, several
+environment/control-flow files are still large shared hotspots, and the
+language subtrees assigned to this task have not been proven zero-failure on a
+current complete Wasm-AOT matrix.
 
 ## Objective
 
