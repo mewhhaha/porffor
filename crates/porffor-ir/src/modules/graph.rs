@@ -884,9 +884,15 @@ mod tests {
 
     #[test]
     fn a_self_importing_module_is_one_unit() {
+        // The import has to be aliased. A self-import of an unaliased name is a
+        // duplicate lexical declaration — the import binding `x` and the
+        // `export const x` are two declarations of `x` in one module
+        // environment — so `import { x } from './a.js'; export const x = 1;` is
+        // a SyntaxError rather than a graph shape, and boa rejects it before
+        // this file is reached.
         let graph = linked(&[(
             "/root/a.js",
-            "import { x } from './a.js';\nexport const x = 1;\nx;",
+            "import { x as y } from './a.js';\nexport const x = 1;\ny;",
         )]);
         assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
         assert_eq!(graph.units.len(), 1);

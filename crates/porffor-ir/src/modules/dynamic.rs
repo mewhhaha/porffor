@@ -439,9 +439,13 @@ impl ModuleGraphIr {
         source: &str,
     ) -> Result<String, String> {
         let sites = ImportCallScanner::new(source).run()?;
-        if sites.is_empty() {
-            return Ok(source.to_string());
-        }
+        // The cross-check runs *before* the empty-sites shortcut, or the
+        // shortcut becomes a hole exactly the shape of this check: a scanner
+        // false negative would return the source unrewritten, the merged script
+        // would still contain a real `ImportCall`, and it would reach the
+        // backend's `emit_dynamic_import` stub with no diagnostic naming the
+        // module. A miss must be as loud as a hallucination.
+        //
         // A *count* comparison, not an emptiness one. The scanner flags any
         // `import` word not preceded by `.` and followed by `(`, which includes
         // `{ import() {} }`, `{ get import() {} }` and `class C { #import() {} }`
@@ -460,6 +464,9 @@ impl ModuleGraphIr {
                  a property or method named `import` cannot be told apart lexically",
                 sites.len()
             ));
+        }
+        if sites.is_empty() {
+            return Ok(source.to_string());
         }
 
         let name = dispatcher_name(unit);
@@ -714,6 +721,17 @@ impl<'a> ImportCallScanner<'a> {
                     self.slash = SlashMeaning::Regexp;
                     self.previous_was_dot = true;
                 }
+                // Non-ASCII whitespace is tested *before* the identifier arm.
+                // `is_identifier_start_byte` accepts every non-ASCII byte, so
+                // without this a U+FEFF byte-order mark or a U+00A0 in front of
+                // the keyword would be scanned as part of the word, yielding
+                // `\u{FEFF}import` — not `import` — and silently losing the
+                // call site. Neither `slash` nor `previous_was_dot` moves, for
+                // the same reason the ASCII whitespace arm below leaves both
+                // alone: trivia does not end a token.
+                byte if !byte.is_ascii() && is_js_whitespace(self.char_at(self.index)) => {
+                    self.index += self.char_len_at(self.index);
+                }
                 byte if is_identifier_start_byte(byte) => self.scan_word(),
                 byte if byte.is_ascii_digit() => {
                     self.skip_number();
@@ -790,13 +808,21 @@ impl<'a> ImportCallScanner<'a> {
 
     fn scan_word(&mut self) {
         let start = self.index;
-        while self
-            .bytes
-            .get(self.index)
-            .copied()
-            .is_some_and(is_identifier_part_byte)
-        {
-            self.index += 1;
+        while let Some(character) = self.source[self.index..].chars().next() {
+            // Byte-wise for ASCII, char-wise for the rest: a word must not
+            // swallow the non-ASCII whitespace that ends it, or the word it
+            // yields is not the word that is written.
+            if character.is_ascii() {
+                if !is_identifier_part_byte(character as u8) {
+                    break;
+                }
+                self.index += 1;
+            } else {
+                if is_js_whitespace(character) {
+                    break;
+                }
+                self.index += character.len_utf8();
+            }
         }
         let word = &self.source[start..self.index];
         if word == "import" && !self.previous_was_dot && self.peek_significant() == Some(b'(') {
@@ -815,6 +841,10 @@ impl<'a> ImportCallScanner<'a> {
             .chars()
             .next()
             .map_or(1, char::len_utf8)
+    }
+
+    fn char_at(&self, index: usize) -> char {
+        self.source[index..].chars().next().unwrap_or(' ')
     }
 
     /// First non-whitespace, non-comment byte at or after `self.index`.
@@ -853,8 +883,8 @@ impl<'a> ImportCallScanner<'a> {
                     index = end;
                 }
                 Some(byte) if !byte.is_ascii() => {
-                    let character = self.source[index..].chars().next().unwrap_or(' ');
-                    if character.is_whitespace() {
+                    let character = self.char_at(index);
+                    if is_js_whitespace(character) {
                         index += character.len_utf8();
                     } else {
                         return Ok(index);
@@ -983,6 +1013,17 @@ fn is_identifier_start_byte(byte: u8) -> bool {
 
 fn is_identifier_part_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$' || !byte.is_ascii()
+}
+
+/// JavaScript `WhiteSpace` and `LineTerminator` outside ASCII (12.2, 12.3).
+///
+/// `char::is_whitespace` is Unicode `White_Space`, which covers U+00A0, U+1680,
+/// U+2000..U+200A, U+2028, U+2029, U+202F, U+205F and U+3000. U+FEFF is
+/// category `Cf` rather than `Zs`, so it is not in that set and has to be named:
+/// it is the byte-order mark, and a file that starts with one starts with it
+/// immediately before the first token.
+fn is_js_whitespace(character: char) -> bool {
+    character.is_whitespace() || character == '\u{FEFF}'
 }
 
 #[cfg(test)]
@@ -1136,12 +1177,12 @@ mod tests {
     /// property access named `import` is not the keyword.
     #[test]
     fn import_meta_and_property_access_are_left_alone() {
+        // The record is built from the *same* text that is scanned. Handing the
+        // graph a different source would let the record's site count and the
+        // scanner's disagree for a reason the production path cannot produce,
+        // and that disagreement is now the check this file relies on.
         let source = "print(import.meta.url); obj.import(1);";
-        let sources = sources_of(
-            &[("d", "import(x); print(import.meta.url); obj.import(1);")],
-            0,
-            Vec::new(),
-        );
+        let sources = sources_of(&[("d", source)], 0, Vec::new());
         let graph = graph_of(&sources);
         assert_eq!(
             graph
@@ -1161,13 +1202,50 @@ mod tests {
             "/* import('m') */\n",
             "const r = /import\\('m'\\)/;\n"
         );
-        let sources = sources_of(&[("d", "import(x);")], 0, Vec::new());
+        let sources = sources_of(&[("d", source)], 0, Vec::new());
         let graph = graph_of(&sources);
         assert_eq!(
             graph
                 .rewrite_dynamic_import_calls(0, source)
                 .expect("rewrite should succeed"),
             source
+        );
+    }
+
+    /// A byte-order mark, or any other non-ASCII whitespace, immediately before
+    /// the keyword must not be scanned as part of it. Before this was fixed the
+    /// scanner read `\u{FEFF}import` as one word, found zero call sites, and the
+    /// unrewritten `ImportCall` reached the backend stub with no diagnostic.
+    #[test]
+    fn non_ascii_whitespace_before_the_keyword_does_not_hide_a_call_site() {
+        for space in ["\u{FEFF}", "\u{00A0}", "\u{3000}", "\u{2028}"] {
+            let source = format!("{space}import(\"m\");");
+            let sources = sources_of(&[("d", source.as_str())], 0, Vec::new());
+            let graph = graph_of(&sources);
+            let rewritten = graph
+                .rewrite_dynamic_import_calls(0, &source)
+                .unwrap_or_else(|error| panic!("rewrite should succeed for {space:?}: {error}"));
+            assert_eq!(
+                rewritten,
+                format!("{space}$porffor$module$import$0(\"m\");")
+            );
+        }
+    }
+
+    /// A scanner miss must be as loud as a scanner hallucination: the count
+    /// cross-check runs before the empty-sites shortcut, so a unit whose record
+    /// lists a site the scan cannot find is reported rather than passed through
+    /// unrewritten.
+    #[test]
+    fn a_recorded_site_the_scan_cannot_find_is_reported_rather_than_passed_through() {
+        let sources = sources_of(&[("d", "import(\"m\");")], 0, Vec::new());
+        let graph = graph_of(&sources);
+        let error = graph
+            .rewrite_dynamic_import_calls(0, "print(1);")
+            .expect_err("a missing site must be reported");
+        assert!(
+            error.contains("found 0 `import(` call site(s) but the module record lists 1"),
+            "got {error}"
         );
     }
 

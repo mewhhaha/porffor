@@ -396,6 +396,20 @@ fn collect_namespace_aliases(
                     key,
                     &format!("namespace binding `{local}` is not spellable"),
                 ));
+            } else if matches!(local, OBJECT_NAME | SYMBOL_NAME) {
+                // The same hazard `report_shadowed_namespace_globals` catches
+                // for ordinary declarations, which it cannot see here: an
+                // import binding is `ModuleBindingKindIr::Import`, so that
+                // filter skips it, yet a namespace alias is emitted as a real
+                // `const` in the merged scope. `const Object = ...` would put
+                // `Object` in TDZ for the whole script, and the prelude's very
+                // first statement is `Object.create(null)`.
+                diagnostics.push(namespace_unsupported(
+                    key,
+                    &format!(
+                        "namespace objects are built from `{local}`, which this module binds as a namespace alias"
+                    ),
+                ));
             } else if let Some(previous) = owners.insert(local, key) {
                 diagnostics.push(namespace_unsupported(
                     key,
@@ -886,6 +900,33 @@ mod tests {
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("shadows at top level")),
+            "got {diagnostics:?}"
+        );
+    }
+
+    /// The same hazard through the one door `report_shadowed_namespace_globals`
+    /// cannot see: it filters out `ModuleBindingKindIr::Import` bindings, and a
+    /// namespace import is one — yet its alias is emitted as a real `const` in
+    /// the merged scope, so `import * as Object` shadows `Object` just as hard
+    /// as `const Object = 1` does.
+    #[test]
+    fn a_namespace_alias_named_object_is_reported_rather_than_mislinked() {
+        let graph = linked_graph(
+            &[
+                ("a", "export const value = 41;"),
+                (
+                    "c",
+                    "import * as Object from \"./a.mjs\";\nprint(Object.value);",
+                ),
+            ],
+            vec![(1, plain("./a.mjs"), 0)],
+        );
+        let diagnostics =
+            namespace_prelude_source(&graph).expect_err("a shadowing alias must be reported");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("binds as a namespace alias")),
             "got {diagnostics:?}"
         );
     }
