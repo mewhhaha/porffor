@@ -67,6 +67,20 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         match &expr.expr {
+            ExprIr::DynamicImport {
+                specifier,
+                options,
+                referrer,
+                ..
+            } => {
+                self.emit_dynamic_import(*referrer, specifier, options.as_deref(), function)?;
+            }
+            ExprIr::ImportMeta { module } => {
+                self.emit_import_meta(*module, function)?;
+            }
+            ExprIr::ModuleNamespace { module } => {
+                self.emit_module_namespace(*module, function)?;
+            }
             ExprIr::Undefined | ExprIr::ArrayHole | ExprIr::Null => {
                 self.emit_undefined_payload(function);
             }

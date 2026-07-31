@@ -1117,6 +1117,24 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
     (yield_count <= 1 && !(has_declaration && yield_count == 1)).then_some(yield_count)
 }
 
+/// A generator loop body lowers to
+/// `StatementIr::GeneratorLoop { before_suspension, suspension_statement, after_suspension, .. }`,
+/// where everything ahead of the single direct `yield` lands in
+/// `before_suspension`. A lexical (`let`/`const`) declaration survives that
+/// split unchanged: it lowers to `StatementIr::Lexical` /
+/// `StatementIr::LexicalBlock`, which both generator-loop compilers already
+/// hoist through `initialize_direct_lexical_bindings` before running the
+/// segment. That is the same allowance
+/// [`simple_resumable_await_loop_body_is_supported`] already makes for the
+/// await-loop shape, so `for (...) { let x = f(i); yield x; }` needs no new
+/// backend support — only this predicate stood in the way (ECMA-262 14.7.4 /
+/// 14.3.1: the per-iteration lexical binding is created and initialized on the
+/// iteration that observes it, which is exactly the segment the loop compiler
+/// re-enters on each resume).
+///
+/// Declaration forms with no `StatementIr::Lexical` lowering — function,
+/// generator, async, class, and `using`/`await using` — stay rejected, as does
+/// any declaration whose initializer itself contains a `yield`.
 pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool {
     let statements = match body {
         Statement::Block(block) => block.statement_list().statements(),
@@ -1125,9 +1143,14 @@ pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool 
         }
     };
     let mut yield_count = 0usize;
+    let mut has_lexical_declaration = false;
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
-            return false;
+            if !generator_loop_body_declaration_is_supported(item) {
+                return false;
+            }
+            has_lexical_declaration = true;
+            continue;
         };
         match statement.as_ref() {
             Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
@@ -1137,7 +1160,30 @@ pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool 
             _ => {}
         }
     }
-    yield_count == 1
+    if yield_count != 1 {
+        return false;
+    }
+    // A captured lexical binding makes `lower_block` materialize a
+    // `BlockIr::lexical_environment`, and `split_resumable_loop_body` refuses to
+    // split such a block — the loop would then silently fall back to a plain
+    // `StatementIr::For` holding a `GeneratorYield`, which the generator
+    // dispatcher cannot re-enter. Only closures can capture, so rejecting every
+    // nested function-like construct in the body keeps the environment empty and
+    // the split guaranteed.
+    !has_lexical_declaration || !generator_loop_has_unsupported_construct(body, true)
+}
+
+fn generator_loop_body_declaration_is_supported(item: &StatementListItem) -> bool {
+    let StatementListItem::Declaration(declaration) = item else {
+        return false;
+    };
+    if contains(item, ContainsSymbol::YieldExpression) {
+        return false;
+    }
+    matches!(
+        declaration.as_ref(),
+        Declaration::Lexical(LexicalDeclaration::Let(_) | LexicalDeclaration::Const(_))
+    )
 }
 
 pub(crate) fn simple_resumable_await_loop_body_is_supported(body: &Statement) -> bool {

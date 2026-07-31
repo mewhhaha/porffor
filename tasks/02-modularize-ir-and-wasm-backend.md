@@ -16,6 +16,41 @@ object/operation emitters remain very large implementation stores. Treat the
 existing module boundaries as usable, but continue coordinating broad edits to
 those remaining hotspots.
 
+### Landed 2026-07-31: the `intrinsics/` boundary
+
+`crates/porffor-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
+and property-descriptor installation, extracted from
+`builtins/bootstrap.rs::init_builtin_constructor_object`. That function was a
+single ~4,760-line body and the worst merge point in the backend: two lanes
+adding builtins to unrelated families still collided inside it.
+
+`bootstrap.rs` went from 8,080 to 4,117 lines; 23 dispatch arms became one-line
+delegations into 15 family modules. The boundary is enforced by
+`check-module-boundaries.sh`.
+
+Every arm moved **verbatim** — installers destructure an `IntrinsicInstall`
+context back into the original identifier names (including `builtin`, which
+multi-variant arms branch on), so no body text was rewritten. The move was
+verified byte-identical across all 527 CLI fixtures with
+`crates/porffor-aot-wasm/tests/emit_golden.rs`, which matters because property
+installation order is observable through `Object.keys` and the ordinary suites
+assert on program output rather than emitted bytes.
+
+Remaining in this area, in dependency order:
+
+- The 485-variant no-op or-pattern at the tail of the dispatch, plus 7 smaller
+  interspersed no-op groups, still have to be appended to for every new builtin.
+  They collapse into an `is_intrinsic_root()` guard once the descriptor table
+  below exists.
+- `porffor-ir/src/builtins.rs` still carries a 583-variant enum and ~9 parallel
+  exhaustive `match self` tables. Collapsing them into one descriptor row per
+  builtin is the largest remaining per-builtin edit cost. Ordering hazards:
+  `all_functions()` order feeds Wasm function indices, `all_globals()` is
+  deliberately *not* declaration order and feeds `globalThis` enumeration order,
+  and variant order feeds `Ord` for `BTreeSet` iteration.
+- `builtins/standard.rs` is still 48,608 lines, of which `compile_standard_builtin`
+  is a 39,009-line match with 203 arms holding bodies inline.
+
 ## Objective
 
 Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `porffor-ir/src/lib.rs` and `porffor-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.

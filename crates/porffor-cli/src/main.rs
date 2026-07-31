@@ -121,10 +121,12 @@ fn usage() -> &'static str {
     "porf <command> [args]
 
 Commands:
-  run [--execution-backend wasm|spec] <file>
+  run [--execution-backend wasm|spec] [--module] <file>
                                         compile and run a script through Rust engine path
                                         (default backend: wasm; wasm-aot is the only
-                                        supported product execution path)
+                                        supported product execution path). A `.mjs` file
+                                        is parsed as an ES module; `--module` forces the
+                                        module goal for any other extension
   repl                                  reserved for the Rust REPL shell
   build wasm <file>                     compile JavaScript directly to Wasm
   build c <file>                        emit C from shared IR
@@ -210,23 +212,32 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
     );
     match command.as_str() {
         "run" => {
-            let ParsedRunArgs { backend, path } = parse_run_args(&args.collect::<Vec<_>>())?;
+            let ParsedRunArgs {
+                backend,
+                path,
+                force_module,
+            } = parse_run_args(&args.collect::<Vec<_>>())?;
             let path = path.ok_or_else(|| "run needs a source file".to_string())?;
             let source = read_source(&path)?;
-            engine
-                .run_script(
-                    &source,
-                    CompileOptions {
-                        filename: Some(path),
-                        ..CompileOptions::default()
-                    },
-                    RunOptions {
-                        backend,
-                        ..RunOptions::default()
-                    },
-                )
-                .map(|outcome| println!("run outcome: {:?}", outcome))
-                .map_err(|err| err.to_string())
+            // Goal selection is the product's only module entry point: `.mjs`
+            // by extension, or `--module` for a module written to any other
+            // name. Everything else stays a Script.
+            let is_module = force_module || is_module_path(&path);
+            let options = CompileOptions {
+                filename: Some(path),
+                ..CompileOptions::default()
+            };
+            let run_options = RunOptions {
+                backend,
+                ..RunOptions::default()
+            };
+            if is_module {
+                engine.run_module(&source, options, run_options)
+            } else {
+                engine.run_script(&source, options, run_options)
+            }
+            .map(|outcome| println!("run outcome: {:?}", outcome))
+            .map_err(|err| err.to_string())
         }
         "repl" => Err("Rust REPL shell not implemented yet".to_string()),
         "cache" => handle_cache_command(args.collect()),
@@ -354,7 +365,20 @@ fn handle_cache_command(args: Vec<String>) -> Result<(), String> {
                     .saturating_add(status.module_cache.bytes)
                     .saturating_add(status.program_cache.bytes)
             );
-            println!("porffor-cache-total-limit-bytes: {}", 2_u64 * 1024 * 1024 * 1024);
+            // Derived from the reported per-tier limits rather than hardcoded,
+            // so `PORFFOR_CACHE_LIMIT_BYTES` is reflected here instead of the
+            // line claiming 2 GiB while the tiers are honouring an override.
+            println!(
+                "porffor-cache-total-limit-bytes: {}",
+                [
+                    &status.function_cache,
+                    &status.module_cache,
+                    &status.program_cache,
+                ]
+                .into_iter()
+                .filter_map(|directory| directory.limit_bytes)
+                .fold(0_u64, u64::saturating_add)
+            );
             Ok(())
         }
         "prune" => {
@@ -2880,6 +2904,8 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
 struct ParsedRunArgs {
     backend: ExecutionBackend,
     path: Option<String>,
+    /// `--module`: force `ParseGoal::Module` regardless of the file extension.
+    force_module: bool,
 }
 
 fn parse_run_args(args: &[String]) -> Result<ParsedRunArgs, String> {
@@ -2888,6 +2914,7 @@ fn parse_run_args(args: &[String]) -> Result<ParsedRunArgs, String> {
     // silent fallback) — see usage() and ExecutionBackend's docs.
     let mut backend = ExecutionBackend::WasmAot;
     let mut path = None;
+    let mut force_module = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -2898,6 +2925,7 @@ fn parse_run_args(args: &[String]) -> Result<ParsedRunArgs, String> {
                     .ok_or_else(|| "--execution-backend needs a value".to_string())?;
                 backend = parse_execution_backend(value)?;
             }
+            "--module" => force_module = true,
             value if !value.starts_with('-') && path.is_none() => {
                 path = Some(value.to_string());
             }
@@ -2905,7 +2933,11 @@ fn parse_run_args(args: &[String]) -> Result<ParsedRunArgs, String> {
         }
         index += 1;
     }
-    Ok(ParsedRunArgs { backend, path })
+    Ok(ParsedRunArgs {
+        backend,
+        path,
+        force_module,
+    })
 }
 
 fn parse_execution_backend(value: &str) -> Result<ExecutionBackend, String> {

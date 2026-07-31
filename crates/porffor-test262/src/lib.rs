@@ -21493,10 +21493,17 @@ fn compile_negative_error_matches(
                 negative.phase.eq_ignore_ascii_case("parse")
                     || negative.phase.eq_ignore_ascii_case("early")
             }
+            // A module link failure is what test262 spells `phase: resolution`.
+            // An AOT compiler catches it at compile time instead of throwing
+            // at runtime, which is honest about what this compiler is.
+            IrDiagnosticPhase::Resolution => negative.phase.eq_ignore_ascii_case("resolution"),
             IrDiagnosticPhase::Lowering => !negative.phase.eq_ignore_ascii_case("parse"),
         };
         return phase_matches
-            && diagnostic.kind == IrDiagnosticKind::EarlyError
+            && matches!(
+                diagnostic.kind,
+                IrDiagnosticKind::EarlyError | IrDiagnosticKind::LinkError
+            )
             && (negative.error_type.is_empty()
                 || diagnostic.error_type == Some(negative.error_type.as_str()));
     }
@@ -21523,7 +21530,9 @@ fn compile_negative_error_detail(err: &porffor_engine::EngineError) -> String {
 fn classify_negative_phase(phase: &str) -> FailureKind {
     if phase.eq_ignore_ascii_case("parse") {
         FailureKind::Parser
-    } else if phase.eq_ignore_ascii_case("early") {
+    } else if phase.eq_ignore_ascii_case("early") || phase.eq_ignore_ascii_case("resolution") {
+        // `resolution` negatives are module link failures, which this compiler
+        // reports at compile time alongside early errors.
         FailureKind::EarlyError
     } else {
         FailureKind::Runtime

@@ -11,6 +11,7 @@ use crate::{
     RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp,
     UpdateReturnMode, GLOBAL_THIS_NAME,
 };
+use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
 
 pub type FunctionId = String;
 
@@ -1323,6 +1324,25 @@ pub enum ExprIr {
         program: Option<RegExpProgram>,
     },
     FunctionValue(FunctionId),
+    /// `import(specifier, options)`.
+    ///
+    /// Resolved at runtime against the compile-time component registry in
+    /// `ModuleGraphIr::components`. Never parses source: a specifier that
+    /// matches no component rejects the promise.
+    DynamicImport {
+        specifier: Box<TypedExpr>,
+        options: Option<Box<TypedExpr>>,
+        phase: ImportPhaseIr,
+        referrer: Option<ModuleUnitId>,
+    },
+    /// `import.meta` of the enclosing module.
+    ImportMeta {
+        module: ModuleUnitId,
+    },
+    /// The module namespace exotic object of `module`, identity-cached.
+    ModuleNamespace {
+        module: ModuleUnitId,
+    },
     This,
     Arguments,
     ObjectLiteral(Vec<ObjectPropertyIr>),
@@ -1796,6 +1816,14 @@ pub struct FunctionIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementIr {
     Empty,
+    /// Runs module `module`'s hoist or body block exactly once.
+    ///
+    /// Re-entry is a no-op, which is what makes a cyclic graph and a repeated
+    /// `import()` of the same specifier behave.
+    ModuleUnitOnce {
+        module: ModuleUnitId,
+        block: Box<BlockIr>,
+    },
     Lexical {
         mode: BindingMode,
         name: String,
@@ -2047,6 +2075,12 @@ pub struct ProgramIr {
     pub invariants: Vec<&'static str>,
     pub diagnostics: Vec<IrDiagnostic>,
     pub script: Option<ScriptIr>,
+    /// Present iff `goal == ParseGoal::Module`.
+    ///
+    /// `script` is the graph linked into one unit; this keeps the spec records
+    /// addressable so the artifact strategy can evolve to several linked Wasm
+    /// modules without re-deriving them.
+    pub modules: Option<ModuleGraphIr>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2070,7 +2104,9 @@ impl ProgramIr {
             && self.diagnostics.iter().all(|diagnostic| {
                 !matches!(
                     diagnostic.kind,
-                    IrDiagnosticKind::Unsupported | IrDiagnosticKind::EarlyError
+                    IrDiagnosticKind::Unsupported
+                        | IrDiagnosticKind::EarlyError
+                        | IrDiagnosticKind::LinkError
                 )
             })
     }
@@ -2364,6 +2400,7 @@ impl IrSummaryCounts {
         self.statements += 1;
         match statement {
             StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
+            StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
             StatementIr::Lexical { mode, init, .. } => {
                 match mode {
                     BindingMode::Let => self.lets += 1,
@@ -2627,6 +2664,15 @@ impl IrSummaryCounts {
             self.function_values += 1;
         }
         match &expr.expr {
+            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+            ExprIr::DynamicImport {
+                specifier, options, ..
+            } => {
+                self.visit_expr(specifier);
+                if let Some(options) = options {
+                    self.visit_expr(options);
+                }
+            }
             ExprIr::AssignIdentifier { value, .. } => {
                 self.assignments += 1;
                 self.visit_expr(value);

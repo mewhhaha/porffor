@@ -5,14 +5,88 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use wasmtime::{Cache, CacheConfig, CacheStore};
 
-pub(crate) const CACHE_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
+pub(crate) const DEFAULT_CACHE_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
 pub(crate) const CACHE_PRUNE_PERCENT: u64 = 70;
-pub(crate) const HALF_CACHE_LIMIT_BYTES: u64 = CACHE_LIMIT_BYTES / 2;
+
+/// Overrides the compiled-code storage budget for this process.
+///
+/// A full Test262 sweep compiles tens of thousands of programs. With the
+/// default 1 GiB budget the Cranelift stencil cache sits at its cap for the
+/// whole run, pruning to `CACHE_PRUNE_PERCENT` and then re-earning the evicted
+/// 30% through repeated native compilation. That cache is keyed by Cranelift's
+/// own stencil/target/flags rather than by `PORFFOR_COMPILER_FINGERPRINT`, so
+/// it survives compiler edits and is the most valuable warm-start asset the
+/// project has — raising the budget for a sweep is worth real wall-clock.
+const CACHE_LIMIT_ENV: &str = "PORFFOR_CACHE_LIMIT_BYTES";
+
+/// Per-tier overrides, for workloads whose tiers behave very differently.
+///
+/// Measured over a 300-case Test262 sample on 2026-07-30: the program-Wasm and
+/// Wasmtime-module tiers grow by roughly 9 MiB and 17 MiB *per case*, and both
+/// are keyed by source text. Every Test262 case is a distinct source, so across
+/// a single sweep neither tier ever serves a hit — they are pure write and
+/// prune churn, and holding the full suite would need on the order of 1.5 TiB.
+/// The Cranelift stencil tier is the opposite: it is keyed per function, and
+/// builtin bodies are shared by every case, so it converges and pays for itself.
+///
+/// A sweep therefore wants a large function tier and minimal program/module
+/// tiers, which the single total-budget knob cannot express.
+const FUNCTION_CACHE_LIMIT_ENV: &str = "PORFFOR_FUNCTION_CACHE_LIMIT_BYTES";
+const MODULE_CACHE_LIMIT_ENV: &str = "PORFFOR_MODULE_CACHE_LIMIT_BYTES";
+const PROGRAM_CACHE_LIMIT_ENV: &str = "PORFFOR_PROGRAM_CACHE_LIMIT_BYTES";
+
+/// The overall budget, and the default for the Cranelift stencil tier.
+pub(crate) fn cache_limit_bytes() -> u64 {
+    static LIMIT: OnceLock<u64> = OnceLock::new();
+    *LIMIT.get_or_init(|| parse_cache_limit(std::env::var(CACHE_LIMIT_ENV).ok().as_deref()))
+}
+
+/// Budget for the Cranelift function-stencil tier.
+pub(crate) fn function_cache_limit_bytes() -> u64 {
+    static LIMIT: OnceLock<u64> = OnceLock::new();
+    *LIMIT.get_or_init(|| tier_limit_bytes(FUNCTION_CACHE_LIMIT_ENV, cache_limit_bytes()))
+}
+
+/// Budget for the Wasmtime native-module tier.
+pub(crate) fn module_cache_limit_bytes() -> u64 {
+    static LIMIT: OnceLock<u64> = OnceLock::new();
+    *LIMIT.get_or_init(|| tier_limit_bytes(MODULE_CACHE_LIMIT_ENV, cache_limit_bytes() / 2))
+}
+
+/// Budget for the emitted program-Wasm tier.
+pub(crate) fn program_cache_limit_bytes() -> u64 {
+    static LIMIT: OnceLock<u64> = OnceLock::new();
+    *LIMIT.get_or_init(|| tier_limit_bytes(PROGRAM_CACHE_LIMIT_ENV, cache_limit_bytes() / 2))
+}
+
+fn tier_limit_bytes(variable: &str, fallback: u64) -> u64 {
+    parse_tier_limit(std::env::var(variable).ok().as_deref()).unwrap_or(fallback)
+}
+
+/// `None` when unset or unusable, so the caller can apply its own default
+/// rather than collapsing every tier onto the global one.
+fn parse_tier_limit(raw: Option<&str>) -> Option<u64> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|bytes| *bytes > 0)
+}
+
+/// Unset, blank, unparseable and zero all fall back to the default rather than
+/// panicking: a typo in an environment variable must not take down a sweep that
+/// has been running for hours.
+fn parse_cache_limit(raw: Option<&str>) -> u64 {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|bytes| *bytes > 0)
+        .unwrap_or(DEFAULT_CACHE_LIMIT_BYTES)
+}
 
 const FUNCTION_CACHE_FORMAT: &str = "cranelift-functions-v1";
 const MODULE_CACHE_DIR: &str = "wasmtime-modules-v1";
@@ -193,7 +267,7 @@ pub(crate) fn program_cache_directory() -> PathBuf {
 }
 
 pub(crate) fn module_cache() -> io::Result<Cache> {
-    module_cache_at(module_cache_directory(), HALF_CACHE_LIMIT_BYTES)
+    module_cache_at(module_cache_directory(), module_cache_limit_bytes())
 }
 
 fn module_cache_at(directory: PathBuf, limit_bytes: u64) -> io::Result<Cache> {
@@ -216,9 +290,18 @@ fn module_cache_at(directory: PathBuf, limit_bytes: u64) -> io::Result<Cache> {
 
 pub fn cache_status() -> io::Result<CacheStatus> {
     Ok(CacheStatus {
-        function_cache: directory_status(&function_cache_directory(), Some(CACHE_LIMIT_BYTES))?,
-        module_cache: directory_status(&module_cache_directory(), Some(HALF_CACHE_LIMIT_BYTES))?,
-        program_cache: directory_status(&program_cache_directory(), Some(HALF_CACHE_LIMIT_BYTES))?,
+        function_cache: directory_status(
+            &function_cache_directory(),
+            Some(function_cache_limit_bytes()),
+        )?,
+        module_cache: directory_status(
+            &module_cache_directory(),
+            Some(module_cache_limit_bytes()),
+        )?,
+        program_cache: directory_status(
+            &program_cache_directory(),
+            Some(program_cache_limit_bytes()),
+        )?,
         legacy_wasmtime_cache: directory_status(&legacy_wasmtime_cache_directory(), None)?,
     })
 }
@@ -388,6 +471,51 @@ mod tests {
             std::process::id(),
             std::thread::current().id()
         ))
+    }
+
+    #[test]
+    fn tier_limit_override_falls_back_to_the_tier_default_not_the_global_one() {
+        assert_eq!(parse_tier_limit(Some("104857600")), Some(104857600));
+        assert_eq!(parse_tier_limit(Some("  104857600 ")), Some(104857600));
+
+        // `None` rather than a value, so each tier keeps its own default instead
+        // of every tier collapsing onto the global budget.
+        for rejected in [
+            None,
+            Some(""),
+            Some("   "),
+            Some("100MB"),
+            Some("-1"),
+            Some("0"),
+        ] {
+            assert_eq!(
+                parse_tier_limit(rejected),
+                None,
+                "expected no override for {rejected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cache_limit_override_parses_and_falls_back_instead_of_panicking() {
+        assert_eq!(parse_cache_limit(Some("8589934592")), 8589934592);
+        assert_eq!(parse_cache_limit(Some("  8589934592  ")), 8589934592);
+
+        // A typo in the environment must not take down a multi-hour sweep.
+        for rejected in [
+            None,
+            Some(""),
+            Some("   "),
+            Some("8GiB"),
+            Some("-1"),
+            Some("0"),
+        ] {
+            assert_eq!(
+                parse_cache_limit(rejected),
+                DEFAULT_CACHE_LIMIT_BYTES,
+                "expected fallback for {rejected:?}"
+            );
+        }
     }
 
     #[test]

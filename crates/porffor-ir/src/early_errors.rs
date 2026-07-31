@@ -13,6 +13,15 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         return;
     }
     match &expr.expr {
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+        ExprIr::DynamicImport {
+            specifier, options, ..
+        } => {
+            expr_contains_this_before_super(specifier, state);
+            if let Some(options) = options {
+                expr_contains_this_before_super(options, state);
+            }
+        }
         ExprIr::This => state.this_before_super = true,
         ExprIr::Identifier(name) if name == LEXICAL_THIS_NAME => state.this_before_super = true,
         ExprIr::SuperConstruct { .. } => {
@@ -267,6 +276,11 @@ fn statement_contains_this_before_super(
         return;
     }
     match statement {
+        StatementIr::ModuleUnitOnce { block, .. } => {
+            for statement in &block.statements {
+                statement_contains_this_before_super(statement, state);
+            }
+        }
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger

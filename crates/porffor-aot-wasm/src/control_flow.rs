@@ -1917,6 +1917,9 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         match statement {
+            StatementIr::ModuleUnitOnce { module, block } => {
+                self.emit_module_unit_once(*module, block, function)?;
+            }
             StatementIr::Empty => {
                 self.emit_statement_result(function, ValueKind::Undefined);
             }

@@ -1627,24 +1627,10 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(key_payload_local));
+                // Symbol keys are carried in the property-key payload itself via
+                // `PROPERTY_KEY_SYMBOL_MARKER`, and `emit_object_delete` re-derives the
+                // key tag from that payload, so no String-only gate is needed here.
                 self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                function.instruction(&Instruction::LocalGet(key_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "DeletePropertyOrThrow symbol property keys are not supported",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
-                } else {
-                    self.emit_return_current_completion(function);
-                }
-                function.instruction(&Instruction::End);
                 match target.kind {
                     ValueKind::Object
                     | ValueKind::Array
@@ -1748,24 +1734,12 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(key_payload_local));
+                // `emit_ordinary_set_result` is symbol-aware: it gates the
+                // Array `length` fast path and the typed-array canonical-index
+                // path on a String key tag, and re-derives the key tag from the
+                // payload before forwarding to a Proxy `set` trap. A Symbol key
+                // tag can therefore flow straight through.
                 self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                function.instruction(&Instruction::LocalGet(key_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Set symbol property keys are not supported",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
-                } else {
-                    self.emit_return_current_completion(function);
-                }
-                function.instruction(&Instruction::End);
                 self.compile_expr_to_locals(value, value_payload_local, value_tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(
                     value_payload_local,
@@ -1866,24 +1840,11 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(key_payload_local));
+                // `emit_create_data_property_or_throw` matches own keys with
+                // `emit_property_key_payload_equality_i32` and stores the raw
+                // property-key payload (symbol marker included) into the entry
+                // slot, so symbol keys need no String-only gate here.
                 self.emit_property_key_tag_from_source_tag(key_tag_local, key_tag_local, function);
-                function.instruction(&Instruction::LocalGet(key_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "CreateDataPropertyOrThrow symbol property keys are not supported",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
-                } else {
-                    self.emit_return_current_completion(function);
-                }
-                function.instruction(&Instruction::End);
                 self.compile_expr_to_locals(value, value_payload_local, value_tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(
                     value_payload_local,
@@ -2653,7 +2614,17 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(primitive_result_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload(hook_name)));
+            // `Symbol.toPrimitive` is a symbol-valued PropertyKey, so its
+            // lookup payload must carry `PROPERTY_KEY_SYMBOL_MARKER` — a plain
+            // string payload with the same bytes is a *different* key and never
+            // matches a stored `[Symbol.toPrimitive]` entry (see
+            // `emit_property_key_payload_equality_i32`). `toString` and
+            // `valueOf` stay plain string keys;
+            // `static_builtin_property_key_payload` picks the right encoding
+            // per name, exactly as the property-definition side does.
+            function.instruction(&Instruction::I64Const(
+                self.strings.static_builtin_property_key_payload(hook_name),
+            ));
             function.instruction(&Instruction::LocalSet(key_local));
             self.emit_object_read_without_throw_propagation(
                 object_local,

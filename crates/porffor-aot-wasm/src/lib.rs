@@ -43,7 +43,9 @@ mod expressions;
 mod functions;
 mod generator_delegation;
 mod heap;
+mod intrinsics;
 mod module;
+mod modules;
 mod objects;
 mod operations;
 mod planning;
@@ -57,7 +59,9 @@ pub(crate) use emit::{
     LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
 };
 use heap::*;
+use intrinsics::*;
 use module::*;
+use modules::module_unit_guard_count;
 use planning::*;
 pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
 

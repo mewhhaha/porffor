@@ -1,44 +1,21 @@
 #!/bin/sh
 set -eu
 
-logical_cpus() {
-  if command -v getconf >/dev/null 2>&1; then
-    getconf _NPROCESSORS_ONLN 2>/dev/null || true
-  elif command -v sysctl >/dev/null 2>&1; then
-    sysctl -n hw.logicalcpu 2>/dev/null || true
-  fi
-}
-
-cpus=$(logical_cpus)
-case "$cpus" in
-  ''|*[!0-9]*|0) cpus=2 ;;
-esac
-jobs=$((cpus / 2))
-[ "$jobs" -ge 1 ] || jobs=1
-
-# A caller can deliberately choose a lower cap, but the developer wrapper
-# never exceeds half the logical CPUs (eight on the primary development box).
+# Build configuration lives in .cargo/config.toml so that this wrapper and a
+# bare `cargo` invocation agree. Exporting RUSTFLAGS from here made the two
+# entry points disagree on Cargo's unit fingerprint, so each invalidated the
+# other's artifacts and forced a full workspace rebuild. Do not reintroduce it.
+#
+# The default job count also comes from .cargo/config.toml. PORFFOR_JOBS remains
+# available to request a lower cap for a single invocation; unlike RUSTFLAGS,
+# job count does not affect codegen and so does not fork the fingerprint.
+jobs_flag=
 if [ -n "${PORFFOR_JOBS:-}" ]; then
   case "$PORFFOR_JOBS" in
     ''|*[!0-9]*|0) echo "PORFFOR_JOBS must be a positive integer" >&2; exit 2 ;;
   esac
-  if [ "$PORFFOR_JOBS" -lt "$jobs" ]; then
-    jobs=$PORFFOR_JOBS
-  fi
+  jobs_flag="--jobs $PORFFOR_JOBS"
 fi
-
-# Rust invokes the C compiler as its linker driver. lld is optional: retain a
-# portable system-linker fallback on machines where it is not installed.
-if command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; then
-  if [ -n "${RUSTFLAGS:-}" ]; then
-    RUSTFLAGS="$RUSTFLAGS -C link-arg=-fuse-ld=lld"
-  else
-    RUSTFLAGS="-C link-arg=-fuse-ld=lld"
-  fi
-  export RUSTFLAGS
-fi
-
-export CARGO_BUILD_JOBS=$jobs
 
 usage() {
   cat <<'EOF'
@@ -51,8 +28,10 @@ commands:
   test262 <args>     build porf, then run `porf test262 ...`
   timings [args]     Cargo HTML timings for porffor-ir and porffor-aot-wasm
 
-Set PORFFOR_JOBS to request a lower cap. This wrapper uses the existing target/
-directory and never deletes developer artifacts.
+Build flags and the default job count come from .cargo/config.toml, so this
+wrapper and a bare `cargo` invocation share one artifact fingerprint. Set
+PORFFOR_JOBS to request a lower cap for a single invocation. This wrapper uses
+the existing target/ directory and never deletes developer artifacts.
 EOF
 }
 
@@ -63,23 +42,23 @@ shift
 case "$command" in
   build)
     if [ "$#" -eq 0 ]; then set -- -p porffor-cli; fi
-    exec cargo build --jobs "$jobs" "$@"
+    exec cargo build $jobs_flag "$@"
     ;;
   check)
     if [ "$#" -eq 0 ]; then set -- --workspace; fi
-    exec cargo check --jobs "$jobs" "$@"
+    exec cargo check $jobs_flag "$@"
     ;;
   exact-test)
     [ "$#" -gt 0 ] || { echo "exact-test needs cargo test arguments" >&2; exit 2; }
-    exec cargo test --jobs "$jobs" "$@"
+    exec cargo test $jobs_flag "$@"
     ;;
   test262)
-    cargo build --jobs "$jobs" -p porffor-cli
+    cargo build $jobs_flag -p porffor-cli
     exec ./target/debug/porf test262 "$@"
     ;;
   timings)
     if [ "$#" -eq 0 ]; then set -- -p porffor-ir -p porffor-aot-wasm; fi
-    exec cargo build --jobs "$jobs" --timings "$@"
+    exec cargo build $jobs_flag --timings "$@"
     ;;
   -h|--help|help) usage ;;
   *) echo "unknown developer command: $command" >&2; usage >&2; exit 2 ;;

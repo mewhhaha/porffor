@@ -1,0 +1,35 @@
+# Single source of truth for build flags.
+#
+# `RUSTFLAGS` participates in Cargo's unit fingerprint, and the environment
+# variable *replaces* these values rather than merging with them. When
+# `scripts/dev.sh` exported `RUSTFLAGS` and a bare `cargo build` did not, the
+# two entry points produced different fingerprints and each one invalidated the
+# other's artifacts — a full opt-level-0 rebuild of all ten workspace crates
+# plus a relink of the 143 MB `porf` binary, every time a developer alternated
+# between them. Keep linker flags here, and keep `scripts/dev.sh` from setting
+# `RUSTFLAGS` at all.
+#
+# Platform-scoped so macOS/Windows contributors are unaffected. On a Linux box
+# without lld, override with:
+#   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="" cargo build
+#
+# Do not pass an explicit `--target x86_64-unknown-linux-gnu`: that makes build
+# scripts host units which do not receive these flags, creating a third
+# fingerprint flavour.
+#
+# Do not add a `[build] rustflags` key alongside this one. The target-specific
+# key wins outright and the `[build]` entry would be dead config.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[build]
+# Half of the 16 logical CPUs on the development machine, by request: leave the
+# other half free for interactive work. `PORFFOR_JOBS` can lower it further
+# through `scripts/dev.sh`.
+#
+# Test262 runs have their own knobs and must be capped to match: `--jobs 8` sizes
+# the Cranelift pool and `--threads 4` the case workers, since the two multiply.
+jobs = 8
+
+[alias]
+xc = "check --workspace --all-targets"

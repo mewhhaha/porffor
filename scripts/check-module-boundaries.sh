@@ -59,6 +59,7 @@ check_no_inline_legacy_includes() {
 ir_lib="crates/porffor-ir/src/lib.rs"
 wasm_lib="crates/porffor-aot-wasm/src/lib.rs"
 wasm_builtins_mod="crates/porffor-aot-wasm/src/builtins/mod.rs"
+wasm_intrinsics_mod="crates/porffor-aot-wasm/src/intrinsics/mod.rs"
 
 require_file "$ir_lib"
 require_file "$wasm_lib"
@@ -70,12 +71,26 @@ for module in analysis builtins diagnostics early_errors ir lowering lowering_he
 done
 
 require_pub_use "$ir_lib" '^pub use ir::\*;' 'IR data types'
-require_pub_use "$ir_lib" '^pub use lowering::lower;' 'the lowering entry point'
+require_pub_use "$ir_lib" '^pub use lowering::\{?lower' 'the lowering entry point'
 require_pub_use "$ir_lib" '^pub use operations::' 'shared operation enums'
+# T12's module subsystem. `modules/` is a directory module, so the flat-file
+# loop above cannot cover it: declaring `mod modules;` without the directory,
+# or adding a submodule without registering it, is exactly the failure this
+# catches.
+ir_modules_mod="crates/porffor-ir/src/modules/mod.rs"
+require_file "$ir_modules_mod"
+require_module_decl "$ir_lib" "modules"
+for module in dynamic early graph link namespace record source; do
+  require_file "crates/porffor-ir/src/modules/${module}.rs"
+  require_module_decl "$ir_modules_mod" "$module"
+done
+check_no_inline_legacy_includes "$ir_modules_mod"
+require_pub_use "$ir_lib" '^pub use modules::\{' 'the module-record surface'
+
 check_orchestration_surface "$ir_lib" 140
 check_no_inline_legacy_includes "$ir_lib"
 
-for module in abi control_flow data emit environments expressions functions heap module objects operations planning; do
+for module in abi control_flow data emit environments expressions functions heap module modules objects operations planning; do
   require_file "crates/porffor-aot-wasm/src/${module}.rs"
   require_module_decl "$wasm_lib" "$module"
 done
@@ -84,6 +99,18 @@ for module in array binary_data bootstrap date errors host iterators json reflec
   require_file "crates/porffor-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
+
+# T02's realm-bootstrap boundary. These files hold the per-family property and
+# descriptor installation extracted out of the single
+# init_builtin_constructor_object function, which every builtin lane previously
+# had to edit. Requiring them keeps that split from silently collapsing back.
+require_file "$wasm_intrinsics_mod"
+require_module_decl "$wasm_lib" "intrinsics"
+for module in array binary_data collections date errors function iterator numeric object promise proxy regexp string symbol temporal; do
+  require_file "crates/porffor-aot-wasm/src/intrinsics/${module}.rs"
+  require_module_decl "$wasm_intrinsics_mod" "$module"
+done
+check_no_inline_legacy_includes "$wasm_intrinsics_mod"
 
 require_pub_use "$wasm_lib" '^pub use emit::emit;' 'the Wasm emit entry point'
 check_orchestration_surface "$wasm_lib" 180

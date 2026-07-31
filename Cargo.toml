@@ -39,6 +39,16 @@ temporal_rs = { path = "vendor/temporal_rs-0.1.0" }
 debug = "line-tables-only"
 incremental = true
 
+# Release is what drives multi-hour Test262 sweeps. Line tables cost binary size
+# only and make a panic in hour six diagnosable.
+#
+# Deliberately no `lto` and no `codegen-units = 1`. Workspace code is roughly 7%
+# of a cold compile (measured: 0.84 s lowering against 11.73 s native Cranelift
+# compilation), so both settings optimize the small end while taxing every
+# rebuild-after-compiler-edit — which is the loop this project actually runs.
+[profile.release]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 2
 

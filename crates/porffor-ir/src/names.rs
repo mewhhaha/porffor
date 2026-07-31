@@ -13,6 +13,75 @@ pub const DERIVED_ACTIVATION_THIS_STATUS_NAME: &str = "$derived.thisStatus";
 pub const DERIVED_ACTIVATION_NEW_TARGET_NAME: &str = "$derived.newTarget";
 pub const DERIVED_ACTIVATION_FUNCTION_NAME: &str = "$derived.activeFunction";
 pub(crate) const TDZ_BINDING_STORAGE_PREFIX: &str = "$tdz.";
+
+/// `[[ExportName]]` shared by every `export default` form (16.2.3.7).
+pub const MODULE_DEFAULT_EXPORT_NAME: &str = "default";
+/// Spec `[[LocalName]]` of an anonymous `export default` declaration.
+///
+/// 8.2.2 gives `export default function () {}` the bound name `*default*`,
+/// which no `BindingIdentifier` can spell — so it can never collide with a
+/// name from source.
+pub const MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME: &str = "*default*";
+
+/// Storage-name prefix for module `unit`'s own top-level bindings.
+///
+/// Every module's top-level bindings live in the one merged activation
+/// environment, so their names must not collide. `$` is not a legal start for
+/// a source-spelled binding the module system mints, so this prefix is unique
+/// by construction.
+#[must_use]
+pub fn module_storage_prefix(unit: u32) -> String {
+    format!("$m{unit}$")
+}
+
+/// `FunctionId` prefix for module `unit`'s functions.
+///
+/// `FunctionId`s are minted from source byte offsets, so two modules collide
+/// without this.
+#[must_use]
+pub fn module_function_id_prefix(unit: u32) -> String {
+    format!("$m{unit}/")
+}
+
+/// Cell holding module `unit`'s identity-cached namespace exotic object.
+#[must_use]
+pub fn module_namespace_cell_name(unit: u32) -> String {
+    format!("{}namespace", module_storage_prefix(unit))
+}
+
+/// Cell holding module `unit`'s `import.meta` object.
+#[must_use]
+pub fn module_import_meta_cell_name(unit: u32) -> String {
+    format!("{}import.meta", module_storage_prefix(unit))
+}
+
+/// Cell memoising module `unit`'s *evaluation completion* for `import()`.
+///
+/// Not a promise: `import()` hands out a fresh promise on every call
+/// (`always-create-new-promise.js`), while the module evaluates at most once.
+#[must_use]
+pub fn module_component_completion_cell_name(unit: u32) -> String {
+    format!("{}component.completion", module_storage_prefix(unit))
+}
+
+/// `true` for ids minted from user source, `false` for builtin and host ids.
+///
+/// The single authority for whether a `FunctionId` may be module-prefixed:
+/// builtin and host ids are shared across the whole artifact and must not be.
+#[must_use]
+pub fn is_user_function_id(id: &str) -> bool {
+    !id.starts_with("$builtin.") && !id.starts_with("$host.")
+}
+
+/// Module-qualified `FunctionId`, leaving builtin and host ids alone.
+#[must_use]
+pub fn module_function_id(unit: u32, id: &str) -> String {
+    if is_user_function_id(id) {
+        format!("{}{id}", module_function_id_prefix(unit))
+    } else {
+        id.to_string()
+    }
+}
 pub const GLOBAL_THIS_NAME: &str = "globalThis";
 pub const MATH_NAME: &str = "Math";
 pub const PRINT_NAME: &str = "print";

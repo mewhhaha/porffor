@@ -202,9 +202,35 @@ pub fn parse(
     })
 }
 
+/// Classifies a `boa_parser` static-semantics failure into a stable code.
+///
+/// The module-goal fragments must stay byte-identical to
+/// `porffor_ir::modules::early`'s `PARSE_FAILURE_RULES`: a module early error
+/// is classified here when it happens on the *entry* file and there when it
+/// happens on a dependency, and one test262 case must not report under two
+/// codes depending on which of the two it was.
 fn parser_static_semantics_error_code(message: &str) -> Option<&'static str> {
     if message.contains("Duplicate __proto__ fields are not allowed in object literals") {
         return Some("E_OBJECT_DUPLICATE_PROTO");
+    }
+    // Module-goal early errors (16.2.3.1), reported by `ModuleParser::parse`.
+    if message.contains("exported name") && message.contains("declared multiple times") {
+        return Some("E_MODULE_DUPLICATE_EXPORT");
+    }
+    if message.contains("could not find the exported binding") {
+        return Some("E_MODULE_UNDECLARED_EXPORT");
+    }
+    if message.contains("module cannot contain") && message.contains("super") {
+        return Some("E_MODULE_TOP_LEVEL_SUPER");
+    }
+    if message.contains("module cannot contain") && message.contains("new.target") {
+        return Some("E_MODULE_TOP_LEVEL_NEW_TARGET");
+    }
+    if message.contains("invalid private identifier usage") {
+        return Some("E_INVALID_PRIVATE_IDENTIFIER");
+    }
+    if message.contains("duplicate label") {
+        return Some("E_DUPLICATE_LABEL");
     }
     if message.contains("duplicate lexical declaration")
         || message.contains("lexical name declared multiple times")

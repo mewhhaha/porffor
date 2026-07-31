@@ -1684,6 +1684,7 @@ fn block_exposes_global_object(block: &BlockIr) -> bool {
 
 fn statement_exposes_global_object(statement: &StatementIr) -> bool {
     match statement {
+        StatementIr::ModuleUnitOnce { block, .. } => block_exposes_global_object(block),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -1934,6 +1935,15 @@ fn object_destructuring_pattern_any_expression(
 
 fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        // Module top-level `this` is `undefined`, and neither a namespace
+        // object nor `import.meta` can reach the global object.
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::DynamicImport {
+            specifier, options, ..
+        } => {
+            expr_exposes_global_object(specifier)
+                || options.as_deref().is_some_and(expr_exposes_global_object)
+        }
         ExprIr::Identifier(name) => name == GLOBAL_THIS_NAME,
         ExprIr::ObjectLiteral(properties) => {
             properties.iter().any(object_property_exposes_global_object)
@@ -2095,6 +2105,9 @@ fn collect_block_global_property_names(block: &BlockIr, names: &mut BTreeSet<Str
 
 fn collect_statement_global_property_names(statement: &StatementIr, names: &mut BTreeSet<String>) {
     match statement {
+        StatementIr::ModuleUnitOnce { block, .. } => {
+            collect_block_global_property_names(block, names);
+        }
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -2346,6 +2359,15 @@ fn collect_object_property_global_property_names(
 
 fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<String>) {
     match &expr.expr {
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+        ExprIr::DynamicImport {
+            specifier, options, ..
+        } => {
+            collect_expr_global_property_names(specifier, names);
+            if let Some(options) = options {
+                collect_expr_global_property_names(options, names);
+            }
+        }
         ExprIr::Identifier(name)
         | ExprIr::GlobalPropertyRead { name }
         | ExprIr::GlobalIdentifierRead { name } => {
@@ -3160,6 +3182,7 @@ pub(crate) fn block_references_function(block: &BlockIr, target: &FunctionId) ->
 
 pub(crate) fn statement_references_function(statement: &StatementIr, target: &FunctionId) -> bool {
     match statement {
+        StatementIr::ModuleUnitOnce { block, .. } => block_references_function(block, target),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -3723,6 +3746,15 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         return true;
     }
     match &expr.expr {
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::DynamicImport {
+            specifier, options, ..
+        } => {
+            expr_references_function(specifier, target)
+                || options
+                    .as_deref()
+                    .is_some_and(|options| expr_references_function(options, target))
+        }
         ExprIr::RegExpLiteral { .. } => {
             // A literal allocates directly and never calls the mutable global
             // RegExp binding. It does, however, require the intrinsic
@@ -5084,6 +5116,8 @@ pub(crate) fn block_uses_calls(block: &BlockIr) -> bool {
 
 pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
     match statement {
+        // A module unit body runs arbitrary code.
+        StatementIr::ModuleUnitOnce { .. } => true,
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -5257,6 +5291,7 @@ pub(crate) fn for_init_uses_calls(init: &ForInitIr) -> bool {
 
 pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
     match statement {
+        StatementIr::ModuleUnitOnce { .. } => true,
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -5441,6 +5476,9 @@ pub(crate) fn for_init_uses_function_table(init: &ForInitIr) -> bool {
 
 pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        // `import()` materializes a promise with function reactions.
+        ExprIr::DynamicImport { .. } => true,
         ExprIr::FunctionValue(_)
         | ExprIr::CallIndirect { .. }
         | ExprIr::JsonParseStaticReviver { .. }
@@ -5643,6 +5681,8 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
 
 pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::DynamicImport { .. } => true,
         ExprIr::CallNamed { .. }
         | ExprIr::SpreadArgument(_)
         | ExprIr::CallIndirect { .. }
@@ -5836,6 +5876,9 @@ pub(crate) fn count_block_temp_locals(block: &BlockIr) -> usize {
 
 pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
     match statement {
+        StatementIr::ModuleUnitOnce { block, .. } => {
+            block.statements.iter().map(count_statement_lexicals).sum()
+        }
         StatementIr::Expression(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
@@ -6070,6 +6113,12 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
 
 pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
     match statement {
+        StatementIr::ModuleUnitOnce { block, .. } => block
+            .statements
+            .iter()
+            .map(count_statement_temp_locals)
+            .max()
+            .unwrap_or(0),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -6282,6 +6331,14 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
 
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
+        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => 2,
+        ExprIr::DynamicImport {
+            specifier, options, ..
+        } => {
+            let operands = count_expr_temp_locals(specifier)
+                .max(options.as_deref().map_or(0, count_expr_temp_locals));
+            operands + 64
+        }
         ExprIr::GlobalPropertyRead { .. } => 12,
         ExprIr::GlobalIdentifierRead { .. } => 24,
         ExprIr::GlobalPropertyWrite { value, .. } => count_expr_temp_locals(value).max(12),
@@ -6908,6 +6965,9 @@ pub(crate) fn collect_hoisted_vars_statement(
     names: &mut BTreeSet<String>,
 ) {
     match statement {
+        // Module top-level `var`s are environment bindings of the module they
+        // are written in, not hoisted vars of the merged script body.
+        StatementIr::ModuleUnitOnce { .. } => {}
         StatementIr::AnnexBFunctionCopy {
             variable_storage_name,
             ..

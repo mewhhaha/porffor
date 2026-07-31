@@ -1961,6 +1961,7 @@ impl StringPool {
 
     fn collect_statement(&mut self, statement: &StatementIr) {
         match statement {
+            StatementIr::ModuleUnitOnce { block, .. } => self.collect_block(block),
             StatementIr::Empty
             | StatementIr::Debugger
             | StatementIr::Break { .. }
@@ -2208,6 +2209,20 @@ impl StringPool {
 
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
+            // A namespace object and `import.meta` are allocated from static
+            // tables the module graph owns, not from expression operands.
+            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {
+                self.uses_heap = true;
+            }
+            ExprIr::DynamicImport {
+                specifier, options, ..
+            } => {
+                self.uses_heap = true;
+                self.collect_expr(specifier);
+                if let Some(options) = options {
+                    self.collect_expr(options);
+                }
+            }
             ExprIr::Symbol { description } => {
                 self.uses_heap = true;
                 if let Some(description) = description {

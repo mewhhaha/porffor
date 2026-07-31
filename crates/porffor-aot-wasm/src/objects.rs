@@ -4778,11 +4778,21 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(key_tag_local);
                 self.release_temp_local(key_local);
             }
+            // `ValueKind` has exactly twelve variants and every other one is
+            // handled above, so this arm is precisely `Undefined` and `Null`.
+            // 7.2.1 RequireObjectCoercible makes `null.x` a runtime TypeError,
+            // not a compile-time gap. Callers that already performed the check
+            // narrow the target away from the nullish kinds; reaching here means
+            // the check is still owed, so pay it the same way the runtime
+            // dispatch in `compile_dynamic_property_read_from_locals` does.
             _ => {
-                return Err(EmitError::unsupported(format!(
-                    "unsupported in porffor wasm-aot first slice: property access on non-object target inferred as {:?}",
-                    target.kind
-                )));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Cannot read properties of null or undefined",
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
             }
         }
 
@@ -7554,6 +7564,51 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.release_temp_local(key_local);
             }
+            // 13.5.1.2 step 5 performs `ToObject(baseValue)` on the reference
+            // base, so `delete undefined.p` / `delete null[k]` is a runtime
+            // TypeError rather than an unsupported construct.
+            ValueKind::Undefined | ValueKind::Null => {
+                // The property key expression belongs to the MemberExpression
+                // and is evaluated (GetValue only, no ToPropertyKey) before
+                // `delete` coerces the base, so its side effects still run.
+                match key {
+                    PropertyKeyIr::StringExpr(key_expr) | PropertyKeyIr::ArrayIndex(key_expr) => {
+                        let key_payload_local = self.reserve_temp_local();
+                        let key_tag_local = self.reserve_temp_local();
+                        self.compile_expr_to_locals(
+                            key_expr,
+                            key_payload_local,
+                            key_tag_local,
+                            function,
+                        )?;
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            key_payload_local,
+                            key_tag_local,
+                            function,
+                        )?;
+                        self.release_temp_local(key_tag_local);
+                        self.release_temp_local(key_payload_local);
+                    }
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
+                }
+                // The throw below always fires; seed the result so the strict
+                // `Cannot delete property` check that follows stays inert on
+                // the statically dead fall-through path.
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(result_local));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "Cannot convert undefined or null to object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
             _ => {
                 self.release_temp_local(result_local);
                 self.release_temp_local(target_tag_local);
@@ -10198,10 +10253,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_leave_throw_completion(
             trap_payload_local,
             trap_tag_local,
-            Some((handler_payload_local, Some(handler_tag_local))),
+            handler_payload_local,
+            handler_tag_local,
             &[
                 (target_payload_local, target_tag_local),
                 (key_payload_local, key_tag_local),
@@ -10210,6 +10266,7 @@ impl<'a> FunctionBuilder<'a> {
             desc_tag_local,
             function,
         )?;
+        self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(trap_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));

@@ -1,0 +1,151 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13843279910362640341,
+  "run_kind": "matrix-filter-leaf",
+  "total": 25,
+  "passed": 21,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 21
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/AggregateError/errors-iterabletolist-failures.js",
+      "duration_ms": 9908
+    },
+    {
+      "path": "built-ins/AggregateError/message-method-prop-cast.js",
+      "duration_ms": 9857
+    },
+    {
+      "path": "built-ins/AggregateError/message-tostring-abrupt-symbol.js",
+      "duration_ms": 9365
+    },
+    {
+      "path": "built-ins/AggregateError/message-tostring-abrupt.js",
+      "duration_ms": 9027
+    },
+    {
+      "path": "built-ins/AggregateError/order-of-args-evaluation.js",
+      "duration_ms": 7952
+    },
+    {
+      "path": "built-ins/AggregateError/prototype/prop-desc.js",
+      "duration_ms": 7782
+    },
+    {
+      "path": "built-ins/AggregateError/prototype/name.js",
+      "duration_ms": 7312
+    },
+    {
+      "path": "built-ins/AggregateError/prop-desc.js",
+      "duration_ms": 6847
+    },
+    {
+      "path": "built-ins/AggregateError/errors-iterabletolist.js",
+      "duration_ms": 6802
+    },
+    {
+      "path": "built-ins/AggregateError/prototype/message.js",
+      "duration_ms": 6669
+    }
+  ],
+  "timeout_list": [],
+  "failures": [
+    {
+      "test_path": "built-ins/AggregateError/message-tostring-abrupt-symbol.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1470488)",
+      "detail_hash": 17580352292133977550,
+      "duration_ms": 9365
+    },
+    {
+      "test_path": "built-ins/AggregateError/message-tostring-abrupt.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1466584)",
+      "detail_hash": 13446255819150633384,
+      "duration_ms": 9027
+    },
+    {
+      "test_path": "built-ins/AggregateError/newtarget-proto-fallback.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    },
+    {
+      "test_path": "built-ins/AggregateError/proto-from-ctor-realm.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in porffor wasm-aot first slice: feature `Function constructor dynamic code generation` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 10827699057442756595,
+      "duration_ms": 0
+    }
+  ],
+  "completed_paths": [
+    "built-ins/AggregateError/cause-property.js",
+    "built-ins/AggregateError/errors-iterabletolist-failures.js",
+    "built-ins/AggregateError/errors-iterabletolist.js",
+    "built-ins/AggregateError/is-a-constructor.js",
+    "built-ins/AggregateError/length.js",
+    "built-ins/AggregateError/message-method-prop-cast.js",
+    "built-ins/AggregateError/message-method-prop.js",
+    "built-ins/AggregateError/message-tostring-abrupt-symbol.js",
+    "built-ins/AggregateError/message-tostring-abrupt.js",
+    "built-ins/AggregateError/message-undefined-no-prop.js",
+    "built-ins/AggregateError/name.js",
+    "built-ins/AggregateError/newtarget-is-undefined.js",
+    "built-ins/AggregateError/newtarget-proto-custom.js",
+    "built-ins/AggregateError/newtarget-proto-fallback.js",
+    "built-ins/AggregateError/newtarget-proto.js",
+    "built-ins/AggregateError/order-of-args-evaluation.js",
+    "built-ins/AggregateError/prop-desc.js",
+    "built-ins/AggregateError/proto-from-ctor-realm.js",
+    "built-ins/AggregateError/proto.js",
+    "built-ins/AggregateError/prototype/constructor.js",
+    "built-ins/AggregateError/prototype/errors-absent-on-prototype.js",
+    "built-ins/AggregateError/prototype/message.js",
+    "built-ins/AggregateError/prototype/name.js",
+    "built-ins/AggregateError/prototype/prop-desc.js",
+    "built-ins/AggregateError/prototype/proto.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AggregateError"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,166 @@
+{
+  "snapshot_version": 5,
+  "matrix_strategy_version": 2,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17543363400191501997,
+  "run_kind": "resume-case-checkpoint",
+  "total": 80,
+  "passed": 80,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 80
+  },
+  "slowest_tests": [
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-21.js",
+      "duration_ms": 12778
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-22.js",
+      "duration_ms": 12776
+    },
+    {
+      "path": "built-ins/Array/prototype/push/prop-desc.js",
+      "duration_ms": 10352
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-23.js",
+      "duration_ms": 10236
+    },
+    {
+      "path": "built-ins/Array/prototype/push/set-length-zero-array-length-is-non-writable.js",
+      "duration_ms": 9941
+    },
+    {
+      "path": "built-ins/Array/prototype/push/throws-if-integer-limit-exceeded.js",
+      "duration_ms": 9549
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-4-1.js",
+      "duration_ms": 8837
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-3-19.js",
+      "duration_ms": 8461
+    },
+    {
+      "path": "built-ins/Array/prototype/push/throws-with-string-receiver.js",
+      "duration_ms": 8348
+    },
+    {
+      "path": "built-ins/Array/prototype/reduce/15.4.4.21-1-11.js",
+      "duration_ms": 8215
+    }
+  ],
+  "timeout_list": [],
+  "failures": [],
+  "completed_paths": [
+    "built-ins/Array/prototype/push/call-with-boolean.js",
+    "built-ins/Array/prototype/push/clamps-to-integer-limit.js",
+    "built-ins/Array/prototype/push/length.js",
+    "built-ins/Array/prototype/push/name.js",
+    "built-ins/Array/prototype/push/not-a-constructor.js",
+    "built-ins/Array/prototype/push/prop-desc.js",
+    "built-ins/Array/prototype/push/set-length-array-length-is-non-writable.js",
+    "built-ins/Array/prototype/push/set-length-zero-array-is-frozen.js",
+    "built-ins/Array/prototype/push/set-length-zero-array-length-is-non-writable.js",
+    "built-ins/Array/prototype/push/throws-if-integer-limit-exceeded.js",
+    "built-ins/Array/prototype/push/throws-with-string-receiver.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-1.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-10.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-11.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-12.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-13.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-14.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-15.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-2.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-3.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-4.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-5.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-6.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-7.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-8.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-1-9.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-1.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-2.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-3.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-4.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-5.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-6.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-7.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-10-8.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-1.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-10.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-11.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-12.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-13.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-14.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-17.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-18.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-19.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-2.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-3.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-4.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-5.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-6.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-7.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-8.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-2-9.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-1.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-10.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-11.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-12.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-13.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-14.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-15.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-16.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-17.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-18.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-19.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-2.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-20.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-21.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-22.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-23.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-24.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-25.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-3.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-4.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-5.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-6.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-7.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-3-9.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-1.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-10.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-11.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-12.js",
+    "built-ins/Array/prototype/reduce/15.4.4.21-4-15.js"
+  ],
+  "matrix_path": [],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

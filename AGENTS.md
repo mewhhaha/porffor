@@ -52,6 +52,7 @@
 - During implementation, prefer read-only inspection and cheap non-compiling checks. Run a focused compile or test early only when its result is needed to resolve an uncertainty, validate a risky foundation, or unblock later code.
 - After the batch is written, compile once, run the focused regressions, then run the broad suites sequentially so they reuse build artifacts. Fix all discovered failures, rerun affected focused tests, and finish with one broad verification checkpoint.
 - Verification remains mandatory before declaring the work complete. Report exactly what ran and what remains unverified.
+- `docs/rust-rewrite/batch-workflow.md` is the operational form of this section: the measured verification ladder, how to run a batch across several lanes, the baseline sweep invocation, and the current list of shared files that still force lanes to coordinate.
 
 ## README And Status
 

@@ -60,6 +60,7 @@ mod early_errors;
 mod ir;
 mod lowering;
 mod lowering_helpers;
+mod modules;
 mod names;
 mod operations;
 mod regexp;
@@ -69,8 +70,17 @@ pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, Lowerin
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
-pub use lowering::lower;
+pub use lowering::{lower, lower_module_graph};
 pub(crate) use lowering_helpers::*;
+pub use modules::{
+    evaluation_components, parse_module_record, scan_module_requests, DynamicComponentIr,
+    DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr, ImportPhaseIr,
+    IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
+    ModuleBindingNameIr, ModuleEnvBindingIr, ModuleGraphIr, ModuleGraphSources, ModuleLinkErrorIr,
+    ModuleNamespaceExportIr, ModuleNamespaceIr, ModuleRequestIr, ModuleSourceIr, ModuleUnitId,
+    ModuleUnitIr, ResolvedBindingIr, SourceTextModuleRecordIr, StarExportEntryIr,
+    ANONYMOUS_MODULE_KEY,
+};
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
     AbstractRelationalComparisonResult, ArithmeticBinaryOp, ArraySpeciesCreateIr, BindingMode,
@@ -248,6 +258,11 @@ mod tests {
     fn collect_binding_storage_names(block: &BlockIr) -> BTreeSet<String> {
         fn collect(statement: &StatementIr, names: &mut BTreeSet<String>) {
             match statement {
+                StatementIr::ModuleUnitOnce { block, .. } => {
+                    for statement in &block.statements {
+                        collect(statement, names);
+                    }
+                }
                 StatementIr::Lexical { name, .. } => {
                     names.insert(name.clone());
                 }
@@ -1104,14 +1119,23 @@ mod tests {
         assert_eq!(script.result_kind(), ValueKind::Number);
     }
 
+    /// A single-source `lower` has no host loader, so it resolves no specifier.
+    /// The honest report is that the *request* did not resolve, not that imports
+    /// are unsupported — `modules::link` links them once a loader supplies the
+    /// dependency. The assertion previously looked for the string
+    /// "module imports", which no diagnostic in the crate has ever produced.
     #[test]
-    fn rejects_module_imports_explicitly() {
+    fn rejects_an_import_whose_specifier_no_loader_resolved() {
         let program = lower_module("import value from './dep.js'; value;");
         assert!(!program.is_wasm_supported());
-        assert!(program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("module imports")));
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("unresolved module request")
+                && diagnostic.message.contains("./dep.js")),
+            "got {:?}",
+            program.diagnostics
+        );
     }
 
     #[test]

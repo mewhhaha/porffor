@@ -252,16 +252,25 @@ pub(crate) struct FunctionBuilder<'a> {
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
+    // Diagnostics are scanned *before* `program.script`: a stage that reports a
+    // reason for failing also declines to produce a script, so checking the
+    // script first replaces every honest diagnostic with the generic "no
+    // lowered script ir". Module linking is the case that made this visible —
+    // an unresolved specifier is a `LinkError`, not `Unsupported`, and used to
+    // reach the backend as nothing at all.
+    if let Some(diagnostic) = program.diagnostics.iter().find(|diagnostic| {
+        matches!(
+            diagnostic.kind,
+            porffor_ir::IrDiagnosticKind::Unsupported
+                | porffor_ir::IrDiagnosticKind::LinkError
+                | porffor_ir::IrDiagnosticKind::EarlyError
+        )
+    }) {
+        return Err(EmitError::unsupported(diagnostic.message.clone()));
+    }
     let script = program.script.as_ref().ok_or_else(|| {
         EmitError::unsupported("unsupported in porffor wasm-aot first slice: no lowered script ir")
     })?;
-    if let Some(diagnostic) = program
-        .diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.kind == porffor_ir::IrDiagnosticKind::Unsupported)
-    {
-        return Err(EmitError::unsupported(diagnostic.message.clone()));
-    }
     emit_script(script)
 }
 
@@ -423,6 +432,7 @@ fn async_generator_contains_suspension(
 
 fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Option<&'static str> {
     match statement {
+        StatementIr::ModuleUnitOnce { .. } => Some("module unit evaluation"),
         StatementIr::Empty
         | StatementIr::Lexical { .. }
         | StatementIr::AnnexBFunctionCopy { .. }
@@ -1512,6 +1522,19 @@ fn emit_script_with_forced_builtins(
                 shared: false,
             },
             &ConstExpr::i64_const(0),
+        );
+    }
+    // One "already evaluated" guard per module unit, immediately after the
+    // template-object globals so no existing index moves. Zero means "not yet
+    // evaluated"; `FunctionBuilder::emit_module_unit_once` sets it.
+    for _ in 0..module_unit_guard_count(script) {
+        globals.global(
+            GlobalType {
+                val_type: ValType::I32,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i32_const(0),
         );
     }
 

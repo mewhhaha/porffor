@@ -5598,10 +5598,34 @@ impl<'a> AnalysisBuilder<'a> {
             Expression::Literal(_)
             | Expression::RegExpLiteral(_)
             | Expression::GeneratorExpression(_)
-            | Expression::ImportCall(_)
+            // `import.meta` has no operands; `import(x)` does, and they are
+            // ordinary expressions whose identifiers must be registered or the
+            // capture sets come out wrong.
             | Expression::ImportMeta(_)
             | Expression::FormalParameterList(_)
             | Expression::Debugger => {}
+            Expression::ImportCall(call) => {
+                self.scan_expression(
+                    owner_id,
+                    call.argument(),
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                );
+                if let Some(options) = call.options() {
+                    self.scan_expression(
+                        owner_id,
+                        options,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                }
+            }
             Expression::Spread(spread) => {
                 self.scan_expression(
                     owner_id,

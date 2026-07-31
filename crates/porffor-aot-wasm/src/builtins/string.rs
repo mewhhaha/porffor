@@ -209,7 +209,15 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        function.instruction(&Instruction::I64Const(self.strings.payload(symbol_key)));
+        // `symbol_key` names a well-known symbol (`Symbol.match`,
+        // `Symbol.replace`, ...), so the PropertyKey payload used for the
+        // `GetMethod(searchValue, @@match)` style lookups below must carry
+        // `PROPERTY_KEY_SYMBOL_MARKER`; a plain string payload with the same
+        // bytes is a different key and never matches a stored symbol-keyed
+        // entry (see `emit_property_key_payload_equality_i32`).
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload(symbol_key),
+        ));
         function.instruction(&Instruction::LocalSet(key_local));
         if matches!(builtin, StandardBuiltinId::StringPrototypeMatchAll) {
             self.emit_object_own_property_present(
@@ -1582,6 +1590,8 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
+        let source_payload_local = self.reserve_temp_local();
+        let flags_payload_local = self.reserve_temp_local();
         let method_payload_local = self.reserve_temp_local();
         let method_tag_local = self.reserve_temp_local();
         let string_tag_local = self.reserve_temp_local();
@@ -1612,6 +1622,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(value_payload_local));
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::LocalSet(source_payload_local));
         self.store_i64_local_at_offset(
             object_local,
             HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
@@ -1632,6 +1644,8 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(self.strings.payload("")));
         function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::LocalSet(flags_payload_local));
         self.store_i64_local_at_offset(
             object_local,
             HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
@@ -1649,6 +1663,18 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
+
+        // This synthetic RegExp is bump-allocated as a plain object, so its
+        // program slots are uninitialized memory. Zero them and, when the
+        // (source, flags) pair is present in the runtime program table,
+        // attach the compiled RegExpProgram so [Symbol.search] can run the
+        // shared matcher instead of the compact literal catalogue.
+        self.emit_runtime_regexp_program_slots(
+            object_local,
+            source_payload_local,
+            flags_payload_local,
+            function,
+        );
 
         function.instruction(&Instruction::F64Const(0.0.into()));
         function.instruction(&Instruction::I64ReinterpretF64);
@@ -1738,6 +1764,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(string_tag_local);
         self.release_temp_local(method_tag_local);
         self.release_temp_local(method_payload_local);
+        self.release_temp_local(flags_payload_local);
+        self.release_temp_local(source_payload_local);
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);
         self.release_temp_local(key_local);
@@ -5905,6 +5933,8 @@ impl<'a> FunctionBuilder<'a> {
         let input_tag_local = self.reserve_temp_local();
         let input_string_local = self.reserve_temp_local();
         let has_regexp_syntax_local = self.reserve_temp_local();
+        let program_ptr_local = self.reserve_temp_local();
+        let program_instruction_count_local = self.reserve_temp_local();
         let ignore_case_local = self.reserve_temp_local();
         let sticky_local = self.reserve_temp_local();
         let unicode_local = self.reserve_temp_local();
@@ -5967,6 +5997,36 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(generic_search_local));
+
+        // A compiled RegExpProgram is the real matcher: when one is attached,
+        // route through RegExpExec exactly as [Symbol.match] does so @@search
+        // shares sticky handling, lastIndex bookkeeping and capture semantics
+        // instead of consulting the compact literal catalogue below. The
+        // catalogue survives only for sources with no compiled program.
+        self.load_i64_to_local_from_offset(
+            receiver_payload_local,
+            HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+            program_ptr_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            receiver_payload_local,
+            HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+            program_instruction_count_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(program_ptr_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(program_instruction_count_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(generic_search_local));
+        function.instruction(&Instruction::End);
+
         self.load_i64_to_local_from_offset(
             receiver_payload_local,
             HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
@@ -6418,6 +6478,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(unicode_local);
         self.release_temp_local(sticky_local);
         self.release_temp_local(ignore_case_local);
+        self.release_temp_local(program_instruction_count_local);
+        self.release_temp_local(program_ptr_local);
         self.release_temp_local(has_regexp_syntax_local);
         self.release_temp_local(input_string_local);
         self.release_temp_local(input_tag_local);
@@ -6581,6 +6643,7 @@ impl<'a> FunctionBuilder<'a> {
         let string_tag_local = self.reserve_temp_local();
         let regexp_prototype_payload_local = self.reserve_temp_local();
         let regexp_prototype_tag_local = self.reserve_temp_local();
+        let flags_payload_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(invoked_local));
@@ -6606,6 +6669,19 @@ impl<'a> FunctionBuilder<'a> {
             rx_payload_local,
             HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
             self.strings.payload("g") as u64,
+            function,
+        );
+        // Plain-object allocation leaves the RegExp program slots holding
+        // whatever the bump arena last contained, and RegExpExec reads them.
+        // Zero them, and attach the compiled program when this (source, "g")
+        // pair is in the runtime program table so a user @@matchAll hook that
+        // delegates to exec runs the shared matcher.
+        function.instruction(&Instruction::I64Const(self.strings.payload("g")));
+        function.instruction(&Instruction::LocalSet(flags_payload_local));
+        self.emit_runtime_regexp_program_slots(
+            rx_payload_local,
+            pattern_payload_local,
+            flags_payload_local,
             function,
         );
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -6778,6 +6854,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(flags_payload_local);
         self.release_temp_local(regexp_prototype_tag_local);
         self.release_temp_local(regexp_prototype_payload_local);
         self.release_temp_local(string_tag_local);
@@ -8022,6 +8099,7 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
+        let flags_payload_local = self.reserve_temp_local();
 
         self.emit_alloc_plain_object_with_prototype(
             None,
@@ -8039,6 +8117,19 @@ impl<'a> FunctionBuilder<'a> {
             result_payload_local,
             HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
             source_payload_local,
+            function,
+        );
+        // Plain-object allocation leaves the RegExp program slots holding
+        // whatever the bump arena last contained, and RegExpExec reads them.
+        // Zero them, and attach the compiled program when this source is in
+        // the runtime program table so a user @@match hook that delegates to
+        // exec runs the shared matcher.
+        function.instruction(&Instruction::I64Const(self.strings.payload("")));
+        function.instruction(&Instruction::LocalSet(flags_payload_local));
+        self.emit_runtime_regexp_program_slots(
+            result_payload_local,
+            source_payload_local,
+            flags_payload_local,
             function,
         );
 
@@ -8099,6 +8190,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        self.release_temp_local(flags_payload_local);
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);
         self.release_temp_local(key_local);

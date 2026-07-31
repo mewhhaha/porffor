@@ -121,11 +121,102 @@ pub(crate) struct FunctionParamSignature {
     pub(crate) is_rest: bool,
 }
 
+/// Lowers a single source unit.
+///
+/// A module source is treated as a one-node graph, which is the only shape a
+/// caller without a host module loader can produce. Use [`lower_module_graph`]
+/// to lower a module together with its loaded dependency closure.
 pub fn lower(source: &SourceUnit) -> ProgramIr {
-    let mut program = ProgramIr {
-        goal: source.goal,
-        stages: vec![LoweringStage::ParsedSource],
-        source_len: source.source_text.len(),
+    match source.goal {
+        ParseGoal::Script => lower_script_program(
+            source,
+            ParseGoal::Script,
+            source.source_text.len(),
+            vec![LoweringStage::ParsedSource],
+            None,
+        ),
+        ParseGoal::Module => lower_module_graph(&ModuleGraphSources::single(source)),
+    }
+}
+
+/// Lowers an already-loaded module graph into one `ProgramIr`.
+///
+/// `porffor-ir` performs no IO: the host resolves and reads every source and
+/// passes the closure in. The graph is linked at compile time and merged into
+/// the single `ScriptIr` the backend emits, while the spec records stay
+/// addressable on `ProgramIr::modules`.
+pub fn lower_module_graph(sources: &ModuleGraphSources) -> ProgramIr {
+    let source_len = sources
+        .modules
+        .get(sources.entry as usize)
+        .map_or(0, |module| module.source_text.len());
+    let mut stages = vec![LoweringStage::ParsedSource];
+
+    let mut graph = match modules::build_graph(sources) {
+        Ok(graph) => graph,
+        Err(diagnostics) => {
+            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
+            let mut program = new_program(ParseGoal::Module, source_len, stages);
+            program.diagnostics = diagnostics;
+            return program;
+        }
+    };
+    stages.push(LoweringStage::ModuleGraphLoaded);
+
+    modules::link(&mut graph);
+    stages.push(LoweringStage::ModuleGraphLinked);
+    if !graph.link_errors.is_empty() {
+        stages.push(LoweringStage::UnsupportedFeaturesRecorded);
+        let mut program = new_program(ParseGoal::Module, source_len, stages);
+        program.diagnostics = graph
+            .link_errors
+            .iter()
+            .map(ModuleLinkErrorIr::to_diagnostic)
+            .collect();
+        program.modules = Some(graph);
+        return program;
+    }
+
+    // The whole graph is merged into one Script-goal source, in evaluation
+    // order, and lowered once. See `modules::link` for why the merge happens on
+    // source text and what it still declines to link.
+    let linked = match modules::linked_script_source(sources, &mut graph) {
+        Ok(linked) => linked,
+        Err(diagnostics) => {
+            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
+            let mut program = new_program(ParseGoal::Module, source_len, stages);
+            program.diagnostics = diagnostics;
+            program.modules = Some(graph);
+            return program;
+        }
+    };
+
+    let mut program =
+        lower_script_program(&linked, ParseGoal::Module, source_len, stages, Some(graph));
+    // Module top-level `this` is `undefined` (16.2.1.6.2 seeds the module
+    // environment's `this` with undefined), while the merged Script text gives
+    // it `globalThis`. Rather than hand a unit the wrong `this`, report it.
+    if program
+        .script
+        .as_ref()
+        .is_some_and(|script| script.top_level_this_uses > 0)
+    {
+        program.script = None;
+        program.diagnostics.push(IrDiagnostic::unsupported(
+            "unsupported in porffor wasm-aot: module top-level `this`",
+        ));
+        program
+            .stages
+            .push(LoweringStage::UnsupportedFeaturesRecorded);
+    }
+    program
+}
+
+fn new_program(goal: ParseGoal, source_len: usize, stages: Vec<LoweringStage>) -> ProgramIr {
+    ProgramIr {
+        goal,
+        stages,
+        source_len,
         invariants: vec![
             "direct-js-to-wasm-only",
             "no-shipped-interpreter-in-wasm",
@@ -133,29 +224,19 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
         ],
         diagnostics: Vec::new(),
         script: None,
-    };
+        modules: None,
+    }
+}
 
-    let lowered_source;
-    let script_source = match source.goal {
-        ParseGoal::Script => source,
-        ParseGoal::Module => match lower_supported_module_source(source) {
-            Ok(source_text) => {
-                lowered_source = SourceUnit {
-                    goal: ParseGoal::Script,
-                    filename: source.filename.clone(),
-                    source_text,
-                };
-                &lowered_source
-            }
-            Err(message) => {
-                program.diagnostics.push(IrDiagnostic::unsupported(message));
-                program
-                    .stages
-                    .push(LoweringStage::UnsupportedFeaturesRecorded);
-                return program;
-            }
-        },
-    };
+fn lower_script_program(
+    script_source: &SourceUnit,
+    goal: ParseGoal,
+    source_len: usize,
+    stages: Vec<LoweringStage>,
+    modules: Option<ModuleGraphIr>,
+) -> ProgramIr {
+    let mut program = new_program(goal, source_len, stages);
+    program.modules = modules;
 
     match reparse_script(script_source) {
         Ok((script, interner)) => {
@@ -224,8 +305,8 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
             program.diagnostics.push(match kind {
                 IrDiagnosticKind::Unsupported => IrDiagnostic::unsupported(message),
                 IrDiagnosticKind::Lowering => IrDiagnostic::lowering(message),
-                IrDiagnosticKind::EarlyError => {
-                    unreachable!("reparse does not produce early errors")
+                IrDiagnosticKind::EarlyError | IrDiagnosticKind::LinkError => {
+                    unreachable!("reparse does not produce early errors or link errors")
                 }
             });
         }
@@ -257,62 +338,6 @@ fn reparse_script(source: &SourceUnit) -> Result<(Script, Interner), String> {
     Ok((script, interner))
 }
 
-fn lower_supported_module_source(source: &SourceUnit) -> Result<String, String> {
-    let mut interner = Interner::default();
-    let scope = Scope::new_global();
-    let parser_source = if let Some(filename) = &source.filename {
-        Source::from_bytes(source.source_text.as_bytes()).with_path(std::path::Path::new(filename))
-    } else {
-        Source::from_bytes(source.source_text.as_bytes())
-    };
-    let module = match panic::catch_unwind(AssertUnwindSafe(|| {
-        Parser::new(parser_source).parse_module(&scope, &mut interner)
-    })) {
-        Ok(Ok(module)) => module,
-        Ok(Err(err)) => return Err(format!("lowering module reparse failed: {err}")),
-        Err(payload) => {
-            return Err(format!(
-                "unsupported in porffor wasm-aot first slice: frontend parser aborted while reparsing module source ({})",
-                parser_abort_message(&payload)
-            ));
-        }
-    };
-
-    for item in module.items().items() {
-        match item {
-            ModuleItem::StatementListItem(_) => {}
-            ModuleItem::ImportDeclaration(_) => {
-                return Err(
-                    "unsupported in porffor wasm-aot first slice: module imports".to_string(),
-                );
-            }
-            ModuleItem::ExportDeclaration(export) => match export.as_ref() {
-                ExportDeclaration::List(_)
-                | ExportDeclaration::VarStatement(_)
-                | ExportDeclaration::Declaration(_) => {}
-                ExportDeclaration::ReExport { .. } => {
-                    return Err(
-                        "unsupported in porffor wasm-aot first slice: module re-exports"
-                            .to_string(),
-                    );
-                }
-                ExportDeclaration::DefaultFunctionDeclaration(_)
-                | ExportDeclaration::DefaultGeneratorDeclaration(_)
-                | ExportDeclaration::DefaultAsyncFunctionDeclaration(_)
-                | ExportDeclaration::DefaultAsyncGeneratorDeclaration(_)
-                | ExportDeclaration::DefaultClassDeclaration(_)
-                | ExportDeclaration::DefaultAssignmentExpression(_) => {
-                    return Err(
-                        "unsupported in porffor wasm-aot first slice: default exports".to_string(),
-                    );
-                }
-            },
-        }
-    }
-
-    strip_supported_export_syntax(&source.source_text)
-}
-
 fn parser_abort_message(payload: &Box<dyn core::any::Any + Send>) -> String {
     if let Some(message) = payload.downcast_ref::<&'static str>() {
         (*message).to_string()
@@ -321,50 +346,6 @@ fn parser_abort_message(payload: &Box<dyn core::any::Any + Send>) -> String {
     } else {
         "non-string abort payload".to_string()
     }
-}
-
-fn strip_supported_export_syntax(source: &str) -> Result<String, String> {
-    let bytes = source.as_bytes();
-    let mut out = String::with_capacity(source.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if is_keyword_at(source, i, "export") {
-            i += "export".len();
-            i = copy_ws_and_comments(source, i, &mut out);
-            if i < bytes.len() && bytes[i] == b'{' {
-                i = skip_balanced_export_list(source, i)?;
-                i = skip_ws_and_comments(source, i);
-                if i < bytes.len() && bytes[i] == b';' {
-                    i += 1;
-                }
-                out.push('\n');
-                continue;
-            }
-            continue;
-        }
-        let Some(ch) = source[i..].chars().next() else {
-            break;
-        };
-        out.push(ch);
-        i += ch.len_utf8();
-    }
-    Ok(out)
-}
-
-fn is_keyword_at(source: &str, index: usize, keyword: &str) -> bool {
-    let end = index + keyword.len();
-    if end > source.len() || &source[index..end] != keyword {
-        return false;
-    }
-    let before = index
-        .checked_sub(1)
-        .and_then(|prev| source[..=prev].chars().last());
-    let after = source[end..].chars().next();
-    !before.is_some_and(is_identifier_part) && !after.is_some_and(is_identifier_part)
-}
-
-fn is_identifier_part(ch: char) -> bool {
-    ch == '_' || ch == '$' || ch.is_ascii_alphanumeric()
 }
 
 pub(crate) fn is_ecmascript_whitespace(ch: char) -> bool {
@@ -387,85 +368,6 @@ pub(crate) fn is_ecmascript_whitespace(ch: char) -> bool {
                 | '\u{3000}'
                 | '\u{FEFF}'
     )
-}
-
-fn copy_ws_and_comments(source: &str, mut index: usize, out: &mut String) -> usize {
-    let bytes = source.as_bytes();
-    loop {
-        if index >= bytes.len() {
-            return index;
-        }
-        let Some(ch) = source[index..].chars().next() else {
-            return index;
-        };
-        if ch.is_whitespace() {
-            out.push(ch);
-            index += ch.len_utf8();
-            continue;
-        }
-        if bytes[index..].starts_with(b"//") {
-            let start = index;
-            index += 2;
-            while index < bytes.len() && bytes[index] != b'\n' {
-                index += 1;
-            }
-            out.push_str(&source[start..index]);
-            continue;
-        }
-        if bytes[index..].starts_with(b"/*") {
-            let start = index;
-            index += 2;
-            while index + 1 < bytes.len() && !bytes[index..].starts_with(b"*/") {
-                index += 1;
-            }
-            index = (index + 2).min(bytes.len());
-            out.push_str(&source[start..index]);
-            continue;
-        }
-        return index;
-    }
-}
-
-fn skip_ws_and_comments(source: &str, mut index: usize) -> usize {
-    let mut ignored = String::new();
-    index = copy_ws_and_comments(source, index, &mut ignored);
-    index
-}
-
-fn skip_balanced_export_list(source: &str, mut index: usize) -> Result<usize, String> {
-    let bytes = source.as_bytes();
-    let mut depth = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'{' => depth += 1,
-            b'}' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-                if depth == 0 {
-                    return Ok(index);
-                }
-                continue;
-            }
-            b'\'' | b'"' => {
-                let quote = bytes[index];
-                index += 1;
-                while index < bytes.len() {
-                    if bytes[index] == b'\\' {
-                        index = (index + 2).min(bytes.len());
-                    } else if bytes[index] == quote {
-                        index += 1;
-                        break;
-                    } else {
-                        index += 1;
-                    }
-                }
-                continue;
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    Err("unsupported in porffor wasm-aot first slice: malformed export list".to_string())
 }
 
 type ExactHelperContextId = String;
@@ -9608,6 +9510,9 @@ impl<'a> ScriptLowerer<'a> {
 
     fn infer_statement_throw_info(&self, statement: &StatementIr) -> Option<ValueInfo> {
         match statement {
+            // A module unit body can throw anything; the link stage fills these
+            // blocks in, and until then no unit block exists to inspect.
+            StatementIr::ModuleUnitOnce { .. } => Some(ValueInfo::new(ValueKind::Dynamic)),
             StatementIr::Empty
             | StatementIr::AnnexBFunctionCopy { .. }
             | StatementIr::Debugger
@@ -9880,6 +9785,11 @@ impl<'a> ScriptLowerer<'a> {
 
     fn infer_expr_throw_info(&self, expr: &TypedExpr) -> Option<ValueInfo> {
         match &expr.expr {
+            // `import()` rejects rather than throws, and reading `import.meta`
+            // or a namespace object cannot throw.
+            ExprIr::DynamicImport { .. }
+            | ExprIr::ImportMeta { .. }
+            | ExprIr::ModuleNamespace { .. } => None,
             ExprIr::Undefined
             | ExprIr::ArrayHole
             | ExprIr::Null
@@ -14603,8 +14513,25 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_identifier_name(result_name, false)
             }
             Expression::RegExpLiteral(regexp) => self.lower_regexp_literal(regexp),
+            Expression::ImportCall(call) => {
+                // 13.3.10.1 steps 3-6: both operands are evaluated before the
+                // promise capability exists, so an abrupt completion here
+                // throws normally. No `ToString`: steps 8-9 do that, after the
+                // capability, where it rejects instead.
+                let specifier = self.lower_expression(call.argument());
+                let options = call.options().map(|options| self.lower_expression(options));
+                // `None` referrer: `import()` is legal in Script goal, where
+                // the referrer is genuinely absent. A module unit passes its
+                // own id once the per-unit lowering seam exists.
+                match modules::lower_import_call(call, specifier, options, None) {
+                    Ok(expression) => expression,
+                    Err(message) => {
+                        self.unsupported_with_message(message);
+                        TypedExpr::undefined()
+                    }
+                }
+            }
             Expression::Spread(_)
-            | Expression::ImportCall(_)
             | Expression::ImportMeta(_)
             | Expression::Await(_)
             | Expression::Yield(_)

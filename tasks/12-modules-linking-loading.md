@@ -63,6 +63,16 @@ Define a Rust trait for resolve/load with referrer, attributes and module type. 
 
 Document whether a graph is emitted as one Wasm module or multiple linked modules. The first complete implementation may emit one module, but module records and live bindings must remain explicit so the design can evolve. `build wasm` must include compiled semantics, not source strings fed to a runtime parser.
 
+**Decision (T12 foundation): one Wasm module per graph.**
+
+The graph is linked at compile time into a single `ScriptIr`. Per-module identity survives in `ProgramIr::modules` (`ModuleGraphIr`), which carries the Source Text Module Records, the resolved import bindings, the namespace descriptors, the evaluation order and its strongly-connected components.
+
+Every module's top-level bindings live side by side in the one merged activation environment under a per-module storage prefix (`$m<k>$`), and `FunctionId`s carry a matching per-module prefix (`$m<k>/`) so two modules cannot collide on a span-derived id. A cross-module binding is therefore an ordinary read of the exporter's cell rather than a copied value, which is what makes live bindings free and needs no runtime indirection.
+
+Dynamic-import components are lazily-initialised `StatementIr::ModuleUnitOnce` blocks inside the same artifact, not separate Wasm modules. Splitting a graph into several linked Wasm modules later is therefore a backend change with no IR change.
+
+`porffor-ir` performs no IO. The host resolves and reads the whole transitive closure up front (`porffor_engine::load_module_graph`) and hands it to `porffor_ir::lower_module_graph` as `ModuleGraphSources`.
+
 ### Componentized dynamic import
 
 `import()` must work without runtime source compilation. Compile every module reachable through the graph — including specifiers of dynamic imports that are statically discoverable — into separately instantiable compiled units ("components") carried in or alongside the artifact. At runtime, `import(spec)` resolves through the host loader to a precompiled component and lazily instantiates/links it with correct module-record identity, live bindings and job integration. Runtime-computed specifiers resolve against the registry of AOT-compiled components (plus any host-supplied precompiled components); a specifier with no precompiled component rejects the promise with a host resolution error. It never falls back to parsing or evaluating source inside the artifact. This keeps dynamic import out of T13's unsupported dynamic-source bucket.

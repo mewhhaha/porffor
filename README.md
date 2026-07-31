@@ -212,10 +212,15 @@ Useful local checks:
 
 ```sh
 cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli --quiet
+./scripts/run-watched.sh --label cli -- cargo test -p porffor-cli --test cli -- --skip atomics_wait_core
 ./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
 ./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 ```
+
+The CLI suite takes about 26 minutes and **must** skip `atomics_wait_core`:
+that case hangs indefinitely, so a plain `cargo test -p porffor-cli` reaches 580
+of 581 tests and then spins forever (tracked under T17). Compare results against
+`crates/porffor-cli/tests/known-failures.txt` rather than against zero.
 
 For local Wasm-AOT Test262 iteration, use the default in-process case runner:
 execution remains exact-source, realm-isolated, and epoch-timeout bounded while
@@ -4295,9 +4300,52 @@ the emitted Wasm artifact.
 
 ## Development
 
+Build flags live in `.cargo/config.toml`, which is the single source of truth
+for both `./scripts/dev.sh` and a bare `cargo` invocation. `RUSTFLAGS`
+participates in Cargo's unit fingerprint and the environment variable *replaces*
+config values rather than merging with them, so a wrapper that exported
+`RUSTFLAGS` while bare `cargo` did not made the two entry points invalidate each
+other's artifacts on every alternation. Keep linker flags in the config file and
+out of the wrapper. `PORFFOR_JOBS` still requests a lower job count for a single
+invocation; job count does not affect codegen and so does not fork the
+fingerprint.
+
 The dev/test profiles retain incremental compilation and line-table source
 locations, compile dependencies at `opt-level=2`, and keep Lila workspace
-crates at `opt-level=0`. Capture representative large-crate build timings with:
+crates at `opt-level=0`. The release profile adds line tables only: workspace
+code is roughly 7% of a cold compile, so `lto` and `codegen-units = 1` would
+optimize the small end while taxing every rebuild-after-compiler-edit.
+
+`PORFFOR_CACHE_LIMIT_BYTES` raises the whole compiled-code storage budget, and
+`PORFFOR_FUNCTION_CACHE_LIMIT_BYTES`, `PORFFOR_MODULE_CACHE_LIMIT_BYTES` and
+`PORFFOR_PROGRAM_CACHE_LIMIT_BYTES` size the individual tiers. Unset, blank,
+non-numeric and zero values fall back to the default rather than failing, so a
+typo cannot take down a sweep that has been running for hours.
+
+The tiers behave very differently under a real-suite sweep, which is why they
+are separately adjustable. Measured over a 300-case sample on `2026-07-30`:
+
+- the program-Wasm tier grows by about `9 MiB` per case and the Wasmtime module
+  tier by about `17 MiB`. Both are keyed by source text, and every Test262 case
+  is a distinct source, so **across a single sweep neither tier ever serves a
+  hit** — they are pure write and prune churn. Holding the full suite would take
+  on the order of `1.5 TiB`. They earn their keep only on repeated runs of the
+  same case: `--resume`, or a lane iterating on one narrow filter.
+- the Cranelift stencil tier grows by about `21 MiB` per case, but it is keyed
+  per function, so the builtin bodies shared by every case are written once and
+  hit thereafter. It does not fully saturate at suite scale either, but a large
+  budget keeps the hot shared set resident instead of letting LRU evict it.
+
+A sweep therefore wants a large function tier and small program/module tiers:
+
+```sh
+PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=34359738368 \
+PORFFOR_MODULE_CACHE_LIMIT_BYTES=536870912 \
+PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
+  ./target/release/porf test262 report-all --resume --threads 8 --jobs 8
+```
+
+Capture representative large-crate build timings with:
 
 ```sh
 ./scripts/dev.sh timings
@@ -4335,19 +4383,98 @@ The cold result keeps the runtime/program product split described in the Rust
 rewrite architecture backlog as required follow-up; warm cache success is not
 reported as cold success.
 
+### Real-suite throughput
+
+Calibrated on the 16-logical-CPU development machine on `2026-07-30` with
+`--threads 8 --jobs 8`, using `./target/release/porf`:
+
+- `built-ins/Array` (50 cases): `43.1 s` at 821% CPU, `0.86 s` per case;
+- `built-ins/Array/prototype@chunk-0001-of-0012` (250 cases): `4 m 13 s` at
+  882% CPU, `1.01 s` per case.
+
+At roughly `1.0 s` per case, the full pinned matrix of 498 nodes / 53,131 cases
+extrapolates to about **15 hours**. `report-all --resume` rewrites the aggregate
+after every node and checkpoints every 10 cases within a node, so the sweep is
+interruptible and resumable; poll it from another shell with
+`porf test262 progress-status --snapshot-name <name>`.
+
+Reproduce the calibration with:
+
+```sh
+./target/release/porf test262 report --matrix-node built-ins/Array --snapshot-name calib50 --snapshot-dir target/test262-scratch/calib --threads 8 --jobs 8
+```
+
 Existing developer artifacts are never cleaned automatically. If an old
 `target/` has grown too large, inspect it with `du -sh target` and perform the
 one-time cleanup explicitly with `cargo clean`; the next dependency build will
 be intentionally cold.
+
+### Backend byte-identity golden capture
+
+Pure refactors of the backend — splitting builtin registries, extracting
+intrinsic installation, flattening the standard-builtin dispatch — are poorly
+served by the existing suites, which assert on program output. A refactor that
+perturbs emission order, function index assignment, or property installation
+order can leave every one of those assertions green while changing the emitted
+module.
+
+`crates/porffor-aot-wasm/tests/emit_golden.rs` closes that gap. It runs the real
+`parse -> lower -> emit` pipeline over all 527 CLI fixtures and records the
+emitted byte length, a content hash, and the backend `debug_dump` per fixture.
+It is inert unless `PORFFOR_GOLDEN_OUT` names an output directory, so it costs
+nothing in an ordinary `cargo test` run.
+
+```sh
+git stash
+PORFFOR_GOLDEN_OUT=$PWD/target/golden/before cargo test -p porffor-aot-wasm --test emit_golden
+git stash pop
+PORFFOR_GOLDEN_OUT=$PWD/target/golden/after cargo test -p porffor-aot-wasm --test emit_golden
+diff -r target/golden/before target/golden/after
+```
+
+Keep captures under `target/` rather than `/tmp`: each side costs ten minutes
+and is useless without the other to compare against.
+
+An empty diff is proof of byte identity. A non-empty one names the diverging
+fixture, and its `debug_dump` narrows the divergence to a specific builtin.
+Fixtures that fail to parse or emit are recorded as failures rather than
+skipped, so a refactor that changes which fixtures emit is caught too.
+
+The capture fans across the machine with 64 MiB worker stacks — lowering and
+emission recurse deeply enough to overflow the 2 MiB default, and each fixture
+emits a full ~9.4 MiB bootstrap module. Measured `2026-07-30` on the 16-core
+development machine: `9 m 58 s` at 1079% CPU for all 527 fixtures, against
+roughly 104 minutes for the same work serially.
 
 Start with focused package tests while working, then widen only when the change
 touches shared behavior:
 
 ```sh
 cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli --quiet
+cargo test -p porffor-cli --test cli array::            # one area, ~1-3 min
 cargo test -p porffor-test262 --quiet
 ```
+
+Wrap anything long in the stall guard rather than watching elapsed time:
+
+```sh
+./scripts/run-watched.sh --label cli --stall 420 -- cargo test -p porffor-cli --test cli -- --test-threads=8 --skip atomics_wait_core
+```
+
+`scripts/run-watched.sh` writes the command's output to `target/watched/<label>.log`,
+emits a heartbeat while the log grows, and kills the run with exit code 124 if
+the log goes quiet for `--stall` seconds. Wasm-AOT compilation has no wall-clock
+bound and `Atomics.wait` blocks outright, so a hung run is otherwise
+indistinguishable from a slow one — and piping a long run into `tail` hides
+progress entirely.
+
+The CLI integration tests live in `crates/porffor-cli/tests/cli/`, split into
+area modules (`array`, `string`, `typed_array`, `language`, `frontend`, ...) so
+that concurrent feature work does not funnel into a single file. They stay child
+modules of one target rather than separate `tests/*.rs` files because each extra
+integration target statically relinks a 143 MB binary. Per-test cost varies by
+more than 1.7x across modules, so do not extrapolate one module's runtime to the
+whole suite.
 
 The workspace forbids unsafe Rust through workspace lints. Keep changes scoped
 to the Rust path unless a legacy file is being used deliberately as an oracle or

@@ -154,10 +154,6 @@ function __porfAbstractModuleSourceToStringTag() {
   return undefined;
 }
 
-function __porfIsHTMLDDA() {
-  return null;
-}
-
 Object.defineProperty(AbstractModuleSource, "prototype", {
   value: AbstractModuleSource.prototype,
   writable: false,
@@ -175,7 +171,12 @@ Object.defineProperty(AbstractModuleSource.prototype, Symbol.toStringTag, {
 var $262 = {
   global: undefined,
   AbstractModuleSource: AbstractModuleSource,
-  IsHTMLDDA: __porfIsHTMLDDA,
+  // Must be a real [[IsHTMLDDA]] exotic object, not an ordinary function that
+  // returns null: the annexB `emulates-undefined` tests observe ToBoolean,
+  // `typeof`, IsLooselyEqual and the absence of an own `prototype` property.
+  // `__porfCreateHTMLDDA()` mints one function object carrying the
+  // FUNCTION_FLAG_IS_HTMLDDA flag that every one of those paths consults.
+  IsHTMLDDA: __porfCreateHTMLDDA(),
   gc: function () {
     gc();
   },

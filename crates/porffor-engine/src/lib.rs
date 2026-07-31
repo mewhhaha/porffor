@@ -1,6 +1,6 @@
 use porffor_aot_wasm::{decode_heap_bigint_decimal, WasmRuntimeValueTag};
 use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
-use porffor_ir::{lower, IrDiagnostic, IrDiagnosticKind, ProgramIr, ValueKind};
+use porffor_ir::{lower, lower_module_graph, IrDiagnostic, IrDiagnosticKind, ProgramIr, ValueKind};
 use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
 use wasmtime::{
@@ -18,8 +18,13 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 mod cache;
+mod module_loader;
 
 pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus};
+pub use module_loader::{
+    load_module_graph, FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind,
+    ModuleEntry, ModuleKey, ModuleLoadError,
+};
 
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
@@ -187,7 +192,7 @@ fn cranelift_function_cache() -> Option<Arc<cache::FunctionCache>> {
         .get_or_init(|| {
             match cache::FunctionCache::new(
                 cache::function_cache_directory(),
-                cache::CACHE_LIMIT_BYTES,
+                cache::function_cache_limit_bytes(),
             ) {
                 Ok(cache) => Some(Arc::new(cache)),
                 Err(err) => {
@@ -210,7 +215,7 @@ fn program_wasm_cache() -> Option<Arc<cache::FunctionCache>> {
         .get_or_init(|| {
             match cache::FunctionCache::new(
                 cache::program_cache_directory(),
-                cache::HALF_CACHE_LIMIT_BYTES,
+                cache::program_cache_limit_bytes(),
             ) {
                 Ok(cache) => Some(Arc::new(cache)),
                 Err(err) => {
@@ -287,6 +292,7 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
     source: &str,
     goal: ParseGoal,
     options: &CompileOptions,
+    graph_digest: Option<&[u8; 32]>,
     compiler_fingerprint: &[u8; 32],
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
@@ -303,12 +309,90 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
     if let Some(target) = &options.target_triple {
         hash.update(target.as_bytes());
     }
+    if let Some(root) = &options.module_root {
+        hash.update(root.as_bytes());
+    }
     hash.update(source.as_bytes());
+    if let Some(digest) = graph_digest {
+        hash.update(digest);
+    }
+    hash.finalize().into()
+}
+
+/// Digest of every module in a graph *other than* the entry, in graph order.
+///
+/// Without this a stale artifact survives an edit to an imported file: the
+/// entry's own text is unchanged, so the key would be unchanged too.
+fn module_graph_digest(sources: &porffor_ir::ModuleGraphSources) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    for (index, module) in sources.modules.iter().enumerate() {
+        if index == sources.entry as usize {
+            continue;
+        }
+        hash.update(module.key.as_bytes());
+        hash.update(module.source_text.len().to_le_bytes());
+        hash.update(module.source_text.as_bytes());
+    }
     hash.finalize().into()
 }
 
 fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
-    program_wasm_cache_key_with_compiler_fingerprint(source, goal, options, compiler_fingerprint())
+    program_wasm_cache_key_with_compiler_fingerprint(
+        source,
+        goal,
+        options,
+        None,
+        compiler_fingerprint(),
+    )
+}
+
+/// Loads the module graph rooted at `source`, using the filesystem loader
+/// configured by `options`.
+///
+/// `source` is the entry text as the caller supplied it, which may differ from
+/// what is on disk (test262 prepends harness text). Resolution still keys off
+/// `options.filename`, so relative specifiers inside the entry resolve against
+/// the real directory.
+fn module_entry_graph(
+    source: &str,
+    options: &CompileOptions,
+) -> Option<porffor_ir::ModuleGraphSources> {
+    let loader =
+        FilesystemModuleLoader::new(options.module_root.as_deref(), options.filename.as_deref())
+            .ok()?;
+    let entry = ModuleEntry {
+        key: ModuleKey(
+            options
+                .filename
+                .clone()
+                .unwrap_or_else(|| "<entry>".to_string()),
+        ),
+        source_override: Some(source.to_string()),
+    };
+    load_module_graph(&entry, &loader).ok()
+}
+
+/// Cache key for a program, covering the whole module graph when there is one.
+///
+/// A module artifact embeds every module of its graph, so hashing the entry
+/// text alone would leave a stale artifact live after an imported file is
+/// edited.
+fn program_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
+    match goal {
+        ParseGoal::Script => program_wasm_cache_key(source, goal, options),
+        ParseGoal::Module => {
+            let digest = module_entry_graph(source, options)
+                .as_ref()
+                .map(module_graph_digest);
+            program_wasm_cache_key_with_compiler_fingerprint(
+                source,
+                goal,
+                options,
+                digest.as_ref(),
+                compiler_fingerprint(),
+            )
+        }
+    }
 }
 
 fn wasm_aot_program_is_cached(source: &str, goal: ParseGoal, options: &CompileOptions) -> bool {
@@ -745,6 +829,11 @@ pub struct CompileOptions {
     pub filename: Option<String>,
     pub optimize: bool,
     pub target_triple: Option<String>,
+    /// Directory the filesystem module loader is confined to.
+    ///
+    /// `None` means the entry file's parent directory. A specifier that
+    /// resolves outside the root is rejected rather than read.
+    pub module_root: Option<String>,
 }
 
 impl Default for CompileOptions {
@@ -753,6 +842,7 @@ impl Default for CompileOptions {
             filename: None,
             optimize: true,
             target_triple: None,
+            module_root: None,
         }
     }
 }
@@ -1446,7 +1536,7 @@ impl Engine {
         options: CompileOptions,
         cache: Option<Arc<cache::FunctionCache>>,
     ) -> Result<ProgramWasmArtifact, EngineError> {
-        let key = program_wasm_cache_key(source, goal, &options);
+        let key = program_cache_key(source, goal, &options);
         if let Some(cache) = &cache {
             let cache_started = std::time::Instant::now();
             if let Some(bytes) = cache.read(&key) {
@@ -1483,7 +1573,7 @@ impl Engine {
         options: CompileOptions,
         cache: Option<Arc<cache::FunctionCache>>,
     ) -> Result<ProgramWasmArtifact, EngineError> {
-        let key = program_wasm_cache_key(source, goal, &options);
+        let key = program_cache_key(source, goal, &options);
         self.compile_program_wasm_with_key_on_current_thread(source, goal, options, cache, key)
     }
 
@@ -1584,6 +1674,8 @@ impl Engine {
                 .map(|stage| match stage {
                     porffor_ir::LoweringStage::ParsedSource => "parsed-source",
                     porffor_ir::LoweringStage::AstReparsed => "ast-reparsed",
+                    porffor_ir::LoweringStage::ModuleGraphLoaded => "module-graph-loaded",
+                    porffor_ir::LoweringStage::ModuleGraphLinked => "module-graph-linked",
                     porffor_ir::LoweringStage::ScriptIrBuilt => "script-ir-built",
                     porffor_ir::LoweringStage::UnsupportedFeaturesRecorded => {
                         "unsupported-features-recorded"
@@ -1619,11 +1711,12 @@ impl Engine {
     ) -> Result<CompilationUnit, EngineError> {
         let trace = std::env::var_os("PORFFOR_WASM_TRACE").is_some();
         let parse_started = std::time::Instant::now();
+        let entry_text = source;
         let source = parse(
             source,
             ParseOptions {
                 goal,
-                filename: options.filename,
+                filename: options.filename.clone(),
             },
         )
         .map_err(EngineError::from_parse_error)?;
@@ -1631,7 +1724,17 @@ impl Engine {
             eprintln!("porffor wasm trace: parse: {:?}", parse_started.elapsed());
         }
         let lower_started = std::time::Instant::now();
-        let ir = lower(&source);
+        let ir = match goal {
+            ParseGoal::Script => lower(&source),
+            // A module is lowered together with its loaded dependency closure.
+            // If the closure cannot be assembled at all, fall back to the
+            // one-node graph so the failure is reported by the lowerer rather
+            // than swallowed here.
+            ParseGoal::Module => match module_entry_graph(entry_text, &options) {
+                Some(sources) => lower_module_graph(&sources),
+                None => lower(&source),
+            },
+        };
         if trace {
             eprintln!("porffor wasm trace: lower: {:?}", lower_started.elapsed());
         }
@@ -2859,12 +2962,14 @@ report;
                 "1 + 2",
                 ParseGoal::Script,
                 &options,
+                None,
                 &before,
             ),
             program_wasm_cache_key_with_compiler_fingerprint(
                 "1 + 2",
                 ParseGoal::Script,
                 &options,
+                None,
                 &after,
             )
         );

@@ -4,6 +4,10 @@ use porffor_front::SourceSpan;
 pub enum LoweringStage {
     ParsedSource,
     AstReparsed,
+    /// Every module of the graph was parsed into a Source Text Module Record.
+    ModuleGraphLoaded,
+    /// Every import entry was resolved and evaluation order was computed.
+    ModuleGraphLinked,
     ScriptIrBuilt,
     UnsupportedFeaturesRecorded,
     WasmReady,
@@ -12,6 +16,9 @@ pub enum LoweringStage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IrDiagnosticKind {
     EarlyError,
+    /// A module graph failed to link: unresolved specifier, missing export,
+    /// ambiguous export, duplicate export name.
+    LinkError,
     Unsupported,
     Lowering,
 }
@@ -19,6 +26,9 @@ pub enum IrDiagnosticKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IrDiagnosticPhase {
     Early,
+    /// Module linking. test262 spells this phase `resolution`; an AOT compiler
+    /// catches it at compile time rather than throwing at runtime.
+    Resolution,
     Lowering,
 }
 
@@ -45,6 +55,18 @@ impl IrDiagnostic {
             code: Some(code),
             error_type: Some(error_type),
             span,
+            message: message.into(),
+        }
+    }
+
+    /// A module-linking failure. Always a `SyntaxError`, always compile time.
+    pub fn link_error(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            kind: IrDiagnosticKind::LinkError,
+            phase: IrDiagnosticPhase::Resolution,
+            code: Some(code),
+            error_type: Some("SyntaxError"),
+            span: None,
             message: message.into(),
         }
     }

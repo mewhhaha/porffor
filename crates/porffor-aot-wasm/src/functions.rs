@@ -10111,6 +10111,23 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
+        // 7.2.1 RequireObjectCoercible / 13.3.6.2 EvaluateCall. A receiver that
+        // can only be undefined or null always takes the throw above, so the
+        // runtime kind dispatch below is statically dead: emitting it only
+        // grows the function and can fail the whole module on a missing
+        // primitive-prototype builtin that could never be reached.
+        if matches!(receiver.kind, ValueKind::Undefined | ValueKind::Null)
+            && receiver.possible_kinds.is_subset_of(KindSet::NULLISH)
+        {
+            self.release_temp_local(flags_local);
+            self.release_temp_local(table_index_local);
+            self.release_temp_local(callee_env_local);
+            self.release_temp_local(callee_tag_local);
+            self.release_temp_local(callee_payload_local);
+            self.release_temp_local(receiver_tag_local);
+            self.release_temp_local(receiver_payload_local);
+            return Ok(());
+        }
         let receiver_kind = if matches!(receiver.kind, ValueKind::Undefined | ValueKind::Null) {
             ValueKind::Dynamic
         } else {

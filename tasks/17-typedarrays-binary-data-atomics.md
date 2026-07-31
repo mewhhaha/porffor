@@ -56,6 +56,24 @@ Implement all concrete typed-array constructors and `%TypedArray%` semantics:
 - Integrate job completion for `waitAsync` with T14.
 - Eliminate regex/source-pattern agent simulations from `test262/harness.js` under T03.
 
+### Known defect: `Atomics.wait` hangs the CLI suite indefinitely
+
+Observed 2026-07-31. `cli::binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture`
+never terminates: a full `cargo test -p porffor-cli --test cli` reaches 580 of
+581 tests and then spins on this one case indefinitely, consuming cores with no
+diagnostic. Two adjacent cases fail rather than hang:
+`..._atomics_notify_core_fixture` and `..._atomics_wait_async_core_fixture`.
+
+This makes the CLI suite non-terminating as documented in `README.md`, so every
+invocation must currently pass `--skip atomics_wait_core`, and long runs should
+go through `scripts/run-watched.sh` so a stall is killed and reported rather
+than left to spin.
+
+Closing this needs the blocking-restriction and wait-queue work above: a wait on
+an agent that never arrives must observe the blocking restriction or the timeout
+rather than block forever. Until then the skip is a workaround, not a fix, and
+must not be treated as an accepted permanent exclusion.
+
 ## Wasm/runtime strategy
 
 Document whether shared operations use Wasm shared memory/atomic instructions or typed host imports. Either approach must preserve JavaScript object identity, detachment rules and agent synchronization. Do not claim concurrency coverage from a single-threaded scripted simulation.
