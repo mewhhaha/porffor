@@ -555,9 +555,15 @@ mod tests {
         let root = base.join("root");
         write_tree(
             &root,
+            // The self-import has to be aliased. Importing your own export
+            // under its own name declares it twice in one module environment -
+            // the import binding and the `export const` - so
+            // `import { x } from './entry.js'; export const x = 1;` is a
+            // SyntaxError (16.2.1.2) rather than a graph shape, and the parse
+            // fails before any request is scanned.
             &[(
                 "entry.js",
-                "import { x } from './entry.js';\nexport const x = 1;\nx;",
+                "import { x as y } from './entry.js';\nexport const x = 1;\ny;",
             )],
         );
         let loader = loader_at(&root);

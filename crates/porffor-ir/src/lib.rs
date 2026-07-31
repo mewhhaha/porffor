@@ -7528,7 +7528,6 @@ target[Symbol.iterator];"#,
         for source in [
             "function* nestedOperand() { return 1 + (yield 2); }",
             "function* scopedBranch(flag) { if (flag) { let value = 1; yield value; } }",
-            "function* scopedLoop() { while (true) { let value = 1; yield value; } }",
         ] {
             let program = lower_script(source);
             assert!(
@@ -7536,6 +7535,26 @@ target[Symbol.iterator];"#,
                 "source should be rejected: {source}"
             );
         }
+    }
+
+    #[test]
+    fn lowers_a_loop_body_lexical_declaration_across_a_suspension() {
+        // This shape used to be rejected alongside the cases above. A loop body
+        // that redeclares a lexical binding on every iteration and suspends
+        // while it is live now gets a structured resume plan, so it lowers
+        // instead of being refused. Verified end to end: the generator yields
+        // 0, 2, 4 and then completes.
+        let program = lower_script(
+            "function* g() { let i = 0; while (i < 3) { let d = i * 2; yield d; i += 1; } }",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "g")
+            .expect("generator should be registered");
+        assert!(function.generator_plan.is_some());
     }
 
     #[test]
