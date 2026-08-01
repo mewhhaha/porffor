@@ -1030,31 +1030,42 @@ impl<'a> FunctionBuilder<'a> {
                         self.release_temp_local(lhs_local);
                     }
                 } else if matches!(op, ArithmeticBinaryOp::Mod) {
+                    // `%` needs both operands twice, so each has to be spilled
+                    // to a local. The spill slots must be freshly reserved
+                    // temporaries: `self.result_local`/`self.scratch_local` are
+                    // shared scratch that any nested emission (a string
+                    // comparison, a call, a throw propagation) is free to
+                    // clobber, which would silently corrupt the already
+                    // evaluated left operand while the right one is compiled.
+                    let lhs_local = self.reserve_temp_local();
+                    let rhs_local = self.reserve_temp_local();
                     if numeric_only {
                         self.compile_expr_to_number_payload_nonstring(lhs, function)?;
                     } else {
                         self.compile_expr_to_number_payload(lhs, function)?;
                     }
-                    function.instruction(&Instruction::LocalSet(self.result_local));
+                    function.instruction(&Instruction::LocalSet(lhs_local));
                     if numeric_only {
                         self.compile_expr_to_number_payload_nonstring(rhs, function)?;
                     } else {
                         self.compile_expr_to_number_payload(rhs, function)?;
                     }
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    function.instruction(&Instruction::LocalGet(self.result_local));
+                    function.instruction(&Instruction::LocalSet(rhs_local));
+                    function.instruction(&Instruction::LocalGet(lhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.result_local));
+                    function.instruction(&Instruction::LocalGet(lhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
+                    function.instruction(&Instruction::LocalGet(rhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
                     function.instruction(&Instruction::F64Div);
                     function.instruction(&Instruction::F64Trunc);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
+                    function.instruction(&Instruction::LocalGet(rhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
                     function.instruction(&Instruction::F64Mul);
                     function.instruction(&Instruction::F64Sub);
                     function.instruction(&Instruction::I64ReinterpretF64);
+                    self.release_temp_local(rhs_local);
+                    self.release_temp_local(lhs_local);
                 } else {
                     if numeric_only {
                         self.compile_expr_to_number_payload_nonstring(lhs, function)?;

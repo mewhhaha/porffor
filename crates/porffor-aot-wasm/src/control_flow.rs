@@ -7787,6 +7787,7 @@ impl<'a> FunctionBuilder<'a> {
         let key_index = self.reserve_temp_local();
         let key_payload = self.reserve_temp_local();
         let key_tag = self.reserve_temp_local();
+        let key_internal_payload = self.reserve_temp_local();
         let descriptor_payload = self.reserve_temp_local();
         let descriptor_tag = self.reserve_temp_local();
         let enumerable_key = self.reserve_temp_local();
@@ -7864,12 +7865,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         self.emit_branch_if_to_target(skip_key, 0, function);
 
-        self.emit_object_read(
-            source_payload,
-            source_tag,
-            source_payload,
-            source_tag,
+        // `Reflect.ownKeys` yields keys as JS values; both the [[Get]] and the
+        // CreateDataPropertyOrThrow below index on the internal property-key
+        // payload, which re-marks symbol keys.
+        self.emit_property_key_payload_from_value_local(
             key_payload,
+            key_tag,
+            key_internal_payload,
+            function,
+        );
+        self.emit_object_read_with_key_tag(
+            source_payload,
+            source_tag,
+            source_payload,
+            source_tag,
+            key_internal_payload,
+            Some(key_tag),
             enumerable_payload,
             enumerable_tag,
             function,
@@ -7877,7 +7888,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_current_completion_if_throw(function);
         self.emit_object_define_enumerable_data(
             target_payload,
-            key_payload,
+            key_internal_payload,
             enumerable_payload,
             enumerable_tag,
             function,
@@ -7900,6 +7911,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(enumerable_key);
         self.release_temp_local(descriptor_tag);
         self.release_temp_local(descriptor_payload);
+        self.release_temp_local(key_internal_payload);
         self.release_temp_local(key_tag);
         self.release_temp_local(key_payload);
         self.release_temp_local(key_index);

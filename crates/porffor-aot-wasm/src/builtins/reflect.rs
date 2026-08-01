@@ -809,6 +809,7 @@ impl<'a> FunctionBuilder<'a> {
         let key_payload_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let key_string_local = self.reserve_temp_local();
+        let key_value_payload_local = self.reserve_temp_local();
         let key_property_tag_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
@@ -868,6 +869,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_property_key_payload(key_payload_local, key_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(key_string_local));
         self.emit_property_key_tag_from_source_tag(key_tag_local, key_property_tag_local, function);
+        // `key_string_local` is the internal property-key payload; anything
+        // handed back to JS (the `set` trap, or a nested `Reflect.set` call)
+        // must see the unmarked symbol value instead.
+        self.emit_property_key_value_payload_to_local(
+            key_string_local,
+            key_value_payload_local,
+            function,
+        );
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
@@ -938,7 +947,7 @@ impl<'a> FunctionBuilder<'a> {
             Some((handler_payload_local, Some(handler_tag_local))),
             &[
                 (proxy_target_payload_local, proxy_target_tag_local),
-                (key_string_local, key_property_tag_local),
+                (key_value_payload_local, key_property_tag_local),
                 (value_payload_local, value_tag_local),
                 (receiver_payload_local, receiver_tag_local),
             ],
@@ -1017,7 +1026,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             &[
                 (proxy_target_payload_local, proxy_target_tag_local),
-                (key_string_local, key_property_tag_local),
+                (key_value_payload_local, key_property_tag_local),
                 (value_payload_local, value_tag_local),
                 (receiver_payload_local, receiver_tag_local),
             ],
@@ -1099,6 +1108,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);
         self.release_temp_local(key_property_tag_local);
+        self.release_temp_local(key_value_payload_local);
         self.release_temp_local(key_string_local);
         self.release_temp_local(key_tag_local);
         self.release_temp_local(key_payload_local);
@@ -1163,6 +1173,7 @@ impl<'a> FunctionBuilder<'a> {
         let key_payload_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let key_string_local = self.reserve_temp_local();
+        let key_value_payload_local = self.reserve_temp_local();
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
         let value_key_local = self.reserve_temp_local();
@@ -1265,6 +1276,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_property_key_payload(key_payload_local, key_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(key_string_local));
         self.emit_property_key_tag_from_payload(key_string_local, proxy_key_tag_local, function);
+        // The `defineProperty` trap (and the nested Reflect/Object
+        // re-dispatches below) observe the key, so they need the unmarked
+        // symbol value rather than the internal property-key payload.
+        self.emit_property_key_value_payload_to_local(
+            key_string_local,
+            key_value_payload_local,
+            function,
+        );
 
         self.emit_is_heap_object_like_tag_i32(descriptor_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
@@ -1568,7 +1587,7 @@ impl<'a> FunctionBuilder<'a> {
             handler_tag_local,
             &[
                 (proxy_target_payload_local, proxy_target_tag_local),
-                (key_string_local, proxy_key_tag_local),
+                (key_value_payload_local, proxy_key_tag_local),
                 (descriptor_payload_local, descriptor_tag_local),
             ],
             trap_result_payload_local,
@@ -1655,7 +1674,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             &[
                 (proxy_target_payload_local, proxy_target_tag_local),
-                (key_string_local, proxy_key_tag_local),
+                (key_value_payload_local, proxy_key_tag_local),
                 (descriptor_payload_local, descriptor_tag_local),
             ],
             scratch_payload_local,
@@ -1913,7 +1932,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             &[
                 (target_payload_local, target_tag_local),
-                (key_string_local, proxy_key_tag_local),
+                (key_value_payload_local, proxy_key_tag_local),
                 (descriptor_payload_local, descriptor_tag_local),
             ],
             scratch_payload_local,
@@ -1993,6 +2012,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(value_key_local);
         self.release_temp_local(descriptor_tag_local);
         self.release_temp_local(descriptor_payload_local);
+        self.release_temp_local(key_value_payload_local);
         self.release_temp_local(key_string_local);
         self.release_temp_local(key_tag_local);
         self.release_temp_local(key_payload_local);

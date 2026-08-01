@@ -53,8 +53,13 @@ log=$log_dir/$label.log
 echo "run-watched: $* "
 echo "run-watched: log $log, stall limit ${stall}s"
 
-# The command owns the log; the watcher only reads it.
-"$@" > "$log" 2>&1 &
+# The command owns the log; the watcher only reads it. Everything long-running
+# goes through the CPU cap: these runs are the ones that make the machine
+# unusable, and job-count flags alone do not bound them (see scripts/capped.sh).
+capped=./scripts/capped.sh
+[ -x "$capped" ] || capped=""
+# shellcheck disable=SC2086
+$capped "$@" > "$log" 2>&1 &
 command_pid=$!
 
 previous_size=-1

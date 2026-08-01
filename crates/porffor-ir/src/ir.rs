@@ -3211,10 +3211,28 @@ impl IrSummaryCounts {
     }
 }
 
+/// Prefix marking an [`ObjectShape::properties`] entry whose real key is a
+/// well-known *symbol* rather than a string. The map is otherwise a string-key
+/// map consulted by string-keyed property reads, so a symbol-keyed entry has to
+/// live under a name no string-keyed read or write ever resolves — see
+/// [`shape_property_name_is_symbol_keyed`], which every string-key path filters
+/// on. Static analyses that legitimately want a symbol hook (ToPrimitive
+/// inference, for one) ask for the prefixed name explicitly.
+pub const SYMBOL_SHAPE_PROPERTY_PREFIX: &str = "@@";
+
+/// Whether `name` addresses a symbol-keyed shape entry, i.e. one that a
+/// string-keyed read or write must never see.
+pub fn shape_property_name_is_symbol_keyed(name: &str) -> bool {
+    name.starts_with(SYMBOL_SHAPE_PROPERTY_PREFIX)
+}
+
 pub(crate) fn read_heap_shape_property(
     shape: &HeapShape,
     key: &str,
 ) -> Option<ObjectShapeProperty> {
+    if shape_property_name_is_symbol_keyed(key) {
+        return None;
+    }
     match shape {
         HeapShape::Object(object) => object.properties.get(key).cloned().or_else(|| {
             object

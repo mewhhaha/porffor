@@ -12985,6 +12985,9 @@ var isExtensibleTrap = new Proxy(function(target) {
 }, {});
 var isExtensibleTarget = new Proxy({}, { isExtensible: isExtensibleTrap });
 
+var descriptorTrap = new Proxy(function(target, key) {
+  return Reflect.getOwnPropertyDescriptor(target, key);
+}, {});
 var descriptorTarget = new Proxy({ present: 1 }, {
   getOwnPropertyDescriptor: descriptorTrap
 });
@@ -20377,11 +20380,10 @@ resultIsArray();
 
     #[test]
     fn wasm_backend_rejects_phase_twenty_eight_remaining_builtin_tails() {
-        for source in [
-            "Function(\"return 1\");",
-            "new Function(\"return 1\");",
-            "function f() { return 1; } f.apply(null, { length: 1, 0: 1 });",
-        ] {
+        // The dynamic Function constructor is a permanent non-goal: Porffor
+        // compiles JavaScript straight to Wasm and never ships an interpreter,
+        // so these two must keep being rejected at compile time.
+        for source in ["Function(\"return 1\");", "new Function(\"return 1\");"] {
             let err = engine()
                 .run_script(
                     source,
@@ -20397,6 +20399,41 @@ resultIsArray();
                     .contains("unsupported in porffor wasm-aot first slice"),
                 "source: {source}, err: {}",
                 err.message()
+            );
+        }
+
+        // `Function.prototype.apply` over an array-like used to be on that
+        // rejection list. It is implemented now (CreateListFromArrayLike and
+        // all), so the guard asserts the working behaviour instead of a stale
+        // "unsupported" expectation.
+        for (source, expected) in [
+            (
+                "function f() { return arguments.length; } f.apply(null, { length: 3, 0: 1 });",
+                "number(3)",
+            ),
+            (
+                "function f(a) { return a; } f.apply(null, { length: 1, 0: 7 });",
+                "number(7)",
+            ),
+            (
+                "function f() { return 1; } try { f.apply(null, 5); } catch (e) { e instanceof TypeError; }",
+                "boolean(true)",
+            ),
+        ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("apply over an array-like should run: {err:?}"));
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
             );
         }
     }

@@ -168,7 +168,11 @@ impl<'a> FunctionBuilder<'a> {
                 rhs_proto_tag_local,
                 function,
             )?;
-            self.emit_dispatch_current_completion(function)?;
+            // The throw sits inside the guard `If` opened above, so the dispatch
+            // has to skip that extra frame when it branches to an active catch
+            // handler; without it the branch lands on the guard's own `End` and
+            // execution falls through as if nothing had been thrown.
+            self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(rhs_tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -210,7 +214,10 @@ impl<'a> FunctionBuilder<'a> {
             rhs_proto_tag_local,
             function,
         )?;
-        self.emit_dispatch_current_completion(function)?;
+        // Same extra frame as the callability guard above: the dispatch is
+        // nested inside this `If`, so an active catch handler is one level
+        // further away than the default depth assumes.
+        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(lhs_tag_local));

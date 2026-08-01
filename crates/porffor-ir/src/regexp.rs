@@ -2008,7 +2008,15 @@ fn class_needs_code_point_ranges(bytes: &[u8], offset: usize) -> bool {
         match byte {
             b']' => return false,
             b'\\' => {
-                if matches!(bytes.get(cursor + 1), Some(b'p' | b'P' | b'u' | b'x')) {
+                // `\w`, `\W`, `\D` and `\S` are CharacterClassEscapes that the
+                // ASCII bitmap atom parser does not model, and the negated
+                // three cover code points outside the bitmap's 0..=0x7f domain
+                // anyway. Send any class containing them down the code-point
+                // range path, which expands them through `complement_ranges`.
+                if matches!(
+                    bytes.get(cursor + 1),
+                    Some(b'p' | b'P' | b'u' | b'x' | b'w' | b'W' | b'D' | b'S')
+                ) {
                     return true;
                 }
                 cursor += 2;

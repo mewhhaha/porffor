@@ -5855,6 +5855,7 @@ impl<'a> FunctionBuilder<'a> {
         let key_index_local = self.reserve_temp_local();
         let key_payload_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
+        let key_property_payload_local = self.reserve_temp_local();
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
         let enumerable_key_local = self.reserve_temp_local();
@@ -6098,6 +6099,20 @@ impl<'a> FunctionBuilder<'a> {
             key_tag_local,
             function,
         );
+        // `Reflect.ownKeys` yields String/Symbol *values*; every internal
+        // property-key consumer below (the `[[Get]]` on the source object, the
+        // `[[DefineOwnProperty]]` on the result, and the key handed to the
+        // resolve-element closure) needs the internal encoding, which re-applies
+        // `PROPERTY_KEY_SYMBOL_MARKER` for symbols. Without it a symbol key is
+        // stored as a bogus string key: `Object.keys` then reports it and reads
+        // a garbage payload. The value form stays for
+        // `Reflect.getOwnPropertyDescriptor`, which applies ToPropertyKey itself.
+        self.emit_property_key_payload_from_value_local(
+            key_payload_local,
+            key_tag_local,
+            key_property_payload_local,
+            function,
+        );
         function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
         function.instruction(&Instruction::LocalSet(enumerable_key_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -6154,7 +6169,7 @@ impl<'a> FunctionBuilder<'a> {
             promises_tag_local,
             promises_payload_local,
             promises_tag_local,
-            key_payload_local,
+            key_property_payload_local,
             property_value_payload_local,
             property_value_tag_local,
             function,
@@ -6171,7 +6186,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_object_define_enumerable_data(
             result_payload_local,
-            key_payload_local,
+            key_property_payload_local,
             undefined_payload_local,
             undefined_tag_local,
             function,
@@ -6202,7 +6217,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_local_at_offset(
             element_context_local,
             HEAP_PROMISE_KEYED_ELEMENT_KEY_PAYLOAD_OFFSET,
-            key_payload_local,
+            key_property_payload_local,
             function,
         );
         self.store_i64_local_at_offset(
@@ -6394,6 +6409,7 @@ impl<'a> FunctionBuilder<'a> {
             enumerable_key_local,
             descriptor_tag_local,
             descriptor_payload_local,
+            key_property_payload_local,
             key_tag_local,
             key_payload_local,
             key_index_local,

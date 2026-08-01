@@ -24713,6 +24713,10 @@ impl<'a> ScriptLowerer<'a> {
         let mut properties = Vec::with_capacity(object.properties().len());
         let mut shape = ObjectShape::default();
         let mut has_spread = false;
+        // A computed key whose identity is not known statically can name *any*
+        // property (including `valueOf`/`toString`), so the tracked shape can no
+        // longer be treated as the object's complete property set.
+        let mut has_unknown_key = false;
         for property in object.properties() {
             match property {
                 PropertyDefinition::Property(PropertyName::Literal(name), value) => {
@@ -24731,9 +24735,11 @@ impl<'a> ScriptLowerer<'a> {
                         properties.push(ObjectPropertyIr::PrototypeSetter { value: lowered });
                         continue;
                     }
-                    shape
-                        .properties
-                        .insert(key.clone(), ObjectShapeProperty::Data(lowered.value_info()));
+                    Self::insert_string_keyed_shape_property(
+                        &mut shape,
+                        &key,
+                        ObjectShapeProperty::Data(lowered.value_info()),
+                    );
                     properties.push(ObjectPropertyIr::Data {
                         key,
                         value: lowered,
@@ -24743,9 +24749,11 @@ impl<'a> ScriptLowerer<'a> {
                 PropertyDefinition::IdentifierReference(identifier) => {
                     let key = self.interner.resolve_expect(identifier.sym()).to_string();
                     let lowered = self.lower_expression(&Expression::Identifier(*identifier));
-                    shape
-                        .properties
-                        .insert(key.clone(), ObjectShapeProperty::Data(lowered.value_info()));
+                    Self::insert_string_keyed_shape_property(
+                        &mut shape,
+                        &key,
+                        ObjectShapeProperty::Data(lowered.value_info()),
+                    );
                     properties.push(ObjectPropertyIr::Data {
                         key,
                         value: lowered,
@@ -24776,8 +24784,9 @@ impl<'a> ScriptLowerer<'a> {
                             | MethodDefinitionKind::Generator
                             | MethodDefinitionKind::Async
                             | MethodDefinitionKind::AsyncGenerator => {
-                                shape.properties.insert(
-                                    key.clone(),
+                                Self::insert_string_keyed_shape_property(
+                                    &mut shape,
+                                    &key,
                                     ObjectShapeProperty::Data(function.value_info()),
                                 );
                                 properties.push(ObjectPropertyIr::Method { key, function });
@@ -24791,8 +24800,9 @@ impl<'a> ScriptLowerer<'a> {
                                     Some(ObjectShapeProperty::Accessor { setter, .. }) => setter,
                                     _ => None,
                                 };
-                                shape.properties.insert(
-                                    key.clone(),
+                                Self::insert_string_keyed_shape_property(
+                                    &mut shape,
+                                    &key,
                                     ObjectShapeProperty::Accessor {
                                         getter: Some(ObjectAccessorShape { function_id }),
                                         setter,
@@ -24809,8 +24819,9 @@ impl<'a> ScriptLowerer<'a> {
                                     Some(ObjectShapeProperty::Accessor { getter, .. }) => getter,
                                     _ => None,
                                 };
-                                shape.properties.insert(
-                                    key.clone(),
+                                Self::insert_string_keyed_shape_property(
+                                    &mut shape,
+                                    &key,
                                     ObjectShapeProperty::Accessor {
                                         getter,
                                         setter: Some(ObjectAccessorShape { function_id }),
@@ -24825,6 +24836,7 @@ impl<'a> ScriptLowerer<'a> {
                     let PropertyName::Computed(expr) = method.name() else {
                         return self.unsupported_expr("computed object key");
                     };
+                    let well_known_key = self.try_well_known_symbol_key_name(expr);
                     let key = self.lower_expression(expr);
                     if !key
                         .possible_kinds
@@ -24832,6 +24844,7 @@ impl<'a> ScriptLowerer<'a> {
                     {
                         return self.unsupported_expr("computed object key");
                     }
+                    let key_may_be_string = Self::computed_key_may_be_string(&key);
                     let Some(function) = self.lower_object_method_function(method, "<computed>")
                     else {
                         return TypedExpr::undefined();
@@ -24841,12 +24854,26 @@ impl<'a> ScriptLowerer<'a> {
                         | MethodDefinitionKind::Generator
                         | MethodDefinitionKind::Async
                         | MethodDefinitionKind::AsyncGenerator => {
+                            // See the computed data-property case: a
+                            // well-known-symbol method is a statically known key,
+                            // so it belongs in the tracked shape.
+                            match &well_known_key {
+                                Some(name) => {
+                                    shape.properties.insert(
+                                        Self::symbol_shape_property_name(name),
+                                        ObjectShapeProperty::Data(function.value_info()),
+                                    );
+                                }
+                                None => has_unknown_key |= key_may_be_string,
+                            }
                             properties.push(ObjectPropertyIr::ComputedMethod { key, function });
                         }
                         MethodDefinitionKind::Get => {
+                            has_unknown_key |= key_may_be_string;
                             properties.push(ObjectPropertyIr::ComputedGetter { key, function });
                         }
                         MethodDefinitionKind::Set => {
+                            has_unknown_key |= key_may_be_string;
                             properties.push(ObjectPropertyIr::ComputedSetter { key, function });
                         }
                     }
@@ -24858,9 +24885,11 @@ impl<'a> ScriptLowerer<'a> {
                     if let Some(key) = self.try_static_ordinary_property_key(expr) {
                         self.observe_proxy_trap_value_hint(&key, value);
                         let lowered = self.lower_expression(value);
-                        shape
-                            .properties
-                            .insert(key.clone(), ObjectShapeProperty::Data(lowered.value_info()));
+                        Self::insert_string_keyed_shape_property(
+                            &mut shape,
+                            &key,
+                            ObjectShapeProperty::Data(lowered.value_info()),
+                        );
                         properties.push(ObjectPropertyIr::Data {
                             key,
                             value: lowered,
@@ -24868,6 +24897,7 @@ impl<'a> ScriptLowerer<'a> {
                         });
                         continue;
                     }
+                    let well_known_key = self.try_well_known_symbol_key_name(expr);
                     let key = self.lower_expression(expr);
                     if !key
                         .possible_kinds
@@ -24876,6 +24906,21 @@ impl<'a> ScriptLowerer<'a> {
                         return self.unsupported_expr("computed object key");
                     }
                     let lowered = self.lower_expression(value);
+                    // A well-known-symbol key (`{ [Symbol.toPrimitive]: fn }`) is
+                    // still a computed key at runtime, but its identity is known
+                    // statically. Record it in the tracked shape — under the
+                    // symbol namespace, so no string-keyed read can reach it —
+                    // so ToPrimitive inference sees the hook instead of
+                    // concluding the object has no hooks and always stringifies.
+                    match &well_known_key {
+                        Some(name) => {
+                            shape.properties.insert(
+                                Self::symbol_shape_property_name(name),
+                                ObjectShapeProperty::Data(lowered.value_info()),
+                            );
+                        }
+                        None => has_unknown_key |= Self::computed_key_may_be_string(&key),
+                    }
                     properties.push(ObjectPropertyIr::ComputedData {
                         key,
                         value: lowered,
@@ -24893,11 +24938,42 @@ impl<'a> ScriptLowerer<'a> {
             ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: (!has_spread).then(|| Box::new(HeapShape::Object(shape))),
+                heap_shape: (!has_spread && !has_unknown_key)
+                    .then(|| Box::new(HeapShape::Object(shape))),
                 function_targets: BTreeSet::new(),
             },
             ExprIr::ObjectLiteral(properties),
         )
+    }
+
+    /// Whether a lowered computed key could name a string property. A key that
+    /// is provably a Symbol can never collide with (or shadow) a string-keyed
+    /// property, so a shape that omits it still describes every string key the
+    /// object has; anything else may turn out to be `"valueOf"` at runtime and
+    /// invalidates the tracked shape as a complete property set.
+    fn computed_key_may_be_string(key: &TypedExpr) -> bool {
+        !key.possible_kinds
+            .is_subset_of(KindSet::from_kind(ValueKind::Symbol))
+    }
+
+    /// Shape-map name for a well-known-symbol key such as `Symbol.toPrimitive`.
+    fn symbol_shape_property_name(symbol_name: &str) -> String {
+        format!("{SYMBOL_SHAPE_PROPERTY_PREFIX}{symbol_name}")
+    }
+
+    /// Records a *string*-keyed property in a tracked shape. A key inside the
+    /// symbol namespace is left untracked rather than written, so it can never
+    /// be mistaken for a symbol-keyed entry; string-keyed reads of such a name
+    /// do not consult the shape either, so omitting it changes no answer.
+    fn insert_string_keyed_shape_property(
+        shape: &mut ObjectShape,
+        key: &str,
+        property: ObjectShapeProperty,
+    ) {
+        if shape_property_name_is_symbol_keyed(key) {
+            return;
+        }
+        shape.properties.insert(key.to_string(), property);
     }
 
     fn object_literal_has_duplicate_proto_setter(&self, object: &ObjectLiteral) -> bool {
@@ -29988,7 +30064,14 @@ impl<'a> ScriptLowerer<'a> {
             }
         };
         for key in order {
-            let Some(ObjectShapeProperty::Data(info)) = shape.properties.get(*key) else {
+            // `Symbol.toPrimitive` is a symbol key: object literals record it in
+            // the symbol namespace, while the intrinsic wrapper shapes still use
+            // the bare name. Accept either spelling.
+            let entry = shape
+                .properties
+                .get(&Self::symbol_shape_property_name(key))
+                .or_else(|| shape.properties.get(*key));
+            let Some(ObjectShapeProperty::Data(info)) = entry else {
                 continue;
             };
             if !info.possible_kinds.contains(ValueKind::Function) {
@@ -31124,6 +31207,9 @@ impl<'a> ScriptLowerer<'a> {
         target: &TypedExpr,
         key: &str,
     ) -> Option<ObjectShapeProperty> {
+        if shape_property_name_is_symbol_keyed(key) {
+            return None;
+        }
         match target.heap_shape.as_deref()? {
             HeapShape::Object(object) => object.properties.get(key).cloned(),
             HeapShape::Array(array) => array.properties.get(key).cloned(),
@@ -31406,6 +31492,14 @@ impl<'a> ScriptLowerer<'a> {
         let Some(shape) = target.heap_shape.as_mut() else {
             return target;
         };
+        // A string-keyed write must never land on (or shadow) a symbol-keyed
+        // shape entry. Leaving the property untracked is safe: string-keyed
+        // reads of such a name never consult the shape either.
+        if let PropertyKeyIr::StaticString(key) = &path[0] {
+            if shape_property_name_is_symbol_keyed(key) {
+                return target;
+            }
+        }
         match (shape.as_mut(), &path[0]) {
             (HeapShape::Object(object), PropertyKeyIr::StaticString(key)) => {
                 if path.len() == 1 {

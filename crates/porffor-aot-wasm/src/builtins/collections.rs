@@ -1256,7 +1256,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // A symbol property key is stored under the marked internal payload.
         function.instruction(&Instruction::LocalGet(primitive_key_payload_local));
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(property_key_local));
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
         function.instruction(&Instruction::LocalSet(property_key_tag_local));
@@ -1770,7 +1773,10 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
+            // A symbol property key is stored under the marked internal payload.
             function.instruction(&Instruction::LocalGet(primitive_key_payload_local));
+            function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+            function.instruction(&Instruction::I64Or);
             function.instruction(&Instruction::LocalSet(group_key_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
             function.instruction(&Instruction::LocalSet(group_key_tag_local));

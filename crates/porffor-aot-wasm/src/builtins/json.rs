@@ -1911,7 +1911,14 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(primitive_result_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload(hook_name)));
+            // `Symbol.toPrimitive` is a symbol-valued PropertyKey: its lookup
+            // payload must carry `PROPERTY_KEY_SYMBOL_MARKER`, because a plain
+            // string payload with the same bytes is a *different* key and never
+            // matches a stored `[Symbol.toPrimitive]` entry. `toString` and
+            // `valueOf` stay plain string keys.
+            function.instruction(&Instruction::I64Const(
+                self.strings.static_builtin_property_key_payload(hook_name),
+            ));
             function.instruction(&Instruction::LocalSet(key_local));
             self.emit_object_read(
                 object_payload_local,

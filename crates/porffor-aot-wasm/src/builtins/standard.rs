@@ -3656,6 +3656,7 @@ impl<'a> FunctionBuilder<'a> {
         let options_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
+        let key_property_local = self.reserve_temp_local();
         let mode_payload_local = self.reserve_temp_local();
         let mode_tag_local = self.reserve_temp_local();
         let mode_string_payload_local = self.reserve_temp_local();
@@ -3972,12 +3973,24 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_truthy_tagged_i32(enumerable_tag_local, enumerable_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(0));
+        // `Reflect.ownKeys` hands back keys as JS *values*, and the descriptor
+        // lookup above wants exactly that. From here on the key is used to name
+        // a property — the source lookup, the padding lookup, and the row the
+        // helper yields — so it has to be re-encoded as an internal property
+        // key. Skipping this made every symbol-keyed source read `undefined`
+        // and silently drop out of the zip.
+        self.emit_property_key_payload_from_value_local(
+            key_local,
+            key_tag_local,
+            key_property_local,
+            function,
+        );
         self.emit_object_read_without_throw_propagation_with_key_tag(
             iterables_payload_local,
             iterables_tag_local,
             iterables_payload_local,
             iterables_tag_local,
-            key_local,
+            key_property_local,
             key_tag_local,
             value_payload_local,
             value_tag_local,
@@ -4155,10 +4168,13 @@ impl<'a> FunctionBuilder<'a> {
             None,
             function,
         )?;
+        // `$IteratorZipKeys` holds internal property-key payloads, not JS key
+        // values: both of its readers (the padding lookup and the row the
+        // helper yields) use the entry to name a property.
         self.emit_array_write(
             keys_array_local,
             source_count_local,
-            key_local,
+            key_property_local,
             key_tag_local,
             function,
         )?;
@@ -4375,6 +4391,7 @@ impl<'a> FunctionBuilder<'a> {
             mode_string_payload_local,
             mode_tag_local,
             mode_payload_local,
+            key_property_local,
             key_tag_local,
             key_local,
             options_tag_local,
@@ -8869,6 +8886,7 @@ impl<'a> FunctionBuilder<'a> {
         let own_key_index_local = self.reserve_temp_local();
         let own_key_payload_local = self.reserve_temp_local();
         let own_key_tag_local = self.reserve_temp_local();
+        let own_key_internal_local = self.reserve_temp_local();
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
         let enumerable_key_local = self.reserve_temp_local();
@@ -9014,12 +9032,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // `own_key_payload_local` holds the key as a JS *value*; the internal
+        // [[Get]] path keys on the marked property-key payload.
+        self.emit_property_key_payload_from_value_local(
+            own_key_payload_local,
+            own_key_tag_local,
+            own_key_internal_local,
+            function,
+        );
         self.emit_object_read_with_key_tag(
             source_payload_local,
             source_tag_local,
             source_payload_local,
             source_tag_local,
-            own_key_payload_local,
+            own_key_internal_local,
             Some(own_key_tag_local),
             value_payload_local,
             value_tag_local,
@@ -9085,6 +9111,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(enumerable_key_local);
         self.release_temp_local(descriptor_tag_local);
         self.release_temp_local(descriptor_payload_local);
+        self.release_temp_local(own_key_internal_local);
         self.release_temp_local(own_key_tag_local);
         self.release_temp_local(own_key_payload_local);
         self.release_temp_local(own_key_index_local);
@@ -9117,6 +9144,7 @@ impl<'a> FunctionBuilder<'a> {
         let own_key_index_local = self.reserve_temp_local();
         let own_key_payload_local = self.reserve_temp_local();
         let own_key_tag_local = self.reserve_temp_local();
+        let own_key_internal_local = self.reserve_temp_local();
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
         let function_realm_local = self.reserve_temp_local();
@@ -9237,9 +9265,17 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Object.tag() as u64,
             function,
         );
+        // Keys arrive as JS values from `Reflect.ownKeys`; storing them needs
+        // the internal property-key encoding back.
+        self.emit_property_key_payload_from_value_local(
+            own_key_payload_local,
+            own_key_tag_local,
+            own_key_internal_local,
+            function,
+        );
         self.emit_object_define_enumerable_data(
             result_payload_local,
-            own_key_payload_local,
+            own_key_internal_local,
             descriptor_payload_local,
             descriptor_tag_local,
             function,
@@ -9263,6 +9299,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(function_realm_local);
         self.release_temp_local(descriptor_tag_local);
         self.release_temp_local(descriptor_payload_local);
+        self.release_temp_local(own_key_internal_local);
         self.release_temp_local(own_key_tag_local);
         self.release_temp_local(own_key_payload_local);
         self.release_temp_local(own_key_index_local);
@@ -10638,6 +10675,7 @@ impl<'a> FunctionBuilder<'a> {
                 let proxy_trap_payload_local = self.reserve_temp_local();
                 let proxy_trap_tag_local = self.reserve_temp_local();
                 let proxy_key_tag_local = self.reserve_temp_local();
+                let proxy_key_value_payload_local = self.reserve_temp_local();
                 let proxy_trap_result_payload_local = self.reserve_temp_local();
                 let proxy_trap_result_tag_local = self.reserve_temp_local();
                 let proxy_trap_truthy_local = self.reserve_temp_local();
@@ -10695,6 +10733,13 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_property_key_tag_from_payload(
                     key_string_local,
                     proxy_key_tag_local,
+                    function,
+                );
+                // Proxy traps observe the key as a JS value, so they must not
+                // see `PROPERTY_KEY_SYMBOL_MARKER`.
+                self.emit_property_key_value_payload_to_local(
+                    key_string_local,
+                    proxy_key_value_payload_local,
                     function,
                 );
 
@@ -10889,7 +10934,7 @@ impl<'a> FunctionBuilder<'a> {
                     proxy_handler_tag_local,
                     &[
                         (proxy_target_payload_local, proxy_target_tag_local),
-                        (key_string_local, proxy_key_tag_local),
+                        (proxy_key_value_payload_local, proxy_key_tag_local),
                         (descriptor_payload_local, descriptor_tag_local),
                     ],
                     proxy_trap_result_payload_local,
@@ -10986,7 +11031,7 @@ impl<'a> FunctionBuilder<'a> {
                     None,
                     &[
                         (proxy_target_payload_local, proxy_target_tag_local),
-                        (key_string_local, proxy_key_tag_local),
+                        (proxy_key_value_payload_local, proxy_key_tag_local),
                         (descriptor_payload_local, descriptor_tag_local),
                     ],
                     proxy_trap_result_payload_local,
@@ -11900,6 +11945,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(proxy_trap_truthy_local);
                 self.release_temp_local(proxy_trap_result_tag_local);
                 self.release_temp_local(proxy_trap_result_payload_local);
+                self.release_temp_local(proxy_key_value_payload_local);
                 self.release_temp_local(proxy_key_tag_local);
                 self.release_temp_local(proxy_trap_tag_local);
                 self.release_temp_local(proxy_trap_payload_local);
