@@ -1510,14 +1510,18 @@ impl<'a> AnalysisBuilder<'a> {
                     Declaration::Lexical(lexical) => {
                         let mode = match lexical {
                             LexicalDeclaration::Let(_) => BindingMode::Let,
-                            LexicalDeclaration::Const(_) => BindingMode::Const,
-                            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+                            LexicalDeclaration::Const(_) | LexicalDeclaration::Using(_) => {
+                                BindingMode::Const
+                            }
+                            LexicalDeclaration::AwaitUsing(_) => {
                                 continue;
                             }
                         };
                         let list = match lexical {
-                            LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-                            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+                            LexicalDeclaration::Let(list)
+                            | LexicalDeclaration::Const(list)
+                            | LexicalDeclaration::Using(list) => list,
+                            LexicalDeclaration::AwaitUsing(_) => {
                                 unreachable!()
                             }
                         };
@@ -2136,8 +2140,10 @@ impl<'a> AnalysisBuilder<'a> {
         bindings: &mut BTreeSet<String>,
     ) {
         let list = match declaration {
-            LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return,
+            LexicalDeclaration::Let(list)
+            | LexicalDeclaration::Const(list)
+            | LexicalDeclaration::Using(list) => list,
+            LexicalDeclaration::AwaitUsing(_) => return,
         };
         for declarator in list.as_ref() {
             if let Some(bound_names) = supported_bound_names(interner, declarator.binding()) {
@@ -2205,8 +2211,11 @@ impl<'a> AnalysisBuilder<'a> {
                     Declaration::Lexical(lexical) => {
                         let (mode, variables) = match lexical {
                             LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
-                            LexicalDeclaration::Const(variables) => (BindingMode::Const, variables),
-                            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
+                            LexicalDeclaration::Const(variables)
+                            | LexicalDeclaration::Using(variables) => {
+                                (BindingMode::Const, variables)
+                            }
+                            LexicalDeclaration::AwaitUsing(_) => {
                                 continue;
                             }
                         };
@@ -2478,8 +2487,10 @@ impl<'a> AnalysisBuilder<'a> {
         aliases: &mut BTreeMap<String, String>,
     ) {
         let list = match declaration {
-            LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return,
+            LexicalDeclaration::Let(list)
+            | LexicalDeclaration::Const(list)
+            | LexicalDeclaration::Using(list) => list,
+            LexicalDeclaration::AwaitUsing(_) => return,
         };
         for declarator in list.as_ref() {
             let Some(bound_names) = supported_bound_names(interner, declarator.binding()) else {
@@ -2598,8 +2609,10 @@ impl<'a> AnalysisBuilder<'a> {
             StatementListItem::Declaration(declaration) => match declaration.as_ref() {
                 Declaration::Lexical(lexical) => {
                     let list = match lexical {
-                        LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-                        LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return,
+                        LexicalDeclaration::Let(list)
+                        | LexicalDeclaration::Const(list)
+                        | LexicalDeclaration::Using(list) => list,
+                        LexicalDeclaration::AwaitUsing(_) => return,
                     };
                     for declarator in list.as_ref() {
                         if let Binding::Pattern(pattern) = declarator.binding() {

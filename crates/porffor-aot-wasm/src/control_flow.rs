@@ -614,12 +614,28 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Unreachable);
     }
 
+    /// Every frame a pending Break completion can name once a finalizer has
+    /// swallowed the original `br`.
+    ///
+    /// `breakable_stack` only holds the iteration and switch statements that
+    /// an unlabelled `break` can reach. A labelled Block is also a break
+    /// target (ECMA-262 14.13: `BreakStatement : break LabelIdentifier ;` names
+    /// any enclosing LabelledStatement), and it registers itself on
+    /// `label_stack` alone — so a `break label` out of a `try`/`finally` inside
+    /// one would otherwise resume into no target at all and fall through to
+    /// the dispatcher's trap.
     pub(crate) fn active_break_targets(&self) -> Vec<(u32, ControlTarget)> {
-        let mut targets = Vec::new();
-        for target in self.breakable_stack.iter().rev() {
+        let mut targets: Vec<(u32, ControlTarget)> = Vec::new();
+        let frames = self
+            .breakable_stack
+            .iter()
+            .rev()
+            .copied()
+            .chain(self.label_stack.iter().rev().map(|label| label.break_frame));
+        for target in frames {
             let target_id = target.frame as u32;
             if !targets.iter().any(|(id, _)| *id == target_id) {
-                targets.push((target_id, *target));
+                targets.push((target_id, target));
             }
         }
         targets

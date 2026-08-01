@@ -374,6 +374,28 @@ type ExactHelperContextId = String;
 type ExactCallbackContextKey = (FunctionId, ExactHelperContextId);
 type DirectCallContextKey = (FunctionId, ExactHelperContextId);
 
+/// One entry of a scope's DisposeCapability `[[DisposableResourceStack]]`.
+///
+/// `value_name` holds the resource (spec `[[ResourceValue]]`) and
+/// `method_name` its `[[Symbol.dispose]]` method (spec `[[DisposeMethod]]`).
+/// `method_name` staying `undefined` marks the entry as never registered —
+/// either the declaration was not reached before an abrupt completion, or the
+/// resource was null/undefined and ECMA-262 27.3.1.1 step 1.a adds nothing.
+struct UsingSlot {
+    value_name: String,
+    method_name: String,
+}
+
+/// The DisposeCapability of one statement list being lowered.
+///
+/// Slots are pre-allocated from a scan of the list so the temporaries can be
+/// declared ahead of the guarded region; `next` walks them in declaration
+/// order as `using` declarations are lowered.
+struct UsingFrame {
+    slots: Vec<UsingSlot>,
+    next: usize,
+}
+
 pub(crate) struct ScriptLowerer<'a> {
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
@@ -441,6 +463,15 @@ pub(crate) struct ScriptLowerer<'a> {
     generated_owned_env_bindings: Vec<OwnedEnvBindingIr>,
     next_generated_function_index: usize,
     next_temp_binding_index: usize,
+    /// Dispose capabilities of the statement lists currently being lowered.
+    ///
+    /// ECMA-262 explicit resource management gives every Block-like scope a
+    /// DisposeCapability; a `using` declaration in that scope registers its
+    /// resource on the innermost one and the scope disposes them in reverse on
+    /// any completion. Frames are pushed by the statement-list lowering entry
+    /// points, so `lower_using_declaration` always registers against the scope
+    /// that syntactically contains it.
+    using_frames: Vec<UsingFrame>,
     is_prepass: bool,
     active_direct_call_propagations: BTreeSet<FunctionId>,
     completed_direct_call_propagations: BTreeSet<DirectCallContextKey>,
@@ -6152,6 +6183,7 @@ impl<'a> ScriptLowerer<'a> {
             generated_owned_env_bindings: Vec::new(),
             next_generated_function_index: 0,
             next_temp_binding_index: 0,
+            using_frames: Vec::new(),
             is_prepass: false,
             active_direct_call_propagations: BTreeSet::new(),
             completed_direct_call_propagations: BTreeSet::new(),
@@ -7625,6 +7657,7 @@ impl<'a> ScriptLowerer<'a> {
         self.prepare_static_generator_declarations(items);
         self.prepare_root_function_binding_ids(root_functions);
         statements.extend(self.root_function_init_statements(root_functions));
+        self.push_using_frame(items);
 
         for item in items {
             match item {
@@ -7652,11 +7685,11 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        BlockIr {
+        self.finish_using_frame(BlockIr {
             statements,
             result_kind,
             lexical_environment: None,
-        }
+        })
     }
 
     fn lower_statement_items(&mut self, items: &[StatementListItem]) -> BlockIr {
@@ -7664,6 +7697,7 @@ impl<'a> ScriptLowerer<'a> {
         let mut result_kind = ValueKind::Undefined;
 
         statements.extend(self.lower_block_function_declarations(items));
+        self.push_using_frame(items);
 
         for item in items {
             if let StatementListItem::Declaration(declaration) = item {
@@ -7690,11 +7724,195 @@ impl<'a> ScriptLowerer<'a> {
             result_kind = kind;
         }
 
+        self.finish_using_frame(BlockIr {
+            statements,
+            result_kind,
+            lexical_environment: None,
+        })
+    }
+
+    /// The number of resources a statement list can register on its
+    /// DisposeCapability: one per `using` declarator directly in the list.
+    ///
+    /// `await using` is deliberately excluded — its disposal has to await the
+    /// `[Symbol.asyncDispose]` result, which this lowering does not model, so
+    /// `lower_using_declaration` rejects it instead.
+    fn count_using_declarators(items: &[StatementListItem]) -> usize {
+        items
+            .iter()
+            .map(|item| match item {
+                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                    Declaration::Lexical(LexicalDeclaration::Using(list)) => list.as_ref().len(),
+                    _ => 0,
+                },
+                StatementListItem::Statement(_) => 0,
+            })
+            .sum()
+    }
+
+    /// Opens the DisposeCapability of a statement list (ECMA-262 14.2.2
+    /// step 1: `NewDeclarativeEnvironment` + `NewDisposeCapability`).
+    ///
+    /// The resource stack has a statically known depth, so both temporaries per
+    /// entry are allocated and declared here, ahead of the guarded region, and
+    /// left `undefined` until the matching declaration runs.
+    fn push_using_frame(&mut self, items: &[StatementListItem]) {
+        let mut count = Self::count_using_declarators(items);
+        // A generator or resumable async body is compiled as a resume-state
+        // machine, and the `try`/`finally` this lowering emits carries no
+        // generator or async plan — the finalizer would simply never run on the
+        // resume path that completes the body. Report that instead of silently
+        // dropping the disposal.
+        if count > 0
+            && (self.current_generator_resume_state.is_some()
+                || self.current_async_resume_state.is_some()
+                || self.current_resumable_plan.is_some())
+        {
+            self.unsupported("using declaration in a generator or resumable async body");
+            count = 0;
+        }
+        let mut slots = Vec::with_capacity(count);
+        for _ in 0..count {
+            let value_name = self.alloc_temp_binding_name("using.value.");
+            let method_name = self.alloc_temp_binding_name("using.method.");
+            for name in [&value_name, &method_name] {
+                self.declare_binding(
+                    name.clone(),
+                    BindingInfo {
+                        mode: BindingMode::Let,
+                        storage_name: name.clone(),
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags(),
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    },
+                );
+            }
+            slots.push(UsingSlot {
+                value_name,
+                method_name,
+            });
+        }
+        self.using_frames.push(UsingFrame { slots, next: 0 });
+    }
+
+    /// Closes the DisposeCapability opened by [`Self::push_using_frame`].
+    ///
+    /// A list that registered nothing is returned unchanged. Otherwise the
+    /// lowered list becomes the try block of a `try`/`finally` whose finally
+    /// runs `DisposeResources` (ECMA-262 27.3.1.2) — every registered entry, in
+    /// reverse registration order — so it also covers the abrupt completions
+    /// (`throw`, `return`, `break`, `continue`) that leave the scope early.
+    fn finish_using_frame(&mut self, block: BlockIr) -> BlockIr {
+        let frame = self
+            .using_frames
+            .pop()
+            .expect("using frame stack must match statement list lowering");
+        if frame.slots.is_empty() {
+            return block;
+        }
+        let mut statements = Vec::with_capacity(frame.slots.len() * 2 + 1);
+        for slot in &frame.slots {
+            statements.push(StatementIr::Lexical {
+                mode: BindingMode::Let,
+                name: slot.value_name.clone(),
+                init: TypedExpr::undefined(),
+            });
+            statements.push(StatementIr::Lexical {
+                mode: BindingMode::Let,
+                name: slot.method_name.clone(),
+                init: TypedExpr::undefined(),
+            });
+        }
+        let finally_statements = frame
+            .slots
+            .iter()
+            .rev()
+            .map(|slot| self.using_dispose_statement(slot))
+            .collect::<Vec<_>>();
+        let result_kind = block.result_kind;
+        statements.push(StatementIr::TryFinally {
+            try_block: block,
+            finally_block: BlockIr {
+                statements: finally_statements,
+                result_kind: ValueKind::Undefined,
+                lexical_environment: None,
+            },
+            generator_plan: None,
+            async_plan: None,
+        });
         BlockIr {
             statements,
             result_kind,
             lexical_environment: None,
         }
+    }
+
+    /// One `DisposeResources` step: `Call(method, resource)` for an entry that
+    /// was actually registered.
+    ///
+    /// An entry whose method is still `undefined` was either never reached or
+    /// held a null/undefined resource, which ECMA-262 27.3.1.1 step 1.a never
+    /// adds to the stack.
+    fn using_dispose_statement(&mut self, slot: &UsingSlot) -> StatementIr {
+        let method = self.lower_identifier_name(slot.method_name.clone(), false);
+        let value = self.lower_identifier_name(slot.value_name.clone(), false);
+        let condition = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::StrictEquality {
+                op: EqualityBinaryOp::StrictNotEqual,
+                lhs: Box::new(method.clone()),
+                rhs: Box::new(TypedExpr::undefined()),
+            },
+        );
+        StatementIr::If {
+            condition,
+            then_branch: Box::new(StatementIr::Expression(TypedExpr::spec_call(
+                method,
+                value,
+                Vec::new(),
+            ))),
+            else_branch: None,
+        }
+    }
+
+    /// The next free DisposeCapability entry of the innermost open frame.
+    fn take_using_slot(&mut self) -> Option<UsingSlot> {
+        let frame = self.using_frames.last_mut()?;
+        let slot = frame.slots.get(frame.next)?;
+        let slot = UsingSlot {
+            value_name: slot.value_name.clone(),
+            method_name: slot.method_name.clone(),
+        };
+        frame.next += 1;
+        Some(slot)
+    }
+
+    /// `%Symbol%.dispose`, the well-known `@@dispose` symbol used as the
+    /// dispose-method key.
+    ///
+    /// Read off the global `Symbol` object rather than a scope lookup so a
+    /// local binding named `Symbol` cannot redirect it.
+    fn symbol_dispose_value(&mut self) -> TypedExpr {
+        let symbol_info = self
+            .lookup_global_property(SYMBOL_NAME)
+            .unwrap_or_else(|| ValueInfo::new(ValueKind::Object));
+        let symbol_global = TypedExpr::from_info(
+            symbol_info,
+            ExprIr::GlobalPropertyRead {
+                name: SYMBOL_NAME.to_string(),
+            },
+        );
+        let info = self
+            .read_object_shape(&symbol_global, "dispose")
+            .unwrap_or_else(|| ValueInfo::new(ValueKind::Symbol));
+        TypedExpr::from_info(
+            info,
+            ExprIr::PropertyRead {
+                target: Box::new(symbol_global),
+                key: PropertyKeyIr::StaticString("dispose".to_string()),
+            },
+        )
     }
 
     fn lower_block_function_declarations(
@@ -7721,6 +7939,7 @@ impl<'a> ScriptLowerer<'a> {
     ) -> BlockIr {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
+        self.push_using_frame(items);
         for item in items {
             if let StatementListItem::Declaration(declaration) = item {
                 if let Declaration::FunctionDeclaration(function) = declaration.as_ref() {
@@ -7745,11 +7964,11 @@ impl<'a> ScriptLowerer<'a> {
             statements.push(statement);
             result_kind = kind;
         }
-        BlockIr {
+        self.finish_using_frame(BlockIr {
             statements,
             result_kind,
             lexical_environment: None,
-        }
+        })
     }
 
     fn prepare_annex_b_function_bindings(&mut self) {
@@ -11040,8 +11259,12 @@ impl<'a> ScriptLowerer<'a> {
             Declaration::Lexical(lexical) => {
                 let (mode, variables) = match lexical {
                     LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
-                    LexicalDeclaration::Const(variables) => (BindingMode::Const, variables),
-                    LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return,
+                    // A `using` binding is immutable like `const` (ECMA-262
+                    // 14.3.4) and is in TDZ until its declaration runs.
+                    LexicalDeclaration::Const(variables) | LexicalDeclaration::Using(variables) => {
+                        (BindingMode::Const, variables)
+                    }
+                    LexicalDeclaration::AwaitUsing(_) => return,
                 };
                 for variable in variables.as_ref() {
                     let Some(bound_names) =
@@ -13372,8 +13595,11 @@ impl<'a> ScriptLowerer<'a> {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => {
-                self.unsupported("using declaration");
+            LexicalDeclaration::Using(list) => {
+                return self.lower_using_declaration(list.as_ref());
+            }
+            LexicalDeclaration::AwaitUsing(_) => {
+                self.unsupported("await using declaration");
                 return (StatementIr::Empty, ValueKind::Undefined);
             }
         };
@@ -13677,6 +13903,178 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
         }
+    }
+
+    /// Lowers `using a = expr, b = expr;` (ECMA-262 14.3.4).
+    ///
+    /// Each declarator binds immutably like `const`, then runs
+    /// `AddDisposableResource` (27.3.1.1) against the enclosing scope's
+    /// DisposeCapability. The matching `DisposeResources` call is emitted by
+    /// [`Self::finish_using_frame`] once the whole statement list is lowered.
+    fn lower_using_declaration(&mut self, list: &[Variable]) -> (StatementIr, ValueKind) {
+        let mut statements = Vec::with_capacity(list.len() * 3);
+        for variable in list {
+            let Binding::Identifier(identifier) = variable.binding() else {
+                self.unsupported("using declaration binding pattern");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            let Some(slot) = self.take_using_slot() else {
+                self.unsupported("using declaration outside a disposable scope");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let init = variable
+                .init()
+                .map(|expression| self.lower_expression(expression))
+                .unwrap_or_else(TypedExpr::undefined);
+            self.static_iterator_binding_values.remove(&name);
+            self.static_string_bindings.remove(&name);
+            self.static_to_string_regexp_object_bindings.remove(&name);
+            let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
+            self.clear_tdz_binding(&name);
+            self.declare_binding(
+                name.clone(),
+                BindingInfo {
+                    mode: BindingMode::Const,
+                    storage_name: storage_name.clone(),
+                    kind: init.kind,
+                    possible_kinds: init.possible_kinds,
+                    heap_shape: init.heap_shape.clone(),
+                    function_targets: init.function_targets.clone(),
+                },
+            );
+            statements.push(StatementIr::Lexical {
+                mode: BindingMode::Const,
+                name: storage_name,
+                init,
+            });
+            statements.extend(self.add_disposable_resource_statements(&name, &slot));
+        }
+
+        if statements.len() == 1 {
+            (statements.remove(0), ValueKind::Undefined)
+        } else {
+            (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
+        }
+    }
+
+    /// `AddDisposableResource(disposeCapability, resource, sync-dispose)`
+    /// (ECMA-262 27.3.1.1) for one already-bound `using` declarator.
+    ///
+    /// A null or undefined resource registers nothing (step 1.a), so the
+    /// entry's method stays `undefined` and disposal skips it. Anything else
+    /// goes through `CreateDisposableResource` (27.3.1.3): a non-Object is a
+    /// TypeError, then `GetMethod(resource, @@dispose)` — which itself throws
+    /// when the property is present but not callable — must yield a method.
+    fn add_disposable_resource_statements(
+        &mut self,
+        name: &str,
+        slot: &UsingSlot,
+    ) -> Vec<StatementIr> {
+        let resource = self.lower_identifier_name(name.to_string(), false);
+        let store_value = StatementIr::Expression(TypedExpr::from_info(
+            resource.value_info(),
+            ExprIr::AssignIdentifier {
+                name: slot.value_name.clone(),
+                value: Box::new(resource),
+            },
+        ));
+
+        let value_read = self.lower_identifier_name(slot.value_name.clone(), false);
+        let not_nullish = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::LooseEquality {
+                op: EqualityBinaryOp::LooseNotEqual,
+                lhs: Box::new(value_read.clone()),
+                rhs: Box::new(TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Null),
+                    ExprIr::Null,
+                )),
+            },
+        );
+
+        // `typeof` separates the two Object cases from every primitive, which
+        // is what CreateDisposableResource step 1.b.i rejects — a primitive
+        // that inherits a callable `[Symbol.dispose]` is still a TypeError.
+        let type_of_value = |lowerer: &mut Self| {
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::TypeOf {
+                    expr: Box::new(lowerer.lower_identifier_name(slot.value_name.clone(), false)),
+                },
+            )
+        };
+        let type_is_not = |lowerer: &mut Self, expected: &str| {
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::StrictEquality {
+                    op: EqualityBinaryOp::StrictNotEqual,
+                    lhs: Box::new(type_of_value(lowerer)),
+                    rhs: Box::new(TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::String(expected.to_string()),
+                    )),
+                },
+            )
+        };
+        let throw_not_object = StatementIr::If {
+            condition: type_is_not(self, "object"),
+            then_branch: Box::new(StatementIr::If {
+                condition: type_is_not(self, "function"),
+                then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::RuntimeThrow {
+                        name: TYPE_ERROR_NAME,
+                        message: "using declaration resource is not an object",
+                    },
+                ))),
+                else_branch: None,
+            }),
+            else_branch: None,
+        };
+
+        let dispose_key = self.symbol_dispose_value();
+        let get_method = TypedExpr::spec_get_method(value_read, dispose_key);
+        let store_method = StatementIr::Expression(TypedExpr::from_info(
+            get_method.value_info(),
+            ExprIr::AssignIdentifier {
+                name: slot.method_name.clone(),
+                value: Box::new(get_method),
+            },
+        ));
+
+        let method_read = self.lower_identifier_name(slot.method_name.clone(), false);
+        let throw_missing = StatementIr::If {
+            condition: TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::StrictEquality {
+                    op: EqualityBinaryOp::StrictEqual,
+                    lhs: Box::new(method_read),
+                    rhs: Box::new(TypedExpr::undefined()),
+                },
+            ),
+            then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::RuntimeThrow {
+                    name: TYPE_ERROR_NAME,
+                    message: "using declaration resource has no [Symbol.dispose] method",
+                },
+            ))),
+            else_branch: None,
+        };
+
+        vec![
+            store_value,
+            StatementIr::If {
+                condition: not_nullish,
+                then_branch: Box::new(StatementIr::LexicalBlock(vec![
+                    throw_not_object,
+                    store_method,
+                    throw_missing,
+                ])),
+                else_branch: None,
+            },
+        ]
     }
 
     fn hoist_root_statement_items(&mut self, items: &[StatementListItem]) {
