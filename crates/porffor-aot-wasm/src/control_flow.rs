@@ -5949,6 +5949,53 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Read a well-known-symbol method off a `for await (… of …)` head value.
+    ///
+    /// `PropertyKeyIr::StaticString("Symbol.asyncIterator")` is *not* the
+    /// well-known symbol: `compile_object_key_to_locals` lowers a static string
+    /// key to `strings.payload(name)` tagged `String`, so it looks up the
+    /// ordinary string property `"Symbol.asyncIterator"` and always misses.
+    /// A symbol key has to carry `PROPERTY_KEY_SYMBOL_MARKER`, which the
+    /// `StringExpr` path ORs in when the key expression is `Symbol`-kinded.
+    /// This mirrors `emit_generator_delegate_property_read`, the `yield*`
+    /// equivalent, and keeps primitive receivers (strings, numbers) working by
+    /// going through the dynamic read.
+    fn emit_for_await_well_known_symbol_read(
+        &mut self,
+        key: &str,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        debug_assert!(key.starts_with("Symbol."));
+        let target = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags()
+                    .without(ValueKind::Undefined)
+                    .without(ValueKind::Null),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::Undefined,
+        );
+        let symbol_key = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Symbol),
+            ExprIr::String(key.to_string()),
+        );
+        self.compile_property_read_from_locals(
+            &target,
+            &PropertyKeyIr::StringExpr(Box::new(symbol_key)),
+            target_payload_local,
+            target_tag_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )
+    }
+
     pub(crate) fn compile_async_for_of_iterator(
         &mut self,
         mode: BindingMode,
@@ -6114,9 +6161,8 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_propagate_current_throw(function);
         } else {
-            self.compile_property_read_from_locals(
-                iterable,
-                &PropertyKeyIr::StaticString("Symbol.asyncIterator".to_string()),
+            self.emit_for_await_well_known_symbol_read(
+                "Symbol.asyncIterator",
                 iterable_payload_local,
                 iterable_tag_local,
                 method_payload_local,
@@ -6133,9 +6179,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
         function.instruction(&Instruction::LocalSet(done_tag_local));
         if !iterable_is_statically_nullish {
-            self.compile_property_read_from_locals(
-                iterable,
-                &PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
+            self.emit_for_await_well_known_symbol_read(
+                "Symbol.iterator",
                 iterable_payload_local,
                 iterable_tag_local,
                 method_payload_local,
@@ -8037,22 +8082,12 @@ impl<'a> FunctionBuilder<'a> {
         locals: DestructuringIteratorLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if value_info.kind == ValueKind::Array {
-            function.instruction(&Instruction::I64Const(
-                self.strings.property_key_symbol_payload("Symbol.iterator"),
-            ));
-            function.instruction(&Instruction::LocalSet(locals.key));
-            self.emit_object_read(
-                source_payload,
-                source_tag,
-                source_payload,
-                source_tag,
-                locals.key,
-                method_payload,
-                method_tag,
-                function,
-            )?;
-        } else {
+        // The arguments exotic object resolves `@@iterator` through a dedicated
+        // arm in `compile_property_read_from_locals`, keyed on the *static* name
+        // rather than on a runtime key local. Routing it through the generic
+        // symbol-key read below misses that arm and leaves `arguments` without
+        // an iterator, so `const [x, y] = arguments;` throws TypeError.
+        if value_info.kind == ValueKind::Arguments {
             let source_name = "$array.destructure.source";
             self.push_scope();
             self.binding_scopes
@@ -8081,7 +8116,84 @@ impl<'a> FunctionBuilder<'a> {
             );
             self.compile_expr_to_locals(&method, method_payload, method_tag, function)?;
             self.pop_scope();
+            return self.finish_get_iterator_from_method(
+                source_payload,
+                source_tag,
+                method_payload,
+                method_tag,
+                locals,
+                function,
+            );
         }
+
+        // GetIterator always reads the well-known `@@iterator` symbol key, never a
+        // string property literally named "Symbol.iterator", so the key payload has
+        // to carry the property-key symbol marker for every receiver shape (arrays,
+        // strings, generators, user iterables, proxies).
+        let source_object_payload = self.reserve_temp_local();
+        let source_object_tag = self.reserve_temp_local();
+        self.compile_nullish_tagged_i32(source_tag, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.push_control(ControlFrameKind::If);
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "destructuring value is not iterable",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        // Primitive sources (notably strings) resolve `@@iterator` through their
+        // wrapper prototype; ToObject leaves objects, arrays and functions alone.
+        self.emit_value_to_object_locals(
+            source_payload,
+            source_tag,
+            source_object_payload,
+            source_object_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.iterator"),
+        ));
+        function.instruction(&Instruction::LocalSet(locals.key));
+        self.emit_object_read(
+            source_object_payload,
+            source_object_tag,
+            source_payload,
+            source_tag,
+            locals.key,
+            method_payload,
+            method_tag,
+            function,
+        )?;
+        self.release_temp_local(source_object_tag);
+        self.release_temp_local(source_object_payload);
+        self.finish_get_iterator_from_method(
+            source_payload,
+            source_tag,
+            method_payload,
+            method_tag,
+            locals,
+            function,
+        )
+    }
+
+    /// The half of GetIterator after the `@@iterator` method has been loaded:
+    /// callability check, the call itself, the object-result check, and caching
+    /// `next`. Shared because the arguments exotic object reaches the method
+    /// through a different read than every other receiver shape.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_get_iterator_from_method(
+        &mut self,
+        source_payload: u32,
+        source_tag: u32,
+        method_payload: u32,
+        method_tag: u32,
+        locals: DestructuringIteratorLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
         self.emit_is_callable_i32(method_tag, method_payload, function)?;
         function.instruction(&Instruction::I32Eqz);

@@ -8,6 +8,7 @@ license.workspace = true
 boa_ast = { version = "0.21.1", features = ["annex-b"] }
 boa_interner = "0.21.1"
 boa_parser = { version = "0.21.1", features = ["annex-b"] }
+icu_properties = "2.0.2"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 porffor-front = { path = "../porffor-front" }

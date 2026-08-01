@@ -35,6 +35,8 @@ checkExec(/\P{ASCII}/v, complex, "\u{20BB7}", 1, "unicode-sets non-ASCII");
 
 checkExec(/\p{Script=Han}/u, "\u{2E80}", "\u{2E80}", 0, "Han first range start");
 check(/\p{Script=Han}/u.exec("\u{2E9A}"), null, "Han first range gap");
-checkExec(/\p{Script=Han}/u, "\u{33479}", "\u{33479}", 0, "Han final range end");
-check(/\p{Script=Han}/u.exec("\u{3347A}"), null, "Han final range exclusion");
+// Property data comes from icu_properties, which bakes Unicode 16.0.0, so the
+// last Script=Han range ends at the end of CJK Extension H.
+checkExec(/\p{Script=Han}/u, "\u{323AF}", "\u{323AF}", 0, "Han final range end");
+check(/\p{Script=Han}/u.exec("\u{323B0}"), null, "Han final range exclusion");
 true;

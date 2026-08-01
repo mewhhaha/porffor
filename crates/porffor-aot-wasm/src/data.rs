@@ -2477,7 +2477,16 @@ impl StringPool {
             }
             ExprIr::ArrayDestructure { value, pattern, .. } => {
                 self.uses_heap = true;
-                for key in ["Symbol.iterator", "next", "done", "value", "return"] {
+                // `enumerable` is needed by a nested object-rest target
+                // (`[{ a, ...rest }] = …`) reached through this pattern.
+                for key in [
+                    "Symbol.iterator",
+                    "next",
+                    "done",
+                    "value",
+                    "return",
+                    "enumerable",
+                ] {
                     self.intern_string(key);
                 }
                 self.collect_expr(value);
@@ -2545,7 +2554,18 @@ impl StringPool {
             }
             ExprIr::ObjectDestructure { value, pattern } => {
                 self.uses_heap = true;
-                self.intern_string("enumerable");
+                // The iterator-protocol keys are needed by a nested array target
+                // (`{ a: [b] } = …`) reached through this pattern.
+                for key in [
+                    "enumerable",
+                    "Symbol.iterator",
+                    "next",
+                    "done",
+                    "value",
+                    "return",
+                ] {
+                    self.intern_string(key);
+                }
                 self.collect_expr(value);
                 pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
 
@@ -3392,6 +3412,7 @@ mod regexp_program_validation_tests {
             capture_count: 0,
             named_groups: Vec::new(),
             instructions,
+            ranges: Vec::new(),
         }
     }
 

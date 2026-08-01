@@ -1709,6 +1709,7 @@ dependencies = [
  "boa_ast",
  "boa_interner",
  "boa_parser",
+ "icu_properties",
  "num-bigint",
  "num-traits",
  "porffor-front",

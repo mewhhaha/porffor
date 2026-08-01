@@ -103,8 +103,7 @@ pub use regexp::{
     REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
     REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE, REGEXP_UNICODE_PROPERTY_ASCII, REGEXP_UNICODE_PROPERTY_NOT_ASCII,
-    REGEXP_UNICODE_PROPERTY_SCRIPT_HAN,
+    REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
 };
 
 pub use names::*;
@@ -2831,8 +2830,6 @@ mod tests {
         for source in [
             "let { [key]: value } = source;",
             "let { ['value']: value } = source;",
-            "let { value: { nested } } = source;",
-            "let { value, ...rest } = source;",
         ] {
             let program = lower_script(source);
             assert!(
@@ -2844,6 +2841,24 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("destructuring")
                     || diagnostic.message.contains("computed object key")));
+        }
+    }
+
+    #[test]
+    fn lowers_nested_and_rest_object_destructuring_bindings() {
+        for source in [
+            "let { value: { nested } } = source;",
+            "let { value, ...rest } = source;",
+            "let { value: [first] } = source;",
+            "var { value: [first], ...rest } = source;",
+            "let a, b; ({ value: [a], ...b } = source);",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "expected supported lowering for {source}: {:?}",
+                program.diagnostics
+            );
         }
     }
 

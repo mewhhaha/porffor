@@ -3,6 +3,9 @@ use std::error::Error;
 use std::fmt;
 use std::sync::OnceLock;
 
+use icu_properties::props::{GeneralCategory, GeneralCategoryGroup, Script};
+use icu_properties::script::ScriptWithExtensions;
+use icu_properties::{CodePointMapData, CodePointSetData, PropertyParser};
 use regress::Regex;
 
 /// The encoded width of every [`RegExpInstruction`] in bytes.
@@ -30,7 +33,9 @@ pub const REGEXP_OPCODE_WHITESPACE: u64 = 8;
 pub const REGEXP_OPCODE_DOT: u64 = 9;
 /// Match one Unicode scalar value (or a lone UTF-16 surrogate in Unicode mode).
 pub const REGEXP_OPCODE_LITERAL_CODE_POINT: u64 = 10;
-/// Match membership in one of the supported Unicode properties.
+/// Match membership in a code-point range set stored in the program's range
+/// pool. `operand0` is the index of the first range entry and `operand1` packs
+/// the entry count in bits 1.. with the complement bit in bit 0.
 pub const REGEXP_OPCODE_UNICODE_PROPERTY: u64 = 11;
 /// Match the capture selected by a named backreference.
 pub const REGEXP_OPCODE_NAMED_BACKREFERENCE: u64 = 12;
@@ -55,12 +60,11 @@ pub const REGEXP_OPCODE_LOOKBEHIND_END: u64 = 21;
 /// Handle exhaustion of every path through a lookbehind body.
 pub const REGEXP_OPCODE_LOOKBEHIND_FAILURE: u64 = 22;
 
-/// The Unicode `ASCII` binary property.
-pub const REGEXP_UNICODE_PROPERTY_ASCII: u64 = 0;
-/// The complement of the Unicode `ASCII` binary property.
-pub const REGEXP_UNICODE_PROPERTY_NOT_ASCII: u64 = 1;
-/// The Unicode `Script=Han` property.
-pub const REGEXP_UNICODE_PROPERTY_SCRIPT_HAN: u64 = 2;
+/// The encoded width of one code-point range-pool entry in bytes.
+pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
+
+/// A deliberately generous ceiling on the number of pooled code-point ranges.
+pub const REGEXP_MAX_RANGE_ENTRIES: usize = 1 << 16;
 
 /// A deliberately small ceiling for expanded flat-atom matcher programs.
 ///
@@ -107,12 +111,11 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn unicode_property(property: u64) -> Self {
-        assert!(property <= REGEXP_UNICODE_PROPERTY_SCRIPT_HAN);
+    pub const fn code_point_range_set(first_entry: u32, entry_count: u32, negated: bool) -> Self {
         Self {
             opcode: REGEXP_OPCODE_UNICODE_PROPERTY,
-            operand0: property,
-            operand1: 0,
+            operand0: first_entry as u64,
+            operand1: ((entry_count as u64) << 1) | (negated as u64),
         }
     }
 
@@ -320,6 +323,111 @@ pub struct RegExpProgram {
     /// Named groups in first-source-occurrence order.
     pub named_groups: Vec<RegExpNamedGroup>,
     pub instructions: Vec<RegExpInstruction>,
+    /// Inclusive code-point ranges referenced by range-set instructions. The
+    /// encoded blob stores these immediately after the instruction stream.
+    pub ranges: Vec<(u32, u32)>,
+}
+
+/// An append-only pool of sorted, disjoint inclusive code-point ranges.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RegExpRangePool {
+    entries: Vec<(u32, u32)>,
+    interned: BTreeMap<Vec<(u32, u32)>, u32>,
+}
+
+impl RegExpRangePool {
+    /// Interns `ranges`, returning the first entry index and the entry count.
+    fn intern(
+        &mut self,
+        ranges: &[(u32, u32)],
+        offset: usize,
+    ) -> Result<(u32, u32), RegExpCompileError> {
+        if let Some(&first) = self.interned.get(ranges) {
+            return Ok((first, ranges.len() as u32));
+        }
+        if self.entries.len() + ranges.len() > REGEXP_MAX_RANGE_ENTRIES {
+            return Err(RegExpCompileError::unsupported_feature(
+                offset,
+                "regular-expression code-point range pool is too large",
+            ));
+        }
+        let first = self.entries.len() as u32;
+        self.entries.extend_from_slice(ranges);
+        self.interned.insert(ranges.to_vec(), first);
+        Ok((first, ranges.len() as u32))
+    }
+
+    fn into_entries(self) -> Vec<(u32, u32)> {
+        self.entries
+    }
+}
+
+/// Normalizes an arbitrary list of inclusive ranges into a sorted, disjoint set.
+fn normalize_ranges(mut ranges: Vec<(u32, u32)>) -> Vec<(u32, u32)> {
+    ranges.retain(|(start, end)| start <= end);
+    ranges.sort_unstable();
+    let mut normalized: Vec<(u32, u32)> = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        match normalized.last_mut() {
+            Some(last) if start <= last.1.saturating_add(1) => last.1 = last.1.max(end),
+            _ => normalized.push((start, end)),
+        }
+    }
+    normalized
+}
+
+fn ranges_contain(ranges: &[(u32, u32)], code_point: u32) -> bool {
+    ranges
+        .binary_search_by(|(start, end)| {
+            if code_point < *start {
+                std::cmp::Ordering::Greater
+            } else if code_point > *end {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+fn complement_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let mut complement = Vec::with_capacity(ranges.len() + 1);
+    let mut next = 0_u32;
+    for &(start, end) in ranges {
+        if start > next {
+            complement.push((next, start - 1));
+        }
+        next = end.saturating_add(1);
+        if end == u32::MAX {
+            return complement;
+        }
+    }
+    if next <= 0x10ffff {
+        complement.push((next, 0x10ffff));
+    }
+    complement
+}
+
+fn intersect_ranges(left: &[(u32, u32)], right: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let mut result = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < left.len() && j < right.len() {
+        let start = left[i].0.max(right[j].0);
+        let end = left[i].1.min(right[j].1);
+        if start <= end {
+            result.push((start, end));
+        }
+        if left[i].1 < right[j].1 {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    result
+}
+
+fn subtract_ranges(left: &[(u32, u32)], right: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    intersect_ranges(left, &complement_ranges(right))
 }
 
 impl RegExpProgram {
@@ -329,6 +437,7 @@ impl RegExpProgram {
             pattern,
             flags.unicode || flags.unicode_sets,
             flags.unicode_sets,
+            flags.ignore_case,
         )?;
         let mut instructions = Vec::with_capacity(pattern.len() + 1);
         let mut lowerer =
@@ -336,24 +445,30 @@ impl RegExpProgram {
         lowerer.alternatives(&parsed.alternatives)?;
         lowerer.error_offset = pattern.len();
         lowerer.push(RegExpInstruction::accept())?;
-        if flags.ignore_case {
-            apply_ascii_ignore_case(&mut instructions);
-        }
         Ok(Self {
             flags,
             capture_count: parsed.capture_count,
             named_groups: parsed.named_groups,
             instructions,
+            ranges: parsed.ranges,
         })
     }
 
-    /// Encodes only match instructions. Flags remain wrapper behavior.
+    /// Encodes match instructions followed by the code-point range pool. Flags
+    /// remain wrapper behavior.
     pub fn encode(&self) -> Vec<u8> {
-        let mut encoded = Vec::with_capacity(self.instructions.len() * REGEXP_INSTRUCTION_WIDTH);
+        let mut encoded = Vec::with_capacity(
+            self.instructions.len() * REGEXP_INSTRUCTION_WIDTH
+                + self.ranges.len() * REGEXP_RANGE_ENTRY_WIDTH,
+        );
         for instruction in &self.instructions {
             encoded.extend_from_slice(&instruction.opcode.to_le_bytes());
             encoded.extend_from_slice(&instruction.operand0.to_le_bytes());
             encoded.extend_from_slice(&instruction.operand1.to_le_bytes());
+        }
+        for (start, end) in &self.ranges {
+            encoded.extend_from_slice(&start.to_le_bytes());
+            encoded.extend_from_slice(&end.to_le_bytes());
         }
         encoded
     }
@@ -404,6 +519,7 @@ struct ParsedPattern {
     alternatives: Vec<Vec<ParsedTerm>>,
     capture_count: u32,
     named_groups: Vec<RegExpNamedGroup>,
+    ranges: Vec<(u32, u32)>,
 }
 
 struct ParsedTerm {
@@ -450,12 +566,14 @@ fn parse_pattern(
     pattern: &str,
     unicode: bool,
     unicode_sets: bool,
+    ignore_case: bool,
 ) -> Result<ParsedPattern, RegExpCompileError> {
     if pattern.is_empty() {
         return Ok(ParsedPattern {
             alternatives: vec![Vec::new()],
             capture_count: 0,
             named_groups: Vec::new(),
+            ranges: Vec::new(),
         });
     }
 
@@ -466,6 +584,12 @@ fn parse_pattern(
         capture_count: 0,
         unicode,
         unicode_sets,
+        modifiers: Modifiers {
+            ignore_case,
+            multiline: None,
+            dot_all: None,
+        },
+        ranges: RegExpRangePool::default(),
         choice_count: 0,
         choice_path: Vec::new(),
         named_captures: Vec::new(),
@@ -479,7 +603,19 @@ fn parse_pattern(
         alternatives,
         capture_count: parser.capture_count,
         named_groups,
+        ranges: parser.ranges.into_entries(),
     })
+}
+
+/// Matching state that RegExp modifier groups (`(?i-s:…)`) can override for the
+/// enclosed pattern only.
+#[derive(Debug, Clone, Copy)]
+struct Modifiers {
+    ignore_case: bool,
+    /// `None` defers to the runtime `m` flag; `Some` forces the local value.
+    multiline: Option<bool>,
+    /// `None` defers to the runtime `s` flag; `Some` forces the local value.
+    dot_all: Option<bool>,
 }
 
 struct PatternParser<'a> {
@@ -488,6 +624,8 @@ struct PatternParser<'a> {
     capture_count: u32,
     unicode: bool,
     unicode_sets: bool,
+    modifiers: Modifiers,
+    ranges: RegExpRangePool,
     choice_count: u32,
     choice_path: Vec<(u32, usize)>,
     named_captures: Vec<NamedCapture>,
@@ -615,6 +753,19 @@ impl PatternParser<'_> {
                             }
                         }
                     }
+                    Some(b'i' | b'm' | b's' | b'-') => {
+                        let modifiers = self.parse_modifier_group_prefix(atom_offset)?;
+                        let outer = self.modifiers;
+                        self.modifiers = modifiers;
+                        let subtree_start = self.capture_count + 1;
+                        let body = self.alternatives(Some(atom_offset));
+                        self.modifiers = outer;
+                        ParsedAtom::NonCapture {
+                            body: body?,
+                            subtree_start,
+                            subtree_end: self.capture_count + 1,
+                        }
+                    }
                     _ => {
                         return Err(RegExpCompileError::unsupported_feature(
                             self.offset,
@@ -649,6 +800,8 @@ impl PatternParser<'_> {
                 &mut self.offset,
                 self.unicode,
                 self.unicode_sets,
+                self.modifiers,
+                &mut self.ranges,
                 self.total_capture_count,
                 self.has_named_capture_syntax,
             )?;
@@ -664,6 +817,10 @@ impl PatternParser<'_> {
                         .copied()
                         .unwrap_or(true),
                 },
+                ParsedAtom::Instruction(mut instruction) => {
+                    apply_modifiers(&mut instruction, self.modifiers);
+                    ParsedAtom::Instruction(instruction)
+                }
                 atom => atom,
             }
         };
@@ -712,6 +869,101 @@ impl PatternParser<'_> {
         })
     }
 
+    /// Parses `(?ims-ims:` and returns the modifier state for the group body.
+    ///
+    /// `self.offset` is left immediately after the `:`.
+    fn parse_modifier_group_prefix(
+        &mut self,
+        group_offset: usize,
+    ) -> Result<Modifiers, RegExpCompileError> {
+        let mut cursor = group_offset + 2;
+        let mut added = 0_u8;
+        let mut removed = 0_u8;
+        let mut seen_dash = false;
+        loop {
+            let Some(&byte) = self.bytes.get(cursor) else {
+                return Err(RegExpCompileError::invalid_syntax(
+                    group_offset,
+                    "regular-expression modifier group is unclosed",
+                ));
+            };
+            if byte == b':' {
+                cursor += 1;
+                break;
+            }
+            if byte == b'-' {
+                if seen_dash {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        cursor,
+                        "regular-expression modifier group has a repeated `-`",
+                    ));
+                }
+                seen_dash = true;
+                cursor += 1;
+                continue;
+            }
+            let bit = match byte {
+                b'i' => 1 << 0,
+                b'm' => 1 << 1,
+                b's' => 1 << 2,
+                byte => {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        cursor,
+                        format!(
+                            "invalid regular-expression modifier `{}`",
+                            byte.escape_ascii()
+                        ),
+                    ));
+                }
+            };
+            if added & bit != 0 || removed & bit != 0 {
+                return Err(RegExpCompileError::invalid_syntax(
+                    cursor,
+                    format!("duplicate regular-expression modifier `{}`", byte as char),
+                ));
+            }
+            if seen_dash {
+                removed |= bit;
+            } else {
+                added |= bit;
+            }
+            cursor += 1;
+        }
+        if added == 0 && removed == 0 {
+            return Err(RegExpCompileError::invalid_syntax(
+                group_offset,
+                "regular-expression modifier group has no modifiers",
+            ));
+        }
+        if seen_dash && removed == 0 {
+            return Err(RegExpCompileError::invalid_syntax(
+                group_offset,
+                "regular-expression modifier group has an empty removal list",
+            ));
+        }
+        self.offset = cursor;
+        let mut modifiers = self.modifiers;
+        if added & 1 != 0 {
+            modifiers.ignore_case = true;
+        }
+        if removed & 1 != 0 {
+            modifiers.ignore_case = false;
+        }
+        if added & 2 != 0 {
+            modifiers.multiline = Some(true);
+        }
+        if removed & 2 != 0 {
+            modifiers.multiline = Some(false);
+        }
+        if added & 4 != 0 {
+            modifiers.dot_all = Some(true);
+        }
+        if removed & 4 != 0 {
+            modifiers.dot_all = Some(false);
+        }
+        Ok(modifiers)
+    }
+
     fn parse_group_name(&mut self) -> Result<String, RegExpCompileError> {
         let start = self.offset + 3;
         let (name, end) = parse_regexp_identifier_name(self.bytes, start, "named capture group")?;
@@ -720,11 +972,14 @@ impl PatternParser<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_instruction_atom(
     bytes: &[u8],
     offset: &mut usize,
     unicode: bool,
     unicode_sets: bool,
+    modifiers: Modifiers,
+    pool: &mut RegExpRangePool,
     total_capture_count: u32,
     has_named_capture_syntax: bool,
 ) -> Result<ParsedAtom, RegExpCompileError> {
@@ -833,21 +1088,16 @@ fn parse_instruction_atom(
             *offset += 1;
             RegExpInstruction::literal_ascii(byte)
         }
-        b'[' if unicode_sets => {
-            return Err(RegExpCompileError::unsupported_feature(
-                atom_offset,
-                "character classes are unsupported in Unicode-sets mode",
-            ));
-        }
+        b'[' if unicode_sets => parse_unicode_sets_class(bytes, offset, modifiers, pool)?,
         b'[' if unicode => {
             if let Some(instruction) = parse_single_unicode_class(bytes, offset)? {
                 instruction
             } else {
-                parse_ascii_class(bytes, offset)?
+                parse_class(bytes, offset, unicode, modifiers, pool)?
             }
         }
-        b'[' => parse_ascii_class(bytes, offset)?,
-        b'\\' => parse_escaped_atom(bytes, offset, unicode)?,
+        b'[' => parse_class(bytes, offset, unicode, modifiers, pool)?,
+        b'\\' => parse_escaped_atom(bytes, offset, unicode, modifiers, pool)?,
         b'.' => {
             *offset += 1;
             RegExpInstruction::dot()
@@ -1273,6 +1523,39 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
     Ok(parsed)
 }
 
+/// Rewrites one freshly parsed instruction for the enclosing modifier state.
+///
+/// Case-insensitivity is folded into ASCII literals and classes here so that
+/// RegExp modifier groups (`(?i:…)`, `(?-i:…)`) scope correctly. Multiline and
+/// dotAll cannot be folded into an instruction, so they are recorded in
+/// `operand0`: `0` defers to the runtime flag, `1` forces the mode on and `2`
+/// forces it off.
+fn apply_modifiers(instruction: &mut RegExpInstruction, modifiers: Modifiers) {
+    match instruction.opcode {
+        REGEXP_OPCODE_DOT => {
+            instruction.operand0 = match modifiers.dot_all {
+                None => 0,
+                Some(true) => 1,
+                Some(false) => 2,
+            };
+            return;
+        }
+        REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END => {
+            instruction.operand0 = match modifiers.multiline {
+                None => 0,
+                Some(true) => 1,
+                Some(false) => 2,
+            };
+            return;
+        }
+        _ => {}
+    }
+    if !modifiers.ignore_case {
+        return;
+    }
+    apply_ascii_ignore_case(std::slice::from_mut(instruction));
+}
+
 fn apply_ascii_ignore_case(instructions: &mut [RegExpInstruction]) {
     for instruction in instructions {
         if instruction.opcode == REGEXP_OPCODE_LITERAL_ASCII {
@@ -1315,6 +1598,8 @@ fn parse_escaped_atom(
     bytes: &[u8],
     offset: &mut usize,
     unicode: bool,
+    modifiers: Modifiers,
+    pool: &mut RegExpRangePool,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
     let escape_offset = *offset;
     let Some(&escaped) = bytes.get(escape_offset + 1) else {
@@ -1330,7 +1615,7 @@ fn parse_escaped_atom(
         ));
     }
     if unicode && matches!(escaped, b'p' | b'P') {
-        return parse_unicode_property_escape(bytes, offset);
+        return parse_unicode_property_escape(bytes, offset, modifiers, pool);
     }
     if escaped == b'u' {
         let (code_unit, consumed) = match parse_unicode_escape(bytes, escape_offset) {
@@ -1465,10 +1750,15 @@ fn parse_escaped_atom(
     Ok(RegExpInstruction::literal_ascii(escaped))
 }
 
-fn parse_unicode_property_escape(
+/// Parses `\p{…}` / `\P{…}` and yields the matching code-point ranges.
+///
+/// `\P` is complemented here rather than through the instruction's negation
+/// bit, because case closure applies after every set operation in
+/// 22.2.2.7.1 CharacterSetMatcher.
+fn parse_unicode_property_ranges(
     bytes: &[u8],
     offset: &mut usize,
-) -> Result<RegExpInstruction, RegExpCompileError> {
+) -> Result<Vec<(u32, u32)>, RegExpCompileError> {
     let escape_offset = *offset;
     let complement = bytes[escape_offset + 1] == b'P';
     if bytes.get(escape_offset + 2) != Some(&b'{') {
@@ -1485,7 +1775,9 @@ fn parse_unicode_property_escape(
         ));
     };
     let value_end = value_start + relative_end;
-    let value = &bytes[value_start..value_end];
+    let value = std::str::from_utf8(&bytes[value_start..value_end]).map_err(|_| {
+        RegExpCompileError::invalid_syntax(escape_offset, "malformed Unicode property escape")
+    })?;
     if value.is_empty() {
         return Err(RegExpCompileError::invalid_syntax(
             escape_offset,
@@ -1493,19 +1785,158 @@ fn parse_unicode_property_escape(
         ));
     }
 
-    let property = match (complement, value) {
-        (false, b"ASCII") => REGEXP_UNICODE_PROPERTY_ASCII,
-        (true, b"ASCII") => REGEXP_UNICODE_PROPERTY_NOT_ASCII,
-        (false, b"Script=Han") => REGEXP_UNICODE_PROPERTY_SCRIPT_HAN,
-        _ => {
-            return Err(RegExpCompileError::unsupported_feature(
-                escape_offset,
-                "unsupported Unicode property escape",
-            ));
-        }
+    let Some(ranges) = unicode_property_ranges(value) else {
+        return Err(RegExpCompileError::invalid_syntax(
+            escape_offset,
+            format!("unknown Unicode property escape `{value}`"),
+        ));
     };
     *offset = value_end + 1;
-    Ok(RegExpInstruction::unicode_property(property))
+    let ranges = normalize_ranges(ranges);
+    Ok(if complement {
+        complement_ranges(&ranges)
+    } else {
+        ranges
+    })
+}
+
+fn parse_unicode_property_escape(
+    bytes: &[u8],
+    offset: &mut usize,
+    modifiers: Modifiers,
+    pool: &mut RegExpRangePool,
+) -> Result<RegExpInstruction, RegExpCompileError> {
+    let escape_offset = *offset;
+    let ranges = parse_unicode_property_ranges(bytes, offset)?;
+    finish_range_set(ranges, false, modifiers.ignore_case, pool, escape_offset)
+}
+
+/// Resolves an ECMA-262 `UnicodePropertyValueExpression` to code-point ranges.
+fn unicode_property_ranges(value: &str) -> Option<Vec<(u32, u32)>> {
+    let collect = |ranges: &mut dyn Iterator<Item = std::ops::RangeInclusive<u32>>| {
+        ranges
+            .map(|range| (*range.start(), *range.end()))
+            .collect::<Vec<_>>()
+    };
+    match value.split_once('=') {
+        Some((name, property_value)) => match name {
+            "General_Category" | "gc" => general_category_ranges(property_value),
+            "Script" | "sc" => script_ranges(property_value, false),
+            "Script_Extensions" | "scx" => script_ranges(property_value, true),
+            _ => None,
+        },
+        None => {
+            match value {
+                "Any" => return Some(vec![(0, 0x10ffff)]),
+                "ASCII" => return Some(vec![(0, 0x7f)]),
+                "Assigned" => {
+                    let unassigned = general_category_ranges("Unassigned")?;
+                    return Some(complement_ranges(&normalize_ranges(unassigned)));
+                }
+                _ => {}
+            }
+            if let Some(set) = CodePointSetData::new_for_ecma262(value.as_bytes()) {
+                return Some(collect(&mut set.iter_ranges()));
+            }
+            general_category_ranges(value)
+        }
+    }
+}
+
+fn general_category_ranges(value: &str) -> Option<Vec<(u32, u32)>> {
+    let group = PropertyParser::<GeneralCategoryGroup>::new().get_strict(value)?;
+    Some(
+        CodePointMapData::<GeneralCategory>::new()
+            .iter_ranges_for_group(group)
+            .map(|range| (*range.start(), *range.end()))
+            .collect(),
+    )
+}
+
+fn script_ranges(value: &str, extensions: bool) -> Option<Vec<(u32, u32)>> {
+    let script = PropertyParser::<Script>::new().get_strict(value)?;
+    if extensions {
+        Some(
+            ScriptWithExtensions::new()
+                .get_script_extensions_ranges(script)
+                .map(|range| (*range.start(), *range.end()))
+                .collect(),
+        )
+    } else {
+        Some(
+            CodePointMapData::<Script>::new()
+                .iter_ranges_for_value(script)
+                .map(|range| (*range.start(), *range.end()))
+                .collect(),
+        )
+    }
+}
+
+/// Groups every code point by its simple case-folding key, keeping only the
+/// classes that contain more than one member.
+fn case_fold_classes() -> &'static [Vec<u32>] {
+    static CLASSES: OnceLock<Vec<Vec<u32>>> = OnceLock::new();
+    CLASSES.get_or_init(|| {
+        fn simple_lowercase(character: char) -> char {
+            let mut mapped = character.to_lowercase();
+            let first = mapped.next().expect("lowercase mapping is never empty");
+            if mapped.next().is_some() {
+                character
+            } else {
+                first
+            }
+        }
+        fn simple_uppercase(character: char) -> char {
+            let mut mapped = character.to_uppercase();
+            let first = mapped.next().expect("uppercase mapping is never empty");
+            if mapped.next().is_some() {
+                character
+            } else {
+                first
+            }
+        }
+
+        let mut groups: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for character in (0..=char::MAX as u32).filter_map(char::from_u32) {
+            let key = simple_lowercase(simple_uppercase(character));
+            if key == character
+                && simple_lowercase(character) == character
+                && simple_uppercase(character) == character
+            {
+                continue;
+            }
+            groups.entry(key as u32).or_default().push(character as u32);
+        }
+        groups
+            .into_values()
+            .filter(|members| members.len() > 1)
+            .collect()
+    })
+}
+
+/// Closes `ranges` under simple case folding, matching the effect of
+/// canonicalizing both the input and the set members.
+fn case_close_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
+    let mut extra = Vec::new();
+    for members in case_fold_classes() {
+        if members
+            .iter()
+            .any(|code_point| ranges_contain(ranges, *code_point))
+        {
+            extra.extend(
+                members
+                    .iter()
+                    .map(|code_point| (*code_point, *code_point))
+                    .filter(|(code_point, _)| !ranges_contain(ranges, *code_point)),
+            );
+        }
+    }
+    if extra.is_empty() {
+        return ranges.to_vec();
+    }
+    let mut closed = ranges.to_vec();
+    closed.append(&mut extra);
+    normalize_ranges(closed)
 }
 
 fn parse_unicode_escape(bytes: &[u8], start: usize) -> Result<(u16, usize), RegExpCompileError> {
@@ -1534,6 +1965,475 @@ fn parse_unicode_escape(bytes: &[u8], start: usize) -> Result<(u16, usize), RegE
         (value << 4) | digit as u16
     });
     Ok((value, start + 6))
+}
+
+/// ECMAScript `WhiteSpace` plus `LineTerminator`, i.e. the `\s` class.
+const REGEXP_WHITESPACE_RANGES: &[(u32, u32)] = &[
+    (0x0009, 0x000d),
+    (0x0020, 0x0020),
+    (0x00a0, 0x00a0),
+    (0x1680, 0x1680),
+    (0x2000, 0x200a),
+    (0x2028, 0x2029),
+    (0x202f, 0x202f),
+    (0x205f, 0x205f),
+    (0x3000, 0x3000),
+    (0xfeff, 0xfeff),
+];
+
+const REGEXP_DIGIT_RANGES: &[(u32, u32)] = &[(0x30, 0x39)];
+
+const REGEXP_WORD_RANGES: &[(u32, u32)] = &[(0x30, 0x39), (0x41, 0x5a), (0x5f, 0x5f), (0x61, 0x7a)];
+
+/// One member of a character class in the general code-point representation.
+enum ClassAtom {
+    CodePoint(u32),
+    Ranges(Vec<(u32, u32)>),
+}
+
+impl ClassAtom {
+    fn into_ranges(self) -> Vec<(u32, u32)> {
+        match self {
+            Self::CodePoint(code_point) => vec![(code_point, code_point)],
+            Self::Ranges(ranges) => ranges,
+        }
+    }
+}
+
+/// Returns whether the class starting at `offset` holds anything the ASCII
+/// bitmap representation cannot express.
+fn class_needs_code_point_ranges(bytes: &[u8], offset: usize) -> bool {
+    let mut cursor = offset + 1;
+    while let Some(&byte) = bytes.get(cursor) {
+        match byte {
+            b']' => return false,
+            b'\\' => {
+                if matches!(bytes.get(cursor + 1), Some(b'p' | b'P' | b'u' | b'x')) {
+                    return true;
+                }
+                cursor += 2;
+            }
+            byte if !byte.is_ascii() => return true,
+            _ => cursor += 1,
+        }
+    }
+    false
+}
+
+fn parse_class(
+    bytes: &[u8],
+    offset: &mut usize,
+    unicode: bool,
+    modifiers: Modifiers,
+    pool: &mut RegExpRangePool,
+) -> Result<RegExpInstruction, RegExpCompileError> {
+    if !class_needs_code_point_ranges(bytes, *offset) {
+        return parse_ascii_class(bytes, offset);
+    }
+    let class_offset = *offset;
+    let mut cursor = class_offset + 1;
+    let negated = bytes.get(cursor) == Some(&b'^');
+    cursor += usize::from(negated);
+
+    let mut ranges = Vec::new();
+    loop {
+        let Some(&member) = bytes.get(cursor) else {
+            return Err(RegExpCompileError::invalid_syntax(
+                class_offset,
+                "regular-expression character class is unclosed",
+            ));
+        };
+        if member == b']' {
+            break;
+        }
+        let range_offset = cursor;
+        let start = parse_class_atom(bytes, &mut cursor, unicode)?;
+        if bytes.get(cursor) == Some(&b'-') && bytes.get(cursor + 1) != Some(&b']') {
+            cursor += 1;
+            if bytes.get(cursor).is_none() {
+                return Err(RegExpCompileError::invalid_syntax(
+                    class_offset,
+                    "regular-expression character class is unclosed",
+                ));
+            }
+            let end = parse_class_atom(bytes, &mut cursor, unicode)?;
+            match (start, end) {
+                (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        range_offset,
+                        "regular-expression character class range is reversed",
+                    ));
+                }
+                (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) => {
+                    ranges.push((start, end));
+                }
+                (start, end) if unicode => {
+                    let _ = (start, end);
+                    return Err(RegExpCompileError::invalid_syntax(
+                        range_offset,
+                        "regular-expression character class range bound is a class escape",
+                    ));
+                }
+                (start, end) => {
+                    ranges.extend(start.into_ranges());
+                    ranges.extend(end.into_ranges());
+                    ranges.push((u32::from(b'-'), u32::from(b'-')));
+                }
+            }
+        } else {
+            ranges.extend(start.into_ranges());
+        }
+    }
+
+    *offset = cursor + 1;
+    finish_range_set(ranges, negated, modifiers.ignore_case, pool, class_offset)
+}
+
+/// Normalizes, case-closes and interns `ranges`, returning a range-set atom.
+fn finish_range_set(
+    ranges: Vec<(u32, u32)>,
+    negated: bool,
+    ignore_case: bool,
+    pool: &mut RegExpRangePool,
+    offset: usize,
+) -> Result<RegExpInstruction, RegExpCompileError> {
+    let mut ranges = normalize_ranges(ranges);
+    if ignore_case {
+        ranges = case_close_ranges(&ranges);
+    }
+    let (first_entry, entry_count) = pool.intern(&ranges, offset)?;
+    Ok(RegExpInstruction::code_point_range_set(
+        first_entry,
+        entry_count,
+        negated,
+    ))
+}
+
+fn parse_class_atom(
+    bytes: &[u8],
+    cursor: &mut usize,
+    unicode: bool,
+) -> Result<ClassAtom, RegExpCompileError> {
+    let offset = *cursor;
+    let Some(&member) = bytes.get(offset) else {
+        return Err(RegExpCompileError::invalid_syntax(
+            offset,
+            "regular-expression character class is unclosed",
+        ));
+    };
+    if member != b'\\' {
+        let source = std::str::from_utf8(&bytes[offset..]).map_err(|_| {
+            RegExpCompileError::invalid_syntax(
+                offset,
+                "regular-expression source is not valid UTF-8",
+            )
+        })?;
+        let character = source.chars().next().expect("non-empty class source");
+        *cursor += character.len_utf8();
+        return Ok(ClassAtom::CodePoint(character as u32));
+    }
+
+    let Some(&escaped) = bytes.get(offset + 1) else {
+        return Err(RegExpCompileError::invalid_syntax(
+            offset,
+            "regular-expression escape is missing its escaped character",
+        ));
+    };
+    match escaped {
+        b'd' => {
+            *cursor += 2;
+            Ok(ClassAtom::Ranges(REGEXP_DIGIT_RANGES.to_vec()))
+        }
+        b'D' => {
+            *cursor += 2;
+            Ok(ClassAtom::Ranges(complement_ranges(REGEXP_DIGIT_RANGES)))
+        }
+        b's' => {
+            *cursor += 2;
+            Ok(ClassAtom::Ranges(REGEXP_WHITESPACE_RANGES.to_vec()))
+        }
+        b'S' => {
+            *cursor += 2;
+            Ok(ClassAtom::Ranges(complement_ranges(
+                REGEXP_WHITESPACE_RANGES,
+            )))
+        }
+        b'w' => {
+            *cursor += 2;
+            Ok(ClassAtom::Ranges(REGEXP_WORD_RANGES.to_vec()))
+        }
+        b'W' => {
+            *cursor += 2;
+            Ok(ClassAtom::Ranges(complement_ranges(REGEXP_WORD_RANGES)))
+        }
+        b'p' | b'P' if unicode => {
+            let ranges = parse_unicode_property_ranges(bytes, cursor)?;
+            Ok(ClassAtom::Ranges(ranges))
+        }
+        b'b' => {
+            *cursor += 2;
+            Ok(ClassAtom::CodePoint(0x08))
+        }
+        b'n' | b'r' | b't' | b'v' | b'f' => {
+            let value = match escaped {
+                b'n' => 0x0a,
+                b'r' => 0x0d,
+                b't' => 0x09,
+                b'v' => 0x0b,
+                _ => 0x0c,
+            };
+            *cursor += 2;
+            Ok(ClassAtom::CodePoint(value))
+        }
+        b'c' if matches!(bytes.get(offset + 2), Some(b'a'..=b'z') | Some(b'A'..=b'Z')) => {
+            let control = u32::from(bytes[offset + 2].to_ascii_uppercase() % 32);
+            *cursor += 3;
+            Ok(ClassAtom::CodePoint(control))
+        }
+        b'c' if !unicode && matches!(bytes.get(offset + 2), Some(b'0'..=b'9') | Some(b'_')) => {
+            let control = u32::from(bytes[offset + 2] % 32);
+            *cursor += 3;
+            Ok(ClassAtom::CodePoint(control))
+        }
+        b'x' => {
+            let digits = bytes.get(offset + 2..offset + 4);
+            if let Some(digits) = digits.filter(|digits| digits.iter().all(u8::is_ascii_hexdigit)) {
+                let value = digits.iter().fold(0_u32, |value, digit| {
+                    (value << 4) | ascii_hex_value(*digit).unwrap_or(0)
+                });
+                *cursor += 4;
+                return Ok(ClassAtom::CodePoint(value));
+            }
+            if unicode {
+                return Err(RegExpCompileError::invalid_syntax(
+                    offset,
+                    "malformed hexadecimal escape",
+                ));
+            }
+            *cursor += 2;
+            Ok(ClassAtom::CodePoint(u32::from(b'x')))
+        }
+        b'u' => {
+            if unicode && bytes.get(offset + 2) == Some(&b'{') {
+                let (value, end) = parse_braced_code_point_escape(bytes, offset)?;
+                *cursor = end;
+                return Ok(ClassAtom::CodePoint(value));
+            }
+            match parse_unicode_escape(bytes, offset) {
+                Ok((code_unit, end)) => {
+                    *cursor = end;
+                    if unicode && (0xd800..=0xdbff).contains(&code_unit) {
+                        if let Ok((low, low_end)) = parse_unicode_escape(bytes, end) {
+                            if (0xdc00..=0xdfff).contains(&low) {
+                                *cursor = low_end;
+                                return Ok(ClassAtom::CodePoint(
+                                    0x1_0000
+                                        + (((u32::from(code_unit) - 0xd800) << 10)
+                                            | (u32::from(low) - 0xdc00)),
+                                ));
+                            }
+                        }
+                    }
+                    Ok(ClassAtom::CodePoint(u32::from(code_unit)))
+                }
+                Err(error) if unicode => Err(error),
+                Err(_) => {
+                    *cursor += 2;
+                    Ok(ClassAtom::CodePoint(u32::from(b'u')))
+                }
+            }
+        }
+        b'0'..=b'7' if !unicode => {
+            let (value, end) = parse_legacy_octal_escape(bytes, offset);
+            *cursor = end;
+            Ok(ClassAtom::CodePoint(u32::from(value)))
+        }
+        b'0' => {
+            *cursor += 2;
+            Ok(ClassAtom::CodePoint(0))
+        }
+        escaped if unicode && !is_class_identity_escape(escaped) => Err(
+            RegExpCompileError::invalid_syntax(offset, "invalid regular-expression class escape"),
+        ),
+        _ => {
+            let source = std::str::from_utf8(&bytes[offset + 1..]).map_err(|_| {
+                RegExpCompileError::invalid_syntax(
+                    offset,
+                    "regular-expression source is not valid UTF-8",
+                )
+            })?;
+            let character = source.chars().next().expect("non-empty escape source");
+            *cursor = offset + 1 + character.len_utf8();
+            Ok(ClassAtom::CodePoint(character as u32))
+        }
+    }
+}
+
+/// Parses a `v`-mode `ClassSetExpression`, including nested classes, `--`
+/// difference and `&&` intersection.
+fn parse_unicode_sets_class(
+    bytes: &[u8],
+    offset: &mut usize,
+    modifiers: Modifiers,
+    pool: &mut RegExpRangePool,
+) -> Result<RegExpInstruction, RegExpCompileError> {
+    let class_offset = *offset;
+    let mut cursor = class_offset;
+    let (ranges, negated) = parse_class_set(bytes, &mut cursor)?;
+    *offset = cursor;
+    finish_range_set(ranges, negated, modifiers.ignore_case, pool, class_offset)
+}
+
+fn parse_class_set(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<(Vec<(u32, u32)>, bool), RegExpCompileError> {
+    let class_offset = *cursor;
+    debug_assert_eq!(bytes.get(class_offset), Some(&b'['));
+    *cursor += 1;
+    let negated = bytes.get(*cursor) == Some(&b'^');
+    *cursor += usize::from(negated);
+
+    let mut accumulated: Option<Vec<(u32, u32)>> = None;
+    let mut operator: Option<&'static str> = None;
+    let mut union: Vec<(u32, u32)> = Vec::new();
+
+    loop {
+        match bytes.get(*cursor).copied() {
+            None => {
+                return Err(RegExpCompileError::invalid_syntax(
+                    class_offset,
+                    "regular-expression character class is unclosed",
+                ));
+            }
+            Some(b']') => {
+                *cursor += 1;
+                break;
+            }
+            Some(b'-') if bytes.get(*cursor + 1) == Some(&b'-') => {
+                *cursor += 2;
+                accumulated = Some(match (accumulated, operator) {
+                    (None, _) => normalize_ranges(std::mem::take(&mut union)),
+                    (Some(left), Some("--")) => {
+                        subtract_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
+                    }
+                    (Some(left), _) => {
+                        intersect_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
+                    }
+                });
+                operator = Some("--");
+            }
+            Some(b'&') if bytes.get(*cursor + 1) == Some(&b'&') => {
+                *cursor += 2;
+                accumulated = Some(match (accumulated, operator) {
+                    (None, _) => normalize_ranges(std::mem::take(&mut union)),
+                    (Some(left), Some("--")) => {
+                        subtract_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
+                    }
+                    (Some(left), _) => {
+                        intersect_ranges(&left, &normalize_ranges(std::mem::take(&mut union)))
+                    }
+                });
+                operator = Some("&&");
+            }
+            Some(b'[') => {
+                let (nested, nested_negated) = parse_class_set(bytes, cursor)?;
+                let nested = normalize_ranges(nested);
+                union.extend(if nested_negated {
+                    complement_ranges(&nested)
+                } else {
+                    nested
+                });
+            }
+            Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'q') => {
+                return Err(RegExpCompileError::unsupported_feature(
+                    *cursor,
+                    "`\\q` string literals are unsupported by this matcher-program grammar",
+                ));
+            }
+            Some(_) => {
+                let range_offset = *cursor;
+                let start = parse_class_atom(bytes, cursor, true)?;
+                if bytes.get(*cursor) == Some(&b'-')
+                    && bytes.get(*cursor + 1) != Some(&b']')
+                    && bytes.get(*cursor + 1) != Some(&b'-')
+                {
+                    *cursor += 1;
+                    let end = parse_class_atom(bytes, cursor, true)?;
+                    match (start, end) {
+                        (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
+                            return Err(RegExpCompileError::invalid_syntax(
+                                range_offset,
+                                "regular-expression character class range is reversed",
+                            ));
+                        }
+                        (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) => {
+                            union.push((start, end));
+                        }
+                        _ => {
+                            return Err(RegExpCompileError::invalid_syntax(
+                                range_offset,
+                                "regular-expression character class range bound is a class escape",
+                            ));
+                        }
+                    }
+                } else {
+                    union.extend(start.into_ranges());
+                }
+            }
+        }
+    }
+
+    let union = normalize_ranges(union);
+    let ranges = match (accumulated, operator) {
+        (None, _) => union,
+        (Some(left), Some("--")) => subtract_ranges(&left, &union),
+        (Some(left), _) => intersect_ranges(&left, &union),
+    };
+    Ok((ranges, negated))
+}
+
+fn is_class_identity_escape(escaped: u8) -> bool {
+    is_regex_metacharacter(escaped) || matches!(escaped, b'-' | b'/')
+}
+
+fn parse_braced_code_point_escape(
+    bytes: &[u8],
+    escape_offset: usize,
+) -> Result<(u32, usize), RegExpCompileError> {
+    let mut cursor = escape_offset + 3;
+    let mut value = 0_u32;
+    let mut digits = 0;
+    while let Some(&byte) = bytes.get(cursor) {
+        if byte == b'}' {
+            break;
+        }
+        let Some(digit) = ascii_hex_value(byte) else {
+            return Err(RegExpCompileError::invalid_syntax(
+                escape_offset,
+                "malformed Unicode code-point escape",
+            ));
+        };
+        value = value
+            .checked_mul(16)
+            .and_then(|value| value.checked_add(digit))
+            .filter(|value| *value <= 0x10ffff)
+            .ok_or_else(|| {
+                RegExpCompileError::invalid_syntax(
+                    escape_offset,
+                    "Unicode code-point escape is out of range",
+                )
+            })?;
+        digits += 1;
+        cursor += 1;
+    }
+    if digits == 0 || bytes.get(cursor) != Some(&b'}') {
+        return Err(RegExpCompileError::invalid_syntax(
+            escape_offset,
+            "malformed Unicode code-point escape",
+        ));
+    }
+    Ok((value, cursor + 1))
 }
 
 #[derive(Clone, Copy)]
@@ -3014,35 +3914,54 @@ mod tests {
     }
 
     #[test]
-    fn compiles_exact_supported_unicode_properties() {
+    fn compiles_unicode_properties_into_the_range_pool() {
         for flags in ["u", "v"] {
-            let program =
-                RegExpProgram::compile(r"\p{ASCII}\P{ASCII}\p{Script=Han}", flags).unwrap();
+            let program = RegExpProgram::compile(r"\p{ASCII}\P{ASCII}", flags).unwrap();
             assert_eq!(
                 program.instructions,
                 vec![
-                    RegExpInstruction::unicode_property(REGEXP_UNICODE_PROPERTY_ASCII),
-                    RegExpInstruction::unicode_property(REGEXP_UNICODE_PROPERTY_NOT_ASCII),
-                    RegExpInstruction::unicode_property(REGEXP_UNICODE_PROPERTY_SCRIPT_HAN),
+                    RegExpInstruction::code_point_range_set(0, 1, false),
+                    RegExpInstruction::code_point_range_set(1, 1, false),
                     RegExpInstruction::accept(),
                 ]
             );
+            assert_eq!(program.ranges, vec![(0, 0x7f), (0x80, 0x10ffff)]);
             let encoded = program.encode();
             assert_eq!(&encoded[..8], &REGEXP_OPCODE_UNICODE_PROPERTY.to_le_bytes());
             assert_eq!(
-                &encoded[8..16],
-                &REGEXP_UNICODE_PROPERTY_ASCII.to_le_bytes()
+                encoded.len(),
+                program.instructions.len() * REGEXP_INSTRUCTION_WIDTH
+                    + program.ranges.len() * REGEXP_RANGE_ENTRY_WIDTH
             );
-            assert_eq!(&encoded[16..24], &[0; 8]);
+            assert_eq!(
+                &encoded[encoded.len() - 8..],
+                &[0x80, 0, 0, 0, 0xff, 0xff, 0x10, 0]
+            );
         }
     }
 
     #[test]
-    fn rejects_unsupported_and_malformed_unicode_properties() {
-        for pattern in [r"\p{Letter}", r"\P{Script=Han}", r"\p{script=Han}"] {
+    fn resolves_general_category_and_script_property_escapes() {
+        let letters = RegExpProgram::compile(r"\p{L}", "u").unwrap();
+        assert!(ranges_contain(&letters.ranges, u32::from(b'a')));
+        assert!(ranges_contain(&letters.ranges, 0x00e9));
+        assert!(!ranges_contain(&letters.ranges, u32::from(b'0')));
+
+        let han = RegExpProgram::compile(r"\p{Script=Han}", "u").unwrap();
+        assert!(ranges_contain(&han.ranges, 0x4e00));
+        assert!(!ranges_contain(&han.ranges, u32::from(b'a')));
+
+        let not_han = RegExpProgram::compile(r"\P{Script=Han}", "u").unwrap();
+        assert!(!ranges_contain(&not_han.ranges, 0x4e00));
+        assert!(ranges_contain(&not_han.ranges, u32::from(b'a')));
+    }
+
+    #[test]
+    fn rejects_unknown_and_malformed_unicode_properties() {
+        for pattern in [r"\p{NotAProperty}", r"\p{script=Han}", r"\p{Foo=Bar}"] {
             assert_eq!(
                 RegExpProgram::compile(pattern, "u").unwrap_err().kind,
-                RegExpCompileErrorKind::UnsupportedFeature,
+                RegExpCompileErrorKind::InvalidSyntax,
                 "{pattern}"
             );
         }
@@ -3057,10 +3976,36 @@ mod tests {
     }
 
     #[test]
-    fn rejects_character_classes_in_unicode_sets_mode() {
-        let error = RegExpProgram::compile("[a]", "v").unwrap_err();
-        assert_eq!(error.kind, RegExpCompileErrorKind::UnsupportedFeature);
-        assert_eq!(error.offset, 0);
+    fn compiles_unicode_sets_set_operations() {
+        let intersection = RegExpProgram::compile(r"[\p{ASCII}&&\p{L}]", "v").unwrap();
+        assert!(ranges_contain(&intersection.ranges, u32::from(b'a')));
+        assert!(!ranges_contain(&intersection.ranges, 0x00e9));
+        assert!(!ranges_contain(&intersection.ranges, u32::from(b'0')));
+
+        let difference = RegExpProgram::compile(r"[[a-f]--[c-d]]", "v").unwrap();
+        assert_eq!(difference.ranges, vec![(0x61, 0x62), (0x65, 0x66)]);
+    }
+
+    #[test]
+    fn modifier_groups_scope_case_insensitivity() {
+        let program = RegExpProgram::compile("(?i:a)b", "").unwrap();
+        assert_eq!(
+            program.instructions.last(),
+            Some(&RegExpInstruction::accept())
+        );
+        assert!(program.instructions[0].positive_ascii_class_contains(b'A'));
+        assert!(program.instructions[0].positive_ascii_class_contains(b'a'));
+        assert_eq!(
+            program.instructions[1],
+            RegExpInstruction::literal_ascii(b'b')
+        );
+
+        let disabled = RegExpProgram::compile("(?-i:a)b", "i").unwrap();
+        assert_eq!(
+            disabled.instructions[0],
+            RegExpInstruction::literal_ascii(b'a')
+        );
+        assert!(disabled.instructions[1].positive_ascii_class_contains(b'B'));
     }
 
     #[test]

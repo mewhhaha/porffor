@@ -27628,18 +27628,24 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
 
-        let mut bound_names = Vec::new();
-        for binding in pattern.bindings() {
-            let ObjectPatternElement::SingleName { name, ident, .. } = binding else {
-                self.unsupported("destructuring binding");
-                return None;
-            };
-            if !matches!(name, PropertyName::Literal(_)) {
-                self.unsupported("computed object key");
-                return None;
-            }
-            bound_names.push(self.interner.resolve_expect(ident.sym()).to_string());
+        if pattern
+            .bindings()
+            .iter()
+            .any(|element| matches!(element, ObjectPatternElement::SingleName { name, .. } | ObjectPatternElement::Pattern { name, .. } if !matches!(name, PropertyName::Literal(_))))
+        {
+            self.unsupported("computed object key");
+            return None;
         }
+
+        let binding = Binding::Pattern(Pattern::Object(pattern.clone()));
+        let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
+            self.unsupported("destructuring binding");
+            return None;
+        };
+        let bound_names: Vec<String> = bound_names
+            .into_iter()
+            .map(|bound| bound.source_name)
+            .collect();
 
         for name in &bound_names {
             if !self
@@ -27721,6 +27727,18 @@ impl<'a> ScriptLowerer<'a> {
         if pattern.bindings().is_empty() {
             return Some(vec![StatementIr::Expression(TypedExpr::spec_to_object(
                 init,
+            ))]);
+        }
+
+        if !object_pattern_binds_only_single_names(pattern.bindings()) {
+            let pattern =
+                self.lower_object_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
+            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::ObjectDestructure {
+                    value: Box::new(init),
+                    pattern: Box::new(pattern),
+                },
             ))]);
         }
 
@@ -27824,6 +27842,21 @@ impl<'a> ScriptLowerer<'a> {
         init: TypedExpr,
         storage_names: Option<&BTreeMap<String, String>>,
     ) -> Option<Vec<StatementIr>> {
+        // Nested patterns (`{ a: [b] }`) and rest properties (`{ a, ...rest }`)
+        // cannot be expressed as one lexical statement per bound name, so they go
+        // through the semantic `ObjectDestructure` node, which already models
+        // nested targets, defaults and CopyDataProperties.
+        if !object_pattern_binds_only_single_names(bindings) {
+            let pattern = self.lower_object_binding_pattern(mode, bindings, storage_names)?;
+            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::ObjectDestructure {
+                    value: Box::new(init),
+                    pattern: Box::new(pattern),
+                },
+            ))]);
+        }
+
         let mut statements = Vec::new();
         for binding in bindings {
             match binding {
@@ -28156,19 +28189,12 @@ impl<'a> ScriptLowerer<'a> {
                 ArrayPatternElement::Pattern {
                     pattern,
                     default_init,
-                } => {
-                    let Pattern::Array(pattern) = pattern else {
-                        self.unsupported("nested object destructuring assignment");
-                        return None;
-                    };
-                    let nested = self.lower_array_assignment_pattern(pattern.bindings())?;
-                    ArrayDestructuringElementIr::Target {
-                        target: DestructuringTargetIr::NestedArray(Box::new(nested)),
-                        default: default_init
-                            .as_ref()
-                            .map(|default| self.lower_expression(default)),
-                    }
-                }
+                } => ArrayDestructuringElementIr::Target {
+                    target: self.lower_nested_assignment_pattern_target(pattern)?,
+                    default: default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default)),
+                },
                 ArrayPatternElement::SingleNameRest { ident } => {
                     ArrayDestructuringElementIr::Rest {
                         target: self.lower_array_assignment_identifier_target(*ident)?,
@@ -28179,21 +28205,30 @@ impl<'a> ScriptLowerer<'a> {
                         target: self.lower_array_assignment_property_target(access)?,
                     }
                 }
-                ArrayPatternElement::PatternRest { pattern } => {
-                    let Pattern::Array(pattern) = pattern else {
-                        self.unsupported("nested object destructuring assignment");
-                        return None;
-                    };
-                    ArrayDestructuringElementIr::Rest {
-                        target: DestructuringTargetIr::NestedArray(Box::new(
-                            self.lower_array_assignment_pattern(pattern.bindings())?,
-                        )),
-                    }
-                }
+                ArrayPatternElement::PatternRest { pattern } => ArrayDestructuringElementIr::Rest {
+                    target: self.lower_nested_assignment_pattern_target(pattern)?,
+                },
             };
             elements.push(element);
         }
         Some(ArrayDestructuringPatternIr { elements })
+    }
+
+    /// Lowers a nested pattern that appears inside a *destructuring assignment*
+    /// (13.15.5). Unlike binding patterns the leaves are assignment targets, so
+    /// both nesting directions recurse through the assignment lowerings.
+    fn lower_nested_assignment_pattern_target(
+        &mut self,
+        pattern: &Pattern,
+    ) -> Option<DestructuringTargetIr> {
+        Some(match pattern {
+            Pattern::Array(pattern) => DestructuringTargetIr::NestedArray(Box::new(
+                self.lower_array_assignment_pattern(pattern.bindings())?,
+            )),
+            Pattern::Object(pattern) => DestructuringTargetIr::NestedObject(Box::new(
+                self.lower_object_assignment_pattern(pattern.bindings())?,
+            )),
+        })
     }
 
     fn lower_object_assignment_pattern(
@@ -28232,9 +28267,20 @@ impl<'a> ScriptLowerer<'a> {
                 ObjectPatternElement::AssignmentRestPropertyAccess { access } => {
                     rest = Some(self.lower_array_assignment_property_target(access)?);
                 }
-                ObjectPatternElement::Pattern { .. } => {
-                    self.unsupported("nested object destructuring assignment");
-                    return None;
+                ObjectPatternElement::Pattern {
+                    name,
+                    pattern,
+                    default_init,
+                } => {
+                    let key = self.lower_object_destructuring_property_key(name);
+                    let default = default_init
+                        .as_ref()
+                        .map(|default| self.lower_expression(default));
+                    properties.push(ObjectDestructuringPropertyIr {
+                        key,
+                        target: self.lower_nested_assignment_pattern_target(pattern)?,
+                        default,
+                    });
                 }
             }
         }
@@ -28995,7 +29041,13 @@ impl<'a> ScriptLowerer<'a> {
         if matches!(op, UnaryOp::TypeOf) {
             if let Expression::Identifier(identifier) = target {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                let is_bound = self.lookup_binding(&name).is_some()
+                // `globalThis` is an intrinsic script global binding (see
+                // `script_global_bindings`) rather than a tracked global property, so it
+                // never shows up in `global_property_is_proven_present`. Without this arm
+                // `typeof globalThis` would lower to the unresolved-identifier form and
+                // constant-fold to "undefined".
+                let is_bound = name == GLOBAL_THIS_NAME
+                    || self.lookup_binding(&name).is_some()
                     || self.global_property_is_proven_present(&name)
                     || self.visible_function_names.contains_key(&name)
                     || (name == "arguments"

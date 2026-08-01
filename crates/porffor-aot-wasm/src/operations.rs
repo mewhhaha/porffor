@@ -10593,10 +10593,17 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::F64Eq);
                 }
                 ValueKind::String => {
+                    // Keep the left payload on the Wasm stack across the right
+                    // operand's emission, exactly like the `Number` arm above.
+                    // Spilling it to `scratch_local` first is unsound: right
+                    // operands that themselves lower through `scratch_local`
+                    // (`typeof x`, property reads, ...) overwrite the spill, so
+                    // `"object" === typeof x` used to compare a value against
+                    // itself-shifted garbage and report `false`.
                     self.compile_expr_payload(lhs, function)?;
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
                     self.compile_expr_payload(rhs, function)?;
                     function.instruction(&Instruction::LocalSet(self.result_local));
+                    function.instruction(&Instruction::LocalSet(self.scratch_local));
                     self.emit_string_payload_equality_i32(
                         self.scratch_local,
                         self.result_local,

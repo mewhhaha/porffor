@@ -101,35 +101,41 @@ pub(crate) fn supported_bound_names(
     interner: &Interner,
     binding: &Binding,
 ) -> Option<Vec<SupportedBoundName>> {
-    let identifiers = match binding {
-        Binding::Identifier(identifier) => vec![identifier],
-        Binding::Pattern(Pattern::Object(pattern)) => {
-            let mut identifiers = Vec::with_capacity(pattern.bindings().len());
-            for element in pattern.bindings() {
-                let ObjectPatternElement::SingleName { name, ident, .. } = element else {
-                    return None;
-                };
-                if !matches!(name, PropertyName::Literal(_)) {
-                    return None;
+    // Nested array/object patterns and object rest properties all bind names, so the
+    // walk has to recurse through both pattern shapes (ECMA-262 8.6 BoundNames).
+    fn collect<'a>(
+        pattern: &'a Pattern,
+        identifiers: &mut Vec<&'a boa_ast::expression::Identifier>,
+    ) -> Option<()> {
+        match pattern {
+            Pattern::Object(pattern) => {
+                for element in pattern.bindings() {
+                    match element {
+                        ObjectPatternElement::SingleName { name, ident, .. } => {
+                            if !matches!(name, PropertyName::Literal(_)) {
+                                return None;
+                            }
+                            identifiers.push(ident);
+                        }
+                        ObjectPatternElement::RestProperty { ident } => identifiers.push(ident),
+                        ObjectPatternElement::Pattern { name, pattern, .. } => {
+                            if !matches!(name, PropertyName::Literal(_)) {
+                                return None;
+                            }
+                            collect(pattern, identifiers)?;
+                        }
+                        ObjectPatternElement::AssignmentPropertyAccess { .. }
+                        | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => return None,
+                    }
                 }
-                identifiers.push(ident);
             }
-            identifiers
-        }
-        Binding::Pattern(Pattern::Array(pattern)) => {
-            fn collect<'a>(
-                pattern: &'a boa_ast::pattern::ArrayPattern,
-                identifiers: &mut Vec<&'a boa_ast::expression::Identifier>,
-            ) -> Option<()> {
+            Pattern::Array(pattern) => {
                 for element in pattern.bindings() {
                     match element {
                         ArrayPatternElement::SingleName { ident, .. }
                         | ArrayPatternElement::SingleNameRest { ident } => identifiers.push(ident),
                         ArrayPatternElement::Pattern { pattern, .. }
                         | ArrayPatternElement::PatternRest { pattern } => {
-                            let Pattern::Array(pattern) = pattern else {
-                                return None;
-                            };
                             collect(pattern, identifiers)?;
                         }
                         ArrayPatternElement::Elision => {}
@@ -137,10 +143,15 @@ pub(crate) fn supported_bound_names(
                         | ArrayPatternElement::PropertyAccessRest { .. } => return None,
                     }
                 }
-                Some(())
             }
+        }
+        Some(())
+    }
 
-            let mut identifiers = Vec::with_capacity(pattern.bindings().len());
+    let identifiers = match binding {
+        Binding::Identifier(identifier) => vec![identifier],
+        Binding::Pattern(pattern) => {
+            let mut identifiers = Vec::new();
             collect(pattern, &mut identifiers)?;
             identifiers
         }
@@ -155,6 +166,23 @@ pub(crate) fn supported_bound_names(
             })
             .collect(),
     )
+}
+
+/// True when every element of an object binding pattern is a plain
+/// `{ key: name }` / `{ name }` element with a literal property name, i.e. the
+/// shape the statement-per-binding lowering can emit directly. Nested patterns
+/// (`{ a: [b] }`) and rest properties (`{ a, ...rest }`) need the semantic
+/// `ObjectDestructure` node instead.
+pub(crate) fn object_pattern_binds_only_single_names(bindings: &[ObjectPatternElement]) -> bool {
+    bindings.iter().all(|element| {
+        matches!(
+            element,
+            ObjectPatternElement::SingleName {
+                name: PropertyName::Literal(_),
+                ..
+            }
+        )
+    })
 }
 
 pub(crate) fn function_declaration_key(function: &FunctionDeclaration) -> String {
