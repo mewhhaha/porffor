@@ -36,13 +36,40 @@ impl StripError {
     }
 }
 
-/// Deletes every top-level `import` declaration and every `export` modifier.
+/// What the scanner does with the `export default` keyword pair, decided by the
+/// record rather than re-derived from the text.
+///
+/// The two keywords are 14 bytes with a single separating space, which is the
+/// whole budget the anonymous form has to spend on a declaration head — see
+/// [`module_default_binding_name`](crate::module_default_binding_name).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DefaultExportRewrite<'a> {
+    /// No `export default` in this unit; one found anyway is a disagreement
+    /// between the record and the text, and is reported.
+    None,
+    /// The declaration binds its own name, so only the keywords are deleted.
+    DeleteKeywords,
+    /// The declaration binds nothing spellable, so the keywords become
+    /// `var <name> =` or `let <name> =`.
+    Bind {
+        /// Merged-scope name to declare.
+        name: &'a str,
+        /// Use `var` rather than `let`, for a hoistable declaration.
+        hoisted: bool,
+    },
+}
+
+/// Deletes every top-level `import` declaration and every `export` modifier,
+/// and rewrites `export default` as `default_export` directs.
 ///
 /// # Errors
 /// Returns [`StripError`] for module syntax this stage cannot express, and for
 /// source the scanner cannot lex (an unterminated string or comment).
-pub(crate) fn strip_module_syntax(source: &str) -> Result<String, StripError> {
-    let mut scanner = Scanner::new(source);
+pub(crate) fn strip_module_syntax(
+    source: &str,
+    default_export: DefaultExportRewrite<'_>,
+) -> Result<String, StripError> {
+    let mut scanner = Scanner::new(source, default_export);
     scanner.run()?;
     Ok(scanner.finish())
 }
@@ -60,8 +87,11 @@ enum SlashMeaning {
 struct Scanner<'a> {
     source: &'a str,
     bytes: &'a [u8],
-    /// Byte ranges to blank out, in ascending order and non-overlapping.
-    deletions: Vec<(usize, usize)>,
+    default_export: DefaultExportRewrite<'a>,
+    /// Byte ranges to rewrite, in ascending order and non-overlapping. `None`
+    /// blanks the range; `Some(text)` replaces it, and `text` is always exactly
+    /// as long as the range it replaces.
+    deletions: Vec<(usize, usize, Option<String>)>,
     /// Nesting depth of `(`, `[` and `{`. Module declarations only exist at 0.
     depth: usize,
     /// One entry per open template substitution, holding the `depth` *inside*
@@ -75,10 +105,11 @@ struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    fn new(source: &'a str) -> Self {
+    fn new(source: &'a str, default_export: DefaultExportRewrite<'a>) -> Self {
         Self {
             source,
             bytes: source.as_bytes(),
+            default_export,
             deletions: Vec::new(),
             depth: 0,
             template_stack: Vec::new(),
@@ -88,22 +119,28 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// Rebuilds the source with every deleted range blanked.
+    /// Rebuilds the source with every rewritten range blanked or replaced.
     ///
-    /// Deleted ranges are produced in ascending order and never overlap, so one
-    /// forward pass suffices. Line terminators inside a deleted range survive,
-    /// which is what keeps line numbers stable; every other character becomes a
-    /// space, which keeps byte offsets stable.
+    /// Rewritten ranges are produced in ascending order and never overlap, so
+    /// one forward pass suffices. Line terminators inside a blanked range
+    /// survive, which is what keeps line numbers stable; every other character
+    /// becomes a space, which keeps byte offsets stable. A replacement is
+    /// already the length of the range it covers, and `scan_export_prefix`
+    /// only ever mints one for a range with no line terminator in it.
     fn finish(self) -> String {
         let mut rebuilt = String::with_capacity(self.source.len());
         let mut cursor = 0usize;
-        for (start, end) in &self.deletions {
+        for (start, end, replacement) in &self.deletions {
             rebuilt.push_str(&self.source[cursor..*start]);
-            for ch in self.source[*start..*end].chars() {
-                if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
-                    rebuilt.push(ch);
-                } else {
-                    rebuilt.push(' ');
+            if let Some(text) = replacement {
+                rebuilt.push_str(text);
+            } else {
+                for ch in self.source[*start..*end].chars() {
+                    if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+                        rebuilt.push(ch);
+                    } else {
+                        rebuilt.push(' ');
+                    }
                 }
             }
             cursor = *end;
@@ -228,7 +265,7 @@ impl<'a> Scanner<'a> {
                     // expression; neither is a declaration.
                     if after != Some(b'(') && after != Some(b'.') {
                         let end = self.scan_import_declaration()?;
-                        self.deletions.push((start, end));
+                        self.deletions.push((start, end, None));
                         self.index = end;
                         self.slash = SlashMeaning::Regexp;
                         self.previous_was_dot = false;
@@ -236,8 +273,8 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 "export" => {
-                    let end = self.scan_export_prefix()?;
-                    self.deletions.push((start, end));
+                    let (end, replacement) = self.scan_export_prefix(start)?;
+                    self.deletions.push((start, end, replacement));
                     self.index = end;
                     self.slash = SlashMeaning::Regexp;
                     self.previous_was_dot = false;
@@ -298,12 +335,17 @@ impl<'a> Scanner<'a> {
     }
 
     /// Byte offset one past the end of the part of an `export` declaration the
-    /// linker deletes.
+    /// linker rewrites, and what to put there.
     ///
     /// For `export { ... }` and `export * from "m"` that is the whole
-    /// declaration. For `export <declaration>` it is only the keyword, so the
-    /// declaration itself stays and runs exactly as written.
-    fn scan_export_prefix(&mut self) -> Result<usize, StripError> {
+    /// declaration, blanked. For `export <declaration>` it is only the keyword,
+    /// so the declaration itself stays and runs exactly as written. For
+    /// `export default` it is both keywords, either blanked or replaced by a
+    /// declaration head — see [`DefaultExportRewrite`].
+    ///
+    /// `start` is the offset of the `export` keyword, which is where a
+    /// replacement has to begin.
+    fn scan_export_prefix(&mut self, start: usize) -> Result<(usize, Option<String>), StripError> {
         let after_keyword = self.index;
         let cursor = self.skip_trivia_from(after_keyword)?;
         match self.bytes.get(cursor).copied() {
@@ -323,7 +365,7 @@ impl<'a> Scanner<'a> {
                 } else {
                     end = after_list;
                 }
-                self.consume_optional_semicolon(end)
+                Ok((self.consume_optional_semicolon(end)?, None))
             }
             Some(b'*') => {
                 let mut end = cursor + 1;
@@ -338,14 +380,57 @@ impl<'a> Scanner<'a> {
                     }
                     end += self.char_len_at(end);
                 }
-                self.consume_optional_semicolon(end)
+                Ok((self.consume_optional_semicolon(end)?, None))
             }
-            _ if self.word_at(cursor, "default") => Err(StripError::new(
-                "`export default` is not linked yet; name the export instead",
-            )),
-            Some(_) => Ok(after_keyword),
+            _ if self.word_at(cursor, "default") => {
+                self.rewrite_default_keywords(start, cursor + "default".len())
+            }
+            Some(_) => Ok((after_keyword, None)),
             None => Err(StripError::new("`export` at end of source")),
         }
+    }
+
+    /// Rewrite for the `export default` keyword pair spanning `start..end`.
+    ///
+    /// The named forms need nothing but the keywords gone: what follows is
+    /// already a `FunctionDeclaration` or `ClassDeclaration` that binds the
+    /// export entry's `[[LocalName]]`. The anonymous forms have no such name,
+    /// so the keywords become the head of a declaration of the minted one, and
+    /// the rest of the text — the function, the class or the expression — stays
+    /// exactly where it was as that declaration's initializer.
+    fn rewrite_default_keywords(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<(usize, Option<String>), StripError> {
+        let (name, hoisted) = match self.default_export {
+            DefaultExportRewrite::None => {
+                return Err(StripError::new(
+                    "`export default` in a module whose record has no default export",
+                ));
+            }
+            DefaultExportRewrite::DeleteKeywords => return Ok((end, None)),
+            DefaultExportRewrite::Bind { name, hoisted } => (name, hoisted),
+        };
+        // A replacement is written verbatim, so a line terminator inside the
+        // range it covers would be lost and every later line would shift.
+        if self.source[start..end].contains(['\n', '\r', '\u{2028}', '\u{2029}']) {
+            return Err(StripError::new(
+                "`export default` split across lines is not linked yet",
+            ));
+        }
+        let keyword = if hoisted { "var " } else { "let " };
+        let head = keyword.len() + name.len() + 1;
+        let width = end - start;
+        let Some(padding) = width.checked_sub(head) else {
+            return Err(StripError::new(format!(
+                "`export default` binding `{name}` does not fit in the {width} bytes it replaces"
+            )));
+        };
+        Ok((
+            end,
+            Some(format!("{keyword}{name}{}=", " ".repeat(padding))),
+        ))
     }
 
     fn consume_optional_semicolon(&self, end: usize) -> Result<usize, StripError> {
@@ -628,7 +713,7 @@ mod tests {
     use super::*;
 
     fn strip(source: &str) -> String {
-        strip_module_syntax(source).expect("source should strip")
+        strip_module_syntax(source, DefaultExportRewrite::None).expect("source should strip")
     }
 
     #[test]
@@ -691,10 +776,80 @@ mod tests {
         assert!(stripped.contains("const x = 1;"));
     }
 
+    /// A record that says the unit has no default export disagrees with text
+    /// that does: reported, never guessed at.
     #[test]
-    fn export_default_is_reported_rather_than_mangled() {
-        let error = strip_module_syntax("export default 1;").expect_err("must be reported");
-        assert!(error.reason.contains("export default"));
+    fn export_default_without_a_record_entry_is_reported() {
+        let error = strip_module_syntax("export default 1;", DefaultExportRewrite::None)
+            .expect_err("must be reported");
+        assert!(error.reason.contains("export default"), "{}", error.reason);
+    }
+
+    /// The anonymous form becomes a declaration of the minted name, in place
+    /// and without moving a byte of the initializer.
+    #[test]
+    fn anonymous_export_default_becomes_a_declaration_of_the_minted_name() {
+        let source = "export default 42;\nprint(1);\n";
+        let stripped = strip_module_syntax(
+            source,
+            DefaultExportRewrite::Bind {
+                name: "$d0$",
+                hoisted: false,
+            },
+        )
+        .expect("source should strip");
+        assert_eq!(stripped.len(), source.len());
+        assert_eq!(stripped, "let $d0$     = 42;\nprint(1);\n");
+    }
+
+    /// A hoistable anonymous default keeps being initialized before the body
+    /// runs, which `let` would have replaced with a TDZ.
+    #[test]
+    fn a_hoistable_anonymous_default_is_declared_with_var() {
+        let stripped = strip_module_syntax(
+            "export default function () {}",
+            DefaultExportRewrite::Bind {
+                name: "$d3$",
+                hoisted: true,
+            },
+        )
+        .expect("source should strip");
+        assert_eq!(stripped, "var $d3$     = function () {}");
+    }
+
+    /// `export default function f() {}` already binds `f`, so the keywords are
+    /// simply deleted and the declaration stays a declaration.
+    #[test]
+    fn a_named_export_default_only_loses_its_keywords() {
+        let source = "export default function f() {}\n";
+        let stripped = strip_module_syntax(source, DefaultExportRewrite::DeleteKeywords)
+            .expect("source should strip");
+        assert_eq!(stripped.len(), source.len());
+        assert_eq!(stripped, "               function f() {}\n");
+    }
+
+    /// A minted name too long for the keywords it replaces is reported rather
+    /// than emitted at the wrong length.
+    #[test]
+    fn a_default_binding_that_does_not_fit_is_reported() {
+        let error = strip_module_syntax(
+            "export default 1;",
+            DefaultExportRewrite::Bind {
+                name: "$d1234567890$",
+                hoisted: false,
+            },
+        )
+        .expect_err("must be reported");
+        assert!(error.reason.contains("does not fit"), "{}", error.reason);
+    }
+
+    #[test]
+    fn export_star_from_is_deleted_whole() {
+        let source = "export * from \"./m.mjs\";\nprint(1);\n";
+        let stripped = strip(source);
+        assert_eq!(stripped.len(), source.len());
+        assert!(!stripped.contains("export"), "got {stripped}");
+        assert!(stripped.ends_with("print(1);\n"));
     }
 
     #[test]

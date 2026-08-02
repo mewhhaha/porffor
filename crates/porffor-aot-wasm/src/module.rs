@@ -144,6 +144,13 @@ pub(crate) const TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 115;
 pub(crate) const INTL_OBJECT_GLOBAL_INDEX: u32 = 116;
 pub(crate) const INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX: u32 = 117;
 pub(crate) const INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX: u32 = 118;
+// HostPromiseRejectionTracker bookkeeping: a FIFO of promise records that were
+// rejected while [[IsHandled]] was false. The list is walked once, after the
+// job queue drains, and entries whose [[IsHandled]] became true in the meantime
+// are skipped - so a `.catch` attached from a later job still suppresses the
+// report.
+pub(crate) const PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX: u32 = 119;
+pub(crate) const PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX: u32 = 120;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -645,6 +652,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     GlobalIndexSlot {
         name: "Intl.Locale",
         index: INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "unhandled_rejection_head",
+        index: PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "unhandled_rejection_tail",
+        index: PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
     },
 ];
 
@@ -1655,7 +1670,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX as usize + 1
         );
     }
 

@@ -2707,6 +2707,9 @@ impl<'a> FunctionBuilder<'a> {
             } else {
                 self.emit_drain_promise_jobs(&mut function)?;
             }
+            // Every job that could still attach a handler has now run, so a
+            // promise still marked unhandled really is an unhandled rejection.
+            self.emit_report_unhandled_rejection(&mut function)?;
         }
         assert!(
             self.next_binding_local <= self.current_env_local,

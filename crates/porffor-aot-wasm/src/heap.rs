@@ -240,7 +240,7 @@ pub(crate) const HEAP_BIGINT_RECORD_SIZE: u64 = 32;
 #[allow(dead_code)]
 pub(crate) const HEAP_SYMBOL_RECORD_SIZE: u64 = 32;
 #[allow(dead_code)]
-pub(crate) const HEAP_PROMISE_RECORD_SIZE: u64 = 64;
+pub(crate) const HEAP_PROMISE_RECORD_SIZE: u64 = 72;
 pub(crate) const HEAP_MAP_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_MAP_ENTRY_SIZE: u64 = 40;
 pub(crate) const HEAP_WEAK_MAP_RECORD_SIZE: u64 = 32;
@@ -727,6 +727,10 @@ pub(crate) const HEAP_PROMISE_REJECT_REACTIONS_OFFSET: u64 = 32;
 pub(crate) const HEAP_PROMISE_IS_HANDLED_OFFSET: u64 = 40;
 pub(crate) const HEAP_PROMISE_REALM_OFFSET: u64 = 48;
 pub(crate) const HEAP_PROMISE_HOST_DATA_OFFSET: u64 = 56;
+// Intrusive link used by the host unhandled-rejection tracker. A promise is
+// appended to the tracked list at most once - when RejectPromise runs while
+// [[IsHandled]] is still false - so one link field per record is enough.
+pub(crate) const HEAP_PROMISE_UNHANDLED_NEXT_OFFSET: u64 = 64;
 pub(crate) const HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET: u64 = 16;
@@ -2850,6 +2854,13 @@ pub(crate) const HEAP_PROMISE_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "promise-record",
+        name: "unhandled_next",
+        offset: HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -4699,7 +4710,7 @@ mod tests {
             328
         );
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET, 336);
-        assert_eq!(HEAP_PROMISE_RECORD_SIZE, 64);
+        assert_eq!(HEAP_PROMISE_RECORD_SIZE, 72);
         assert_eq!(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, 48);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 56);
         assert_eq!(HEAP_PENDING_JOB_RECORD_SIZE, 56);

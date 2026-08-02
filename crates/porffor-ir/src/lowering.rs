@@ -8599,6 +8599,15 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         for_in: &boa_ast::statement::iteration::ForInLoop,
     ) -> (StatementIr, ValueKind) {
+        // The for-in statements have no resumable form. Re-entering the body
+        // from the top restarts enumeration at the first key and skips the
+        // suspension, so the loop silently visits one key and stops.
+        if self.plain_async_entry_state().is_some()
+            && contains(for_in.body(), ContainsSymbol::AwaitExpression)
+        {
+            self.unsupported("await inside a for-in loop");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
         let initializer_prefix = self.lower_for_in_initializer_prefix(for_in.initializer());
         if self.for_in_known_empty_target(for_in.target()) {
             return Self::prepend_statement(
@@ -10664,6 +10673,19 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_while_loop(&mut self, while_loop: &WhileLoop) -> (StatementIr, ValueKind) {
         let generator_entry_state = self.current_generator_resume_state;
+        let plain_async_entry_state = self.plain_async_entry_state();
+        let plain_async_await_loop = plain_async_entry_state.is_some()
+            && (contains(while_loop.body(), ContainsSymbol::AwaitExpression)
+                || contains(while_loop.condition(), ContainsSymbol::AwaitExpression));
+        if plain_async_await_loop
+            && (contains(while_loop.condition(), ContainsSymbol::AwaitExpression)
+                || generator_loop_has_unsupported_control(while_loop.body(), false))
+        {
+            self.unsupported(
+                "async loop with await requires an eager loop head without break or continue",
+            );
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
         let condition = self.lower_expression(while_loop.condition());
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
@@ -10672,12 +10694,18 @@ impl<'a> ScriptLowerer<'a> {
         let after_globals = self.global_properties.clone();
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
-        if let Some(entry_state) = generator_entry_state {
+        if let Some(entry_state) = generator_entry_state.or(if plain_async_await_loop {
+            plain_async_entry_state
+        } else {
+            None
+        }) {
             if let Some((before_suspension, suspension_statement, after_suspension)) =
                 Self::split_resumable_loop_body(body.clone())
             {
-                let StatementIr::GeneratorYield { resume_state, .. } = &suspension_statement else {
-                    unreachable!("while-loop resumable statement must be a yield");
+                let (StatementIr::GeneratorYield { resume_state, .. }
+                | StatementIr::AsyncAwait { resume_state, .. }) = &suspension_statement
+                else {
+                    unreachable!("while-loop resumable statement must be a yield or await");
                 };
                 let resume_state = *resume_state;
                 let exit_state = if self.current_resumable_plan.is_some() {
@@ -10685,7 +10713,11 @@ impl<'a> ScriptLowerer<'a> {
                 } else {
                     resume_state + 1
                 };
-                self.current_generator_resume_state = Some(exit_state);
+                if generator_entry_state.is_some() {
+                    self.current_generator_resume_state = Some(exit_state);
+                } else {
+                    self.current_async_resume_state = Some(exit_state);
+                }
                 return (
                     StatementIr::GeneratorLoop {
                         init: None,
@@ -10702,6 +10734,10 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
         }
+        if plain_async_await_loop {
+            self.unsupported("async loop body did not lower to one direct await");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
         (
             StatementIr::While {
                 condition,
@@ -10712,6 +10748,17 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_do_while_loop(&mut self, do_while: &DoWhileLoop) -> (StatementIr, ValueKind) {
+        // `StatementIr::DoWhile` has no resumable form: the async driver
+        // re-enters the body from the top and the suspension, already past its
+        // state guard, never fires again — the loop spins forever. Report it
+        // rather than emit that.
+        if self.plain_async_entry_state().is_some()
+            && (contains(do_while.body(), ContainsSymbol::AwaitExpression)
+                || contains(do_while.cond(), ContainsSymbol::AwaitExpression))
+        {
+            self.unsupported("await inside a do-while loop");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
         let (body, body_kind) = self.lower_loop_body(do_while.body());
         let condition = self.lower_expression(do_while.cond());
         (
@@ -10742,6 +10789,18 @@ impl<'a> ScriptLowerer<'a> {
         {
             self.unsupported(
                 "resumable async loop requires one direct body await and an eager loop head without break or continue",
+            );
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        let plain_async_entry_state = self.plain_async_entry_state();
+        let plain_async_await_loop = plain_async_entry_state.is_some()
+            && (contains(for_loop.body(), ContainsSymbol::AwaitExpression) || loop_head_has_await);
+        if plain_async_await_loop
+            && (loop_head_has_await
+                || generator_loop_has_unsupported_control(for_loop.body(), false))
+        {
+            self.unsupported(
+                "async loop with await requires an eager loop head without break or continue",
             );
             return (StatementIr::Empty, ValueKind::Undefined);
         }
@@ -10816,7 +10875,11 @@ impl<'a> ScriptLowerer<'a> {
                 self.merge_global_properties(&before_globals, &self.global_properties.clone());
         }
 
-        if let Some(entry_state) = generator_entry_state {
+        if let Some(entry_state) = generator_entry_state.or(if plain_async_await_loop {
+            plain_async_entry_state
+        } else {
+            None
+        }) {
             if lexical_environment.is_none() {
                 if let Some((before_suspension, suspension_statement, after_suspension)) =
                     Self::split_resumable_loop_body(body.clone())
@@ -10833,7 +10896,11 @@ impl<'a> ScriptLowerer<'a> {
                     } else {
                         resume_state + 1
                     };
-                    self.current_generator_resume_state = Some(exit_state);
+                    if generator_entry_state.is_some() {
+                        self.current_generator_resume_state = Some(exit_state);
+                    } else {
+                        self.current_async_resume_state = Some(exit_state);
+                    }
                     return (
                         StatementIr::GeneratorLoop {
                             init,
@@ -10855,6 +10922,14 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("resumable async loop body did not lower to one direct await");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
+        if plain_async_await_loop {
+            // Falling through would emit a straight-line `StatementIr::For`
+            // holding a suspension: the driver re-enters the body from the top,
+            // so the loop would restart at iteration zero and never suspend
+            // again. A diagnostic is the only safe answer.
+            self.unsupported("async loop body did not lower to one direct await");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
 
         (
             StatementIr::For {
@@ -10868,13 +10943,30 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// The resume state a plain `async function` body is currently at, or
+    /// `None` for every other execution kind.
+    ///
+    /// Generators and async generators drive their loops off
+    /// `current_generator_resume_state` (and, for async generators, a preplanned
+    /// `ResumablePlanIr`); a plain async function has only the async state, so
+    /// this is what distinguishes "needs the resumable loop lowering" from
+    /// "already has it".
+    fn plain_async_entry_state(&self) -> Option<u32> {
+        if self.current_generator_resume_state.is_some() {
+            return None;
+        }
+        self.current_async_resume_state
+    }
+
     fn split_resumable_loop_body(
         body: StatementIr,
     ) -> Option<(Vec<StatementIr>, StatementIr, Vec<StatementIr>)> {
         let statements = match body {
             StatementIr::Block(block) if block.lexical_environment.is_none() => block.statements,
+            StatementIr::LexicalBlock(statements) => statements,
             statement => vec![statement],
         };
+        let statements = flatten_suspending_lexical_blocks(statements);
         let suspension_index = statements.iter().position(|statement| {
             matches!(
                 statement,
@@ -10903,6 +10995,172 @@ impl<'a> ScriptLowerer<'a> {
         Some((before_suspension, suspension_statement, after_suspension))
     }
 
+    /// Rewrites `for (x of arr) { … await … }` inside a plain async function
+    /// into the index-driven `StatementIr::GeneratorLoop` the resumable async
+    /// dispatcher can re-enter.
+    ///
+    /// `StatementIr::ForOfArray` emits a straight-line wasm loop: on resume the
+    /// async driver re-enters the function from the top, the loop would restart
+    /// at element zero, and the suspension would never fire again. Hoisting the
+    /// array and the cursor into loop-init bindings puts both in the activation
+    /// record, so each invocation runs exactly one iteration — the same shape
+    /// `lower_for_loop` produces (ECMA-262 14.7.5 ForIn/OfBodyEvaluation over an
+    /// array, 27.7.5.3 AsyncBlockStart for the resume).
+    ///
+    /// Only the array-shaped iterable is rewritten. Anything else keeps the
+    /// iterator protocol, which has its own suspension points, so it is reported
+    /// as unsupported rather than silently miscompiled.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_async_for_of_array_with_body_await(
+        &mut self,
+        mode: BindingMode,
+        storage_name: &str,
+        iterable: TypedExpr,
+        element_info: &ValueInfo,
+        body: StatementIr,
+        body_kind: ValueKind,
+        has_unsupported_binding_form: bool,
+        entry_state: Option<u32>,
+        head_environment: Option<ForInOfEnvironmentIr>,
+    ) -> (StatementIr, ValueKind) {
+        let is_array = iterable
+            .possible_kinds
+            .is_subset_of(KindSet::from_kind(ValueKind::Array));
+        let Some(entry_state) = entry_state.filter(|_| is_array && !has_unsupported_binding_form)
+        else {
+            self.unsupported(
+                "async for-of with a body await requires an array iterable and a plain binding",
+            );
+            return (StatementIr::Empty, ValueKind::Undefined);
+        };
+        let Some((before_suspension, suspension_statement, after_suspension)) =
+            Self::split_resumable_loop_body(body)
+        else {
+            self.unsupported("async for-of body did not lower to one direct await");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        };
+        let StatementIr::AsyncAwait { resume_state, .. } = &suspension_statement else {
+            self.unsupported("async for-of body did not lower to one direct await");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        };
+        let resume_state = *resume_state;
+        let exit_state = resume_state + 1;
+
+        // The array and the cursor are read on every resume, so they have to
+        // live in the activation record rather than in wasm locals, which the
+        // return to the job queue discards. Source-level bindings get that from
+        // the owner analysis; these two are synthesized here, so they have to
+        // ask for it explicitly.
+        let array_info = iterable.value_info();
+        let number_info = ValueInfo::new(ValueKind::Number);
+        let array_name =
+            self.alloc_suspension_owned_binding("async.forof.array.", array_info.clone());
+        let index_name =
+            self.alloc_suspension_owned_binding("async.forof.index.", number_info.clone());
+        let array_ref =
+            || TypedExpr::from_info(array_info.clone(), ExprIr::Identifier(array_name.clone()));
+        let index_ref =
+            || TypedExpr::from_info(number_info.clone(), ExprIr::Identifier(index_name.clone()));
+
+        let init = ForInitIr::LexicalBlock(vec![
+            ForLexicalInitIr {
+                mode: BindingMode::Let,
+                name: array_name.clone(),
+                init: iterable,
+            },
+            ForLexicalInitIr {
+                mode: BindingMode::Let,
+                name: index_name.clone(),
+                init: TypedExpr::from_info(number_info.clone(), ExprIr::Number(0.0f64.to_bits())),
+            },
+        ]);
+        let test = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::CompareValue {
+                op: RelationalBinaryOp::LessThan,
+                lhs: Box::new(index_ref()),
+                rhs: Box::new(TypedExpr::from_info(
+                    number_info.clone(),
+                    ExprIr::PropertyRead {
+                        target: Box::new(array_ref()),
+                        key: PropertyKeyIr::ArrayLength,
+                    },
+                )),
+            },
+        );
+        let update = TypedExpr::from_info(
+            number_info.clone(),
+            ExprIr::UpdateIdentifier {
+                name: index_name.clone(),
+                op: NumericUpdateOp::Increment,
+                return_mode: UpdateReturnMode::Postfix,
+                value_kind: ValueKind::Number,
+            },
+        );
+        let element_value = TypedExpr::from_info(
+            element_info.clone(),
+            ExprIr::PropertyRead {
+                target: Box::new(array_ref()),
+                key: PropertyKeyIr::ArrayIndex(Box::new(index_ref())),
+            },
+        );
+        // `var` is hoisted to the enclosing function scope and has no TDZ, so it
+        // takes the assignment form; `let`/`const` are re-created per iteration.
+        let element_binding = if mode == BindingMode::Var {
+            StatementIr::Var(vec![VarDeclaratorIr {
+                name: storage_name.to_string(),
+                init: Some(element_value),
+            }])
+        } else {
+            StatementIr::Lexical {
+                mode,
+                name: storage_name.to_string(),
+                init: element_value,
+            }
+        };
+        // The head environment only puts the loop name's TDZ slot in scope while
+        // the iterable is evaluated. Declaring those slots here reproduces it:
+        // every resumable loop compiler marks `before_suspension` bindings
+        // uninitialized before it runs the loop init, so a self-referential
+        // iterable still sees the ReferenceError (ECMA-262 14.7.5.5).
+        let tdz_names = if mode == BindingMode::Var {
+            Vec::new()
+        } else {
+            head_environment
+                .map(|environment| environment.tdz_binding_names)
+                .unwrap_or_default()
+        };
+        let mut before = Vec::with_capacity(before_suspension.len() + tdz_names.len() + 1);
+        for name in tdz_names {
+            if name == storage_name {
+                continue;
+            }
+            before.push(StatementIr::Lexical {
+                mode,
+                name,
+                init: TypedExpr::undefined(),
+            });
+        }
+        before.push(element_binding);
+        before.extend(before_suspension);
+
+        self.current_async_resume_state = Some(exit_state);
+        (
+            StatementIr::GeneratorLoop {
+                init: Some(init),
+                test: Some(test),
+                update: Some(update),
+                before_suspension: before,
+                suspension_statement: Box::new(suspension_statement),
+                after_suspension,
+                entry_state,
+                resume_state,
+                exit_state,
+            },
+            body_kind,
+        )
+    }
+
     fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
         let uses_unified_resumable_plan = for_of.r#await() && self.current_resumable_plan.is_some();
         let async_entry_state = if for_of.r#await() && !uses_unified_resumable_plan {
@@ -10916,6 +11174,21 @@ impl<'a> ScriptLowerer<'a> {
         }
         if for_of.r#await() && contains(for_of.body(), ContainsSymbol::AwaitExpression) {
             self.unsupported("explicit await in for-await-of body");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        // A plain `for (x of …)` whose body awaits needs the same
+        // one-iteration-per-invocation shape a resumable `for` loop gets, so it
+        // is rewritten below into an index-driven `StatementIr::GeneratorLoop`.
+        let plain_async_await_body = self.plain_async_entry_state().is_some()
+            && !for_of.r#await()
+            && contains(for_of.body(), ContainsSymbol::AwaitExpression);
+        if plain_async_await_body
+            && (generator_loop_has_unsupported_control(for_of.body(), false)
+                || contains(for_of.iterable(), ContainsSymbol::AwaitExpression))
+        {
+            self.unsupported(
+                "async for-of with await requires an eager iterable and a body without break or continue",
+            );
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         if let IterableLoopInitializer::WebCompatCall(call) = for_of.initializer() {
@@ -11154,6 +11427,7 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             Vec::new()
         };
+        let plain_async_entry_state = self.plain_async_entry_state();
         let (mut body, body_kind) = self.lower_loop_body(for_of.body());
         let async_generator_close_suspension = uses_unified_resumable_plan
             .then(|| self.take_resumable_suspension(ResumableSuspensionKindIr::ForAwaitClose))
@@ -11171,6 +11445,22 @@ impl<'a> ScriptLowerer<'a> {
         let after_globals = self.global_properties.clone();
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
+        if plain_async_await_body {
+            return self.lower_async_for_of_array_with_body_await(
+                mode,
+                &storage_name,
+                iterable,
+                &element_info,
+                body,
+                body_kind,
+                !for_of_environment_is_storage_only(lexical_environment.as_ref())
+                    || pattern_initializer.is_some()
+                    || assignment_pattern_initializer.is_some()
+                    || private_initializer.is_some(),
+                plain_async_entry_state,
+                lexical_environment.clone(),
+            );
+        }
         let statement = if iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array))

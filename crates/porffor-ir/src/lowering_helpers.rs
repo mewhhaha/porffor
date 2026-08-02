@@ -5,6 +5,61 @@ pub(crate) enum StaticStringGeneratorLoopBody {
     FromCharCodeUnlessRegexpMatch(Regex),
 }
 
+/// Splices out the scope wrappers that hoisting an `await`/`yield` operand puts
+/// around a loop body, so the suspension becomes a direct statement again.
+///
+/// `t += await p` lowers to
+/// `LexicalBlock([Lexical $async.await.0, AsyncAwait, Expression(t += …)])`, and
+/// `const v = await p` adds a second `Lexical` after the suspension. Both hide
+/// the `AsyncAwait` one level down, where `split_resumable_loop_body` cannot see
+/// it — the loop would then fall back to a straight-line `StatementIr::For`
+/// holding a suspension the resumable dispatcher can never re-enter.
+///
+/// Only blocks that actually contain a suspension are flattened, so ordinary
+/// nested scopes keep their structure. Flattening is safe for the ones that do:
+/// `StatementIr::LexicalBlock` is a flat statement list in every backend (it
+/// allocates bindings, it does not materialize an environment), and the names it
+/// binds are already uniquified by the lowerer, so hoisting them into the loop
+/// body scope cannot collide (ECMA-262 14.7 / 8.6 per-iteration bindings).
+pub(crate) fn flatten_suspending_lexical_blocks(statements: Vec<StatementIr>) -> Vec<StatementIr> {
+    if !statements.iter().any(block_contains_direct_suspension) {
+        return statements;
+    }
+    let mut flattened = Vec::with_capacity(statements.len());
+    for statement in statements {
+        match statement {
+            StatementIr::LexicalBlock(inner) if inner.iter().any(is_direct_suspension) => {
+                flattened.extend(flatten_suspending_lexical_blocks(inner));
+            }
+            StatementIr::Block(block)
+                if block.lexical_environment.is_none()
+                    && block.statements.iter().any(is_direct_suspension) =>
+            {
+                flattened.extend(flatten_suspending_lexical_blocks(block.statements));
+            }
+            statement => flattened.push(statement),
+        }
+    }
+    flattened
+}
+
+fn is_direct_suspension(statement: &StatementIr) -> bool {
+    matches!(
+        statement,
+        StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
+    )
+}
+
+fn block_contains_direct_suspension(statement: &StatementIr) -> bool {
+    match statement {
+        StatementIr::LexicalBlock(inner) => inner.iter().any(is_direct_suspension),
+        StatementIr::Block(block) if block.lexical_environment.is_none() => {
+            block.statements.iter().any(is_direct_suspension)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn function_name(
     interner: &Interner,
     function: &FunctionDeclaration,
@@ -1388,6 +1443,35 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
         reject_nested_functions,
     };
     loop_statement.visit_with(&mut visitor).is_break()
+}
+
+/// Whether a `for`-`of` head environment does nothing beyond putting the loop
+/// binding in TDZ while the iterable is evaluated.
+///
+/// `None`, and "no runtime environment objects, only TDZ storage slots", are
+/// both reproducible by the resumable loop lowering: it declares those slots as
+/// `StatementIr::Lexical` bindings, which every loop compiler marks
+/// uninitialized before running the loop init — the same observable TDZ
+/// (ECMA-262 14.7.5.5 ForIn/OfHeadEvaluation, 8.6.2). A captured iteration
+/// environment needs the real per-iteration environment object and is not
+/// reproducible this way.
+pub(crate) fn for_of_environment_is_storage_only(
+    environment: Option<&ForInOfEnvironmentIr>,
+) -> bool {
+    let Some(environment) = environment else {
+        return true;
+    };
+    environment.tdz_environment.is_none() && environment.iteration_environment.is_none()
+}
+
+/// `break`/`continue` anywhere inside a resumable loop body is rejected: the
+/// body is re-entered one iteration per invocation, so a branch out of it has no
+/// wasm control frame to land in.
+pub(crate) fn generator_loop_has_unsupported_control<N: VisitWith + ?Sized>(
+    loop_statement: &N,
+    reject_nested_functions: bool,
+) -> bool {
+    generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions)
 }
 
 pub(crate) fn generator_function_is_aot_supported(

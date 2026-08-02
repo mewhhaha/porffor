@@ -6225,6 +6225,175 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn plain_async_for_loop_await_lowers_to_a_resumable_loop() {
+        // Without this the loop lowers to a straight-line `StatementIr::For`
+        // holding the await: the async driver re-enters the body from the top,
+        // so the loop restarts at iteration zero and the suspension, already
+        // past its state guard, never fires again.
+        let program = lower_script(
+            "(async function(){ let t = 0; for (let i = 0; i < 3; i++) { t += await Promise.resolve(i); } print(t); })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .first()
+            .expect("async function expression should be collected");
+        assert_eq!(function.execution_kind, FunctionExecutionKind::Async);
+        assert!(function.resumable_plan.is_none());
+
+        let [StatementIr::Lexical { name, .. }, StatementIr::GeneratorLoop {
+            init: Some(ForInitIr::Lexical { .. }),
+            test: Some(_),
+            update: Some(_),
+            suspension_statement,
+            after_suspension,
+            entry_state: 0,
+            resume_state: 1,
+            exit_state: 2,
+            ..
+        }, StatementIr::Expression(_)] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected a resumable await loop between the accumulator and the print: {:#?}",
+                function.body.statements
+            );
+        };
+        assert_eq!(name, "t");
+        assert!(matches!(
+            suspension_statement.as_ref(),
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                ..
+            }
+        ));
+        // `t += <awaited>` has to land after the suspension, or the accumulator
+        // is re-read from before the await on every resume.
+        assert_eq!(after_suspension.len(), 1);
+    }
+
+    #[test]
+    fn plain_async_while_loop_await_lowers_to_a_resumable_loop() {
+        let program = lower_script(
+            "(async function(){ let n = 0; while (n < 3) { n++; await Promise.resolve(0); } print(n); })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .first()
+            .expect("async function expression should be collected");
+        assert!(
+            function
+                .body
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, StatementIr::GeneratorLoop { .. })),
+            "{:#?}",
+            function.body.statements
+        );
+    }
+
+    #[test]
+    fn plain_async_for_of_array_body_await_lowers_to_an_index_loop() {
+        let program = lower_script(
+            "(async function(){ const out = []; for (const x of [1,2,3]) { out.push(await Promise.resolve(x)); } print(out); })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .first()
+            .expect("async function expression should be collected");
+
+        let Some(StatementIr::GeneratorLoop {
+            init: Some(ForInitIr::LexicalBlock(head)),
+            test: Some(_),
+            update: Some(_),
+            before_suspension,
+            ..
+        }) = function
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+        else {
+            panic!(
+                "for-of with a body await should become an index loop: {:#?}",
+                function.body.statements
+            );
+        };
+        // The array and the cursor both have to survive the suspension, so they
+        // are hoisted into the loop head and given activation-record slots.
+        assert_eq!(head.len(), 2);
+        for binding in head {
+            assert!(
+                function
+                    .owned_env_bindings
+                    .iter()
+                    .any(|owned| owned.name == binding.name),
+                "`{}` must live in the activation record: {:?}",
+                binding.name,
+                function.owned_env_bindings
+            );
+        }
+        assert!(matches!(
+            before_suspension.first(),
+            Some(StatementIr::Lexical { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_async_loop_awaits_with_no_resumable_shape() {
+        // Each of these used to compile to a loop that ran its body once and
+        // then reused the first resumed value for every later iteration.
+        for (source, message) in [
+            (
+                "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",
+                "async loop body did not lower to one direct await",
+            ),
+            (
+                "(async function(){ for (let i = 0; i < 2; i++) { await 0; break; } })();",
+                "async loop with await requires an eager loop head without break or continue",
+            ),
+            (
+                "(async function(){ for (let i = 0; i < 2; i++) { await 0; await 1; } })();",
+                "async loop body did not lower to one direct await",
+            ),
+            (
+                "(async function(){ let n = 0; do { n++; await 0; } while (n < 2); })();",
+                "await inside a do-while loop",
+            ),
+            (
+                "(async function(){ for (const k in { a: 1 }) { await 0; } })();",
+                "await inside a for-in loop",
+            ),
+            (
+                "(async function(){ for (const c of \"ab\") { await 0; } })();",
+                "async for-of with a body await requires an array iterable and a plain binding",
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(!program.is_wasm_supported(), "{source} should not compile");
+            assert!(
+                program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains(message)),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+
+    #[test]
     fn async_generator_loop_reuses_one_await_state_across_iterations() {
         let program = lower_script(
             "async function* callAsync(iterations, pushAwait) {

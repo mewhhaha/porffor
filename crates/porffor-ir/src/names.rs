@@ -34,6 +34,22 @@ pub fn module_storage_prefix(unit: u32) -> String {
     format!("$m{unit}$")
 }
 
+/// Merged-scope spelling of module `unit`'s *anonymous* `export default`.
+///
+/// 8.2.2 names such a binding `*default*` precisely so that no source text can
+/// spell it — which is exactly what the source-text merge needs it to do, since
+/// the merged script has to *declare* it. This is the shortest per-unit name
+/// that still cannot be spelled by accident: it starts with `$`, which
+/// [`module_storage_prefix`] already reserves for the module system.
+///
+/// It is deliberately short. `modules::source` rewrites the two keywords
+/// `export default` in place, and that rewrite must not change the byte length
+/// of the unit's text, so the whole declaration head has to fit in 14 bytes.
+#[must_use]
+pub fn module_default_binding_name(unit: u32) -> String {
+    format!("$d{unit}$")
+}
+
 /// `FunctionId` prefix for module `unit`'s functions.
 ///
 /// `FunctionId`s are minted from source byte offsets, so two modules collide

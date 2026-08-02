@@ -1279,9 +1279,24 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    fn compile_async_generator_loop(
+    /// Compiles one `StatementIr::GeneratorLoop` for a resumable async body.
+    ///
+    /// Each wasm invocation of an async body runs at most one loop iteration:
+    /// the suspension returns to the job queue and the driver re-enters the
+    /// function from the top. `resume_state_offset` names the activation slot
+    /// holding that state, which differs between a plain async function
+    /// (`HEAP_ASYNC_RESUME_STATE_OFFSET`) and an async generator
+    /// (`HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET`); everything else about the
+    /// loop shape is identical, so both share this emitter.
+    ///
+    /// The loop-carried state (`init` bindings, the iteration variable) lives in
+    /// the activation record, so re-entry skips `init` and picks the iteration
+    /// back up mid-body — ECMA-262 27.7.5.3 AsyncBlockStart resuming inside
+    /// 14.7 iteration statements.
+    fn compile_resumable_async_loop(
         &mut self,
         statement: &StatementIr,
+        resume_state_offset: u64,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let StatementIr::GeneratorLoop {
@@ -1296,15 +1311,15 @@ impl<'a> FunctionBuilder<'a> {
             exit_state,
         } = statement
         else {
-            unreachable!("async-generator loop compiler requires a generator loop");
+            unreachable!("async loop compiler requires a generator loop");
         };
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("async-generator loop requires the function call ABI")
+            EmitError::unsupported("resumable async loop requires the function call ABI")
         })?;
         let state_local = self.reserve_temp_local();
         self.load_i64_to_local_from_offset(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            resume_state_offset,
             state_local,
             function,
         );
@@ -1359,7 +1374,7 @@ impl<'a> FunctionBuilder<'a> {
         self.push_control(ControlFrameKind::If);
         self.store_i64_const_at_offset(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            resume_state_offset,
             u64::from(*entry_state),
             function,
         );
@@ -1372,7 +1387,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.store_i64_const_at_offset(
             activation_local,
-            HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+            resume_state_offset,
             u64::from(*exit_state),
             function,
         );
@@ -1923,13 +1938,32 @@ impl<'a> FunctionBuilder<'a> {
                     );
                 }
                 StatementIr::GeneratorLoop { .. } => {
-                    return self.compile_async_generator_loop(statement, function);
+                    return self.compile_resumable_async_loop(
+                        statement,
+                        HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+                        function,
+                    );
                 }
                 StatementIr::GeneratorIf { .. } => {
                     return self.compile_async_generator_if(statement, function);
                 }
                 _ => {}
             }
+        }
+
+        // A plain async function reaches its loop bodies through the same
+        // one-iteration-per-invocation state machine; only the activation slot
+        // holding the resume state differs.
+        if matches!(statement, StatementIr::GeneratorLoop { .. })
+            && self
+                .current_function_meta()
+                .is_some_and(|meta| meta.execution_kind == FunctionExecutionKind::Async)
+        {
+            return self.compile_resumable_async_loop(
+                statement,
+                HEAP_ASYNC_RESUME_STATE_OFFSET,
+                function,
+            );
         }
 
         match statement {

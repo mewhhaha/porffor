@@ -89,6 +89,8 @@
 
 use crate::*;
 
+use super::record::module_binding_reference;
+
 /// One entry of a module namespace object's export table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleNamespaceExportIr {
@@ -234,9 +236,14 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<String> 
             binding: ModuleBindingNameIr::ModuleSource,
         } => Some(module_source_cell_name(*module)),
         ResolvedBindingIr::Resolved {
+            module,
             binding: ModuleBindingNameIr::Name(name),
-            ..
-        } => is_binding_identifier(name).then(|| name.clone()),
+        } => {
+            // `*default*` is the one `[[LocalName]]` no source text can spell,
+            // and the merged script declares it under a minted name instead.
+            let reference = module_binding_reference(*module, name);
+            is_binding_identifier(&reference).then_some(reference)
+        }
         ResolvedBindingIr::Ambiguous | ResolvedBindingIr::NotFound => None,
     }
 }
@@ -1076,27 +1083,42 @@ mod tests {
         assert!(source.is_ascii(), "generated source stays ASCII: {source}");
     }
 
-    /// `*default*` cannot be written as an `IdentifierReference`, so a namespace
-    /// that would have to name it says so instead of emitting broken source.
-    #[test]
-    fn an_unspellable_local_name_is_reported_rather_than_emitted() {
-        let namespace = ModuleNamespaceIr {
-            module: 0,
+    fn namespace_of_one_local(module: ModuleUnitId, local: &str) -> ModuleNamespaceIr {
+        ModuleNamespaceIr {
+            module,
             exports: vec![ModuleNamespaceExportIr {
                 export_name: MODULE_DEFAULT_EXPORT_NAME.to_string(),
                 target: ResolvedBindingIr::Resolved {
-                    module: 0,
-                    binding: ModuleBindingNameIr::Name(
-                        MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME.to_string(),
-                    ),
+                    module,
+                    binding: ModuleBindingNameIr::Name(local.to_string()),
                 },
-                cell: module_namespace_cell_name(0),
+                cell: module_namespace_cell_name(module),
             }],
-            cell: module_namespace_cell_name(0),
+            cell: module_namespace_cell_name(module),
             deferred: false,
             source: Ok(String::new()),
-        };
-        let error = namespace_object_source(&namespace).expect_err("`*default*` is unspellable");
+        }
+    }
+
+    /// `*default*` cannot be written as an `IdentifierReference`, which is why
+    /// 8.2.2 chose it — so the getter reads the minted name the merged script
+    /// declares in its place instead.
+    #[test]
+    fn the_anonymous_default_local_is_read_through_its_minted_name() {
+        let namespace = namespace_of_one_local(2, MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME);
+        let source = namespace_object_source(&namespace).expect("`*default*` has a merged name");
+        assert!(
+            source.contains(&format!("get: () => {}", module_default_binding_name(2))),
+            "got {source}"
+        );
+    }
+
+    /// The spellability guard itself: a local name the merged script cannot
+    /// write is reported rather than emitted as broken source.
+    #[test]
+    fn an_unspellable_local_name_is_reported_rather_than_emitted() {
+        let namespace = namespace_of_one_local(0, "*not a binding*");
+        let error = namespace_object_source(&namespace).expect_err("the name is unspellable");
         assert!(error.contains("default"), "got {error}");
     }
 

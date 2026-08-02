@@ -224,6 +224,38 @@ pub struct SourceTextModuleRecordIr {
     pub dynamic_import_sites: Vec<DynamicImportSiteIr>,
 }
 
+/// Shape of a module's `export default`, from the merged script's point of
+/// view. See [`SourceTextModuleRecordIr::default_export_form`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefaultExportFormIr {
+    /// The module has no `export default`.
+    Absent,
+    /// `export default function f() {}` / `export default class C {}`: the
+    /// declaration binds `f` / `C` itself.
+    Named,
+    /// Every other form. `hoisted` distinguishes an anonymous
+    /// `HoistableDeclaration`, which is initialized before the body runs, from
+    /// a `ClassDeclaration` or `AssignmentExpression`, which is in TDZ until
+    /// its own statement is reached.
+    Anonymous {
+        /// The declaration is a hoistable one.
+        hoisted: bool,
+    },
+}
+
+/// Merged-scope spelling of module `unit`'s binding `name`.
+///
+/// The identity everywhere except for the one name 8.2.2 mints unspellable:
+/// see [`module_default_binding_name`].
+#[must_use]
+pub fn module_binding_reference(unit: ModuleUnitId, name: &str) -> String {
+    if name == MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME {
+        module_default_binding_name(unit)
+    } else {
+        name.to_string()
+    }
+}
+
 impl SourceTextModuleRecordIr {
     /// Number of `import.meta` references in the module body.
     ///
@@ -252,6 +284,38 @@ impl SourceTextModuleRecordIr {
     #[must_use]
     pub fn is_self_contained(&self) -> bool {
         self.requested_modules.is_empty()
+    }
+
+    /// How this module's `export default`, if any, has to be rewritten for the
+    /// merged script (16.2.3.7).
+    ///
+    /// The distinction the linker needs is not the grammar production but
+    /// whether the declaration already binds a name the merged scope can spell.
+    /// `export default function f() {}` and `export default class C {}` do, so
+    /// deleting the two keywords leaves a declaration that binds exactly what
+    /// the export entry names. Every other form has `[[LocalName]]`
+    /// [`MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME`], which nothing can spell, so the
+    /// keywords have to become a declaration of a minted name instead.
+    #[must_use]
+    pub fn default_export_form(&self) -> DefaultExportFormIr {
+        let Some(entry) = self
+            .local_export_entries
+            .iter()
+            .find(|entry| entry.export_name == MODULE_DEFAULT_EXPORT_NAME)
+        else {
+            return DefaultExportFormIr::Absent;
+        };
+        if entry.local_name != MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME {
+            return DefaultExportFormIr::Named;
+        }
+        // A hoistable declaration is initialized before the body runs, so it
+        // must not be given the TDZ a `let` would.
+        let hoisted = self
+            .environment
+            .iter()
+            .find(|binding| binding.name == MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME)
+            .is_some_and(|binding| binding.kind == ModuleBindingKindIr::Function);
+        DefaultExportFormIr::Anonymous { hoisted }
     }
 
     /// Duplicate `[[ExportName]]`s, which are an early error (16.2.3.1).

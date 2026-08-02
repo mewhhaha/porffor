@@ -111,6 +111,23 @@ mod tests {
     }
 
     #[test]
+    fn plain_async_loop_awaits_emit_a_valid_module() {
+        // Each of these lowers to a `StatementIr::GeneratorLoop` that the plain
+        // async body compiles against `HEAP_ASYNC_RESUME_STATE_OFFSET`, running
+        // one iteration per invocation of the body.
+        for source in [
+            "(async function(){ let t = 0; for (let i = 0; i < 3; i++) { t += await Promise.resolve(i); } print(t); })();",
+            "(async function(){ let t = 0; for (let i = 0; i < 3; i++) { const v = await Promise.resolve(i); t += v; } print(t); })();",
+            "(async function(){ let n = 0; while (n < 3) { n++; await Promise.resolve(n); } print(n); })();",
+            "(async function(){ const out = []; for (const x of [1,2,3]) { out.push(await Promise.resolve(x)); } print(out); })();",
+        ] {
+            let artifact = emit_script(source)
+                .unwrap_or_else(|err| panic!("{source} should emit: {err:?}"));
+            expect_valid_module(&artifact, 0);
+        }
+    }
+
+    #[test]
     fn full_bootstrap_emits_without_proto_source_reference() {
         let artifact = emit_script("this;").expect("full bootstrap script should emit");
 

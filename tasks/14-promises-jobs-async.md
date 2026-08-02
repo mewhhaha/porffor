@@ -60,42 +60,49 @@ Provide `AsyncFromSyncIterator`, async iterator acquisition/close, async `for-aw
 
 `can_block` must affect Atomics/host behavior, not Promise ordering. Provide a deterministic test driver that can run jobs until completion or a deadline and report pending jobs/rejections on timeout.
 
-### Known defect: unhandled rejections are silently dropped, which fakes passes
+### Unhandled rejections now surface (fixed 2026-08-02)
 
-Measured 2026-08-02. A promise that rejects with no handler produces no
-diagnostic and exit status 0:
+A promise that rejected with no handler used to produce no diagnostic and exit
+status 0. Combined with top-level await wrapping module bodies in an async
+function, that meant a `flags: [module]` Test262 case whose assertion FAILED was
+scored as a PASS - the measurement reporting green on red.
 
-```sh
-# plain script, no modules involved
-(async () => { throw new Error("boom"); })(); print("sync done");
-# -> prints "sync done", exits 0, the Error is never reported
-```
+Fixed: rejected-with-no-handler promises are tracked on a list, and after the
+job-drain loop the main export's completion kind is set to Throw carrying the
+rejection value. Verified in both directions, which is the part that matters -
+a fix that reported *handled* rejections would have turned passes into failures:
 
-This is engine-wide and pre-existing, but top-level await made it a
-**conformance-scoring hazard** rather than only a usability problem. A module
-with top-level `await` now has its body wrapped in an async function, so a throw
-after the first `await` routes through the unhandled-rejection path:
+| case | reported | exit |
+|---|---|---|
+| `(async () => { throw ... })()` | yes | 1 |
+| `await 0; throw new Test262Error(...)` | yes | 1 |
+| immediate `.catch` | no | 0 |
+| `.catch` attached in a *later* job | no | 0 |
+| `try`/`catch` around `await` | no | 0 |
+| `Promise.all` rejected then caught | no | 0 |
 
-```sh
-await 0; throw new Error("tla boom");   # -> no diagnostic, exit 0
-throw new Error("plain boom");          # -> correctly reported (no TLA wrapper)
-```
+Implementation note: the promise record grew from 64 to 72 bytes for the list
+link, and the global registry gained two slots.
 
-The consequence is that a `flags: [module]` Test262 case using top-level await
-whose assertion **fails** is scored as a **pass**. Silently turning failures into
-passes corrupts the measurement this whole project exists to produce, so treat
-any TLA-tagged conformance number as untrustworthy until this is closed.
+Three holes remain in the same story:
 
-Fix shape: track a rejected-with-no-handler promise, and after the job-drain loop
-(`emit_drain_promise_jobs`, called at the end of main in
-`crates/porffor-aot-wasm/src/emit.rs`) set the main export's completion kind to
-Throw carrying that value. The merged module graph's wrapper promise is unhandled
-by construction, so the module case is the easy one to scope.
+- **Only the oldest unhandled rejection is reported**, because the main export
+  carries a single completion value. Hosts normally report every one. Adequate
+  for pass/fail scoring, imprecise as a diagnostic. `emit_report_unhandled_rejection`
+  already walks the whole list and could print the rest via the host `print`
+  import before setting the throw completion.
+- **A top-level throw in a script returns from main before the drain runs**, so
+  pending jobs are abandoned and any rejection they would have produced is never
+  reported. Pre-existing and unrelated to the fix above.
+- The rejection list is process-global rather than per-realm, so cross-realm
+  (`$262.createRealm`) promises share one tracker. Untested territory rather
+  than a known break - cross-realm is the one feature still failing the probe.
 
-Related defect, same area: `await` inside a loop body is miscompiled.
-`(async function(){ let t = 0; for (let i = 0; i < 3; i++) { t += await Promise.resolve(i); } print(t); })();`
-prints `0` instead of `3` as a plain script, with no module involved. This will
-independently hold down any Test262 case that awaits in a loop.
+Also fixed 2026-08-02: `await` inside a loop body was miscompiled - state living
+across a suspension point inside a loop was not restored, so
+`for (let i = 0; i < 3; i++) { t += await Promise.resolve(i); }` summed to 0
+instead of 3. Now correct, including the `const v = await ...` and `for-of`
+variants.
 
 ## Acceptance criteria
 

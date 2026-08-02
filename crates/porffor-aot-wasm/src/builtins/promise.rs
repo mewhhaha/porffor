@@ -109,6 +109,7 @@ impl<'a> FunctionBuilder<'a> {
             HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
             HEAP_PROMISE_IS_HANDLED_OFFSET,
             HEAP_PROMISE_HOST_DATA_OFFSET,
+            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
         ] {
             self.store_i64_const_at_offset(promise_record_local, offset, 0, function);
         }
@@ -597,9 +598,171 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
+        if state == PROMISE_STATE_REJECTED {
+            // 27.2.1.7 RejectPromise step 7: if [[IsHandled]] is false, notify
+            // the host that a rejection went untracked.
+            self.emit_track_unhandled_rejection(promise_record_local, function);
+        }
         function.instruction(&Instruction::End);
         self.release_temp_local(reaction_list_local);
         self.release_temp_local(state_local);
+        Ok(())
+    }
+
+    /// Appends `promise_record_local` to the host unhandled-rejection list when
+    /// the promise still has no handler. Membership is only a candidate mark:
+    /// `emit_report_unhandled_rejection` re-reads `[[IsHandled]]` after the job
+    /// queue drains, so a handler attached from a later job clears the report.
+    fn emit_track_unhandled_rejection(
+        &mut self,
+        promise_record_local: u32,
+        function: &mut Function,
+    ) {
+        let is_handled_local = self.reserve_temp_local();
+        let tail_local = self.reserve_temp_local();
+
+        self.load_i64_to_local_from_offset(
+            promise_record_local,
+            HEAP_PROMISE_IS_HANDLED_OFFSET,
+            is_handled_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(is_handled_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_const_at_offset(
+            promise_record_local,
+            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
+            0,
+            function,
+        );
+        function.instruction(&Instruction::GlobalGet(
+            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(tail_local));
+        function.instruction(&Instruction::LocalGet(tail_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(promise_record_local));
+        function.instruction(&Instruction::GlobalSet(
+            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::Else);
+        self.store_i64_local_at_offset(
+            tail_local,
+            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
+            promise_record_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(promise_record_local));
+        function.instruction(&Instruction::GlobalSet(
+            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(tail_local);
+        self.release_temp_local(is_handled_local);
+    }
+
+    /// Turns the oldest still-unhandled rejection into a throw completion for
+    /// the main export. Runs once, after the job queue has drained, so every
+    /// handler that a job could still attach has already been attached.
+    pub(crate) fn emit_report_unhandled_rejection(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        let state_local = self.reserve_temp_local();
+        let is_handled_local = self.reserve_temp_local();
+        let found_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::GlobalGet(
+            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(record_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(record_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_PROMISE_STATE_OFFSET,
+            state_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_PROMISE_IS_HANDLED_OFFSET,
+            is_handled_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(PROMISE_STATE_REJECTED as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(is_handled_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(record_local));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_PROMISE_UNHANDLED_NEXT_OFFSET,
+            record_local,
+            function,
+        );
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        // The list is consumed exactly once; drop it so nothing re-reports.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(
+            PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(
+            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
+        ));
+
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            found_local,
+            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
+            self.result_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            found_local,
+            HEAP_PROMISE_RESULT_TAG_OFFSET,
+            self.result_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        self.emit_capture_throw_error_name(self.result_local, self.result_tag_local, function)?;
+        self.set_completion_kind_with_aux(CompletionKind::Throw, -1, function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(found_local);
+        self.release_temp_local(is_handled_local);
+        self.release_temp_local(state_local);
+        self.release_temp_local(record_local);
         Ok(())
     }
 

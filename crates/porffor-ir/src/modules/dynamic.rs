@@ -1360,10 +1360,11 @@ mod tests {
         );
     }
 
-    /// An anonymous `export default` binds the unspellable `*default*`, which no
-    /// getter body can name in the merged scope.
+    /// An anonymous `export default` binds `*default*`, which no source text
+    /// can spell — but the merged script declares it under a minted name, so
+    /// `import()` exposes it like any other export.
     #[test]
-    fn an_unspellable_export_binding_is_reported() {
+    fn an_anonymous_default_export_is_exposed_under_its_minted_name() {
         let sources = sources_of(
             &[
                 ("a", "export default function () { return 1; }"),
@@ -1373,12 +1374,15 @@ mod tests {
             vec![(1, plain("./a.mjs"), 0)],
         );
         let graph = graph_of(&sources);
-        let diagnostics = graph.check_dynamic_import_linkable();
+        assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
+        let namespace = graph.units[0]
+            .namespace
+            .as_ref()
+            .expect("the import() target has a namespace");
+        let source = namespace.source.as_ref().expect("namespace is expressible");
         assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("no name in the merged scope")),
-            "got {diagnostics:?}"
+            source.contains(&format!("get: () => {}", module_default_binding_name(0))),
+            "got {source}"
         );
     }
 
