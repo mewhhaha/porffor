@@ -252,6 +252,7 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_SIZE: u64 = 56;
 pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
+pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -699,6 +700,15 @@ pub(crate) const HEAP_BIGINT_LIMBS_CAP_OFFSET: u64 = 24;
 pub(crate) const HEAP_BIGINT_VALUE_TAG: i64 = 12;
 pub(crate) const HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
+/// `Intl.Locale` internal slots. Every slot but `base_name_len` holds a packed
+/// string payload (`offset << 32 | len`); an absent optional subtag is stored
+/// as `0`, which no real payload can collide with because a zero length means
+/// the empty string and the canonicalizer never emits one.
+pub(crate) const HEAP_INTL_LOCALE_TAG_OFFSET: u64 = 0;
+pub(crate) const HEAP_INTL_LOCALE_LANGUAGE_OFFSET: u64 = 8;
+pub(crate) const HEAP_INTL_LOCALE_SCRIPT_OFFSET: u64 = 16;
+pub(crate) const HEAP_INTL_LOCALE_REGION_OFFSET: u64 = 24;
+pub(crate) const HEAP_INTL_LOCALE_BASE_NAME_OFFSET: u64 = 32;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
@@ -875,6 +885,7 @@ pub(crate) const OBJECT_INTERNAL_BRAND_WEAK_SET: u64 = 27;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME: u64 = 28;
 pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_CONCAT_HELPER: u64 = 29;
 pub(crate) const OBJECT_INTERNAL_BRAND_IMMUTABLE_PROTOTYPE: u64 = 30;
+pub(crate) const OBJECT_INTERNAL_BRAND_INTL_LOCALE: u64 = 31;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -3047,6 +3058,44 @@ pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     },
 ];
 
+pub(crate) const HEAP_INTL_LOCALE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "intl-locale-record",
+        name: "tag_payload",
+        offset: HEAP_INTL_LOCALE_TAG_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-locale-record",
+        name: "language_payload",
+        offset: HEAP_INTL_LOCALE_LANGUAGE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-locale-record",
+        name: "script_payload",
+        offset: HEAP_INTL_LOCALE_SCRIPT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-locale-record",
+        name: "region_payload",
+        offset: HEAP_INTL_LOCALE_REGION_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-locale-record",
+        name: "base_name_payload",
+        offset: HEAP_INTL_LOCALE_BASE_NAME_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
 #[allow(dead_code)]
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
@@ -4746,6 +4795,7 @@ mod tests {
             HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT,
             HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE,
         );
+        assert_layout(HEAP_INTL_LOCALE_RECORD_LAYOUT, HEAP_INTL_LOCALE_RECORD_SIZE);
         assert_layout(
             HEAP_MAP_ITERATOR_RECORD_LAYOUT,
             HEAP_MAP_ITERATOR_RECORD_SIZE,
@@ -4807,6 +4857,7 @@ mod tests {
             .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
+            .chain(HEAP_INTL_LOCALE_RECORD_LAYOUT.iter())
             .chain(HEAP_MAP_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_ENTRY_LAYOUT.iter())

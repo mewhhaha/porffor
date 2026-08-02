@@ -24,6 +24,7 @@ pub(crate) mod collections;
 pub(crate) mod date;
 pub(crate) mod errors;
 pub(crate) mod function;
+pub(crate) mod intl;
 pub(crate) mod iterator;
 pub(crate) mod numeric;
 pub(crate) mod object;

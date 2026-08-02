@@ -71,6 +71,12 @@ pub enum ModuleBindingNameIr {
     Namespace,
     /// A concrete binding of the resolved module's environment.
     Name(String),
+    /// The module source object of the resolved module.
+    ///
+    /// Produced only by `import source x from "m"`. Not a binding of `m` at
+    /// all: `m` is loaded and parsed but never instantiated, so there is no
+    /// environment to name.
+    ModuleSource,
 }
 
 /// Result of `ResolveExport` (16.2.1.6.3).
@@ -128,12 +134,19 @@ pub enum ModuleLinkErrorIr {
         /// The key loaded inconsistently.
         key: String,
     },
-    /// `import defer` / `import source` are parsed but not yet linkable.
+    /// A phased request this stage cannot link, with the reason.
+    ///
+    /// `import defer` and `import source` link (see
+    /// [`ModuleEvaluationModeIr`]); what remains here are the shapes the
+    /// source-text linker cannot express, chiefly a deferred module whose body
+    /// would have to suspend.
     UnsupportedPhase {
         /// Module making the request.
         module: ModuleUnitId,
         /// The unsupported phase.
         phase: ImportPhaseIr,
+        /// Why this particular request could not be linked.
+        reason: String,
     },
 }
 
@@ -172,8 +185,8 @@ impl ModuleLinkErrorIr {
             Self::InconsistentLoad { key } => {
                 format!("module loaded inconsistently: {key}")
             }
-            Self::UnsupportedPhase { phase, .. } => format!(
-                "unsupported in porffor wasm-aot: {} phase module request",
+            Self::UnsupportedPhase { phase, reason, .. } => format!(
+                "unsupported in porffor wasm-aot: {} phase module request: {reason}",
                 phase.as_str()
             ),
         }
@@ -183,6 +196,37 @@ impl ModuleLinkErrorIr {
     #[must_use]
     pub fn to_diagnostic(&self) -> IrDiagnostic {
         IrDiagnostic::link_error(self.code(), self.message())
+    }
+}
+
+/// When, if ever, a unit's body runs in the merged script.
+///
+/// Fixed by [`classify_evaluation_modes`] from the *phases* of the requests
+/// that reach a unit, and consumed by `modules::link` (which body text to
+/// emit) and `modules::namespace` (which object to build).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModuleEvaluationModeIr {
+    /// The body is emitted inline, in evaluation order. The default, and what
+    /// every module of an unphased graph gets.
+    #[default]
+    Eager,
+    /// `import defer`: the body is emitted as a thunk that the module's
+    /// namespace object calls on the first read of any export.
+    Deferred,
+    /// `import source`: the module is loaded, parsed and linked, but its body
+    /// is never emitted. Only a module source object is handed out.
+    NotEvaluated,
+}
+
+impl ModuleEvaluationModeIr {
+    /// Diagnostic spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Eager => "eager",
+            Self::Deferred => "deferred",
+            Self::NotEvaluated => "not evaluated",
+        }
     }
 }
 
@@ -235,6 +279,13 @@ pub struct ModuleGraphIr {
     pub scc_starts: Vec<usize>,
     /// Dynamic-import components compiled into this artifact.
     pub components: Vec<DynamicComponentIr>,
+    /// When each unit's body runs, indexed by [`ModuleUnitId`].
+    ///
+    /// Filled by [`link`]; empty on a graph that has not been linked, which
+    /// [`Self::evaluation_mode`] reads as the default [`Eager`].
+    ///
+    /// [`Eager`]: ModuleEvaluationModeIr::Eager
+    pub evaluation_modes: Vec<ModuleEvaluationModeIr>,
     /// Every linking failure found. Non-empty means the graph does not run.
     pub link_errors: Vec<ModuleLinkErrorIr>,
 }
@@ -256,6 +307,156 @@ impl ModuleGraphIr {
         self.units
             .iter()
             .any(|unit| unit.record.has_top_level_await)
+    }
+
+    /// `[[HasTLA]]` (16.2.1.6.1 step 12) for one unit.
+    ///
+    /// `false` for an id this graph does not hold, which is the same answer a
+    /// module with no `await` gives and never turns a graph asynchronous.
+    #[must_use]
+    pub fn has_tla(&self, module: ModuleUnitId) -> bool {
+        self.units
+            .get(module as usize)
+            .is_some_and(|unit| unit.record.has_top_level_await)
+    }
+
+    /// Index of the strongly-connected component each unit belongs to, indexed
+    /// by [`ModuleUnitId`], ordered as [`evaluation_components`] orders them.
+    ///
+    /// A unit that no root reached — which cannot happen for a graph built by
+    /// [`build_graph`], every unit of which is a Tarjan root at worst — is left
+    /// in a component of its own past the end, so the propagation below still
+    /// terminates on a hand-built graph.
+    ///
+    /// [`evaluation_components`]: crate::modules::evaluation_components
+    #[must_use]
+    pub fn component_of_unit(&self) -> Vec<usize> {
+        let mut components = vec![usize::MAX; self.units.len()];
+        let mut next = 0;
+        for (position, start) in self.scc_starts.iter().copied().enumerate() {
+            let end = self
+                .scc_starts
+                .get(position + 1)
+                .copied()
+                .unwrap_or(self.evaluation_order.len());
+            if start >= end {
+                continue;
+            }
+            for member in &self.evaluation_order[start..end] {
+                if let Some(slot) = components.get_mut(*member as usize) {
+                    *slot = next;
+                }
+            }
+            next += 1;
+        }
+        for slot in &mut components {
+            if *slot == usize::MAX {
+                *slot = next;
+                next += 1;
+            }
+        }
+        components
+    }
+
+    /// When `module`'s body runs. [`Eager`] for an id this graph does not hold
+    /// and for a graph that has not been linked.
+    ///
+    /// [`Eager`]: ModuleEvaluationModeIr::Eager
+    #[must_use]
+    pub fn evaluation_mode(&self, module: ModuleUnitId) -> ModuleEvaluationModeIr {
+        self.evaluation_modes
+            .get(module as usize)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Resolved dependency ids of one unit, in `[[RequestedModules]]` order.
+    ///
+    /// Unresolved requests are dropped rather than reported: `link` has already
+    /// recorded an [`ModuleLinkErrorIr::UnresolvedModule`] for each, and
+    /// evaluation order is still wanted for the units that *did* resolve.
+    #[must_use]
+    pub fn dependencies_of(&self, module: ModuleUnitId) -> Vec<ModuleUnitId> {
+        let Some(unit) = self.units.get(module as usize) else {
+            return Vec::new();
+        };
+        unit.record
+            .requested_modules
+            .iter()
+            .filter_map(|request| self.resolve_request(module, request))
+            .collect()
+    }
+
+    /// `[[AsyncEvaluation]]` (16.2.1.5.2 steps 11-14) for every unit, indexed
+    /// by [`ModuleUnitId`].
+    ///
+    /// A module evaluates asynchronously when it has its own top-level `await`
+    /// *or* when `InnerModuleEvaluation` gave it a non-zero
+    /// [`pending_async_dependencies`]: step 11.b.i copies a dependency's
+    /// `[[AsyncEvaluation]]` upwards, so asynchrony is transitive along
+    /// dependency edges and never stops at the module that wrote the `await`.
+    ///
+    /// A cycle is one unit for this purpose. Every member of a strongly-
+    /// connected component shares one `[[TopLevelCapability]]` in the spec and
+    /// they resume as a group, so one member's `await` makes the whole
+    /// component asynchronous.
+    ///
+    /// `evaluation_order` is a reverse-topological order over components, so a
+    /// single forward pass reaches every dependency before its dependent and
+    /// the propagation needs no fixed point.
+    ///
+    /// [`pending_async_dependencies`]: Self::pending_async_dependencies
+    #[must_use]
+    pub fn async_evaluation(&self) -> Vec<bool> {
+        let components = self.component_of_unit();
+        let component_count = components.iter().copied().max().map_or(0, |max| max + 1);
+        let mut component_async = vec![false; component_count];
+
+        for member in &self.evaluation_order {
+            let component = components[*member as usize];
+            if self.has_tla(*member) {
+                component_async[component] = true;
+            }
+            for dependency in self.dependencies_of(*member) {
+                let dependency_component = components[dependency as usize];
+                // Same component: the cycle is settled by the `has_tla` test
+                // above over all of its members, and reading its own flag mid-
+                // pass would depend on member order.
+                if dependency_component != component && component_async[dependency_component] {
+                    component_async[component] = true;
+                }
+            }
+        }
+
+        components
+            .iter()
+            .map(|component| component_async[*component])
+            .collect()
+    }
+
+    /// `[[PendingAsyncDependencies]]` (16.2.1.5.2 step 11.b.ii) for one unit:
+    /// how many of its dependencies it must wait for before its own body may
+    /// resume.
+    ///
+    /// Counted over distinct dependency *components*, and excluding the unit's
+    /// own component: a cycle member is evaluated by the same
+    /// `InnerModuleEvaluation` call and is never something to wait on, and two
+    /// requests that resolve to one module are one dependency.
+    #[must_use]
+    pub fn pending_async_dependencies(&self, module: ModuleUnitId) -> usize {
+        let components = self.component_of_unit();
+        let asynchronous = self.async_evaluation();
+        let Some(&own) = components.get(module as usize) else {
+            return 0;
+        };
+        let mut counted: BTreeSet<usize> = BTreeSet::new();
+        for dependency in self.dependencies_of(module) {
+            let component = components[dependency as usize];
+            if component != own && asynchronous[dependency as usize] {
+                counted.insert(component);
+            }
+        }
+        counted.len()
     }
 
     /// Target of `request` made by `referrer`, if the host resolved it.
@@ -405,6 +606,7 @@ impl ModuleGraphIr {
         match binding {
             ResolvedBindingIr::Resolved { module, binding } => match binding {
                 ModuleBindingNameIr::Namespace => Some(module_namespace_cell_name(*module)),
+                ModuleBindingNameIr::ModuleSource => Some(module_source_cell_name(*module)),
                 ModuleBindingNameIr::Name(name) => {
                     Some(format!("{}{name}", module_storage_prefix(*module)))
                 }
@@ -516,16 +718,9 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
             });
         }
 
-        // Requests the host could not resolve, and phases we cannot link yet.
+        // Requests the host could not resolve.
         let requests = graph.units[module].record.requested_modules.clone();
         for request in requests {
-            if request.phase != ImportPhaseIr::Evaluation {
-                graph.link_errors.push(ModuleLinkErrorIr::UnsupportedPhase {
-                    module: id,
-                    phase: request.phase,
-                });
-                continue;
-            }
             if graph.resolve_request(id, &request).is_none() {
                 graph.link_errors.push(ModuleLinkErrorIr::UnresolvedModule {
                     referrer: id,
@@ -542,6 +737,17 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
                 resolved.push(ResolvedBindingIr::NotFound);
                 continue;
             };
+            // A source-phase request never consults the requested module's
+            // exports: it hands out a module source object, and the module is
+            // not even instantiated. `[[ImportName]]` is `default` only because
+            // the grammar reuses `ImportedBinding`.
+            if entry.request.phase == ImportPhaseIr::Source {
+                resolved.push(ResolvedBindingIr::Resolved {
+                    module: target,
+                    binding: ModuleBindingNameIr::ModuleSource,
+                });
+                continue;
+            }
             let binding = match &entry.import_name {
                 ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
                     module: target,
@@ -608,6 +814,160 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
     }
 
     compute_evaluation_order(graph);
+    classify_evaluation_modes(graph);
+    report_unlinkable_phases(graph);
+}
+
+/// Fixes [`ModuleEvaluationModeIr`] for every unit from the phases of the
+/// requests that reach it.
+///
+/// The rule is reachability, not a per-request vote: a module evaluates when
+/// something that *itself* evaluates asks for it in the evaluation phase. So a
+/// module reached only through `import source` never runs, and neither does
+/// anything only that module imports — which is the whole point of the source
+/// phase, and what a per-request vote would get wrong.
+///
+/// # Roots
+///
+/// The entry always evaluates. So does every `import()` target, because
+/// `import()` resolves with an *evaluated* namespace. So does every unit no
+/// request points at: a graph assembled by an embedder rather than by
+/// `load_module_graph` may hold units with no importer at all, and dropping
+/// their bodies would silently change what such a graph runs.
+///
+/// # Deviation
+///
+/// The import-defer proposal defers a deferred module's whole dependency
+/// subgraph. Here a deferred module's own evaluation-phase dependencies are
+/// eager, because the merged scope binds an import to the *exporter's* cell and
+/// a thunked exporter's cell is not in the merged scope at all. The deferred
+/// module itself still evaluates only on first touch; what runs early is the
+/// side effects of the modules it imports.
+fn classify_evaluation_modes(graph: &mut ModuleGraphIr) {
+    let count = graph.units.len();
+    // `(referrer, phase, target)` once, so the fixed point below is a walk over
+    // an edge list rather than a repeated resolve of every request.
+    let mut edges: Vec<(usize, ImportPhaseIr, usize)> = Vec::new();
+    let mut targeted = vec![false; count];
+    for module in 0..count {
+        let id = ModuleUnitId::try_from(module).unwrap_or(ModuleUnitId::MAX);
+        for request in &graph.units[module].record.requested_modules {
+            let Some(target) = graph
+                .resolve_request(id, request)
+                .map(|target| target as usize)
+                .filter(|target| *target < count)
+            else {
+                continue;
+            };
+            targeted[target] = true;
+            edges.push((module, request.phase, target));
+        }
+    }
+
+    let mut eager = vec![false; count];
+    let mut deferred = vec![false; count];
+    for module in 0..count {
+        if !targeted[module] || ModuleUnitId::try_from(module) == Ok(graph.entry) {
+            eager[module] = true;
+        }
+    }
+    for component in &graph.components {
+        if let Some(slot) = eager.get_mut(component.module as usize) {
+            *slot = true;
+        }
+    }
+
+    // Fixed point rather than one pass: a unit only becomes deferred through an
+    // edge from a unit that itself runs, and an edge can promote an already
+    // deferred unit to eager, which then opens its own outgoing edges.
+    loop {
+        let mut changed = false;
+        for (module, phase, target) in &edges {
+            if !eager[*module] && !deferred[*module] {
+                continue;
+            }
+            match phase {
+                ImportPhaseIr::Evaluation => {
+                    if !eager[*target] {
+                        eager[*target] = true;
+                        deferred[*target] = false;
+                        changed = true;
+                    }
+                }
+                ImportPhaseIr::Defer => {
+                    if !eager[*target] && !deferred[*target] {
+                        deferred[*target] = true;
+                        changed = true;
+                    }
+                }
+                // A source-phase request neither evaluates nor instantiates its
+                // target, so it opens no edge at all.
+                ImportPhaseIr::Source => {}
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    graph.evaluation_modes = (0..count)
+        .map(|module| {
+            if eager[module] {
+                ModuleEvaluationModeIr::Eager
+            } else if deferred[module] {
+                ModuleEvaluationModeIr::Deferred
+            } else {
+                ModuleEvaluationModeIr::NotEvaluated
+            }
+        })
+        .collect();
+}
+
+/// Reports the phased requests the source-text linker still cannot express.
+///
+/// Both remaining cases are about a deferred body becoming a *function* body:
+/// a top-level `await` in it has nothing to suspend, and a cycle through it
+/// would need every member of the component thunked together.
+fn report_unlinkable_phases(graph: &mut ModuleGraphIr) {
+    let components = graph.component_of_unit();
+    let mut component_sizes = vec![0usize; components.iter().copied().max().map_or(0, |m| m + 1)];
+    for component in &components {
+        if let Some(size) = component_sizes.get_mut(*component) {
+            *size += 1;
+        }
+    }
+
+    let mut errors = Vec::new();
+    for (module, mode) in graph.evaluation_modes.iter().copied().enumerate() {
+        if mode != ModuleEvaluationModeIr::Deferred {
+            continue;
+        }
+        let id = ModuleUnitId::try_from(module).unwrap_or(ModuleUnitId::MAX);
+        if graph.has_tla(id) {
+            errors.push(ModuleLinkErrorIr::UnsupportedPhase {
+                module: id,
+                phase: ImportPhaseIr::Defer,
+                reason: format!(
+                    "module {} has a top-level await, and a deferred body is a function body with nothing to suspend",
+                    graph.units[module].record.key
+                ),
+            });
+        }
+        if component_sizes
+            .get(components[module])
+            .is_some_and(|size| *size > 1)
+        {
+            errors.push(ModuleLinkErrorIr::UnsupportedPhase {
+                module: id,
+                phase: ImportPhaseIr::Defer,
+                reason: format!(
+                    "module {} is part of a cycle, and only whole components can be deferred together",
+                    graph.units[module].record.key
+                ),
+            });
+        }
+    }
+    graph.link_errors.append(&mut errors);
 }
 
 /// `[[ImportName]]` as it reads in a diagnostic.
@@ -804,6 +1164,121 @@ mod tests {
         crate::evaluation_components(graph)
     }
 
+    /// The default: everything the entry reaches through an ordinary `import`
+    /// evaluates inline, which is what an unphased graph has always done.
+    #[test]
+    fn an_unphased_graph_evaluates_every_unit_eagerly() {
+        let graph = linked(&[
+            ("/root/entry.js", "import { x } from './a.js';\nx;"),
+            ("/root/a.js", "export const x = 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(
+            graph.evaluation_modes,
+            vec![ModuleEvaluationModeIr::Eager, ModuleEvaluationModeIr::Eager]
+        );
+    }
+
+    /// `import defer` is the only edge reaching the dependency, so it is linked
+    /// but its body waits for the first touch of its namespace.
+    #[test]
+    fn a_defer_only_dependency_is_deferred() {
+        let graph = linked(&[
+            ("/root/entry.js", "import defer * as ns from './a.js';\nns;"),
+            ("/root/a.js", "export const x = 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(
+            graph.evaluation_mode(unit_of(&graph, "/root/a.js")),
+            ModuleEvaluationModeIr::Deferred
+        );
+    }
+
+    /// An evaluation-phase importer wins over a deferred one: a module that
+    /// something evaluates has already run by the time the deferred namespace
+    /// is touched, and `import defer` of it is then indistinguishable from
+    /// `import *`.
+    #[test]
+    fn a_module_also_imported_eagerly_is_not_deferred() {
+        let graph = linked(&[
+            (
+                "/root/entry.js",
+                "import defer * as ns from './a.js';\nimport { x } from './a.js';\nns; x;",
+            ),
+            ("/root/a.js", "export const x = 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(
+            graph.evaluation_mode(unit_of(&graph, "/root/a.js")),
+            ModuleEvaluationModeIr::Eager
+        );
+    }
+
+    /// `import source` neither evaluates nor instantiates its target — and
+    /// therefore does not evaluate what that target imports either, which a
+    /// per-request vote over incoming phases would get wrong.
+    #[test]
+    fn a_source_only_module_and_its_own_dependency_never_evaluate() {
+        let graph = linked(&[
+            ("/root/entry.js", "import source src from './a.js';\nsrc;"),
+            ("/root/a.js", "import './b.js';\nexport const x = 1;"),
+            ("/root/b.js", "globalThis.ran = true;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(
+            graph.evaluation_mode(unit_of(&graph, "/root/a.js")),
+            ModuleEvaluationModeIr::NotEvaluated
+        );
+        assert_eq!(
+            graph.evaluation_mode(unit_of(&graph, "/root/b.js")),
+            ModuleEvaluationModeIr::NotEvaluated
+        );
+    }
+
+    /// A source-phase request resolves to a module source object rather than to
+    /// the `default` export its `ImportedBinding` grammar would otherwise name.
+    #[test]
+    fn a_source_phase_import_resolves_to_a_module_source() {
+        let graph = linked(&[
+            ("/root/entry.js", "import source src from './a.js';\nsrc;"),
+            ("/root/a.js", "export const x = 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        let target = unit_of(&graph, "/root/a.js");
+        assert_eq!(
+            graph.units[0].resolved_imports,
+            vec![ResolvedBindingIr::Resolved {
+                module: target,
+                binding: ModuleBindingNameIr::ModuleSource,
+            }]
+        );
+        assert_eq!(
+            graph.cell_name(&graph.units[0].resolved_imports[0]),
+            Some(module_source_cell_name(target))
+        );
+    }
+
+    /// A deferred body becomes a function body, and a top-level `await` in a
+    /// function body has nothing to suspend. Reported rather than mislinked.
+    #[test]
+    fn deferring_a_top_level_await_module_is_reported() {
+        let graph = linked(&[
+            ("/root/entry.js", "import defer * as ns from './a.js';\nns;"),
+            ("/root/a.js", "export const x = await 1;"),
+        ]);
+        assert!(
+            graph.link_errors.iter().any(|error| matches!(
+                error,
+                ModuleLinkErrorIr::UnsupportedPhase {
+                    phase: ImportPhaseIr::Defer,
+                    ..
+                }
+            )),
+            "{:?}",
+            graph.link_errors
+        );
+    }
+
     #[test]
     fn one_key_reached_through_several_specifiers_is_one_unit() {
         let graph = linked(&[
@@ -880,6 +1355,93 @@ mod tests {
         assert_eq!(components[0].len(), 3);
         // The entry is the component root, so it runs last.
         assert_eq!(components[0].last().copied(), Some(graph.entry));
+    }
+
+    // -- `[[HasTLA]]` / `[[AsyncEvaluation]]` ------------------------------
+
+    #[test]
+    fn a_graph_with_no_await_evaluates_synchronously_throughout() {
+        let graph = linked(&[
+            ("/root/entry.js", "import { x } from './a.js';\nx;"),
+            ("/root/a.js", "export const x = 1;"),
+        ]);
+        assert!(!graph.has_top_level_await());
+        assert_eq!(graph.async_evaluation(), vec![false, false]);
+        assert_eq!(graph.pending_async_dependencies(graph.entry), 0);
+    }
+
+    /// 16.2.1.5.2 step 11.b.i: an importer inherits its dependency's
+    /// `[[AsyncEvaluation]]`, and keeps inheriting it up the chain.
+    #[test]
+    fn async_evaluation_propagates_transitively_to_every_importer() {
+        let graph = linked(&[
+            ("/root/entry.js", "import { y } from './mid.js';\ny;"),
+            (
+                "/root/mid.js",
+                "import { x } from './leaf.js';\nexport const y = x;",
+            ),
+            ("/root/leaf.js", "export const x = await 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        let leaf = unit_of(&graph, "/root/leaf.js");
+        let mid = unit_of(&graph, "/root/mid.js");
+        let entry = unit_of(&graph, "/root/entry.js");
+
+        assert!(graph.has_tla(leaf));
+        assert!(!graph.has_tla(mid));
+        assert!(!graph.has_tla(entry));
+
+        let asynchronous = graph.async_evaluation();
+        assert!(asynchronous[leaf as usize]);
+        assert!(asynchronous[mid as usize]);
+        assert!(asynchronous[entry as usize]);
+
+        assert_eq!(graph.pending_async_dependencies(leaf), 0);
+        assert_eq!(graph.pending_async_dependencies(mid), 1);
+        assert_eq!(graph.pending_async_dependencies(entry), 1);
+    }
+
+    /// A synchronous sibling of an asynchronous module stays synchronous: only
+    /// the dependency edge carries `[[AsyncEvaluation]]`, never mere membership
+    /// in the same graph.
+    #[test]
+    fn a_sibling_that_does_not_import_the_awaiting_module_stays_synchronous() {
+        let graph = linked(&[
+            (
+                "/root/entry.js",
+                "import { x } from './a.js';\nimport { y } from './b.js';\nx; y;",
+            ),
+            ("/root/a.js", "export const x = await 1;"),
+            ("/root/b.js", "export const y = 2;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        let asynchronous = graph.async_evaluation();
+        assert!(asynchronous[unit_of(&graph, "/root/a.js") as usize]);
+        assert!(!asynchronous[unit_of(&graph, "/root/b.js") as usize]);
+        assert!(asynchronous[graph.entry as usize]);
+        // Two dependencies, one of them asynchronous.
+        assert_eq!(graph.pending_async_dependencies(graph.entry), 1);
+    }
+
+    /// A cycle shares one `[[TopLevelCapability]]`, so one member's `await`
+    /// makes every member asynchronous — and a member never waits on another
+    /// member, because `InnerModuleEvaluation` evaluates them together.
+    #[test]
+    fn one_await_in_a_cycle_makes_the_whole_component_asynchronous() {
+        let graph = linked(&[
+            (
+                "/root/a.js",
+                "import { b } from './b.js';\nexport const a = 1;\nb;",
+            ),
+            (
+                "/root/b.js",
+                "import { a } from './a.js';\nexport const b = await 2;\na;",
+            ),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(graph.async_evaluation(), vec![true, true]);
+        assert_eq!(graph.pending_async_dependencies(0), 0);
+        assert_eq!(graph.pending_async_dependencies(1), 0);
     }
 
     #[test]

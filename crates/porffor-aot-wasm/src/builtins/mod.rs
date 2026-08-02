@@ -9,6 +9,7 @@ mod decimal;
 mod errors;
 mod finalization_registry;
 mod host;
+mod intl;
 mod iterators;
 mod json;
 mod promise;

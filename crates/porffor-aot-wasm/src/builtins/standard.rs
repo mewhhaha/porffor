@@ -36689,6 +36689,35 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
                 self.emit_temporal_zoned_date_time_with_time_zone(function)?;
             }
+            StandardBuiltinId::IntlGetCanonicalLocales => {
+                self.emit_intl_get_canonical_locales(function)?;
+            }
+            StandardBuiltinId::IntlLocaleConstructor => {
+                self.emit_intl_locale_constructor(function)?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeLanguageGetter => {
+                self.emit_intl_locale_string_slot(
+                    HEAP_INTL_LOCALE_LANGUAGE_OFFSET,
+                    false,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeScriptGetter => {
+                self.emit_intl_locale_string_slot(HEAP_INTL_LOCALE_SCRIPT_OFFSET, true, function)?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeRegionGetter => {
+                self.emit_intl_locale_string_slot(HEAP_INTL_LOCALE_REGION_OFFSET, true, function)?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeBaseNameGetter => {
+                self.emit_intl_locale_string_slot(
+                    HEAP_INTL_LOCALE_BASE_NAME_OFFSET,
+                    false,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeToString => {
+                self.emit_intl_locale_string_slot(HEAP_INTL_LOCALE_TAG_OFFSET, false, function)?;
+            }
             StandardBuiltinId::DateConstructor => {
                 let value_payload_local = self.reserve_temp_local();
                 let value_tag_local = self.reserve_temp_local();

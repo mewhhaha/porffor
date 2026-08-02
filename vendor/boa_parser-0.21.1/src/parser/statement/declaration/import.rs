@@ -78,6 +78,27 @@ where
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         cursor.expect((Keyword::Import, false), "import declaration", interner)?;
         let defer_sym = interner.get_or_intern("defer");
+        let source_sym = interner.get_or_intern("source");
+
+        // `import source <ImportedBinding> from "m"` (source-phase imports).
+        //
+        // `source` is not a keyword, so this only holds when the token after it
+        // can start an `ImportedBinding` *and* is not `from`: `import source
+        // from "m"` is an ordinary default import whose local name happens to
+        // be `source`, and `import source, { x } from "m"` is a default import
+        // followed by a named list. Computed before the `peek(0)` below because
+        // a match guard's borrow of `cursor` would outlive the arm it selects.
+        let source_phase = cursor.peek(0, interner)?.is_some_and(|token| {
+            matches!(
+                token.kind(),
+                TokenKind::IdentifierName((name, ContainsEscapeSequence(false)))
+                    if *name == source_sym
+            )
+        }) && cursor.peek(1, interner)?.is_some_and(|token| match token.kind() {
+            TokenKind::IdentifierName((name, _)) => *name != Sym::FROM,
+            TokenKind::Keyword((Keyword::Await | Keyword::Yield, _)) => true,
+            _ => false,
+        });
 
         let tok = cursor.peek(0, interner).or_abrupt()?;
 
@@ -148,6 +169,17 @@ where
                         ),
                     }
                 }
+            }
+            // See `source_phase` above: the `source` modifier, then the binding
+            // the module source object is bound to.
+            TokenKind::IdentifierName(_) if source_phase => {
+                cursor.advance(interner);
+                let imported_binding = ImportedBinding.parse(cursor, interner)?;
+                ImportClause::ImportList(
+                    Some(imported_binding),
+                    Box::default(),
+                    ImportPhase::Source,
+                )
             }
             TokenKind::Punctuator(Punctuator::OpenBlock) => {
                 let list = NamedImports.parse(cursor, interner)?;

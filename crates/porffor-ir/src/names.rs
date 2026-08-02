@@ -49,6 +49,29 @@ pub fn module_namespace_cell_name(unit: u32) -> String {
     format!("{}namespace", module_storage_prefix(unit))
 }
 
+/// Cell holding module `unit`'s deferred export table (`import defer`).
+///
+/// `undefined` until the module has begun evaluating, which is what
+/// [`module_defer_evaluate_function_name`] tests to make evaluation happen at
+/// most once.
+#[must_use]
+pub fn module_defer_cells_cell_name(unit: u32) -> String {
+    format!("{}defer$cells", module_storage_prefix(unit))
+}
+
+/// Function that evaluates module `unit`'s body on first touch of its deferred
+/// namespace, and returns its export table.
+#[must_use]
+pub fn module_defer_evaluate_function_name(unit: u32) -> String {
+    format!("{}defer$evaluate", module_storage_prefix(unit))
+}
+
+/// Cell holding module `unit`'s module source object (`import source`).
+#[must_use]
+pub fn module_source_cell_name(unit: u32) -> String {
+    format!("{}source", module_storage_prefix(unit))
+}
+
 /// Cell holding module `unit`'s `import.meta` object.
 #[must_use]
 pub fn module_import_meta_cell_name(unit: u32) -> String {
@@ -135,6 +158,8 @@ pub const DATE_NAME: &str = "Date";
 pub const TEMPORAL_NAME: &str = "Temporal";
 pub const TEMPORAL_INSTANT_NAME: &str = "Instant";
 pub const TEMPORAL_ZONED_DATE_TIME_NAME: &str = "ZonedDateTime";
+pub const INTL_NAME: &str = "Intl";
+pub const INTL_LOCALE_NAME: &str = "Locale";
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";
 pub const ATOMICS_NAME: &str = "Atomics";
@@ -660,6 +685,19 @@ pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID: &st
     "$builtin.Temporal.ZonedDateTime.prototype.toInstant";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.withTimeZone";
+pub const BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID: &str =
+    "$builtin.Intl.getCanonicalLocales";
+pub const BUILTIN_INTL_LOCALE_FUNCTION_ID: &str = "$builtin.Intl.Locale";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.language.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.script.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_REGION_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.region.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.baseName.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.toString";
 pub const BUILTIN_REGEXP_FUNCTION_ID: &str = "$builtin.RegExp";
 pub const BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.RegExp[Symbol.species].get";
 pub const BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID: &str =

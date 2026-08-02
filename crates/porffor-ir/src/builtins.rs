@@ -134,7 +134,12 @@ use crate::{
     BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
     BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
     BUILTIN_INT16_ARRAY_FUNCTION_ID, BUILTIN_INT32_ARRAY_FUNCTION_ID,
-    BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_ITERATOR_CONCAT_FUNCTION_ID,
+    BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID,
+    BUILTIN_INTL_LOCALE_FUNCTION_ID, BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_LOCALE_PROTOTYPE_REGION_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_ITERATOR_CONCAT_FUNCTION_ID,
     BUILTIN_ITERATOR_CONCAT_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_CONCAT_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID,
@@ -370,7 +375,7 @@ use crate::{
     HOST_ASSERT_THROWS_FUNCTION_ID, HOST_CREATE_HTMLDDA_FUNCTION_ID, HOST_CREATE_REALM_FUNCTION_ID,
     HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID, HOST_GC_FUNCTION_ID, HOST_HTMLDDA_FUNCTION_ID,
     HOST_IS_CONSTRUCTOR_FUNCTION_ID, HOST_PARSE_FLOAT_FUNCTION_ID, HOST_PARSE_INT_FUNCTION_ID,
-    HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
+    HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_LOCALE_NAME,
     IS_CONSTRUCTOR_NAME, MAP_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME,
     PRINT_NAME, PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME,
     SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
@@ -788,6 +793,13 @@ pub enum StandardBuiltinId {
     TemporalZonedDateTimePrototypeEquals,
     TemporalZonedDateTimePrototypeToInstant,
     TemporalZonedDateTimePrototypeWithTimeZone,
+    IntlGetCanonicalLocales,
+    IntlLocaleConstructor,
+    IntlLocalePrototypeLanguageGetter,
+    IntlLocalePrototypeScriptGetter,
+    IntlLocalePrototypeRegionGetter,
+    IntlLocalePrototypeBaseNameGetter,
+    IntlLocalePrototypeToString,
     RegExpConstructor,
     RegExpSpeciesGetter,
     RegExpPrototypeFlagsGetter,
@@ -1180,7 +1192,14 @@ impl StandardBuiltinId {
             | Self::TemporalZonedDateTimePrototypeNanosecondGetter
             | Self::TemporalZonedDateTimePrototypeEquals
             | Self::TemporalZonedDateTimePrototypeToInstant
-            | Self::TemporalZonedDateTimePrototypeWithTimeZone => None,
+            | Self::TemporalZonedDateTimePrototypeWithTimeZone
+            | Self::IntlGetCanonicalLocales
+            | Self::IntlLocaleConstructor
+            | Self::IntlLocalePrototypeLanguageGetter
+            | Self::IntlLocalePrototypeScriptGetter
+            | Self::IntlLocalePrototypeRegionGetter
+            | Self::IntlLocalePrototypeBaseNameGetter
+            | Self::IntlLocalePrototypeToString => None,
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
@@ -2026,6 +2045,13 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 "Temporal.ZonedDateTime.prototype.withTimeZone"
             }
+            Self::IntlGetCanonicalLocales => "Intl.getCanonicalLocales",
+            Self::IntlLocaleConstructor => "Intl.Locale",
+            Self::IntlLocalePrototypeLanguageGetter => "get Intl.Locale.prototype.language",
+            Self::IntlLocalePrototypeScriptGetter => "get Intl.Locale.prototype.script",
+            Self::IntlLocalePrototypeRegionGetter => "get Intl.Locale.prototype.region",
+            Self::IntlLocalePrototypeBaseNameGetter => "get Intl.Locale.prototype.baseName",
+            Self::IntlLocalePrototypeToString => "Intl.Locale.prototype.toString",
             Self::RegExpConstructor => REGEXP_NAME,
             Self::RegExpSpeciesGetter => "get RegExp [Symbol.species]",
             Self::RegExpPrototypeFlagsGetter => "get RegExp.prototype.flags",
@@ -3008,6 +3034,25 @@ impl StandardBuiltinId {
             }
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID.to_string()
+            }
+            Self::IntlGetCanonicalLocales => {
+                BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID.to_string()
+            }
+            Self::IntlLocaleConstructor => BUILTIN_INTL_LOCALE_FUNCTION_ID.to_string(),
+            Self::IntlLocalePrototypeLanguageGetter => {
+                BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IntlLocalePrototypeScriptGetter => {
+                BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IntlLocalePrototypeRegionGetter => {
+                BUILTIN_INTL_LOCALE_PROTOTYPE_REGION_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IntlLocalePrototypeBaseNameGetter => {
+                BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IntlLocalePrototypeToString => {
+                BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
             }
             Self::RegExpConstructor => BUILTIN_REGEXP_FUNCTION_ID.to_string(),
             Self::RegExpSpeciesGetter => BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID.to_string(),
@@ -4051,6 +4096,23 @@ impl StandardBuiltinId {
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeWithTimeZone)
             }
+            BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID => Some(Self::IntlGetCanonicalLocales),
+            BUILTIN_INTL_LOCALE_FUNCTION_ID => Some(Self::IntlLocaleConstructor),
+            BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID => {
+                Some(Self::IntlLocalePrototypeLanguageGetter)
+            }
+            BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID => {
+                Some(Self::IntlLocalePrototypeScriptGetter)
+            }
+            BUILTIN_INTL_LOCALE_PROTOTYPE_REGION_GETTER_FUNCTION_ID => {
+                Some(Self::IntlLocalePrototypeRegionGetter)
+            }
+            BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID => {
+                Some(Self::IntlLocalePrototypeBaseNameGetter)
+            }
+            BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::IntlLocalePrototypeToString)
+            }
             BUILTIN_REGEXP_FUNCTION_ID => Some(Self::RegExpConstructor),
             BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID => Some(Self::RegExpSpeciesGetter),
             BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID => {
@@ -4786,6 +4848,13 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeEquals,
             Self::TemporalZonedDateTimePrototypeToInstant,
             Self::TemporalZonedDateTimePrototypeWithTimeZone,
+            Self::IntlGetCanonicalLocales,
+            Self::IntlLocaleConstructor,
+            Self::IntlLocalePrototypeLanguageGetter,
+            Self::IntlLocalePrototypeScriptGetter,
+            Self::IntlLocalePrototypeRegionGetter,
+            Self::IntlLocalePrototypeBaseNameGetter,
+            Self::IntlLocalePrototypeToString,
             Self::RegExpConstructor,
             Self::RegExpSpeciesGetter,
             Self::RegExpPrototypeFlagsGetter,
@@ -5081,6 +5150,7 @@ impl StandardBuiltinId {
                 | Self::DateConstructor
                 | Self::TemporalInstantConstructor
                 | Self::TemporalZonedDateTimeConstructor
+                | Self::IntlLocaleConstructor
                 | Self::RegExpConstructor
                 | Self::Float64ArrayConstructor
                 | Self::Float32ArrayConstructor
@@ -5647,6 +5717,13 @@ impl StandardBuiltinId {
             Self::RegExpPrototypeSymbolSearch => Some("[Symbol.search]"),
             Self::RegExpPrototypeSymbolSplit => Some("[Symbol.split]"),
             Self::RegExpEscape => Some("escape"),
+            Self::IntlGetCanonicalLocales => Some("getCanonicalLocales"),
+            Self::IntlLocaleConstructor => Some(INTL_LOCALE_NAME),
+            Self::IntlLocalePrototypeLanguageGetter => Some("get language"),
+            Self::IntlLocalePrototypeScriptGetter => Some("get script"),
+            Self::IntlLocalePrototypeRegionGetter => Some("get region"),
+            Self::IntlLocalePrototypeBaseNameGetter => Some("get baseName"),
+            Self::IntlLocalePrototypeToString => Some("toString"),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),

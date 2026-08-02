@@ -141,6 +141,9 @@ pub(crate) const WEAK_SET_PROTOTYPE_GLOBAL_INDEX: u32 = 112;
 pub(crate) const WEAK_SET_CONSTRUCTOR_GLOBAL_INDEX: u32 = 113;
 pub(crate) const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX: u32 = 114;
 pub(crate) const TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 115;
+pub(crate) const INTL_OBJECT_GLOBAL_INDEX: u32 = 116;
+pub(crate) const INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX: u32 = 117;
+pub(crate) const INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX: u32 = 118;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -631,6 +634,18 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Temporal.ZonedDateTime",
         index: TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Intl",
+        index: INTL_OBJECT_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.Locale.prototype",
+        index: INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.Locale",
+        index: INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -678,6 +693,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::TemporalZonedDateTimeConstructor => {
             Some(TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
         }
+        StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::RegExpConstructor => Some(REGEXP_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float64ArrayConstructor => Some(FLOAT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float32ArrayConstructor => Some(FLOAT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
@@ -1246,6 +1262,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        | StandardBuiltinId::IntlGetCanonicalLocales
+        | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+        | StandardBuiltinId::IntlLocalePrototypeScriptGetter
+        | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+        | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+        | StandardBuiltinId::IntlLocalePrototypeToString
         | StandardBuiltinId::WeakRefPrototypeDeref
         | StandardBuiltinId::FinalizationRegistryPrototypeRegister
         | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => None,
@@ -1555,6 +1577,7 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::TemporalZonedDateTimeConstructor => {
             Some(TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
         }
+        StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX),
         _ => None,
     }
 }
@@ -1632,7 +1655,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
         );
     }
 

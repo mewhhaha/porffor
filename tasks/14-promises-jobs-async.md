@@ -60,6 +60,43 @@ Provide `AsyncFromSyncIterator`, async iterator acquisition/close, async `for-aw
 
 `can_block` must affect Atomics/host behavior, not Promise ordering. Provide a deterministic test driver that can run jobs until completion or a deadline and report pending jobs/rejections on timeout.
 
+### Known defect: unhandled rejections are silently dropped, which fakes passes
+
+Measured 2026-08-02. A promise that rejects with no handler produces no
+diagnostic and exit status 0:
+
+```sh
+# plain script, no modules involved
+(async () => { throw new Error("boom"); })(); print("sync done");
+# -> prints "sync done", exits 0, the Error is never reported
+```
+
+This is engine-wide and pre-existing, but top-level await made it a
+**conformance-scoring hazard** rather than only a usability problem. A module
+with top-level `await` now has its body wrapped in an async function, so a throw
+after the first `await` routes through the unhandled-rejection path:
+
+```sh
+await 0; throw new Error("tla boom");   # -> no diagnostic, exit 0
+throw new Error("plain boom");          # -> correctly reported (no TLA wrapper)
+```
+
+The consequence is that a `flags: [module]` Test262 case using top-level await
+whose assertion **fails** is scored as a **pass**. Silently turning failures into
+passes corrupts the measurement this whole project exists to produce, so treat
+any TLA-tagged conformance number as untrustworthy until this is closed.
+
+Fix shape: track a rejected-with-no-handler promise, and after the job-drain loop
+(`emit_drain_promise_jobs`, called at the end of main in
+`crates/porffor-aot-wasm/src/emit.rs`) set the main export's completion kind to
+Throw carrying that value. The merged module graph's wrapper promise is unhandled
+by construction, so the module case is the easy one to scope.
+
+Related defect, same area: `await` inside a loop body is miscompiled.
+`(async function(){ let t = 0; for (let i = 0; i < 3; i++) { t += await Promise.resolve(i); } print(t); })();`
+prints `0` instead of `3` as a plain script, with no module involved. This will
+independently hold down any Test262 case that awaits in a loop.
+
 ## Acceptance criteria
 
 - Promise state and resolution tests pass, including hostile thenables and side-effect ordering.

@@ -2025,6 +2025,7 @@ pub enum ScriptGlobalBindingKind {
     JsonObject,
     AtomicsObject,
     TemporalObject,
+    IntlObject,
     BuiltinFunction(StandardBuiltinId),
     HostFunction(HostBuiltinId),
 }

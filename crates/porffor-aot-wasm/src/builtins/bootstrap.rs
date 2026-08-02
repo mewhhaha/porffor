@@ -338,6 +338,9 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinId::IntlLocaleConstructor => {
+                self.install_intl_locale_constructor_intrinsics(&intrinsic_context, function)?
+            }
             StandardBuiltinId::DateConstructor => {
                 self.install_date_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -816,6 +819,12 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::SymbolPrototypeValueOf
             | StandardBuiltinId::SymbolPrototypeToPrimitive
             | StandardBuiltinId::DatePrototypeToPrimitive
+            | StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+            | StandardBuiltinId::IntlLocalePrototypeScriptGetter
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeToString
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEquals
@@ -1167,6 +1176,83 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(TEMPORAL_OBJECT_GLOBAL_INDEX));
+
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(constructor_tag_local);
+        self.release_temp_local(constructor_local);
+        self.release_temp_local(object_local);
+        Ok(())
+    }
+
+    /// ECMA-402 8: the `Intl` namespace object. Only the properties this
+    /// backend actually implements are installed — nothing is stubbed.
+    pub(crate) fn init_intl_object(&mut self, function: &mut Function) -> Result<(), EmitError> {
+        let object_local = self.reserve_temp_local();
+        let constructor_local = self.reserve_temp_local();
+        let constructor_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+
+        let get_canonical_locales_meta = self
+            .functions
+            .get(&StandardBuiltinId::IntlGetCanonicalLocales.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Intl.getCanonicalLocales`",
+                )
+            })?;
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        self.emit_object_define_function_data(
+            object_local,
+            "getCanonicalLocales",
+            get_canonical_locales_meta,
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalGet(
+            INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(constructor_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        self.emit_object_append_local_data_property_with_flags(
+            object_local,
+            "Locale",
+            constructor_local,
+            constructor_tag_local,
+            true,
+            false,
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("Intl")));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(object_local));
+        function.instruction(&Instruction::GlobalSet(INTL_OBJECT_GLOBAL_INDEX));
 
         self.release_temp_local(tag_local);
         self.release_temp_local(payload_local);
@@ -3361,6 +3447,12 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         let regexp_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
         self.store_i64_const_at_offset(
@@ -3593,6 +3685,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::TemporalZonedDateTimeConstructor,
                 TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IntlLocaleConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlLocaleConstructor,
+                INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }
@@ -3912,6 +4014,11 @@ impl<'a> FunctionBuilder<'a> {
         {
             self.init_temporal_object(function)?;
         }
+        if self.runtime_bootstrap_plan.full_standard_globals
+            || self.runtime_bootstrap_plan.intl_object
+        {
+            self.init_intl_object(function)?;
+        }
         Ok(())
     }
 
@@ -4074,6 +4181,12 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 ScriptGlobalBindingKind::TemporalObject => {
                     function.instruction(&Instruction::GlobalGet(TEMPORAL_OBJECT_GLOBAL_INDEX));
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                }
+                ScriptGlobalBindingKind::IntlObject => {
+                    function.instruction(&Instruction::GlobalGet(INTL_OBJECT_GLOBAL_INDEX));
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));

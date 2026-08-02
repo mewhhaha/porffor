@@ -588,14 +588,17 @@ fn module_request(
 
 /// `ParseModule` (16.2.1.6.1): parses `source` and builds its module record.
 ///
-/// Accepts every module *form*. The three ways this fails are exactly the three
+/// Accepts every module *form*. The two ways this fails are exactly the two
 /// ParseModule can produce before linking begins:
 ///
 /// 1. the parse itself failed — classified by [`module_parse_failure_diagnostic`]
-///    so a static-semantics failure is a `SyntaxError` and not "unsupported";
+///    so a static-semantics failure is a `SyntaxError` and not "unsupported"; or
 /// 2. an early error of `Module : ModuleBody` (16.2.3.1) held on the record's
-///    own entry tables; or
-/// 3. the module uses top-level `await`, which this compiler has no driver for.
+///    own entry tables.
+///
+/// Top-level `await` is *not* one of them. It sets `[[HasTLA]]` on the record;
+/// [`ModuleGraphIr::async_evaluation`] propagates it across the graph and the
+/// link stage gives the merged program an asynchronous body.
 ///
 /// Everything else — unresolved specifiers, missing or ambiguous exports — is
 /// the graph's job, not this function's, because none of it is decidable from a
@@ -616,18 +619,10 @@ pub fn parse_module_record(
         return Err(early_errors);
     }
 
-    // `[[HasTLA]]` is recorded on the record for the day an asynchronous
-    // evaluation driver exists, but the backend has none today. Reporting it
-    // here is what keeps `language/module-code/top-level-await/` honest: those
-    // cases classify as unsupported instead of compiling as though the `await`
-    // were not written.
-    if record.has_top_level_await {
-        return Err(vec![IrDiagnostic::unsupported(format!(
-            "unsupported in porffor wasm-aot: top-level await in module {}",
-            record.key
-        ))]);
-    }
-
+    // `[[HasTLA]]` is a property of the record, never a failure of ParseModule:
+    // 16.2.1.6.1 step 12 simply stores it. What it costs is decided later, by
+    // the graph (which modules become `[[AsyncEvaluation]]`) and by the link
+    // stage (which gives the merged program an asynchronous body).
     Ok(record)
 }
 
@@ -1632,24 +1627,16 @@ mod tests {
     // -- `[[HasTLA]]` ------------------------------------------------------
 
     #[test]
-    fn top_level_await_is_reported_unsupported_rather_than_miscompiled() {
+    fn top_level_await_sets_has_tla_rather_than_failing_parse_module() {
         for source in [
             "await Promise.resolve(1);\n",
             "for await (const value of []) { value; }\n",
         ] {
-            let diagnostics = parse_module_record(&source_unit(source), 0, "main.mjs".to_string())
-                .expect_err("top-level await should not produce a record");
-            assert_eq!(diagnostics.len(), 1, "{source}");
-            assert_eq!(
-                diagnostics[0].kind,
-                IrDiagnosticKind::Unsupported,
-                "{source}"
-            );
-            assert!(
-                diagnostics[0].message.contains("top-level await"),
-                "{source}: {}",
-                diagnostics[0].message
-            );
+            let record = parse_module_record(&source_unit(source), 0, "main.mjs".to_string())
+                .unwrap_or_else(|diagnostics| {
+                    panic!("top-level await must parse, got {diagnostics:?} for {source}")
+                });
+            assert!(record.has_top_level_await, "{source}");
         }
     }
 

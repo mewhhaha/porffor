@@ -37,9 +37,13 @@
 //! * Unit bodies are separated by an empty statement so that no unit's last
 //!   token can join the next unit's first token through ASI.
 //! * Module top-level `this` is `undefined`. The merged source is Script text,
-//!   whose top-level `this` is `globalThis`, so a unit that observes top-level
-//!   `this` is reported rather than silently given the wrong value — see
-//!   [`lowering::lower_module_graph`].
+//!   whose top-level `this` is `globalThis`, so a synchronous unit that
+//!   observes top-level `this` is reported rather than silently given the wrong
+//!   value — see [`lowering::lower_module_graph`].
+//! * A graph any of whose modules has `[[HasTLA]]` has its whole body wrapped
+//!   in an immediately-invoked strict async function — see [`wrap_async_body`],
+//!   which is also where the two deviations below stop applying, because such a
+//!   body has a function scope and a `this` of its own.
 //!
 //! [`lowering::lower_module_graph`]: crate::lower_module_graph
 //!
@@ -70,11 +74,33 @@
 //! `modules::dynamic` owns the `import()` dispatchers. Each reports its own
 //! remaining gaps through [`check_linkable`]'s companions rather than through a
 //! blanket rejection here.
+//!
+//! # Phased requests
+//!
+//! A unit's [`ModuleEvaluationModeIr`] decides *whether and how* its body is
+//! emitted here, and `modules::graph` decides the mode from the phases of the
+//! requests that reach the unit:
+//!
+//! * [`Eager`] — the body is emitted inline, in evaluation order. Everything an
+//!   unphased graph contains.
+//! * [`Deferred`] (`import defer * as ns from "m"`) — the body is emitted as a
+//!   thunk that `m`'s namespace object calls on the first read of any export.
+//!   See [`deferred_body_source`] for the shape and its deviations.
+//! * [`NotEvaluated`] (`import source src from "m"`) — no body is emitted at
+//!   all; only a module source object is declared. See
+//!   `modules::namespace::module_source_object_source` for what that object is
+//!   and is not.
+//!
+//! [`Eager`]: ModuleEvaluationModeIr::Eager
+//! [`Deferred`]: ModuleEvaluationModeIr::Deferred
+//! [`NotEvaluated`]: ModuleEvaluationModeIr::NotEvaluated
 
 use crate::*;
 
 use super::dynamic::collect_components;
-use super::namespace::{collect_observed_namespaces, namespace_prelude_source};
+use super::namespace::{
+    collect_observed_namespaces, deferred_body_source, namespace_prelude_source,
+};
 use super::record::{import_meta_binding, rewrite_import_meta};
 use super::source::strip_module_syntax;
 
@@ -129,8 +155,9 @@ pub(crate) fn linked_script_source(
         return Err(diagnostics);
     }
 
-    // 16.2.1.6.1: module code is always strict.
-    let mut text = String::from("\"use strict\";\n");
+    // Everything below the `"use strict"` prologue, so that an asynchronous
+    // graph can be wrapped whole. See `wrap_async_body`.
+    let mut text = String::new();
 
     // Namespace objects come first. Their getters are deferred, so nothing they
     // name has to be initialized yet, and the `import * as ns` aliases they
@@ -162,7 +189,13 @@ pub(crate) fn linked_script_source(
         text.push('\n');
     }
 
-    for (position, unit_id) in emission_order(graph).into_iter().enumerate() {
+    let mut position = 0usize;
+    for unit_id in emission_order(graph) {
+        // A module reached only through `import source` is resolved, loaded,
+        // parsed and linked, but never instantiated: it contributes no body.
+        if graph.evaluation_mode(unit_id) == ModuleEvaluationModeIr::NotEvaluated {
+            continue;
+        }
         let unit = graph.unit(unit_id);
         // `rewrite_import_meta` first and `strip_module_syntax` second: both
         // preserve byte length because both are addressed by spans the record
@@ -171,7 +204,15 @@ pub(crate) fn linked_script_source(
         let rewritten = rewrite_import_meta(&unit.source_text, &unit.record)
             .map_err(|error| error.reason)
             .and_then(|rewritten| strip_module_syntax(&rewritten).map_err(|error| error.reason))
-            .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped));
+            .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped))
+            // `import defer`: the body becomes a thunk the namespace calls.
+            .and_then(|body| {
+                if graph.evaluation_mode(unit_id) == ModuleEvaluationModeIr::Deferred {
+                    deferred_body_source(graph, unit_id, &body)
+                } else {
+                    Ok(body)
+                }
+            });
         match rewritten {
             Ok(body) => {
                 // An empty statement *between* units, never after the last one:
@@ -184,6 +225,7 @@ pub(crate) fn linked_script_source(
                     text.push_str("\n;\n");
                 }
                 text.push_str(&body);
+                position += 1;
             }
             Err(reason) => diagnostics.push(IrDiagnostic::unsupported(format!(
                 "unsupported in porffor wasm-aot: module {}: {reason}",
@@ -195,6 +237,15 @@ pub(crate) fn linked_script_source(
         return Err(diagnostics);
     }
 
+    // 16.2.1.6.1: module code is always strict. The prologue stays outside any
+    // wrapper so it is still the merged script's first Directive Prologue item.
+    let mut source_text = String::from("\"use strict\";\n");
+    if graph.async_evaluation().iter().any(|unit| *unit) {
+        source_text.push_str(&wrap_async_body(&text));
+    } else {
+        source_text.push_str(&text);
+    }
+
     Ok(SourceUnit {
         goal: ParseGoal::Script,
         filename: sources
@@ -202,8 +253,52 @@ pub(crate) fn linked_script_source(
             .get(sources.entry as usize)
             .map(|module| module.key.clone())
             .filter(|key| key != ANONYMOUS_MODULE_KEY),
-        source_text: text,
+        source_text,
     })
+}
+
+/// Wraps the merged graph body in an immediately-invoked async function, which
+/// is what makes a top-level `await` legal in the Script-goal text this stage
+/// produces.
+///
+/// # Why one wrapper for the whole graph
+///
+/// The merge concatenates unit bodies in `evaluation_order`, so the emitted
+/// text already *is* the sequence `InnerModuleEvaluation` walks. Suspending on
+/// an `await` inside that sequence therefore suspends exactly the modules that
+/// come after it in dependency order, which is what
+/// `[[PendingAsyncDependencies]]` and `AsyncModuleExecutionFulfilled` exist to
+/// arrange: an importer of an asynchronous module does not run until that
+/// module's body has completed. No separate driver is needed to get that
+/// relation right, because the order was already fixed by Tarjan.
+///
+/// # Where it deviates
+///
+/// The spec *starts* every dependency's body before awaiting any of them, so
+/// two independent asynchronous modules interleave: `a` runs to its first
+/// `await`, then `b` runs to its first `await`, and only then does either
+/// resume. One wrapper serializes that instead — `a` runs to completion before
+/// `b` begins. Every module still observes its own dependencies as fully
+/// evaluated, and a graph with at most one asynchronous chain is unaffected;
+/// what changes is the interleaving of side effects between asynchronous
+/// *siblings*.
+///
+/// A regular `function` rather than an arrow is deliberate. Module top-level
+/// `this` is `undefined` (16.2.1.6.2), and a strict function called with no
+/// receiver is the one construct that gives the merged Script text that value —
+/// so an asynchronous graph gets the module `this` right where
+/// `lower_module_graph` has to report it for a synchronous one. `var`
+/// declarations likewise become function-scoped, which is the module
+/// environment's behaviour rather than the merged script's.
+fn wrap_async_body(body: &str) -> String {
+    // `void` because the call's value is the module's `[[TopLevelCapability]]`
+    // promise, and an `ExpressionStatement` yielding it would make that promise
+    // the merged script's completion value. A module evaluates to no value.
+    //
+    // The newline before `}` closes any unit body that ended in an expression
+    // without a semicolon: ASI applies at the `}`, exactly as it already does
+    // at the end of the unwrapped merged script.
+    format!("void (async function () {{\n{body}\n}})();\n")
 }
 
 /// Unit ids in the order their bodies are emitted, entry last.
@@ -239,6 +334,15 @@ fn emission_order(graph: &ModuleGraphIr) -> Vec<ModuleUnitId> {
 fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     for unit in &graph.units {
         let key = &unit.record.key;
+        // Nothing of a source-phase-only module reaches the merged script: no
+        // body, no namespace, no binding. Its `export default` and its
+        // `export * from` are therefore not this stage's problem, and rejecting
+        // the graph over them would refuse `import source` of exactly the
+        // ordinary modules it exists to take a handle on. Its *parse* still had
+        // to succeed, which is where the source phase's real errors come from.
+        if graph.evaluation_mode(unit.record.id) == ModuleEvaluationModeIr::NotEvaluated {
+            continue;
+        }
         // `import.meta` and dynamic `import()` are linked as generated Script
         // text by `modules::record` and `modules::dynamic`; each reports its own
         // remaining gaps (`rewrite_import_meta`'s span check and
@@ -256,6 +360,14 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
             diagnostics.push(unsupported(key, "`export default`"));
         }
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
+            if entry.request.phase == ImportPhaseIr::Source {
+                // Bound by the module-source prelude. `[[ImportName]]` is
+                // `default` only because the grammar reuses `ImportedBinding`;
+                // nothing is resolved against the requested module's exports,
+                // so the alias check below would report a rename that is not
+                // one.
+                continue;
+            }
             if entry.import_name == ImportNameIr::Namespace {
                 // Bound by the namespace prelude, not by the merged scope
                 // sharing the exporter's cell — so the alias check below does
@@ -285,6 +397,12 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     // deliberately the exporting unit's cell.
     let mut owners: BTreeMap<&str, &str> = BTreeMap::new();
     for unit_id in &graph.evaluation_order {
+        // A deferred unit's bindings live in its thunk's scope and a
+        // source-phase-only unit has no body at all, so neither can collide
+        // with anything in the merged scope.
+        if graph.evaluation_mode(*unit_id) != ModuleEvaluationModeIr::Eager {
+            continue;
+        }
         let unit = graph.unit(*unit_id);
         for binding in &unit.record.environment {
             if binding.kind == ModuleBindingKindIr::Import {
@@ -352,6 +470,86 @@ mod tests {
         let graph = graph_of(&sources);
         let components = evaluation_components(&graph);
         assert_eq!(components, vec![vec![0]]);
+    }
+
+    /// A graph with no `[[HasTLA]]` module keeps the flat merged body: the
+    /// wrapper is not paid for by programs that do not need it.
+    #[test]
+    fn a_synchronous_graph_is_not_wrapped() {
+        let sources = sources_of(&[("m", "print(1);")], 0, Vec::new());
+        let mut graph = graph_of(&sources);
+        let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
+        assert!(
+            !linked.source_text.contains("async function"),
+            "got {}",
+            linked.source_text
+        );
+    }
+
+    /// Top-level `await` links instead of being reported, and the merged text
+    /// is Script-legal because the whole body became an async function.
+    #[test]
+    fn a_top_level_await_module_is_wrapped_in_an_async_body() {
+        let sources = sources_of(
+            &[("m", "const value = await 1;\nprint(value);")],
+            0,
+            Vec::new(),
+        );
+        let mut graph = graph_of(&sources);
+        let linked = linked_script_source(&sources, &mut graph).expect("top-level await links");
+
+        assert!(linked.source_text.starts_with("\"use strict\";"));
+        assert!(
+            linked
+                .source_text
+                .contains("void (async function () {\nconst value = await 1;"),
+            "got {}",
+            linked.source_text
+        );
+        assert!(
+            linked.source_text.trim_end().ends_with("})();"),
+            "got {}",
+            linked.source_text
+        );
+    }
+
+    /// `[[AsyncEvaluation]]` is transitive: an importer of an asynchronous
+    /// module is asynchronous too, so a graph whose *dependency* holds the
+    /// `await` is wrapped as a whole and the importer's body is emitted after
+    /// the `await` that must precede it.
+    #[test]
+    fn an_importer_of_an_asynchronous_module_is_wrapped_and_ordered_after_it() {
+        let sources = sources_of(
+            &[
+                ("a", "export const value = await 7;"),
+                ("b", "import { value } from \"a\";\nprint(value + 1);"),
+            ],
+            1,
+            vec![(1, plain("a"), 0)],
+        );
+        let mut graph = graph_of(&sources);
+        assert_eq!(graph.async_evaluation(), vec![true, true]);
+        assert_eq!(graph.pending_async_dependencies(1), 1);
+
+        let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
+        let exporter = linked
+            .source_text
+            .find("await 7")
+            .expect("exporter body is present");
+        let importer = linked
+            .source_text
+            .find("print(value + 1);")
+            .expect("importer body is present");
+        assert!(
+            exporter < importer,
+            "the awaited dependency must precede its importer: {}",
+            linked.source_text
+        );
+        assert!(
+            linked.source_text.contains("void (async function () {"),
+            "got {}",
+            linked.source_text
+        );
     }
 
     #[test]
@@ -491,6 +689,111 @@ mod tests {
         );
         assert!(
             linked.source_text.contains(&format!("const ns = {cell};")),
+            "got {}",
+            linked.source_text
+        );
+    }
+
+    fn phased(specifier: &str, phase: ImportPhaseIr) -> ModuleRequestIr {
+        ModuleRequestIr {
+            specifier: specifier.to_string(),
+            phase,
+            attributes: Vec::new(),
+        }
+    }
+
+    /// `import defer`: the dependency's body still reaches the merged script,
+    /// but wrapped in the thunk its namespace getters call, so nothing of it
+    /// runs until an export is read.
+    #[test]
+    fn a_deferred_dependency_body_is_emitted_as_a_thunk() {
+        let sources = sources_of(
+            &[
+                ("a", "print(\"side effect\");\nexport const value = 41;"),
+                (
+                    "d",
+                    "import defer * as ns from \"a\";\nprint(\"entry\");\nprint(ns.value);",
+                ),
+            ],
+            1,
+            vec![(1, phased("a", ImportPhaseIr::Defer), 0)],
+        );
+        let mut graph = graph_of(&sources);
+        assert_eq!(
+            graph.evaluation_mode(0),
+            ModuleEvaluationModeIr::Deferred,
+            "{:?}",
+            graph.evaluation_modes
+        );
+        let linked = linked_script_source(&sources, &mut graph).expect("defer should link");
+
+        let evaluate = module_defer_evaluate_function_name(0);
+        assert!(
+            linked
+                .source_text
+                .contains(&format!("let {};", module_defer_cells_cell_name(0))),
+            "got {}",
+            linked.source_text
+        );
+        // The body is inside the thunk, not at top level.
+        let thunk = linked
+            .source_text
+            .find(&format!("function {evaluate}()"))
+            .expect("thunk is present");
+        let side_effect = linked
+            .source_text
+            .find("print(\"side effect\")")
+            .expect("dependency body is present");
+        assert!(thunk < side_effect, "got {}", linked.source_text);
+        // And the namespace getter is what calls it.
+        assert!(
+            linked
+                .source_text
+                .contains(&format!("get: () => {evaluate}()[\"value\"]()")),
+            "got {}",
+            linked.source_text
+        );
+    }
+
+    /// `import source`: the module is resolved, loaded, parsed and linked, and
+    /// then nothing of it is emitted at all — including the `export default`
+    /// the merged scope could not have linked, which is not this stage's
+    /// problem when no body, namespace or binding of the module is emitted.
+    #[test]
+    fn a_source_phase_dependency_contributes_no_body() {
+        let sources = sources_of(
+            &[
+                (
+                    "a",
+                    "print(\"must not run\");\nexport default 1;\nexport const value = 41;",
+                ),
+                ("d", "import source src from \"a\";\nprint(typeof src);"),
+            ],
+            1,
+            vec![(1, phased("a", ImportPhaseIr::Source), 0)],
+        );
+        let mut graph = graph_of(&sources);
+        assert_eq!(
+            graph.evaluation_mode(0),
+            ModuleEvaluationModeIr::NotEvaluated
+        );
+        let linked = linked_script_source(&sources, &mut graph).expect("source phase should link");
+
+        assert!(
+            !linked.source_text.contains("must not run"),
+            "got {}",
+            linked.source_text
+        );
+        let cell = module_source_cell_name(0);
+        assert!(
+            linked
+                .source_text
+                .contains(&format!("const {cell} = Object.create(null);")),
+            "got {}",
+            linked.source_text
+        );
+        assert!(
+            linked.source_text.contains(&format!("const src = {cell};")),
             "got {}",
             linked.source_text
         );

@@ -7,8 +7,14 @@
 //! `ResolveExport` and evaluation order. `link` merges the per-module bodies
 //! into the single `ScriptIr` the backend emits, and `source` is the lexical
 //! scanner it uses to delete module-goal-only syntax from a unit's text.
-//! `namespace` owns module namespace exotic objects. `dynamic` owns the
-//! `import()` component registry.
+//! `namespace` owns module namespace exotic objects, deferred namespaces and
+//! module source objects. `dynamic` owns the `import()` component registry.
+//!
+//! All three module request *phases* link. The evaluation phase is the default;
+//! `import defer` makes a unit's body a thunk its namespace calls on first
+//! touch; `import source` loads and parses a unit without instantiating it.
+//! `graph::classify_evaluation_modes` is the single authority for which unit
+//! gets which treatment.
 //!
 //! `porffor-ir` performs no IO. The host resolves and reads every source and
 //! hands the closure over as a [`ModuleGraphSources`]; nothing in this

@@ -715,6 +715,7 @@ pub(crate) struct RuntimeBootstrapPlan {
     pub(crate) json_object: bool,
     pub(crate) atomics_object: bool,
     pub(crate) temporal_object: bool,
+    pub(crate) intl_object: bool,
 }
 
 impl RuntimeBootstrapPlan {
@@ -778,6 +779,7 @@ impl RuntimeBootstrapPlan {
             ScriptGlobalBindingKind::TemporalObject => {
                 self.full_standard_globals || self.temporal_object
             }
+            ScriptGlobalBindingKind::IntlObject => self.full_standard_globals || self.intl_object,
             ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                 self.should_initialize_standard_builtin(builtin)
             }
@@ -801,6 +803,11 @@ impl RuntimeBootstrapPlan {
             ScriptGlobalBindingKind::TemporalObject => {
                 self.temporal_object = true;
                 self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+            }
+            ScriptGlobalBindingKind::IntlObject => {
+                self.intl_object = true;
+                self.require_standard_builtin(StandardBuiltinId::IntlLocaleConstructor);
+                self.require_standard_builtin(StandardBuiltinId::IntlGetCanonicalLocales);
             }
             ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                 self.require_standard_builtin(builtin);
@@ -1177,6 +1184,26 @@ impl RuntimeBootstrapPlan {
                     .insert(StandardBuiltinId::PromiseConstructor);
                 self.standard_roots
                     .insert(StandardBuiltinId::PromiseSpeciesGetter);
+            }
+            StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlLocaleConstructor
+            | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+            | StandardBuiltinId::IntlLocalePrototypeScriptGetter
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeToString => {
+                self.intl_object = true;
+                for dependency in [
+                    StandardBuiltinId::IntlGetCanonicalLocales,
+                    StandardBuiltinId::IntlLocaleConstructor,
+                    StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
+                    StandardBuiltinId::IntlLocalePrototypeScriptGetter,
+                    StandardBuiltinId::IntlLocalePrototypeRegionGetter,
+                    StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
+                    StandardBuiltinId::IntlLocalePrototypeToString,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
             }
             StandardBuiltinId::TemporalInstantConstructor
             | StandardBuiltinId::TemporalInstantFrom
@@ -4908,6 +4935,12 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => 1,
         StandardBuiltinId::TemporalZonedDateTimeConstructor => 2,
+        StandardBuiltinId::IntlGetCanonicalLocales | StandardBuiltinId::IntlLocaleConstructor => 1,
+        StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+        | StandardBuiltinId::IntlLocalePrototypeScriptGetter
+        | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+        | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+        | StandardBuiltinId::IntlLocalePrototypeToString => 0,
         StandardBuiltinId::ErrorIsError => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
         StandardBuiltinId::AggregateErrorConstructor => 2,

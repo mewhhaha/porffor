@@ -1491,6 +1491,58 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    fn intl_locale_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "language",
+                StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
+            ),
+            ("script", StandardBuiltinId::IntlLocalePrototypeScriptGetter),
+            ("region", StandardBuiltinId::IntlLocalePrototypeRegionGetter),
+            (
+                "baseName",
+                StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        properties.insert(
+            "toString".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::IntlLocalePrototypeToString.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Intl.Locale")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn intl_locale_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::intl_locale_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     fn temporal_zoned_date_time_prototype_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
         for (name, getter) in [
@@ -3696,6 +3748,34 @@ impl<'a> ScriptLowerer<'a> {
         }))))
     }
 
+    fn intl_object_value_info() -> ValueInfo {
+        let properties = BTreeMap::from([
+            (
+                "getCanonicalLocales".to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    StandardBuiltinId::IntlGetCanonicalLocales.function_id(),
+                    false,
+                )),
+            ),
+            (
+                INTL_LOCALE_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IntlLocaleConstructor,
+                )),
+            ),
+            (
+                "Symbol.toStringTag".to_string(),
+                ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
+            ),
+        ]);
+        Self::value_info_from_shape(Some(Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))))
+    }
+
     fn atomics_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
@@ -5051,6 +5131,34 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::IntlGetCanonicalLocales => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlLocaleConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::intl_locale_instance_shape()),
+                Self::value_info_from_shape(Some(Self::intl_locale_instance_shape())),
+            ),
+            StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeToString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlLocalePrototypeScriptGetter
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::TemporalZonedDateTimeConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -6096,6 +6204,15 @@ impl<'a> ScriptLowerer<'a> {
                     TEMPORAL_NAME.to_string(),
                     GlobalPropertyInfo {
                         value_info: Self::temporal_object_value_info(),
+                        proven_present: true,
+                        configurable: true,
+                        source: GlobalPropertySource::Builtin,
+                    },
+                );
+                properties.insert(
+                    INTL_NAME.to_string(),
+                    GlobalPropertyInfo {
+                        value_info: Self::intl_object_value_info(),
                         proven_present: true,
                         configurable: true,
                         source: GlobalPropertySource::Builtin,
@@ -7597,6 +7714,10 @@ impl<'a> ScriptLowerer<'a> {
         bindings.push(ScriptGlobalBindingIr {
             name: TEMPORAL_NAME.to_string(),
             kind: ScriptGlobalBindingKind::TemporalObject,
+        });
+        bindings.push(ScriptGlobalBindingIr {
+            name: INTL_NAME.to_string(),
+            kind: ScriptGlobalBindingKind::IntlObject,
         });
         bindings.extend(
             StandardBuiltinId::all_globals()
@@ -24119,6 +24240,17 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeToString => {
                 Some(ValueInfo::new(ValueKind::String))
             }
+            StandardBuiltinId::IntlGetCanonicalLocales => Some(ValueInfo::new(ValueKind::Array)),
+            StandardBuiltinId::IntlLocaleConstructor => Some(Self::value_info_from_shape(Some(
+                Self::intl_locale_instance_shape(),
+            ))),
+            StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeToString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::IntlLocalePrototypeScriptGetter
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => None,
             StandardBuiltinId::TemporalZonedDateTimeConstructor => Some(
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),

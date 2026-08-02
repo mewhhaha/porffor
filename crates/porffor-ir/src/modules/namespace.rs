@@ -72,6 +72,20 @@
 //! before any unit body: no export has to be initialized yet, and a namespace
 //! whose export is another module's namespace (`export * as inner from "m"`)
 //! needs no ordering between the two declarations either.
+//!
+//! # Deferred namespaces and module source objects
+//!
+//! Two of the three module request phases are materialized here as well:
+//!
+//! * `import defer * as ns from "m"` gives `m` a *Deferred Module Namespace*
+//!   ([`ModuleNamespaceIr::deferred`]). Its getters route through the thunk
+//!   [`deferred_body_source`] wraps `m`'s body in, so the first read of any
+//!   export is what evaluates `m`. porffor triggers evaluation on `[[Get]]` of
+//!   an export only; the proposal also triggers it from `[[HasProperty]]`,
+//!   `[[OwnPropertyKeys]]` and friends, which an accessor cannot observe.
+//! * `import source src from "m"` gives `m` a module source object
+//!   ([`module_source_object_source`]) and nothing else: `m` is resolved, loaded
+//!   and parsed, but never instantiated and never evaluated.
 
 use crate::*;
 
@@ -108,6 +122,10 @@ pub struct ModuleNamespaceIr {
     /// [`module_namespace_cell_name`] mints it from the unit id rather than
     /// from source.
     pub cell: String,
+    /// `true` when this is a *Deferred* Module Namespace: the module is only
+    /// reached through `import defer`, so reading any export of this object
+    /// evaluates the module first.
+    pub deferred: bool,
     /// Merged-script source that materializes this object, or the reason it
     /// cannot be expressed as Script text.
     ///
@@ -212,6 +230,10 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<String> 
             binding: ModuleBindingNameIr::Namespace,
         } => Some(module_namespace_cell_name(*module)),
         ResolvedBindingIr::Resolved {
+            module,
+            binding: ModuleBindingNameIr::ModuleSource,
+        } => Some(module_source_cell_name(*module)),
+        ResolvedBindingIr::Resolved {
             binding: ModuleBindingNameIr::Name(name),
             ..
         } => is_binding_identifier(name).then(|| name.clone()),
@@ -251,7 +273,18 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
         // An accessor, not a data property: see the module docs. No setter, so
         // `[[Set]]` throws in the strict code every module unit is.
         text.push_str(", { get: () => ");
-        text.push_str(&reference);
+        if namespace.deferred {
+            // A deferred module's bindings live in its thunk's scope, not in
+            // the merged one, so the getter goes through the export table the
+            // thunk publishes — and calling the thunk is what makes the first
+            // read of any export evaluate the module.
+            text.push_str(&module_defer_evaluate_function_name(namespace.module));
+            text.push_str("()[");
+            push_js_string_literal(&mut text, &export.export_name);
+            text.push_str("]()");
+        } else {
+            text.push_str(&reference);
+        }
         text.push_str(", enumerable: true, configurable: false });\n");
     }
 
@@ -285,18 +318,36 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
 /// text, so a graph that cannot be linked says exactly what stopped it instead
 /// of emitting source that binds the wrong thing.
 pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrDiagnostic>> {
-    if graph.units.iter().all(|unit| unit.namespace.is_none()) {
+    let has_source_import = graph.units.iter().any(|unit| {
+        unit.record
+            .import_entries
+            .iter()
+            .any(|entry| entry.request.phase == ImportPhaseIr::Source)
+    });
+    if graph.units.iter().all(|unit| unit.namespace.is_none()) && !has_source_import {
         return Ok(String::new());
     }
 
     let mut diagnostics = Vec::new();
     report_shadowed_namespace_globals(graph, &mut diagnostics);
     let aliases = collect_namespace_aliases(graph, &mut diagnostics);
+    let (source_modules, source_aliases) = collect_module_source_aliases(graph, &mut diagnostics);
 
     // Unit order is unit-id order, which is stable across runs and independent
     // of evaluation order — the getters are deferred, so no namespace has to be
     // declared before another.
     let mut text = String::new();
+    // The deferred export tables first: a deferred namespace's getter calls a
+    // thunk that assigns to one, and the thunk is a hoisted `function` that any
+    // unit body can reach before its own declaration is stepped over.
+    for unit in &graph.units {
+        if graph.evaluation_mode(unit.record.id) == ModuleEvaluationModeIr::Deferred {
+            text.push_str(&deferred_cells_declaration(unit.record.id));
+        }
+    }
+    for module in &source_modules {
+        text.push_str(&module_source_object_source(*module));
+    }
     for unit in &graph.units {
         let Some(namespace) = unit.namespace.as_ref() else {
             continue;
@@ -306,7 +357,7 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
             Err(reason) => diagnostics.push(namespace_unsupported(&unit.record.key, reason)),
         }
     }
-    for (local, object) in &aliases {
+    for (local, object) in aliases.iter().chain(source_aliases.iter()) {
         text.push_str("const ");
         text.push_str(local);
         text.push_str(" = ");
@@ -330,6 +381,12 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
 /// can dodge.
 fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     for unit in &graph.units {
+        // A unit that does not evaluate inline declares nothing in the merged
+        // scope: a deferred body is a function body, and a source-phase-only
+        // module has no body in the artifact at all.
+        if graph.evaluation_mode(unit.record.id) != ModuleEvaluationModeIr::Eager {
+            continue;
+        }
         for shadowed in unit
             .record
             .environment
@@ -364,6 +421,11 @@ fn collect_namespace_aliases(
     // the exporting unit's cell.
     let mut declared: BTreeMap<&str, &str> = BTreeMap::new();
     for unit in &graph.units {
+        // Same reason as `report_shadowed_namespace_globals`: only an eagerly
+        // evaluated unit puts its top-level bindings in the merged scope.
+        if graph.evaluation_mode(unit.record.id) != ModuleEvaluationModeIr::Eager {
+            continue;
+        }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
                 declared.insert(binding.name.as_str(), unit.record.key.as_str());
@@ -430,6 +492,204 @@ fn collect_namespace_aliases(
     aliases
 }
 
+/// Merged-script text for a deferred module's body: a thunk that evaluates it
+/// once, plus the export table its namespace object reads through.
+///
+/// `body` is the unit's already-stripped, already-rewritten body text, exactly
+/// what an eager unit would contribute.
+///
+/// # Why the body moves into a function
+///
+/// `import defer` needs the body to run on first touch rather than in place,
+/// and JavaScript has no way to make top-level statements lazy. A function is
+/// the only construct that both delays them and keeps them in one scope.
+///
+/// The cost is that the module's top-level bindings leave the merged scope, so
+/// a namespace getter can no longer name them. The thunk therefore publishes an
+/// export table of *accessor closures* built inside its own scope, before the
+/// body runs so that a binding still in TDZ is captured rather than read:
+///
+/// ```text
+/// function $m1$defer$evaluate() {
+///   if ($m1$defer$cells !== undefined) return $m1$defer$cells;
+///   $m1$defer$cells = { __proto__: null, ["v"]: () => v };
+///   const v = 10;
+///   return $m1$defer$cells;
+/// }
+/// ```
+///
+/// Reads stay live: the closure names the binding, it does not copy it. Keys
+/// are computed (`["v"]`) rather than literal so that an export named
+/// `__proto__` defines a property instead of setting the prototype.
+///
+/// # Deviation
+///
+/// The table is published *before* the body, so a module whose body throws
+/// leaves a table of bindings in TDZ behind: the first touch propagates the
+/// error, as the spec requires, but a second touch raises a `ReferenceError`
+/// from the TDZ instead of rethrowing the original. Storing the completion
+/// would need the body inside a `try`, which would make its `let`s and `const`s
+/// block-scoped and invisible to the table.
+///
+/// # Errors
+/// Returns the reason an export cannot be named as Script text, the same way
+/// [`namespace_object_source`] does.
+pub(crate) fn deferred_body_source(
+    graph: &ModuleGraphIr,
+    module: ModuleUnitId,
+    body: &str,
+) -> Result<String, String> {
+    let cells = module_defer_cells_cell_name(module);
+    let evaluate = module_defer_evaluate_function_name(module);
+    // Never `unwrap_or_default`: an empty table would compile to a namespace
+    // whose every export reads `undefined` instead of saying what went wrong.
+    // `collect_observed_namespaces` always builds one for a deferred module,
+    // because being deferred means an `import defer * as ns` resolved to it.
+    let exports = graph
+        .units
+        .get(module as usize)
+        .and_then(|unit| unit.namespace.as_ref())
+        .map(|namespace| namespace.exports.as_slice())
+        .ok_or_else(|| {
+            "deferred module has no namespace object to publish its exports through".to_string()
+        })?;
+
+    let mut text = String::new();
+    text.push_str("function ");
+    text.push_str(&evaluate);
+    text.push_str("() {\n");
+    text.push_str("if (");
+    text.push_str(&cells);
+    text.push_str(" !== undefined) return ");
+    text.push_str(&cells);
+    text.push_str(";\n");
+    text.push_str(&cells);
+    text.push_str(" = { __proto__: null");
+    for export in exports {
+        let reference = namespace_target_reference(&export.target).ok_or_else(|| {
+            format!(
+                "deferred export `{}` resolves to a binding the merged script cannot name",
+                export.export_name
+            )
+        })?;
+        text.push_str(", [");
+        push_js_string_literal(&mut text, &export.export_name);
+        text.push_str("]: () => ");
+        text.push_str(&reference);
+    }
+    text.push_str(" };\n");
+    text.push_str(body);
+    text.push_str("\n;\nreturn ");
+    text.push_str(&cells);
+    text.push_str(";\n}\n");
+    Ok(text)
+}
+
+/// Merged-script declaration of the cell a deferred module's export table lives
+/// in.
+///
+/// Separate from [`deferred_body_source`] because it has to run before any
+/// getter can call the thunk, while the thunk itself is a hoisted `function`
+/// declaration that can sit wherever the unit's body would have gone.
+#[must_use]
+pub(crate) fn deferred_cells_declaration(module: ModuleUnitId) -> String {
+    format!("let {};\n", module_defer_cells_cell_name(module))
+}
+
+/// Merged-script statements building one module source object, and the
+/// `import source` locals bound to it.
+///
+/// # What this object is, and is not
+///
+/// The source-phase-imports proposal gives a module source object the
+/// `%AbstractModuleSource%.prototype` prototype and a `@@toStringTag` accessor
+/// reporting the source's class name. porffor has no `%AbstractModuleSource%`
+/// intrinsic and no concrete module source type for ECMAScript modules, so what
+/// is emitted here is an ordinary null-prototype object carrying an own
+/// `@@toStringTag`. It is a distinct, identity-stable handle on a module that
+/// was resolved, loaded and parsed but never instantiated — which is the part of
+/// the proposal that is observable from the module system — and it is *not* a
+/// spec-shaped `AbstractModuleSource`.
+fn module_source_object_source(module: ModuleUnitId) -> String {
+    let binding = module_source_cell_name(module);
+    let mut text = String::new();
+    text.push_str("const ");
+    text.push_str(&binding);
+    text.push_str(" = ");
+    text.push_str(OBJECT_NAME);
+    text.push_str(".create(null);\n");
+    text.push_str(OBJECT_NAME);
+    text.push_str(".defineProperty(");
+    text.push_str(&binding);
+    text.push_str(", ");
+    text.push_str(SYMBOL_NAME);
+    text.push_str(".toStringTag, { value: ");
+    push_js_string_literal(&mut text, MODULE_SOURCE_TO_STRING_TAG);
+    text.push_str(", writable: false, enumerable: false, configurable: false });\n");
+    text.push_str(OBJECT_NAME);
+    text.push_str(".preventExtensions(");
+    text.push_str(&binding);
+    text.push_str(");\n");
+    text
+}
+
+/// `@@toStringTag` of a module source object. See
+/// [`module_source_object_source`] for why this is porffor's own choice rather
+/// than a spec value.
+pub const MODULE_SOURCE_TO_STRING_TAG: &str = "Module Source";
+
+/// Every module an `import source` request names, and the local each request
+/// binds.
+///
+/// Collision checking mirrors [`collect_namespace_aliases`]: a source binding is
+/// a fresh `const` in the merged scope, not a share of an exporter's cell.
+fn collect_module_source_aliases(
+    graph: &ModuleGraphIr,
+    diagnostics: &mut Vec<IrDiagnostic>,
+) -> (BTreeSet<ModuleUnitId>, Vec<(String, String)>) {
+    let mut modules = BTreeSet::new();
+    let mut aliases = Vec::new();
+    for unit in &graph.units {
+        let key = unit.record.key.as_str();
+        for (index, entry) in unit.record.import_entries.iter().enumerate() {
+            if entry.request.phase != ImportPhaseIr::Source {
+                continue;
+            }
+            let local = entry.local_name.as_str();
+            let Some(ResolvedBindingIr::Resolved {
+                module,
+                binding: ModuleBindingNameIr::ModuleSource,
+            }) = unit.resolved_imports.get(index)
+            else {
+                diagnostics.push(namespace_unsupported(
+                    key,
+                    &format!("`import source {local}` did not resolve to a module"),
+                ));
+                continue;
+            };
+            if !is_binding_identifier(local) {
+                diagnostics.push(namespace_unsupported(
+                    key,
+                    &format!("module source binding `{local}` is not spellable"),
+                ));
+                continue;
+            }
+            if matches!(local, OBJECT_NAME | SYMBOL_NAME) {
+                diagnostics.push(namespace_unsupported(
+                    key,
+                    &format!(
+                        "module source objects are built from `{local}`, which this module binds as a source alias"
+                    ),
+                ));
+                continue;
+            }
+            modules.insert(*module);
+            aliases.push((local.to_string(), module_source_cell_name(*module)));
+        }
+    }
+    (modules, aliases)
+}
+
 fn namespace_unsupported(key: &str, reason: &str) -> IrDiagnostic {
     IrDiagnostic::unsupported(format!(
         "unsupported in porffor wasm-aot: module {key}: {reason}"
@@ -475,6 +735,7 @@ pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) 
         module,
         exports,
         cell: cell.clone(),
+        deferred: graph.evaluation_mode(module) == ModuleEvaluationModeIr::Deferred,
         source: Ok(String::new()),
     };
     namespace.source = namespace_object_source(&namespace);
@@ -832,6 +1093,7 @@ mod tests {
                 cell: module_namespace_cell_name(0),
             }],
             cell: module_namespace_cell_name(0),
+            deferred: false,
             source: Ok(String::new()),
         };
         let error = namespace_object_source(&namespace).expect_err("`*default*` is unspellable");
@@ -970,6 +1232,137 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("collides with a top-level")),
             "got {diagnostics:?}"
+        );
+    }
+
+    /// A deferred namespace's getter cannot name the exporter's binding — it is
+    /// in the thunk's scope, not the merged one — so it reads through the export
+    /// table the thunk publishes, and calling the thunk is what evaluates the
+    /// module.
+    #[test]
+    fn a_deferred_namespace_getter_goes_through_the_thunk() {
+        let graph = linked_graph(
+            &[
+                ("a", "export const value = 41;"),
+                (
+                    "c",
+                    "import defer * as ns from \"./a.mjs\";\nprint(ns.value);",
+                ),
+            ],
+            vec![(
+                1,
+                ModuleRequestIr {
+                    specifier: "./a.mjs".to_string(),
+                    phase: ImportPhaseIr::Defer,
+                    attributes: Vec::new(),
+                },
+                0,
+            )],
+        );
+        assert_eq!(graph.evaluation_mode(0), ModuleEvaluationModeIr::Deferred);
+        let prelude = namespace_prelude_source(&graph).expect("prelude should build");
+
+        assert!(
+            prelude.contains(&format!("let {};", module_defer_cells_cell_name(0))),
+            "got {prelude}"
+        );
+        assert!(
+            prelude.contains(&format!(
+                "get: () => {}()[\"value\"]()",
+                module_defer_evaluate_function_name(0)
+            )),
+            "got {prelude}"
+        );
+        // The eager form would have named the exporter's binding directly.
+        assert!(!prelude.contains("get: () => value,"), "got {prelude}");
+    }
+
+    /// The thunk publishes its export table *before* running the body, so a
+    /// binding still in TDZ is captured rather than read, and the key is
+    /// computed so that an export named `__proto__` defines a property instead
+    /// of setting the prototype.
+    #[test]
+    fn a_deferred_body_publishes_capturing_accessors_before_it_runs() {
+        let graph = linked_graph(
+            &[
+                ("a", "export const value = 41;"),
+                (
+                    "c",
+                    "import defer * as ns from \"./a.mjs\";\nprint(ns.value);",
+                ),
+            ],
+            vec![(
+                1,
+                ModuleRequestIr {
+                    specifier: "./a.mjs".to_string(),
+                    phase: ImportPhaseIr::Defer,
+                    attributes: Vec::new(),
+                },
+                0,
+            )],
+        );
+        let thunk = deferred_body_source(&graph, 0, "const value = 41;")
+            .expect("the deferred body should be expressible");
+
+        let cells = module_defer_cells_cell_name(0);
+        assert!(
+            thunk.contains(&format!("if ({cells} !== undefined) return {cells};")),
+            "got {thunk}"
+        );
+        let table = thunk
+            .find("[\"value\"]: () => value")
+            .expect("export table");
+        let body = thunk.find("const value = 41;").expect("body");
+        assert!(table < body, "the table must be published first: {thunk}");
+    }
+
+    /// `import source` binds its local to a module source object, and that
+    /// object is not a namespace: no export of the module is reachable through
+    /// it, because the module was never instantiated.
+    #[test]
+    fn a_source_phase_import_binds_a_module_source_object() {
+        let graph = linked_graph(
+            &[
+                ("a", "export const value = 41;"),
+                (
+                    "c",
+                    "import source src from \"./a.mjs\";\nprint(typeof src);",
+                ),
+            ],
+            vec![(
+                1,
+                ModuleRequestIr {
+                    specifier: "./a.mjs".to_string(),
+                    phase: ImportPhaseIr::Source,
+                    attributes: Vec::new(),
+                },
+                0,
+            )],
+        );
+        assert_eq!(
+            graph.evaluation_mode(0),
+            ModuleEvaluationModeIr::NotEvaluated
+        );
+        let prelude = namespace_prelude_source(&graph).expect("prelude should build");
+
+        let cell = module_source_cell_name(0);
+        assert!(
+            prelude.contains(&format!("const {cell} = Object.create(null);")),
+            "got {prelude}"
+        );
+        assert!(
+            prelude.contains(&format!(
+                "Symbol.toStringTag, {{ value: \"{MODULE_SOURCE_TO_STRING_TAG}\""
+            )),
+            "got {prelude}"
+        );
+        assert!(
+            prelude.contains(&format!("const src = {cell};")),
+            "got {prelude}"
+        );
+        assert!(
+            !prelude.contains("\"value\""),
+            "a module source exposes no exports: {prelude}"
         );
     }
 

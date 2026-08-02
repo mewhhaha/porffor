@@ -76,10 +76,10 @@ pub use modules::{
     evaluation_components, parse_module_record, scan_module_requests, DynamicComponentIr,
     DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr, ImportPhaseIr,
     IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
-    ModuleBindingNameIr, ModuleEnvBindingIr, ModuleGraphIr, ModuleGraphSources, ModuleLinkErrorIr,
-    ModuleNamespaceExportIr, ModuleNamespaceIr, ModuleRequestIr, ModuleSourceIr, ModuleUnitId,
-    ModuleUnitIr, ResolvedBindingIr, SourceTextModuleRecordIr, StarExportEntryIr,
-    ANONYMOUS_MODULE_KEY,
+    ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr, ModuleGraphIr,
+    ModuleGraphSources, ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr,
+    ModuleRequestIr, ModuleSourceIr, ModuleUnitId, ModuleUnitIr, ResolvedBindingIr,
+    SourceTextModuleRecordIr, StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
