@@ -1,6 +1,9 @@
 use porffor_aot_wasm::{decode_heap_bigint_decimal, WasmRuntimeValueTag};
 use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
-use porffor_ir::{lower, lower_module_graph, IrDiagnostic, IrDiagnosticKind, ProgramIr, ValueKind};
+use porffor_ir::{
+    lower, lower_module_graph, lower_script_graph, source_writes_dynamic_import, IrDiagnostic,
+    IrDiagnosticKind, ProgramIr, ValueKind,
+};
 use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
 use wasmtime::{
@@ -372,14 +375,65 @@ fn module_entry_graph(
     load_module_graph(&entry, &loader).ok()
 }
 
+/// The module graph a Script's `import()` calls reach, or `None` when the Script
+/// writes none or cannot be read as module code.
+///
+/// A Script is not module code, but `import()` is legal in it (13.3.10 takes
+/// `GetActiveScriptOrModule`, which a Script satisfies) and names a module, so
+/// serving one needs the target compiled into the artifact exactly as a
+/// module's `import()` does. The entry is scanned as module code only to
+/// discover those specifiers — nothing about the Script's own semantics is
+/// taken from that parse, and a Script that does not parse as module code (a
+/// sloppy `with`, an octal literal) simply gets no graph.
+///
+/// Two gates, cheap one first. The lexical scan runs on every Script and answers
+/// `false` for almost all of them; the parse behind it is what actually decides,
+/// because only a parse tells `import(x)` apart from a method named `import`
+/// (`{ import(x) {} }`, `class C { import() {} }`) — and a Script that only has
+/// the latter must keep taking the ordinary single-source path it always did.
+fn script_entry_graph(
+    source: &str,
+    options: &CompileOptions,
+) -> Option<porffor_ir::ModuleGraphSources> {
+    if !source_writes_dynamic_import(source) {
+        return None;
+    }
+    let entry = SourceUnit {
+        goal: ParseGoal::Module,
+        filename: options.filename.clone(),
+        source_text: source.to_string(),
+    };
+    let key = options
+        .filename
+        .clone()
+        .unwrap_or_else(|| porffor_ir::ANONYMOUS_MODULE_KEY.to_string());
+    let record = porffor_ir::parse_module_record(&entry, 0, key).ok()?;
+    if record.dynamic_import_sites.is_empty() {
+        return None;
+    }
+    module_entry_graph(source, options)
+}
+
 /// Cache key for a program, covering the whole module graph when there is one.
 ///
 /// A module artifact embeds every module of its graph, so hashing the entry
 /// text alone would leave a stale artifact live after an imported file is
-/// edited.
+/// edited. A Script that writes `import()` embeds its targets the same way, so
+/// it is hashed the same way.
 fn program_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
     match goal {
-        ParseGoal::Script => program_wasm_cache_key(source, goal, options),
+        ParseGoal::Script => {
+            let digest = script_entry_graph(source, options)
+                .as_ref()
+                .map(module_graph_digest);
+            program_wasm_cache_key_with_compiler_fingerprint(
+                source,
+                goal,
+                options,
+                digest.as_ref(),
+                compiler_fingerprint(),
+            )
+        }
         ParseGoal::Module => {
             let digest = module_entry_graph(source, options)
                 .as_ref()
@@ -1725,7 +1779,13 @@ impl Engine {
         }
         let lower_started = std::time::Instant::now();
         let ir = match goal {
-            ParseGoal::Script => lower(&source),
+            // A Script's `import()` targets are compiled into the same artifact
+            // as the Script, which needs the graph the same way a module does.
+            // Without one the call has nothing to resolve against.
+            ParseGoal::Script => match script_entry_graph(entry_text, &options) {
+                Some(sources) => lower_script_graph(&sources),
+                None => lower(&source),
+            },
             // A module is lowered together with its loaded dependency closure.
             // If the closure cannot be assembled at all, fall back to the
             // one-node graph so the failure is reported by the lowerer rather

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::ControlFlow;
 use std::panic::{self, AssertUnwindSafe};
 
@@ -70,12 +70,12 @@ pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, Lowerin
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
-pub use lowering::{lower, lower_module_graph};
+pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub(crate) use lowering_helpers::*;
 pub use modules::{
-    evaluation_components, parse_module_record, scan_module_requests, DynamicComponentIr,
-    DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr, ImportPhaseIr,
-    IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
+    evaluation_components, parse_module_record, scan_module_requests, source_writes_dynamic_import,
+    DynamicComponentIr, DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr,
+    ImportPhaseIr, IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
     ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr, ModuleGraphIr,
     ModuleGraphSources, ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr,
     ModuleRequestIr, ModuleSourceIr, ModuleUnitId, ModuleUnitIr, ResolvedBindingIr,
@@ -2826,21 +2826,46 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_object_destructuring_forms() {
+    fn lowers_computed_key_object_destructuring_forms() {
+        // A computed key contributes no bound name (8.6 BoundNames), so these bind
+        // exactly what the literal-key spelling binds and lower through the semantic
+        // `ObjectDestructure` node, which carries the key expression.
         for source in [
             "let { [key]: value } = source;",
             "let { ['value']: value } = source;",
+            "const { [key]: value = 1 } = source;",
+            "const { [key]: { nested } } = source;",
+            "let { [key]: value, ...rest } = source;",
+            "for (const { [key]: value } of source) print(value);",
         ] {
             let program = lower_script(source);
             assert!(
-                !program.is_wasm_supported(),
-                "expected unsupported lowering for {source}"
+                program.is_wasm_supported(),
+                "expected supported lowering for {source}: {:?}",
+                program.diagnostics
             );
-            assert!(program
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("destructuring")
-                    || diagnostic.message.contains("computed object key")));
+        }
+    }
+
+    #[test]
+    fn lowers_object_assignment_patterns_in_loop_heads() {
+        // 13.15.5 destructuring assignment is legal in a `for-in`/`for-of` head, and
+        // the object shape reaches the same assignment-pattern lowering the array
+        // shape does, so property-access and rest targets work there too.
+        for source in [
+            "let a; for ({ a } of source) print(a);",
+            "let a; for ({ a = 1 } of source) print(a);",
+            "const o = {}; for ({ a: o.x } of source) print(o.x);",
+            "let r; for ({ ...r } of source) print(r);",
+            "let a; for ({ length: a } in source) print(a);",
+            "let a; for ([a] in source) print(a);",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "expected supported lowering for {source}: {:?}",
+                program.diagnostics
+            );
         }
     }
 
@@ -5801,10 +5826,22 @@ target[Symbol.iterator];"#,
                 .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. })),
             "short-circuited key must not suspend: {statements:?}"
         );
-        assert!(matches!(
-            statements.as_slice(),
-            [StatementIr::Expression(_)]
-        ));
+        // Async operand staging may hoist side-effect-free receiver reads into
+        // `$async.operand.N` temporaries ahead of the call, so the block is not
+        // required to be exactly one statement. What matters is that the
+        // short-circuited key never suspends (asserted above) and that the
+        // chain still lowers to a single evaluated expression at the end.
+        assert!(
+            matches!(statements.last(), Some(StatementIr::Expression(_))),
+            "optional chain should still end in its expression statement: {statements:?}"
+        );
+        assert!(
+            statements.iter().rev().skip(1).all(
+                |statement| matches!(statement, StatementIr::Lexical { name, .. }
+                    if name.starts_with("$async.operand."))
+            ),
+            "only async operand staging may precede it: {statements:?}"
+        );
     }
 
     #[test]
@@ -6897,17 +6934,66 @@ target[Symbol.iterator];"#,
         ));
     }
 
+    /// A composite `return` operand used to be refused outright; it now stages
+    /// through the ordinary async prefix, so the `await` inside it becomes its
+    /// own suspension and the residual `+` is what the implicit return awaits.
     #[test]
-    fn async_generator_return_rejects_composite_suspension_boundaries() {
+    fn async_generator_return_stages_composite_suspension_boundaries() {
         let program =
             lower_script("async function* stream(left, right) { return (await left) + right; }");
 
-        assert!(!program.is_wasm_supported());
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .message
-                .contains("async-generator return expression has a composite suspension boundary")
-        }));
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+        let plan = function
+            .resumable_plan
+            .as_ref()
+            .expect("async generator should have a resumable plan");
+
+        assert_eq!(
+            plan.suspension_points
+                .iter()
+                .map(|suspension| suspension.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                ResumableSuspensionKindIr::Await,
+                ResumableSuspensionKindIr::Await,
+            ]
+        );
+        let [StatementIr::LexicalBlock(statements)] = function.body.statements.as_slice() else {
+            panic!(
+                "staged return should lower to one block: {:?}",
+                function.body.statements
+            );
+        };
+        let awaits = statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::AsyncAwait {
+                    suspend_state,
+                    resume_state,
+                    resume_mode,
+                    ..
+                } => Some((*suspend_state, *resume_state, resume_mode)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(
+                awaits.as_slice(),
+                [
+                    (0, 1, AsyncResumeModeIr::AssignIdentifier(_)),
+                    (1, 2, AsyncResumeModeIr::Return),
+                ]
+            ),
+            "{awaits:?} from {statements:?}"
+        );
     }
 
     #[test]

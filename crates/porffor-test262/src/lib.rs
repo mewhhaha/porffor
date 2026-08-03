@@ -22163,6 +22163,11 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             case.path.starts_with("built-ins/Array/prototype/fill/");
         let supported_array_join_resizable_case =
             case.path.starts_with("built-ins/Array/prototype/join/");
+        // `%TypedArray%.prototype.fill` reads its length once up front, which the
+        // wasm-aot backend already matches. The rest of `fill/` still needs the
+        // out-of-bounds receiver check, so only this case leaves the gate.
+        let supported_typedarray_fill_resizable_case = case.path
+            == "built-ins/TypedArray/prototype/fill/absent-indices-computed-from-initial-length.js";
         if !supported_arraybuffer_probe
             && !supported_dataview_resizable_case
             && !supported_shared_array_buffer_metadata_case
@@ -22214,6 +22219,7 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
             && !supported_array_slice_resizable_case
             && !supported_array_fill_resizable_case
             && !supported_array_join_resizable_case
+            && !supported_typedarray_fill_resizable_case
         {
             return Some("resizable-arraybuffer");
         }
@@ -29983,6 +29989,30 @@ assert.sameValue(descriptor.configurable, true);
         assert_eq!(
             wasm_aot_unsupported_feature(&array_join_resizable_case),
             None
+        );
+
+        let mut typedarray_fill_initial_length_case = synthetic_case(
+            "built-ins/TypedArray/prototype/fill/absent-indices-computed-from-initial-length.js",
+        );
+        typedarray_fill_initial_length_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&typedarray_fill_initial_length_case),
+            None
+        );
+
+        // The rest of `fill/` still needs the out-of-bounds receiver check, so it
+        // stays gated.
+        let mut typedarray_fill_out_of_bounds_case = synthetic_case(
+            "built-ins/TypedArray/prototype/fill/return-abrupt-from-this-out-of-bounds.js",
+        );
+        typedarray_fill_out_of_bounds_case
+            .features
+            .insert("resizable-arraybuffer".to_string());
+        assert_eq!(
+            wasm_aot_unsupported_feature(&typedarray_fill_out_of_bounds_case),
+            Some("resizable-arraybuffer")
         );
 
         let mut typedarray_join_resizable_case =

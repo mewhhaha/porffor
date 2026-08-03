@@ -792,23 +792,20 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::BinaryNumber { op, lhs, rhs } => {
                 if expr.kind == ValueKind::BigInt {
-                    if expression_is_heap_bigint_literal(lhs)
-                        || expression_is_heap_bigint_literal(rhs)
-                    {
-                        return Err(EmitError::unsupported(
-                            "arithmetic with a heap-backed BigInt literal is not implemented",
-                        ));
-                    }
-                    self.compile_expr_payload(lhs, function)?;
-                    self.compile_expr_payload(rhs, function)?;
-                    match op {
-                        ArithmeticBinaryOp::Add => function.instruction(&Instruction::I64Add),
-                        ArithmeticBinaryOp::Sub => function.instruction(&Instruction::I64Sub),
-                        ArithmeticBinaryOp::Mul => function.instruction(&Instruction::I64Mul),
-                        ArithmeticBinaryOp::Div => function.instruction(&Instruction::I64DivS),
-                        ArithmeticBinaryOp::Mod => function.instruction(&Instruction::I64RemS),
-                        ArithmeticBinaryOp::Exp => unreachable!(),
-                    };
+                    // Both operands are statically BigInt, but each may be
+                    // inline or heap-backed, and an inline-inline operation can
+                    // still overflow into a heap result. The shared helper owns
+                    // that whole decision; the runtime tag it reports is left in
+                    // `result_tag_local` for `compile_expr_to_locals`.
+                    self.compile_bigint_arithmetic_to_locals(
+                        BigIntHelperOp::from_arithmetic(*op),
+                        lhs,
+                        rhs,
+                        self.scratch_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(self.scratch_local));
                     return Ok(());
                 }
                 if matches!(op, ArithmeticBinaryOp::Exp) {
@@ -874,13 +871,6 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(());
                 }
                 if expr.kind == ValueKind::BigInt {
-                    if expression_is_heap_bigint_literal(lhs)
-                        || expression_is_heap_bigint_literal(rhs)
-                    {
-                        return Err(EmitError::unsupported(
-                            "arithmetic with a heap-backed BigInt literal is not implemented",
-                        ));
-                    }
                     let lhs_payload = self.reserve_temp_local();
                     let lhs_tag = self.reserve_temp_local();
                     let rhs_payload = self.reserve_temp_local();
@@ -899,25 +889,22 @@ impl<'a> FunctionBuilder<'a> {
                         rhs_tag,
                         function,
                     )?;
-                    function.instruction(&Instruction::LocalGet(lhs_tag));
-                    function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::LocalGet(rhs_tag));
-                    function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
+                    self.emit_is_bigint_tag_i32(lhs_tag, function);
+                    self.emit_is_bigint_tag_i32(rhs_tag, function);
                     function.instruction(&Instruction::I32And);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(lhs_payload));
-                    function.instruction(&Instruction::LocalGet(rhs_payload));
-                    match op {
-                        ArithmeticBinaryOp::Add => function.instruction(&Instruction::I64Add),
-                        ArithmeticBinaryOp::Sub => function.instruction(&Instruction::I64Sub),
-                        ArithmeticBinaryOp::Mul => function.instruction(&Instruction::I64Mul),
-                        ArithmeticBinaryOp::Div => function.instruction(&Instruction::I64DivS),
-                        ArithmeticBinaryOp::Mod => function.instruction(&Instruction::I64RemS),
-                        ArithmeticBinaryOp::Exp => unreachable!(),
-                    };
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
+                    self.push_control(ControlFrameKind::If);
+                    self.emit_bigint_binary_op_to_locals(
+                        BigIntHelperOp::from_arithmetic(*op),
+                        lhs_payload,
+                        lhs_tag,
+                        rhs_payload,
+                        rhs_tag,
+                        self.scratch_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.pop_control(ControlFrameKind::If);
                     function.instruction(&Instruction::Else);
                     self.emit_throw_runtime_error(
                         TYPE_ERROR_NAME,
@@ -3042,6 +3029,17 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
+            }
+            ExprIr::BinaryNumber { .. } => {
+                self.compile_expr_payload(expr, function)?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                if expr.kind == ValueKind::BigInt {
+                    // The BigInt path reports inline vs heap-backed at runtime.
+                    function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                } else {
+                    function.instruction(&Instruction::I64Const(expr.kind.tag() as i64));
+                }
+                function.instruction(&Instruction::LocalSet(tag_local));
             }
             ExprIr::CoerciveAdd { lhs, rhs } => {
                 self.compile_coercive_add_to_locals(lhs, rhs, payload_local, tag_local, function)?;

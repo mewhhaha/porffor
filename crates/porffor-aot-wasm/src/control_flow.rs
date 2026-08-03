@@ -7294,8 +7294,12 @@ impl<'a> FunctionBuilder<'a> {
                     storage_without_environment.expect("for-of var storage must exist"),
                 );
         }
-        self.emit_is_heap_object_like_tag_i32(iterable_tag_local, function);
-        function.instruction(&Instruction::I32Eqz);
+        // GetIterator(obj) is `GetMethod(obj, @@iterator)` followed by a call, and
+        // GetMethod routes through ToObject. Only `undefined` and `null` fail that
+        // conversion, so every other primitive (strings, numbers, booleans,
+        // symbols, bigints) has to reach its wrapper prototype rather than being
+        // rejected here.
+        self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.push_control(ControlFrameKind::If);
         self.emit_throw_runtime_error(
@@ -7309,13 +7313,24 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
+        let iterable_object_payload_local = self.reserve_temp_local();
+        let iterable_object_tag_local = self.reserve_temp_local();
+        self.emit_value_to_object_locals(
+            iterable_payload_local,
+            iterable_tag_local,
+            iterable_object_payload_local,
+            iterable_object_tag_local,
+            function,
+        )?;
         function.instruction(&Instruction::I64Const(
             self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
+        // The receiver stays the original value: `@@iterator` is looked up on the
+        // wrapper object but invoked with the primitive as `this`.
         self.emit_object_read(
-            iterable_payload_local,
-            iterable_tag_local,
+            iterable_object_payload_local,
+            iterable_object_tag_local,
             iterable_payload_local,
             iterable_tag_local,
             key_local,
@@ -7323,6 +7338,8 @@ impl<'a> FunctionBuilder<'a> {
             method_tag_local,
             function,
         )?;
+        self.release_temp_local(iterable_object_tag_local);
+        self.release_temp_local(iterable_object_payload_local);
         self.emit_propagate_throw_from_locals_if_needed(
             method_payload_local,
             method_tag_local,

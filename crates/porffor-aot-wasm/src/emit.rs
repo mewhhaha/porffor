@@ -1275,6 +1275,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_decimal_to_binary64_helper()
         })
         .transpose()?;
+    let bigint_arithmetic_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_bigint_arithmetic_helper()
+        })
+        .transpose()?;
     let json_stringify_value_helper_function = (uses_heap && uses_json_stringify)
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -1411,6 +1428,8 @@ fn emit_script_with_forced_builtins(
         // OrdinarySet helper without generic receiver write fallback.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // Exact decimal source text to binary64 conversion helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // Arbitrary-precision BigInt arithmetic helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
@@ -1676,6 +1695,11 @@ fn emit_script_with_forced_builtins(
             decimal_to_binary64_helper_function
                 .as_ref()
                 .expect("decimal converter helper must exist when heap is enabled"),
+        );
+        code.function(
+            bigint_arithmetic_helper_function
+                .as_ref()
+                .expect("BigInt arithmetic helper must exist when heap is enabled"),
         );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
@@ -2443,12 +2467,18 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 28)
     }
 
+    /// Wasm function index of the shared arbitrary-precision BigInt arithmetic
+    /// helper.
+    pub(crate) fn bigint_arithmetic_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 29)
+    }
+
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
     /// only when `JSON.stringify` is compiled, immediately after the last
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 29)
+        self.heap_alloc_function_index.map(|base| base + 30)
     }
 
     pub(crate) fn local_count(&self) -> usize {

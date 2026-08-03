@@ -217,6 +217,9 @@ pub(crate) fn linked_script_source(
     }
 
     let mut position = 0usize;
+    // The Script entry of a script graph, kept aside: it is emitted after the
+    // wrapper that holds every module, not inside it.
+    let mut script_entry_body = String::new();
     for unit_id in emission_order(graph) {
         // A module reached only through `import source` is resolved, loaded,
         // parsed and linked, but never instantiated: it contributes no body.
@@ -224,6 +227,20 @@ pub(crate) fn linked_script_source(
             continue;
         }
         let unit = graph.unit(unit_id);
+        if graph.entry_is_script && unit_id == graph.entry {
+            // Script text, emitted as itself: there is no module syntax to
+            // strip, no `import.meta` to rewrite (it is a SyntaxError in a
+            // Script), and no `export default` to bind. Only the `import()`
+            // call sites move, onto the dispatchers the wrapper exports.
+            match graph.rewrite_script_entry_import_calls(&unit.source_text) {
+                Ok(body) => script_entry_body = body,
+                Err(reason) => diagnostics.push(IrDiagnostic::unsupported(format!(
+                    "unsupported in porffor wasm-aot: script {}: {reason}",
+                    unit.record.key
+                ))),
+            }
+            continue;
+        }
         let default_name = module_default_binding_name(unit_id);
         let default_export = match unit.record.default_export_form() {
             DefaultExportFormIr::Absent => DefaultExportRewrite::None,
@@ -275,14 +292,31 @@ pub(crate) fn linked_script_source(
         return Err(diagnostics);
     }
 
-    // 16.2.1.6.1: module code is always strict. The prologue stays outside any
-    // wrapper so it is still the merged script's first Directive Prologue item.
-    let mut source_text = String::from("\"use strict\";\n");
-    if graph.async_evaluation().iter().any(|unit| *unit) {
-        source_text.push_str(&wrap_async_body(&text));
+    let asynchronous = graph.async_evaluation().iter().any(|unit| *unit);
+    let source_text = if graph.entry_is_script {
+        if asynchronous {
+            // The wrapper would have to be an async function, and the Script
+            // after it would then run before the modules had finished — so an
+            // `import()` served from it would resolve over uninitialized
+            // bindings. Refusing beats answering with a TDZ.
+            return Err(vec![IrDiagnostic::unsupported(
+                "unsupported in porffor wasm-aot: a script's `import()` target has a top-level \
+                 `await`",
+            )]);
+        }
+        wrap_script_graph_modules(graph, &text) + &script_entry_body
     } else {
-        source_text.push_str(&text);
-    }
+        // 16.2.1.6.1: module code is always strict. The prologue stays outside
+        // any wrapper so it is still the merged script's first Directive
+        // Prologue item.
+        let mut source_text = String::from("\"use strict\";\n");
+        if asynchronous {
+            source_text.push_str(&wrap_async_body(&text));
+        } else {
+            source_text.push_str(&text);
+        }
+        source_text
+    };
 
     Ok(SourceUnit {
         goal: ParseGoal::Script,
@@ -293,6 +327,61 @@ pub(crate) fn linked_script_source(
             .filter(|key| key != ANONYMOUS_MODULE_KEY),
         source_text,
     })
+}
+
+/// Wraps every module of a *script* graph in one immediately-invoked strict
+/// function, and hands the entry Script the dispatchers it has to call.
+///
+/// A script graph is a Script that writes `import()` plus the closure of the
+/// modules those calls name. The Script itself is not module code and must not
+/// be made strict, must keep `globalThis` as its top-level `this`, and must keep
+/// its own top-level scope; the modules are module code and must be strict and
+/// must not leak their bindings into the Script's scope. One wrapper gives both:
+///
+/// * `"use strict"` inside it makes every module strict (16.2.1.6.1) without
+///   touching the Script that follows;
+/// * a plain call gives the wrapper a `this` of `undefined`, which is module
+///   top-level `this` (16.2.1.6.2) — the merged *module* path has to report
+///   that case rather than serve it;
+/// * `var` and function declarations in a module body become function-scoped,
+///   which is the module environment's behaviour rather than the global
+///   object's.
+///
+/// The `var` declarations in front are how the Script reaches a dispatcher: a
+/// `function` declaration inside the wrapper is not in scope outside it, so the
+/// wrapper assigns each one out. They are declared even before the wrapper runs,
+/// so a Script that calls `import()` at its very first statement still finds a
+/// function there.
+///
+/// Emitted with no interior line terminator apart from the module material's
+/// own, so the Script's line numbers are displaced by a fixed amount.
+fn wrap_script_graph_modules(graph: &ModuleGraphIr, modules: &str) -> String {
+    let exports = graph.script_entry_dispatcher_exports();
+    if exports.is_empty() && modules.trim().is_empty() {
+        return String::new();
+    }
+    let mut text = String::new();
+    if !exports.is_empty() {
+        text.push_str("var ");
+        for (position, (exported, _)) in exports.iter().enumerate() {
+            if position > 0 {
+                text.push_str(", ");
+            }
+            text.push_str(exported);
+        }
+        text.push_str(";\n");
+    }
+    text.push_str("(function () { \"use strict\";\n");
+    text.push_str(modules);
+    text.push('\n');
+    for (exported, dispatcher) in &exports {
+        text.push_str(exported);
+        text.push_str(" = ");
+        text.push_str(dispatcher);
+        text.push_str("; ");
+    }
+    text.push_str("\n})();\n");
+    text
 }
 
 /// Wraps the merged graph body in an immediately-invoked async function, which
@@ -386,6 +475,13 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
         // source-phase-only unit has no body at all, so neither can collide
         // with anything in the merged scope.
         if graph.evaluation_mode(*unit_id) != ModuleEvaluationModeIr::Eager {
+            continue;
+        }
+        // The Script entry of a script graph declares into the Script's own
+        // top-level scope, outside the wrapper the modules share, so its names
+        // collide with nothing here. (A *global* alias it shadows is a real
+        // problem, and `collect_binding_aliases` still sees it.)
+        if graph.entry_is_script && *unit_id == graph.entry {
             continue;
         }
         let unit = graph.unit(*unit_id);

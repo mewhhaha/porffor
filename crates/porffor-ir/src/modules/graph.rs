@@ -288,6 +288,26 @@ pub struct ModuleGraphIr {
     pub evaluation_modes: Vec<ModuleEvaluationModeIr>,
     /// Every linking failure found. Non-empty means the graph does not run.
     pub link_errors: Vec<ModuleLinkErrorIr>,
+    /// The entry unit is Script text, not module code.
+    ///
+    /// A Script has no imports and no exports, so it is not a module of the
+    /// graph in any spec sense — but `import()` is legal in Script goal
+    /// (13.3.10 takes `GetActiveScriptOrModule`, which a Script satisfies), and
+    /// serving it needs exactly the same compiled targets a module's `import()`
+    /// needs. So the loader assembles the closure of the Script's `import()`
+    /// specifiers into an ordinary graph and marks the entry with this flag,
+    /// which changes three things in `modules::link`:
+    ///
+    /// * the entry's text is emitted verbatim — no `"use strict"` prologue is
+    ///   forced on it, no module syntax is stripped from it, and its top-level
+    ///   `this` stays `globalThis`, because all three are Script semantics and
+    ///   the entry really is a Script;
+    /// * every *other* unit's material is wrapped in one immediately-invoked
+    ///   strict function, so module code stays strict (16.2.1.6.1) and its
+    ///   top-level bindings stay out of the Script's scope;
+    /// * the entry's `import()` dispatchers are re-exported out of that wrapper
+    ///   through `var` bindings the Script can call.
+    pub entry_is_script: bool,
 }
 
 impl ModuleGraphIr {
@@ -814,6 +834,12 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
     }
 
     compute_evaluation_order(graph);
+    // Before `classify_evaluation_modes`, not after: a dynamic request carries
+    // a phase too, so which unit is eager, deferred or never evaluated depends
+    // on the component registry. `modules::link` collects again after lowering
+    // has resolved everything it needs; the pass is a pure function of the
+    // linked graph, so running it twice cannot disagree with itself.
+    super::dynamic::collect_components(graph);
     classify_evaluation_modes(graph);
     report_unlinkable_phases(graph);
 }
@@ -829,11 +855,15 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
 ///
 /// # Roots
 ///
-/// The entry always evaluates. So does every `import()` target, because
-/// `import()` resolves with an *evaluated* namespace. So does every unit no
-/// request points at: a graph assembled by an embedder rather than by
-/// `load_module_graph` may hold units with no importer at all, and dropping
+/// The entry always evaluates. So does every evaluation-phase `import()`
+/// target, because `import()` resolves with an *evaluated* namespace. So does
+/// every unit no request points at: a graph assembled by an embedder rather than
+/// by `load_module_graph` may hold units with no importer at all, and dropping
 /// their bodies would silently change what such a graph runs.
+///
+/// A dynamic request counts exactly as much as its static twin does, phase for
+/// phase: `import.defer('m')` defers `m` the way `import defer * as ns from
+/// 'm'` does, and `import.source('m')` neither evaluates nor instantiates it.
 ///
 /// # Deviation
 ///
@@ -863,17 +893,29 @@ fn classify_evaluation_modes(graph: &mut ModuleGraphIr) {
             edges.push((module, request.phase, target));
         }
     }
+    // `import()` call sites, which are not in `[[RequestedModules]]` but reach
+    // a module just as surely. Their referrer is a unit of this graph, so a
+    // dynamic edge out of a module nothing evaluates opens nothing — an
+    // `import()` written in a source-phase-only module never runs.
+    for component in &graph.components {
+        let (Ok(referrer), Ok(target)) = (
+            usize::try_from(component.referrer),
+            usize::try_from(component.module),
+        ) else {
+            continue;
+        };
+        if referrer >= count || target >= count {
+            continue;
+        }
+        targeted[target] = true;
+        edges.push((referrer, component.phase, target));
+    }
 
     let mut eager = vec![false; count];
     let mut deferred = vec![false; count];
     for module in 0..count {
         if !targeted[module] || ModuleUnitId::try_from(module) == Ok(graph.entry) {
             eager[module] = true;
-        }
-    }
-    for component in &graph.components {
-        if let Some(slot) = eager.get_mut(component.module as usize) {
-            *slot = true;
         }
     }
 

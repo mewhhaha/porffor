@@ -43,6 +43,55 @@ pub(crate) enum LabelTargetKind {
     Loop,
 }
 
+/// The operator a compound or logical assignment applies to a property
+/// Reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PropertyUpdateOp {
+    Arithmetic(ArithmeticOp),
+    Bitwise(BitwiseOp),
+    Logical(LogicalBinaryOp),
+}
+
+/// A property Reference split into the parts a compound assignment has to read
+/// from and then write back through, without re-evaluating either part.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PropertyReference {
+    Property {
+        target: TypedExpr,
+        key: PropertyKeyIr,
+    },
+    Private {
+        target: TypedExpr,
+        private_name_id: PrivateNameId,
+    },
+    Super {
+        key: PropertyKeyIr,
+    },
+    Global {
+        name: String,
+    },
+}
+
+impl PropertyReference {
+    fn read_ir(&self) -> ExprIr {
+        match self {
+            Self::Property { target, key } => ExprIr::PropertyRead {
+                target: Box::new(target.clone()),
+                key: key.clone(),
+            },
+            Self::Private {
+                target,
+                private_name_id,
+            } => ExprIr::PrivateRead {
+                target: Box::new(target.clone()),
+                private_name_id: *private_name_id,
+            },
+            Self::Super { key } => ExprIr::SuperPropertyRead { key: key.clone() },
+            Self::Global { name } => ExprIr::GlobalPropertyRead { name: name.clone() },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActiveLabel {
     pub(crate) name: String,
@@ -146,6 +195,29 @@ pub fn lower(source: &SourceUnit) -> ProgramIr {
 /// the single `ScriptIr` the backend emits, while the spec records stay
 /// addressable on `ProgramIr::modules`.
 pub fn lower_module_graph(sources: &ModuleGraphSources) -> ProgramIr {
+    lower_graph(sources, false)
+}
+
+/// Lowers a Script entry together with the modules its `import()` calls reach.
+///
+/// `import()` is legal in Script goal and names a module, so serving it needs
+/// the same compiled targets a module's `import()` needs — but the entry itself
+/// stays Script code: it is not made strict, its top-level `this` is
+/// `globalThis`, and its declarations stay in the Script's own scope. See
+/// [`ModuleGraphIr::entry_is_script`].
+///
+/// A Script that writes no `import()` has nothing to gain here and should be
+/// lowered with [`lower`].
+pub fn lower_script_graph(sources: &ModuleGraphSources) -> ProgramIr {
+    lower_graph(sources, true)
+}
+
+fn lower_graph(sources: &ModuleGraphSources, entry_is_script: bool) -> ProgramIr {
+    let goal = if entry_is_script {
+        ParseGoal::Script
+    } else {
+        ParseGoal::Module
+    };
     let source_len = sources
         .modules
         .get(sources.entry as usize)
@@ -156,18 +228,19 @@ pub fn lower_module_graph(sources: &ModuleGraphSources) -> ProgramIr {
         Ok(graph) => graph,
         Err(diagnostics) => {
             stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(ParseGoal::Module, source_len, stages);
+            let mut program = new_program(goal, source_len, stages);
             program.diagnostics = diagnostics;
             return program;
         }
     };
+    graph.entry_is_script = entry_is_script;
     stages.push(LoweringStage::ModuleGraphLoaded);
 
     modules::link(&mut graph);
     stages.push(LoweringStage::ModuleGraphLinked);
     if !graph.link_errors.is_empty() {
         stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-        let mut program = new_program(ParseGoal::Module, source_len, stages);
+        let mut program = new_program(goal, source_len, stages);
         program.diagnostics = graph
             .link_errors
             .iter()
@@ -184,22 +257,26 @@ pub fn lower_module_graph(sources: &ModuleGraphSources) -> ProgramIr {
         Ok(linked) => linked,
         Err(diagnostics) => {
             stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(ParseGoal::Module, source_len, stages);
+            let mut program = new_program(goal, source_len, stages);
             program.diagnostics = diagnostics;
             program.modules = Some(graph);
             return program;
         }
     };
 
-    let mut program =
-        lower_script_program(&linked, ParseGoal::Module, source_len, stages, Some(graph));
+    let mut program = lower_script_program(&linked, goal, source_len, stages, Some(graph));
     // Module top-level `this` is `undefined` (16.2.1.6.2 seeds the module
     // environment's `this` with undefined), while the merged Script text gives
     // it `globalThis`. Rather than hand a unit the wrong `this`, report it.
-    if program
-        .script
-        .as_ref()
-        .is_some_and(|script| script.top_level_this_uses > 0)
+    //
+    // A script graph's entry is Script code, whose top-level `this` really is
+    // `globalThis`, and every module of it sits inside a wrapper with a `this`
+    // of its own — so there is nothing to report there.
+    if !entry_is_script
+        && program
+            .script
+            .as_ref()
+            .is_some_and(|script| script.top_level_this_uses > 0)
     {
         program.script = None;
         program.diagnostics.push(IrDiagnostic::unsupported(
@@ -381,9 +458,17 @@ type DirectCallContextKey = (FunctionId, ExactHelperContextId);
 /// `method_name` staying `undefined` marks the entry as never registered —
 /// either the declaration was not reached before an abrupt completion, or the
 /// resource was null/undefined and ECMA-262 27.3.1.1 step 1.a adds nothing.
+#[derive(Clone)]
 struct UsingSlot {
     value_name: String,
     method_name: String,
+    /// `true` for an `await using` declarator (spec hint `async-dispose`): the
+    /// disposal call result is awaited, and the dispose method is looked up as
+    /// `@@asyncDispose` with an `@@dispose` fallback.
+    is_async: bool,
+    /// Temporary holding the disposal call result of an `await using` entry so
+    /// the `Await` can stay a top-level statement of the finally block.
+    result_name: Option<String>,
 }
 
 /// The DisposeCapability of one statement list being lowered.
@@ -394,6 +479,10 @@ struct UsingSlot {
 struct UsingFrame {
     slots: Vec<UsingSlot>,
     next: usize,
+    /// Resume state the guarded region starts at, when the enclosing body is a
+    /// linear async function. Used to build the `AsyncTryPlanIr` of the
+    /// `try`/`finally` that [`ScriptLowerer::finish_using_frame`] emits.
+    async_entry_state: Option<u32>,
 }
 
 pub(crate) struct ScriptLowerer<'a> {
@@ -420,6 +509,9 @@ pub(crate) struct ScriptLowerer<'a> {
     current_resumable_plan: Option<ResumablePlanIr>,
     next_resumable_suspension_index: usize,
     async_expression_prefix: Option<Vec<StatementIr>>,
+    /// Operands already evaluated into `async_expression_prefix`, keyed by the
+    /// address of the AST node they came from. See `lower_expression`.
+    pinned_async_operands: HashMap<usize, TypedExpr>,
     current_this_info: ValueInfo,
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
@@ -6056,6 +6148,7 @@ impl<'a> ScriptLowerer<'a> {
             current_resumable_plan: None,
             next_resumable_suspension_index: 0,
             async_expression_prefix: None,
+            pinned_async_operands: HashMap::new(),
             current_this_info: ValueInfo::undefined(),
             current_new_target_info: ValueInfo::undefined(),
             current_construct_this_info: None,
@@ -7852,69 +7945,114 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
-    /// The number of resources a statement list can register on its
-    /// DisposeCapability: one per `using` declarator directly in the list.
-    ///
-    /// `await using` is deliberately excluded — its disposal has to await the
-    /// `[Symbol.asyncDispose]` result, which this lowering does not model, so
-    /// `lower_using_declaration` rejects it instead.
-    fn count_using_declarators(items: &[StatementListItem]) -> usize {
+    /// The resources a statement list can register on its DisposeCapability:
+    /// one per `using` or `await using` declarator directly in the list. `true`
+    /// marks an `await using` declarator, whose disposal is awaited (spec hint
+    /// `async-dispose`).
+    fn using_declarator_hints(items: &[StatementListItem]) -> Vec<bool> {
         items
             .iter()
-            .map(|item| match item {
+            .flat_map(|item| match item {
                 StatementListItem::Declaration(declaration) => match declaration.as_ref() {
-                    Declaration::Lexical(LexicalDeclaration::Using(list)) => list.as_ref().len(),
-                    _ => 0,
+                    Declaration::Lexical(LexicalDeclaration::Using(list)) => {
+                        vec![false; list.as_ref().len()]
+                    }
+                    Declaration::Lexical(LexicalDeclaration::AwaitUsing(list)) => {
+                        vec![true; list.as_ref().len()]
+                    }
+                    _ => Vec::new(),
                 },
-                StatementListItem::Statement(_) => 0,
+                StatementListItem::Statement(_) => Vec::new(),
             })
-            .sum()
+            .collect()
     }
 
     /// Opens the DisposeCapability of a statement list (ECMA-262 14.2.2
     /// step 1: `NewDeclarativeEnvironment` + `NewDisposeCapability`).
     ///
-    /// The resource stack has a statically known depth, so both temporaries per
+    /// The resource stack has a statically known depth, so the temporaries per
     /// entry are allocated and declared here, ahead of the guarded region, and
     /// left `undefined` until the matching declaration runs.
     fn push_using_frame(&mut self, items: &[StatementListItem]) {
-        let mut count = Self::count_using_declarators(items);
-        // A generator or resumable async body is compiled as a resume-state
-        // machine, and the `try`/`finally` this lowering emits carries no
-        // generator or async plan — the finalizer would simply never run on the
-        // resume path that completes the body. Report that instead of silently
-        // dropping the disposal.
-        if count > 0
+        let mut hints = Self::using_declarator_hints(items);
+        // A generator body (or an async generator, which is compiled from a
+        // pre-planned resumable state machine) does not thread the emitted
+        // `try`/`finally` through its resume dispatch, so the finalizer would
+        // simply never run on the resume path that completes the body. Report
+        // that instead of silently dropping the disposal. A *linear* async body
+        // is fine: `finish_using_frame` builds the matching `AsyncTryPlanIr`.
+        if !hints.is_empty()
             && (self.current_generator_resume_state.is_some()
-                || self.current_async_resume_state.is_some()
                 || self.current_resumable_plan.is_some())
         {
             self.unsupported("using declaration in a generator or resumable async body");
-            count = 0;
+            hints.clear();
         }
-        let mut slots = Vec::with_capacity(count);
-        for _ in 0..count {
-            let value_name = self.alloc_temp_binding_name("using.value.");
-            let method_name = self.alloc_temp_binding_name("using.method.");
-            for name in [&value_name, &method_name] {
-                self.declare_binding(
-                    name.clone(),
-                    BindingInfo {
-                        mode: BindingMode::Let,
-                        storage_name: name.clone(),
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                );
-            }
+        // A linear async body numbers its resume states once, statically, so a
+        // `try`/`finally` whose plan sits inside a loop would replay the same
+        // states on every iteration. Plain `try`/`finally` in an async loop has
+        // the same limitation; refuse rather than emit a body that runs one
+        // iteration and then traps.
+        if !hints.is_empty() && self.current_async_resume_state.is_some() && self.loop_depth > 0 {
+            self.unsupported("using declaration in an async loop body");
+            hints.clear();
+        }
+        // `await using` needs a suspension point per entry, which only a linear
+        // async body provides.
+        if hints.iter().any(|is_async| *is_async) && self.current_async_resume_state.is_none() {
+            self.unsupported("await using declaration outside an async body");
+            hints.clear();
+        }
+        let async_entry_state = (!hints.is_empty())
+            .then_some(self.current_async_resume_state)
+            .flatten();
+        let mut slots = Vec::with_capacity(hints.len());
+        for is_async in hints {
+            // Inside an async body the guarded region can suspend between the
+            // declaration and the finalizer, and plain locals do not survive a
+            // suspension — the activation is re-entered with fresh locals. The
+            // resource and its dispose method therefore have to live in the
+            // suspension-owned environment.
+            let dynamic_info = ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            };
+            let mut alloc = |lowerer: &mut Self, hint: &str| {
+                if async_entry_state.is_some() {
+                    lowerer.alloc_suspension_owned_binding(hint, dynamic_info.clone())
+                } else {
+                    let name = lowerer.alloc_temp_binding_name(hint);
+                    lowerer.declare_binding(
+                        name.clone(),
+                        BindingInfo {
+                            mode: BindingMode::Let,
+                            storage_name: name.clone(),
+                            kind: dynamic_info.kind,
+                            possible_kinds: dynamic_info.possible_kinds,
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        },
+                    );
+                    name
+                }
+            };
+            let value_name = alloc(self, "using.value.");
+            let method_name = alloc(self, "using.method.");
+            let result_name = is_async.then(|| alloc(self, "using.dispose.result."));
             slots.push(UsingSlot {
                 value_name,
                 method_name,
+                is_async,
+                result_name,
             });
         }
-        self.using_frames.push(UsingFrame { slots, next: 0 });
+        self.using_frames.push(UsingFrame {
+            slots,
+            next: 0,
+            async_entry_state,
+        });
     }
 
     /// Closes the DisposeCapability opened by [`Self::push_using_frame`].
@@ -7932,25 +8070,49 @@ impl<'a> ScriptLowerer<'a> {
         if frame.slots.is_empty() {
             return block;
         }
-        let mut statements = Vec::with_capacity(frame.slots.len() * 2 + 1);
+        let mut statements = Vec::with_capacity(frame.slots.len() * 3 + 1);
         for slot in &frame.slots {
-            statements.push(StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: slot.value_name.clone(),
-                init: TypedExpr::undefined(),
-            });
-            statements.push(StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: slot.method_name.clone(),
-                init: TypedExpr::undefined(),
-            });
+            for name in [&slot.value_name, &slot.method_name]
+                .into_iter()
+                .chain(slot.result_name.as_ref())
+            {
+                statements.push(StatementIr::Lexical {
+                    mode: BindingMode::Let,
+                    name: name.clone(),
+                    init: TypedExpr::undefined(),
+                });
+            }
         }
-        let finally_statements = frame
-            .slots
-            .iter()
-            .rev()
-            .map(|slot| self.using_dispose_statement(slot))
-            .collect::<Vec<_>>();
+        // Mirror `lower_try`'s resume-state accounting: the guarded region is
+        // the try block (already lowered, so the state counter has advanced
+        // over its awaits), then one state for the try exit, then the finally
+        // block's own awaits, then one state for the whole statement's exit.
+        let async_try_exit_state = frame.async_entry_state.map(|_| {
+            if let Some(state) = self.current_async_resume_state.as_mut() {
+                *state += 1;
+            }
+            self.current_async_resume_state.unwrap_or_default()
+        });
+        let mut finally_statements = Vec::with_capacity(frame.slots.len() * 3);
+        for slot in frame.slots.iter().rev() {
+            self.append_using_dispose_statements(slot, &mut finally_statements);
+        }
+        let async_plan = frame.async_entry_state.map(|entry_state| {
+            let finally_entry_state = async_try_exit_state.unwrap_or(entry_state);
+            if let Some(state) = self.current_async_resume_state.as_mut() {
+                *state += 1;
+            }
+            let exit_state = self.current_async_resume_state.unwrap_or(entry_state);
+            AsyncTryPlanIr {
+                entry_state,
+                try_exit_state: async_try_exit_state.unwrap_or(entry_state),
+                catch_entry_state: None,
+                catch_exit_state: None,
+                finally_entry_state: Some(finally_entry_state),
+                finally_exit_state: Some(exit_state),
+                exit_state,
+            }
+        });
         let result_kind = block.result_kind;
         statements.push(StatementIr::TryFinally {
             try_block: block,
@@ -7960,7 +8122,7 @@ impl<'a> ScriptLowerer<'a> {
                 lexical_environment: None,
             },
             generator_plan: None,
-            async_plan: None,
+            async_plan,
         });
         BlockIr {
             statements,
@@ -7975,7 +8137,11 @@ impl<'a> ScriptLowerer<'a> {
     /// An entry whose method is still `undefined` was either never reached or
     /// held a null/undefined resource, which ECMA-262 27.3.1.1 step 1.a never
     /// adds to the stack.
-    fn using_dispose_statement(&mut self, slot: &UsingSlot) -> StatementIr {
+    fn append_using_dispose_statements(
+        &mut self,
+        slot: &UsingSlot,
+        statements: &mut Vec<StatementIr>,
+    ) {
         let method = self.lower_identifier_name(slot.method_name.clone(), false);
         let value = self.lower_identifier_name(slot.value_name.clone(), false);
         let condition = TypedExpr::from_info(
@@ -7986,25 +8152,41 @@ impl<'a> ScriptLowerer<'a> {
                 rhs: Box::new(TypedExpr::undefined()),
             },
         );
-        StatementIr::If {
+        let call = TypedExpr::spec_call(method, value, Vec::new());
+        let Some(result_name) = slot.result_name.clone() else {
+            statements.push(StatementIr::If {
+                condition,
+                then_branch: Box::new(StatementIr::Expression(call)),
+                else_branch: None,
+            });
+            return;
+        };
+        // `await using`: `Await(Call(method, resource))` (ECMA-262 27.3.1.2
+        // step 3.a.ii for an `async-dispose` entry). The call result is parked
+        // in a temporary so the `Await` stays a top-level statement of the
+        // finally block — the async resume dispatch only reaches suspension
+        // points at statement-list level.
+        statements.push(StatementIr::If {
             condition,
-            then_branch: Box::new(StatementIr::Expression(TypedExpr::spec_call(
-                method,
-                value,
-                Vec::new(),
+            then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
+                call.value_info(),
+                ExprIr::AssignIdentifier {
+                    name: result_name.clone(),
+                    value: Box::new(call),
+                },
             ))),
             else_branch: None,
-        }
+        });
+        let awaited = self.lower_identifier_name(result_name, false);
+        let (await_statement, _) =
+            self.lower_linear_async_await_value(awaited, AsyncResumeModeIr::Ignore);
+        statements.push(await_statement);
     }
 
     /// The next free DisposeCapability entry of the innermost open frame.
     fn take_using_slot(&mut self) -> Option<UsingSlot> {
         let frame = self.using_frames.last_mut()?;
-        let slot = frame.slots.get(frame.next)?;
-        let slot = UsingSlot {
-            value_name: slot.value_name.clone(),
-            method_name: slot.method_name.clone(),
-        };
+        let slot = frame.slots.get(frame.next)?.clone();
         frame.next += 1;
         Some(slot)
     }
@@ -8015,6 +8197,17 @@ impl<'a> ScriptLowerer<'a> {
     /// Read off the global `Symbol` object rather than a scope lookup so a
     /// local binding named `Symbol` cannot redirect it.
     fn symbol_dispose_value(&mut self) -> TypedExpr {
+        self.symbol_well_known_value("dispose")
+    }
+
+    /// `%Symbol%.asyncDispose`, the `@@asyncDispose` key an `await using`
+    /// declaration looks up first (ECMA-262 27.3.1.4 `GetDisposeMethod` with
+    /// hint `async-dispose`).
+    fn symbol_async_dispose_value(&mut self) -> TypedExpr {
+        self.symbol_well_known_value("asyncDispose")
+    }
+
+    fn symbol_well_known_value(&mut self, property: &str) -> TypedExpr {
         let symbol_info = self
             .lookup_global_property(SYMBOL_NAME)
             .unwrap_or_else(|| ValueInfo::new(ValueKind::Object));
@@ -8025,13 +8218,13 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         let info = self
-            .read_object_shape(&symbol_global, "dispose")
+            .read_object_shape(&symbol_global, property)
             .unwrap_or_else(|| ValueInfo::new(ValueKind::Symbol));
         TypedExpr::from_info(
             info,
             ExprIr::PropertyRead {
                 target: Box::new(symbol_global),
-                key: PropertyKeyIr::StaticString("dispose".to_string()),
+                key: PropertyKeyIr::StaticString(property.to_string()),
             },
         )
     }
@@ -8249,15 +8442,13 @@ impl<'a> ScriptLowerer<'a> {
                         contains(target, ContainsSymbol::AwaitExpression)
                     }) =>
             {
-                self.async_expression_prefix = Some(Vec::new());
+                let saved = self.async_expression_prefix.replace(Vec::new());
                 let (yield_statement, kind) = self.lower_linear_generator_yield(
                     yield_expression.target(),
                     yield_expression.delegate(),
                     GeneratorResumeModeIr::Ignore,
                 );
-                let mut statements = self
-                    .async_expression_prefix
-                    .take()
+                let mut statements = std::mem::replace(&mut self.async_expression_prefix, saved)
                     .expect("async-generator expression lowering must retain its statement prefix");
                 statements.push(yield_statement);
                 (StatementIr::LexicalBlock(statements), kind)
@@ -8266,11 +8457,16 @@ impl<'a> ScriptLowerer<'a> {
                 if self.current_async_resume_state.is_some()
                     && contains(expression, ContainsSymbol::AwaitExpression) =>
             {
-                self.async_expression_prefix = Some(Vec::new());
+                // An expression statement discards its value and has always
+                // hoisted every `await` it contains, including ones only some
+                // paths reach, so it keeps that reach here. That hoist is
+                // wrong for `f(cond && await p)` — the suspension happens even
+                // when `cond` is falsy — and fixing it needs a resumable
+                // branch rather than a flat prefix, so it stays a known
+                // mis-evaluation instead of becoming a new refusal.
+                let saved = self.async_expression_prefix.replace(Vec::new());
                 let value = self.lower_expression(expression);
-                let mut statements = self
-                    .async_expression_prefix
-                    .take()
+                let mut statements = std::mem::replace(&mut self.async_expression_prefix, saved)
                     .expect("async expression lowering must retain its statement prefix");
                 statements.push(StatementIr::Expression(value));
                 (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
@@ -8402,20 +8598,58 @@ impl<'a> ScriptLowerer<'a> {
                 let kind = block_ir.result_kind;
                 (StatementIr::Block(block_ir), kind)
             }
+            // Statement heads that are evaluated exactly once stage their
+            // suspensions ahead of the statement. The guards check that the
+            // head is the *only* suspending part, because the prefix runs
+            // unconditionally and once: an `await` from a loop body or a
+            // branch hoisted out here would run at the wrong time, or only
+            // once for a body that runs many times.
+            Statement::If(if_statement)
+                if self.head_await_is_stageable(
+                    if_statement.cond(),
+                    [Some(if_statement.body()), if_statement.else_node()],
+                ) =>
+            {
+                self.lower_with_async_head_prefix(|this| this.lower_if_statement(if_statement))
+            }
             Statement::If(if_statement) => self.lower_if_statement(if_statement),
             Statement::WhileLoop(while_loop) => self.lower_while_loop(while_loop),
             Statement::DoWhileLoop(do_while) => self.lower_do_while_loop(do_while),
             Statement::ForLoop(for_loop) => self.lower_for_loop(for_loop),
+            Statement::ForOfLoop(for_of)
+                if self.head_await_is_stageable(for_of.iterable(), [Some(for_of.body())])
+                    && !contains(for_of.initializer(), ContainsSymbol::AwaitExpression) =>
+            {
+                self.lower_with_async_head_prefix(|this| this.lower_for_of_loop(for_of))
+            }
             Statement::ForOfLoop(for_of) => self.lower_for_of_loop(for_of),
+            Statement::Switch(switch)
+                if self.head_await_is_stageable(switch.val(), [])
+                    && !switch
+                        .cases()
+                        .iter()
+                        .any(|case| contains(case, ContainsSymbol::AwaitExpression)) =>
+            {
+                self.lower_with_async_head_prefix(|this| this.lower_switch(switch))
+            }
             Statement::Switch(switch) => self.lower_switch(switch),
             Statement::Labelled(labelled) => self.lower_labelled(labelled),
             Statement::Break(brk) => self.lower_break(brk),
             Statement::Continue(cont) => self.lower_continue(cont),
             Statement::Debugger => (StatementIr::Debugger, ValueKind::Undefined),
+            Statement::Throw(throw) if self.head_await_is_stageable(throw.target(), []) => {
+                self.lower_with_async_head_prefix(|this| this.lower_throw(throw))
+            }
             Statement::Throw(throw) => self.lower_throw(throw),
             Statement::Try(try_statement) => self.lower_try(try_statement),
             Statement::Var(var) => self.lower_var_statement(var),
             Statement::Return(ret) => self.lower_return(ret),
+            Statement::ForInLoop(for_in)
+                if self.head_await_is_stageable(for_in.target(), [Some(for_in.body())])
+                    && !contains(for_in.initializer(), ContainsSymbol::AwaitExpression) =>
+            {
+                self.lower_with_async_head_prefix(|this| this.lower_for_in_loop(for_in))
+            }
             Statement::ForInLoop(for_in) => self.lower_for_in_loop(for_in),
             Statement::With(with) => self.lower_with_statement(with),
         }
@@ -8640,7 +8874,8 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
-        let mut private_initializer: Option<PrivatePropertyAccess> = None;
+        let mut assignment_pattern_initializer: Option<Pattern> = None;
+        let mut access_initializer: Option<PropertyAccess> = None;
         let (mode, name) =
             if let Some(binding) = self.for_in_initializer_binding(for_in.initializer()) {
                 binding
@@ -8654,6 +8889,10 @@ impl<'a> ScriptLowerer<'a> {
                         pattern_initializer = Some((BindingMode::Var, pattern.clone()));
                         (BindingMode::Let, self.alloc_temp_binding_name("forin"))
                     }
+                    IterableLoopInitializer::Pattern(pattern) => {
+                        assignment_pattern_initializer = Some(pattern.clone());
+                        (BindingMode::Let, self.alloc_temp_binding_name("forin"))
+                    }
                     IterableLoopInitializer::Let(Binding::Pattern(pattern)) => {
                         pattern_initializer = Some((BindingMode::Let, pattern.clone()));
                         (BindingMode::Let, self.alloc_temp_binding_name("forin"))
@@ -8662,11 +8901,16 @@ impl<'a> ScriptLowerer<'a> {
                         pattern_initializer = Some((BindingMode::Const, pattern.clone()));
                         (BindingMode::Let, self.alloc_temp_binding_name("forin"))
                     }
-                    IterableLoopInitializer::Access(PropertyAccess::Private(access)) => {
-                        private_initializer = Some(access.clone());
+                    // `for (obj.key in …)` and `for (this.#field in …)` assign to
+                    // a reference the spec re-evaluates every iteration, so the key
+                    // lands in a temporary and the body prefix performs the store.
+                    IterableLoopInitializer::Access(
+                        access @ (PropertyAccess::Simple(_) | PropertyAccess::Private(_)),
+                    ) => {
+                        access_initializer = Some(access.clone());
                         (
                             BindingMode::Let,
-                            self.alloc_temp_binding_name("forin.private"),
+                            self.alloc_temp_binding_name("forin.access"),
                         )
                     }
                     _ => {
@@ -8679,7 +8923,7 @@ impl<'a> ScriptLowerer<'a> {
             for_in as *const boa_ast::statement::iteration::ForInLoop as usize,
         );
         let mut target = match pattern_initializer.as_ref() {
-            None if private_initializer.is_none() => {
+            None if access_initializer.is_none() && assignment_pattern_initializer.is_none() => {
                 self.lower_for_head_expression_with_tdz(mode, &name, for_in.target())
             }
             None => self.lower_expression(for_in.target()),
@@ -8729,7 +8973,8 @@ impl<'a> ScriptLowerer<'a> {
         let key_info = ValueInfo::new(ValueKind::String);
         let storage_name = if mode == BindingMode::Var
             || pattern_initializer.is_some()
-            || private_initializer.is_some()
+            || assignment_pattern_initializer.is_some()
+            || access_initializer.is_some()
         {
             name.clone()
         } else {
@@ -8761,13 +9006,21 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        let mut pattern_prefix = if let Some(access) = private_initializer.as_ref() {
+        let mut pattern_prefix = if let Some(access) = access_initializer.as_ref() {
             let value =
                 TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
-            vec![StatementIr::Expression(self.lower_property_assign_value(
-                &PropertyAccess::Private(access.clone()),
-                value,
-            ))]
+            let access = access.clone();
+            vec![StatementIr::Expression(
+                self.lower_property_assign_value(&access, value),
+            )]
+        } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
+            let value =
+                TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
+            let Some(assign) = self.lower_pattern_assign_value(pattern, value) else {
+                self.pop_scope();
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            vec![StatementIr::Expression(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
             let init =
                 TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
@@ -9231,61 +9484,171 @@ impl<'a> ScriptLowerer<'a> {
         expr
     }
 
-    fn is_eager_async_declaration_initializer(expression: &Expression) -> bool {
-        if !contains(expression, ContainsSymbol::AwaitExpression) {
-            return false;
-        }
-        if !matches!(
-            Self::unwrap_parenthesized_expr(expression),
-            Expression::Unary(_) | Expression::Binary(_)
-        ) {
-            return false;
-        }
-        Self::is_eager_async_expression_tree(expression)
+    /// True when a declaration initializer containing `await` can be staged
+    /// into the async statement prefix.
+    ///
+    /// This used to require the initializer to be a unary/arithmetic tree over
+    /// single-level awaits, which refused every other shape — `const x =
+    /// f(await p)`, `const x = obj[await k]`, `const x = \`${await p}\`` — even
+    /// though the prefix handles them the same way. The only real requirement
+    /// is that the initializer is evaluated once and reaches its awaits on
+    /// every path.
+    fn async_initializer_is_stageable(&self, expression: &Expression) -> bool {
+        self.current_async_resume_state.is_some()
+            && contains(expression, ContainsSymbol::AwaitExpression)
+            && !contains(expression, ContainsSymbol::YieldExpression)
+            && !self.has_branch_sensitive_await(expression)
     }
 
-    fn is_eager_async_expression_tree(expression: &Expression) -> bool {
-        match Self::unwrap_parenthesized_expr(expression) {
-            Expression::Await(await_expression) => {
-                !contains(await_expression.target(), ContainsSymbol::AwaitExpression)
-            }
-            Expression::Unary(unary) => {
-                unary.op() != UnaryOp::Delete
-                    && Self::is_eager_async_expression_tree(unary.target())
-            }
-            Expression::Binary(binary) if matches!(binary.op(), BinaryOp::Arithmetic(_)) => {
-                Self::is_eager_async_expression_tree(binary.lhs())
-                    && Self::is_eager_async_expression_tree(binary.rhs())
-            }
-            expression => !contains(expression, ContainsSymbol::AwaitExpression),
-        }
-    }
-
+    /// True when an `await` inside `expression` is reached only on some paths,
+    /// so it cannot be hoisted into the unconditional statement prefix.
+    ///
+    /// The walk itself lives in `await_is_conditionally_reached`, which
+    /// recurses through every operand position instead of only the
+    /// unary/binary spine this used to check: `f(cond && await p)` hides the
+    /// short-circuit under a call argument, and treating that as unconditional
+    /// hoisted the `await` out of the `&&` and ran it even when `cond` was
+    /// falsy.
+    ///
+    /// A chain whose target is statically nullish keeps its own answer: the
+    /// first `?.` link short-circuits every time, so the awaits behind it are
+    /// uniformly skipped rather than path-dependent.
     fn has_branch_sensitive_await(&self, expression: &Expression) -> bool {
         if !contains(expression, ContainsSymbol::AwaitExpression) {
             return false;
         }
-        match Self::unwrap_parenthesized_expr(expression) {
-            Expression::Binary(binary) if matches!(binary.op(), BinaryOp::Logical(_)) => true,
-            Expression::Conditional(_) => true,
-            Expression::Optional(optional) => {
-                contains(optional.target(), ContainsSymbol::AwaitExpression)
-                    || !optional
-                        .chain()
-                        .first()
-                        .is_some_and(|operation| operation.shorted())
-                    || !self.is_statically_nullish_optional_target(optional.target())
-            }
-            Expression::Await(await_expression) => {
-                self.has_branch_sensitive_await(await_expression.target())
-            }
-            Expression::Unary(unary) => self.has_branch_sensitive_await(unary.target()),
-            Expression::Binary(binary) => {
-                self.has_branch_sensitive_await(binary.lhs())
-                    || self.has_branch_sensitive_await(binary.rhs())
-            }
-            _ => false,
+        if let Expression::Optional(optional) = Self::unwrap_parenthesized_expr(expression) {
+            return contains(optional.target(), ContainsSymbol::AwaitExpression)
+                || !optional
+                    .chain()
+                    .first()
+                    .is_some_and(|operation| operation.shorted())
+                || !self.is_statically_nullish_optional_target(optional.target());
         }
+        await_is_conditionally_reached(expression)
+    }
+
+    /// Lower `expression` into a statement prefix plus the value left over
+    /// once every `await` in it has been moved into its own statement.
+    ///
+    /// This is the general form of the async staging the lowerer already did
+    /// for a handful of recognised shapes. Arming `async_expression_prefix`
+    /// makes `lower_expression` rewrite each `await` it meets into a `let`
+    /// binding plus an `AsyncAwait` statement appended to the prefix, leaving
+    /// the temporary behind in the expression. Any statement that evaluates
+    /// its head expression exactly once can therefore opt in, instead of each
+    /// statement form hand-listing the expression shapes it knows how to take.
+    ///
+    /// Returns `None` when there is nothing to stage, when the suspension is a
+    /// `yield` (the generator staging path owns those), or when an `await`
+    /// sits behind a branch, where the unconditional prefix would run it on a
+    /// path the program never takes.
+    ///
+    /// The previous prefix is saved and restored rather than cleared, so a
+    /// nested statement that stages its own head cannot swallow the prefix an
+    /// enclosing one is still collecting into.
+    fn lower_async_prefixed_expression(
+        &mut self,
+        expression: &Expression,
+    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
+        if self.current_async_resume_state.is_none()
+            || !contains(expression, ContainsSymbol::AwaitExpression)
+            || contains(expression, ContainsSymbol::YieldExpression)
+            || self.has_branch_sensitive_await(expression)
+        {
+            return None;
+        }
+        let saved = self.async_expression_prefix.replace(Vec::new());
+        let value = self.lower_expression(expression);
+        let statements = std::mem::replace(&mut self.async_expression_prefix, saved)
+            .expect("async expression lowering must retain its statement prefix");
+        Some((statements, value))
+    }
+
+    /// True when `head` suspends, `rest` does not, and the suspension can be
+    /// lifted into the statement prefix.
+    ///
+    /// `rest` is the part of the statement that is *not* the head — a loop
+    /// body, a branch. It has to be `await`-free, because the prefix runs
+    /// once, before the statement, so a suspension taken from a body would run
+    /// too early and only once.
+    fn head_await_is_stageable<'b, const N: usize>(
+        &self,
+        head: &Expression,
+        rest: [Option<&'b Statement>; N],
+    ) -> bool {
+        self.current_async_resume_state.is_some()
+            && contains(head, ContainsSymbol::AwaitExpression)
+            && !contains(head, ContainsSymbol::YieldExpression)
+            && !self.has_branch_sensitive_await(head)
+            && rest
+                .into_iter()
+                .flatten()
+                .all(|statement| !contains(statement, ContainsSymbol::AwaitExpression))
+    }
+
+    /// Run `lower` with the async statement prefix armed, and return whatever
+    /// suspensions it staged alongside the lowered statement.
+    ///
+    /// Statement forms that evaluate a head expression once — a `switch`
+    /// discriminant, a `for`/`for-of` iterable — build their whole statement
+    /// in one call, so the prefix is armed around that call and the staged
+    /// suspensions are spliced in ahead of it. Callers must first prove the
+    /// rest of the statement is `await`-free, otherwise a suspension from a
+    /// body would be hoisted out of the loop or branch that guards it.
+    fn lower_with_async_head_prefix(
+        &mut self,
+        lower: impl FnOnce(&mut Self) -> (StatementIr, ValueKind),
+    ) -> (StatementIr, ValueKind) {
+        let saved = self.async_expression_prefix.replace(Vec::new());
+        let (statement, kind) = lower(self);
+        let mut statements = std::mem::replace(&mut self.async_expression_prefix, saved)
+            .expect("async head lowering must retain its statement prefix");
+        if statements.is_empty() {
+            return (statement, kind);
+        }
+        statements.push(statement);
+        (StatementIr::LexicalBlock(statements), kind)
+    }
+
+    /// Materialize `value` into the async prefix when a later operand of the
+    /// same expression suspends.
+    ///
+    /// Hoisting an `await` into the prefix moves it *ahead* of everything left
+    /// inline in the residual expression, so an operand the spec evaluates
+    /// first would otherwise run second. Binding it here restores the
+    /// left-to-right order. Literals are left alone: they have no side effects
+    /// and cannot observe one.
+    fn pin_async_operand_before_suspension(
+        &mut self,
+        value: TypedExpr,
+        rest_suspends: bool,
+        hint: &str,
+    ) -> TypedExpr {
+        if !rest_suspends || self.async_expression_prefix.is_none() {
+            return value;
+        }
+        if matches!(
+            value.expr,
+            ExprIr::Number(_)
+                | ExprIr::String(_)
+                | ExprIr::Boolean(_)
+                | ExprIr::BigInt(_)
+                | ExprIr::Null
+                | ExprIr::Undefined
+        ) {
+            return value;
+        }
+        let name = self.alloc_suspension_owned_binding(hint, value.value_info());
+        self.async_expression_prefix
+            .as_mut()
+            .expect("async expression lowering must have a statement prefix")
+            .push(StatementIr::Lexical {
+                mode: BindingMode::Let,
+                name: name.clone(),
+                init: value,
+            });
+        self.lower_identifier_name(name, false)
     }
 
     fn is_statically_nullish_optional_target(&self, expression: &Expression) -> bool {
@@ -11163,12 +11526,10 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
         let uses_unified_resumable_plan = for_of.r#await() && self.current_resumable_plan.is_some();
-        let async_entry_state = if for_of.r#await() && !uses_unified_resumable_plan {
-            self.current_async_resume_state
-        } else {
-            None
-        };
-        if for_of.r#await() && !uses_unified_resumable_plan && async_entry_state.is_none() {
+        if for_of.r#await()
+            && !uses_unified_resumable_plan
+            && self.current_async_resume_state.is_none()
+        {
             self.unsupported("for-await-of outside async function");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
@@ -11201,7 +11562,7 @@ impl<'a> ScriptLowerer<'a> {
         }
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
         let mut assignment_pattern_initializer: Option<Pattern> = None;
-        let mut private_initializer: Option<PrivatePropertyAccess> = None;
+        let mut access_initializer: Option<PropertyAccess> = None;
         let (mode, name) = match for_of.initializer() {
             IterableLoopInitializer::Identifier(identifier) => (
                 BindingMode::Var,
@@ -11237,11 +11598,16 @@ impl<'a> ScriptLowerer<'a> {
                 assignment_pattern_initializer = Some(pattern.clone());
                 (BindingMode::Let, self.alloc_temp_binding_name("forof"))
             }
-            IterableLoopInitializer::Access(PropertyAccess::Private(access)) => {
-                private_initializer = Some(access.clone());
+            // `for (obj.key of …)` and `for (this.#field of …)` both assign to a
+            // reference that the spec re-evaluates on every iteration, so the
+            // element lands in a temporary and the body prefix performs the store.
+            IterableLoopInitializer::Access(
+                access @ (PropertyAccess::Simple(_) | PropertyAccess::Private(_)),
+            ) => {
+                access_initializer = Some(access.clone());
                 (
                     BindingMode::Let,
-                    self.alloc_temp_binding_name("forof.private"),
+                    self.alloc_temp_binding_name("forof.access"),
                 )
             }
             _ => {
@@ -11257,7 +11623,7 @@ impl<'a> ScriptLowerer<'a> {
             pattern_initializer.as_ref(),
             assignment_pattern_initializer.as_ref(),
         ) {
-            (None, None) if private_initializer.is_none() => {
+            (None, None) if access_initializer.is_none() => {
                 self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())
             }
             (None, None) => self.lower_expression(for_of.iterable()),
@@ -11286,6 +11652,14 @@ impl<'a> ScriptLowerer<'a> {
         };
         let async_generator_next_suspension = uses_unified_resumable_plan
             .then(|| self.take_resumable_suspension(ResumableSuspensionKindIr::ForAwaitNext))
+            .flatten();
+        // The loop's own first suspension is the `await` on `next()`, which
+        // the spec reaches once the iterable has been evaluated and before the
+        // body runs. Claiming the entry state here puts it in that same order:
+        // after any `await` staged out of the loop head, which has already
+        // consumed states, and before the body allocates its own.
+        let async_entry_state = (for_of.r#await() && !uses_unified_resumable_plan)
+            .then_some(self.current_async_resume_state)
             .flatten();
         if for_of.r#await() {
             for key in ["Symbol.asyncIterator", "Symbol.iterator"] {
@@ -11342,7 +11716,7 @@ impl<'a> ScriptLowerer<'a> {
         let storage_name = if mode == BindingMode::Var
             || pattern_initializer.is_some()
             || assignment_pattern_initializer.is_some()
-            || private_initializer.is_some()
+            || access_initializer.is_some()
         {
             name.clone()
         } else {
@@ -11359,36 +11733,25 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: element_info.function_targets.clone(),
             },
         );
-        let mut pattern_prefix = if let Some(access) = private_initializer.as_ref() {
+        let mut pattern_prefix = if let Some(access) = access_initializer.as_ref() {
             let value = TypedExpr::from_info(
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
-            vec![StatementIr::Expression(self.lower_property_assign_value(
-                &PropertyAccess::Private(access.clone()),
-                value,
-            ))]
+            let access = access.clone();
+            vec![StatementIr::Expression(
+                self.lower_property_assign_value(&access, value),
+            )]
         } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
-            let Pattern::Array(pattern) = pattern else {
-                self.unsupported("object assignment pattern in for-of initializer");
-                self.pop_scope();
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            let Some(pattern) = self.lower_array_assignment_pattern(pattern.bindings()) else {
-                self.pop_scope();
-                return (StatementIr::Empty, ValueKind::Undefined);
-            };
-            vec![StatementIr::Expression(TypedExpr::from_info(
+            let value = TypedExpr::from_info(
                 element_info.clone(),
-                ExprIr::ArrayDestructure {
-                    value: Box::new(TypedExpr::from_info(
-                        element_info.clone(),
-                        ExprIr::Identifier(storage_name.clone()),
-                    )),
-                    pattern,
-                    assignment: true,
-                },
-            ))]
+                ExprIr::Identifier(storage_name.clone()),
+            );
+            let Some(assign) = self.lower_pattern_assign_value(pattern, value) else {
+                self.pop_scope();
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            vec![StatementIr::Expression(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
             let init = TypedExpr::from_info(
                 element_info.clone(),
@@ -11456,7 +11819,7 @@ impl<'a> ScriptLowerer<'a> {
                 !for_of_environment_is_storage_only(lexical_environment.as_ref())
                     || pattern_initializer.is_some()
                     || assignment_pattern_initializer.is_some()
-                    || private_initializer.is_some(),
+                    || access_initializer.is_some(),
                 plain_async_entry_state,
                 lexical_environment.clone(),
             );
@@ -11486,11 +11849,12 @@ impl<'a> ScriptLowerer<'a> {
                 body: Box::new(body),
                 lexical_environment,
             }
-        } else if for_of.r#await()
-            || iterable.possible_kinds.contains(ValueKind::Object)
-            || iterable.possible_kinds.contains(ValueKind::Function)
-            || iterable.possible_kinds.contains(ValueKind::Arguments)
-        {
+        } else {
+            // Everything else goes through the generic iterator protocol. That
+            // includes primitives: `for (x of 37)` has to reach `GetIterator`,
+            // which does `ToObject` and then looks `@@iterator` up on the wrapper
+            // prototype, so a missing or non-callable method throws a TypeError at
+            // runtime instead of being refused at compile time.
             let async_states = if uses_unified_resumable_plan {
                 async_generator_next_suspension
                     .zip(async_generator_close_suspension)
@@ -11559,9 +11923,6 @@ impl<'a> ScriptLowerer<'a> {
                 lexical_environment,
                 async_plan,
             }
-        } else {
-            self.unsupported("for-of non-array iterable");
-            StatementIr::Empty
         };
         (statement, body_kind)
     }
@@ -11672,10 +12033,9 @@ impl<'a> ScriptLowerer<'a> {
                     LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
                     // A `using` binding is immutable like `const` (ECMA-262
                     // 14.3.4) and is in TDZ until its declaration runs.
-                    LexicalDeclaration::Const(variables) | LexicalDeclaration::Using(variables) => {
-                        (BindingMode::Const, variables)
-                    }
-                    LexicalDeclaration::AwaitUsing(_) => return,
+                    LexicalDeclaration::Const(variables)
+                    | LexicalDeclaration::Using(variables)
+                    | LexicalDeclaration::AwaitUsing(variables) => (BindingMode::Const, variables),
                 };
                 for variable in variables.as_ref() {
                     let Some(bound_names) =
@@ -11949,10 +12309,9 @@ impl<'a> ScriptLowerer<'a> {
                     statements.push(await_statement);
                 }
                 Binding::Identifier(identifier)
-                    if self.current_async_resume_state.is_some()
-                        && variable
-                            .init()
-                            .is_some_and(Self::is_eager_async_declaration_initializer) =>
+                    if variable
+                        .init()
+                        .is_some_and(|init| self.async_initializer_is_stageable(init)) =>
                 {
                     if !declarators.is_empty() {
                         statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
@@ -11962,17 +12321,14 @@ impl<'a> ScriptLowerer<'a> {
                         name: name.clone(),
                         init: None,
                     }]));
-                    self.async_expression_prefix = Some(Vec::new());
-                    let value = self.lower_expression(
-                        variable
-                            .init()
-                            .expect("guarded async var initializer must exist"),
-                    );
-                    statements.extend(
-                        self.async_expression_prefix
-                            .take()
-                            .expect("async var initializer must retain its statement prefix"),
-                    );
+                    let (prefix, value) = self
+                        .lower_async_prefixed_expression(
+                            variable
+                                .init()
+                                .expect("guarded async var initializer must exist"),
+                        )
+                        .expect("stageable async var initializer must stage");
+                    statements.extend(prefix);
                     self.static_generator_call_overrides.remove(&name);
                     self.static_iterator_binding_values.remove(&name);
                     self.static_boolean_bindings.remove(&name);
@@ -12987,21 +13343,14 @@ impl<'a> ScriptLowerer<'a> {
             return self
                 .lower_linear_async_await(await_expression.target(), AsyncResumeModeIr::Return);
         }
-        let async_arithmetic_target = ret.target().filter(|target| {
-            self.current_async_resume_state.is_some()
-                && matches!(
-                    Self::unwrap_parenthesized_expr(target),
-                    Expression::Binary(binary) if matches!(binary.op(), BinaryOp::Arithmetic(_))
-                )
-                && contains(*target, ContainsSymbol::AwaitExpression)
-        });
-        if let Some(target) = async_arithmetic_target {
-            self.async_expression_prefix = Some(Vec::new());
-            let value = self.lower_expression(target);
-            let mut statements = self
-                .async_expression_prefix
-                .take()
-                .expect("async expression lowering must retain its statement prefix");
+        // `return <expr with await>` in an async function: the operand is
+        // evaluated once, so every suspension in it stages ahead of the
+        // `return`. This used to accept only a top-level arithmetic binary,
+        // which refused `return f(await p)`, `return [await p]`, and the rest.
+        if let Some((mut statements, value)) = ret
+            .target()
+            .and_then(|target| self.lower_async_prefixed_expression(target))
+        {
             self.record_return_info(value.value_info());
             statements.push(StatementIr::Return(value.clone()));
             return (
@@ -13184,12 +13533,19 @@ impl<'a> ScriptLowerer<'a> {
                 statements.push(yield_statement);
                 Some((statements, self.lower_identifier_name(result_name, false)))
             }
-            _ if contains(expression, ContainsSymbol::AwaitExpression)
-                || contains(expression, ContainsSymbol::YieldExpression) =>
-            {
-                None
-            }
-            _ => Some((Vec::new(), self.lower_expression(expression))),
+            // A composite operand — `return (await p) + 1`, `return [await p]`
+            // — is not a suspension boundary itself, so it lowers through the
+            // ordinary async prefix: each `await` inside it becomes its own
+            // statement and the residual expression is what gets returned.
+            // `yield` still needs the staged path above, which is why an
+            // operand containing one is left to refuse.
+            _ if !contains(expression, ContainsSymbol::YieldExpression) => self
+                .lower_async_prefixed_expression(expression)
+                .or_else(|| {
+                    (!contains(expression, ContainsSymbol::AwaitExpression))
+                        .then(|| (Vec::new(), self.lower_expression(expression)))
+                }),
+            _ => None,
         }
     }
 
@@ -14006,12 +14362,8 @@ impl<'a> ScriptLowerer<'a> {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
-            LexicalDeclaration::Using(list) => {
+            LexicalDeclaration::Using(list) | LexicalDeclaration::AwaitUsing(list) => {
                 return self.lower_using_declaration(list.as_ref());
-            }
-            LexicalDeclaration::AwaitUsing(_) => {
-                self.unsupported("await using declaration");
-                return (StatementIr::Empty, ValueKind::Undefined);
             }
         };
 
@@ -14154,22 +14506,18 @@ impl<'a> ScriptLowerer<'a> {
                         ));
                         continue;
                     }
-                    if self.current_async_resume_state.is_some()
-                        && variable
-                            .init()
-                            .is_some_and(Self::is_eager_async_declaration_initializer)
+                    if variable
+                        .init()
+                        .is_some_and(|init| self.async_initializer_is_stageable(init))
                     {
-                        self.async_expression_prefix = Some(Vec::new());
-                        let init = self.lower_expression(
-                            variable
-                                .init()
-                                .expect("guarded async lexical initializer must exist"),
-                        );
-                        statements.extend(
-                            self.async_expression_prefix.take().expect(
-                                "async lexical initializer must retain its statement prefix",
-                            ),
-                        );
+                        let (prefix, init) = self
+                            .lower_async_prefixed_expression(
+                                variable
+                                    .init()
+                                    .expect("guarded async lexical initializer must exist"),
+                            )
+                            .expect("stageable async lexical initializer must stage");
+                        statements.extend(prefix);
                         self.static_iterator_binding_values.remove(&name);
                         statements.push(self.lower_lexical_binding_value(
                             mode,
@@ -14444,8 +14792,12 @@ impl<'a> ScriptLowerer<'a> {
             else_branch: None,
         };
 
-        let dispose_key = self.symbol_dispose_value();
-        let get_method = TypedExpr::spec_get_method(value_read, dispose_key);
+        let primary_key = if slot.is_async {
+            self.symbol_async_dispose_value()
+        } else {
+            self.symbol_dispose_value()
+        };
+        let get_method = TypedExpr::spec_get_method(value_read, primary_key);
         let store_method = StatementIr::Expression(TypedExpr::from_info(
             get_method.value_info(),
             ExprIr::AssignIdentifier {
@@ -14454,21 +14806,51 @@ impl<'a> ScriptLowerer<'a> {
             },
         ));
 
-        let method_read = self.lower_identifier_name(slot.method_name.clone(), false);
-        let throw_missing = StatementIr::If {
-            condition: TypedExpr::from_info(
+        let method_is_undefined = |lowerer: &mut Self| {
+            TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Boolean),
                 ExprIr::StrictEquality {
                     op: EqualityBinaryOp::StrictEqual,
-                    lhs: Box::new(method_read),
+                    lhs: Box::new(lowerer.lower_identifier_name(slot.method_name.clone(), false)),
                     rhs: Box::new(TypedExpr::undefined()),
                 },
-            ),
+            )
+        };
+
+        // `GetDisposeMethod(V, async-dispose)` (ECMA-262 27.3.1.4): when
+        // `@@asyncDispose` is absent, fall back to `@@dispose`. The spec wraps
+        // the sync method in a closure whose result the caller awaits; awaiting
+        // the sync call's own result is the same observable sequence, so the
+        // fallback method is stored directly.
+        let sync_fallback = slot.is_async.then(|| {
+            let value_read = self.lower_identifier_name(slot.value_name.clone(), false);
+            let dispose_key = self.symbol_dispose_value();
+            let fallback = TypedExpr::spec_get_method(value_read, dispose_key);
+            StatementIr::If {
+                condition: method_is_undefined(self),
+                then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
+                    fallback.value_info(),
+                    ExprIr::AssignIdentifier {
+                        name: slot.method_name.clone(),
+                        value: Box::new(fallback),
+                    },
+                ))),
+                else_branch: None,
+            }
+        });
+
+        let missing_message = if slot.is_async {
+            "await using declaration resource has no [Symbol.asyncDispose] method"
+        } else {
+            "using declaration resource has no [Symbol.dispose] method"
+        };
+        let throw_missing = StatementIr::If {
+            condition: method_is_undefined(self),
             then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
                 ValueInfo::undefined(),
                 ExprIr::RuntimeThrow {
                     name: TYPE_ERROR_NAME,
-                    message: "using declaration resource has no [Symbol.dispose] method",
+                    message: missing_message,
                 },
             ))),
             else_branch: None,
@@ -14478,11 +14860,13 @@ impl<'a> ScriptLowerer<'a> {
             store_value,
             StatementIr::If {
                 condition: not_nullish,
-                then_branch: Box::new(StatementIr::LexicalBlock(vec![
-                    throw_not_object,
-                    store_method,
-                    throw_missing,
-                ])),
+                then_branch: Box::new(StatementIr::LexicalBlock(
+                    [throw_not_object, store_method]
+                        .into_iter()
+                        .chain(sync_fallback)
+                        .chain([throw_missing])
+                        .collect(),
+                )),
                 else_branch: None,
             },
         ]
@@ -15195,7 +15579,128 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// Lower `expression`, first evaluating any operand of it that the spec
+    /// orders before a suspension deeper in the same node.
+    ///
+    /// Hoisting an `await` into the statement prefix moves it ahead of
+    /// everything that stays inline in the residual expression, so
+    /// `f(a(), await g())` would call `g` before `a`. The operands that
+    /// precede the suspension are therefore lowered here, bound to prefix
+    /// temporaries, and recorded in `pinned_async_operands`; when the
+    /// form-specific lowering below reaches the same AST node it gets the
+    /// temporary back instead of re-evaluating it.
+    ///
+    /// Doing this at the single entry point rather than inside each form
+    /// matters for calls: `lower_call` fans out into dozens of builtin-
+    /// specific paths that each lower their arguments themselves, and there is
+    /// no later choke point they all share.
     fn lower_expression(&mut self, expression: &Expression) -> TypedExpr {
+        if let Some(pinned) = self
+            .pinned_async_operands
+            .get(&(std::ptr::from_ref(expression) as usize))
+        {
+            return TypedExpr::clone(pinned);
+        }
+        if self.async_expression_prefix.is_none()
+            || !contains(expression, ContainsSymbol::AwaitExpression)
+        {
+            return self.lower_expression_with_pinned_operands(expression);
+        }
+        let pins = self.pin_async_operands_before_suspension(expression);
+        let value = self.lower_expression_with_pinned_operands(expression);
+        for key in pins {
+            self.pinned_async_operands.remove(&key);
+        }
+        value
+    }
+
+    /// Evaluate, in source order, every operand of `expression` that precedes
+    /// the last one containing an `await`, and pin the results.
+    ///
+    /// Only the operands *before* the last suspension need pinning: anything
+    /// after it already lowers into the residual expression on the far side of
+    /// the hoisted `await`, which is where the spec evaluates it.
+    ///
+    /// Returns the keys added to `pinned_async_operands`, for the caller to
+    /// drop once the expression has been lowered.
+    fn pin_async_operands_before_suspension(&mut self, expression: &Expression) -> Vec<usize> {
+        let operands = Self::ordered_operands_for_pinning(expression);
+        let Some(last_suspending) = operands
+            .iter()
+            .rposition(|operand| contains(*operand, ContainsSymbol::AwaitExpression))
+        else {
+            return Vec::new();
+        };
+        let mut pins = Vec::new();
+        for operand in &operands[..last_suspending] {
+            let key = std::ptr::from_ref(*operand) as usize;
+            if self.pinned_async_operands.contains_key(&key) {
+                continue;
+            }
+            let value = self.lower_expression(operand);
+            let value = self.pin_async_operand_before_suspension(value, true, "async.operand.");
+            self.pinned_async_operands.insert(key, value);
+            pins.push(key);
+        }
+        pins
+    }
+
+    /// The operands of `expression` in the order the spec evaluates them.
+    ///
+    /// A method call yields the *receiver* rather than the whole callee, so
+    /// pinning it leaves the property lookup — and with it the `this` binding
+    /// — attached to the pinned receiver instead of collapsing the call into a
+    /// plain function value.
+    ///
+    /// Forms whose operands are branch-dependent (`&&`, `?:`, `?.`) are
+    /// deliberately absent: `has_branch_sensitive_await` refuses those before
+    /// any of this runs. Forms already handled where they are lowered — array
+    /// literals, arithmetic, template literals — are absent too, and forms
+    /// that are not listed simply get no pinning, which is what happened
+    /// before this existed.
+    fn ordered_operands_for_pinning(expression: &Expression) -> Vec<&Expression> {
+        match expression {
+            Expression::Call(call) => {
+                let mut operands = Self::callee_operands_for_pinning(call.function());
+                operands.extend(call.args());
+                operands
+            }
+            Expression::New(new_expression) => {
+                let call = new_expression.call();
+                let mut operands = Self::callee_operands_for_pinning(call.function());
+                operands.extend(call.args());
+                operands
+            }
+            Expression::PropertyAccess(PropertyAccess::Simple(access)) => match access.field() {
+                PropertyAccessField::Expr(key) => vec![access.target(), key],
+                PropertyAccessField::Const(_) => Vec::new(),
+            },
+            Expression::ObjectLiteral(object) => object
+                .properties()
+                .iter()
+                .filter_map(|property| match property {
+                    PropertyDefinition::Property(_, value) => Some(value),
+                    PropertyDefinition::SpreadObject(source) => Some(source),
+                    _ => None,
+                })
+                .collect(),
+            Expression::TaggedTemplate(template) => template.exprs().iter().collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn callee_operands_for_pinning(callee: &Expression) -> Vec<&Expression> {
+        match callee {
+            Expression::PropertyAccess(PropertyAccess::Simple(access)) => match access.field() {
+                PropertyAccessField::Expr(key) => vec![access.target(), key],
+                PropertyAccessField::Const(_) => vec![access.target()],
+            },
+            Expression::PropertyAccess(_) | Expression::SuperCall(_) => Vec::new(),
+            callee => vec![callee],
+        }
+    }
+
+    fn lower_expression_with_pinned_operands(&mut self, expression: &Expression) -> TypedExpr {
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -15942,7 +16447,17 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_template_literal(&mut self, template: &TemplateLiteral) -> TypedExpr {
         let mut lowered: Option<TypedExpr> = None;
-        for element in template.elements() {
+        let elements = template.elements();
+        for (index, element) in elements.iter().enumerate() {
+            // A later substitution that suspends would otherwise be awaited
+            // before this part is even evaluated (13.2.8.6 evaluates the
+            // substitutions left to right).
+            let rest_suspends = elements[index + 1..].iter().any(|element| match element {
+                TemplateElement::Expr(expression) => {
+                    contains(expression, ContainsSymbol::AwaitExpression)
+                }
+                TemplateElement::String(_) => false,
+            });
             let part = match element {
                 TemplateElement::String(sym) => {
                     let value = self.interner.resolve_expect(*sym).join(
@@ -15954,6 +16469,8 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 TemplateElement::Expr(expr) => self.lower_expression(expr),
             };
+            let part =
+                self.pin_async_operand_before_suspension(part, rest_suspends, "async.template.");
             lowered = Some(if let Some(lhs) = lowered {
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::String),
@@ -25862,7 +26379,8 @@ impl<'a> ScriptLowerer<'a> {
                     if target_is_builtin_symbol
                         && matches!(
                             symbol_name.as_str(),
-                            "asyncIterator"
+                            "asyncDispose"
+                                | "asyncIterator"
                                 | "dispose"
                                 | "hasInstance"
                                 | "species"
@@ -27895,14 +28413,22 @@ impl<'a> ScriptLowerer<'a> {
                                         }
                                     }
                                     PropertyAccessField::Expr(expr) => {
-                                        let Some(index) = self.try_constant_array_index_expr(expr)
-                                        else {
-                                            return self
-                                                .unsupported_expr("property assignment target");
-                                        };
-                                        PropertyKeyIr::ArrayIndex(Box::new(
-                                            self.static_number_index_expr(index),
-                                        ))
+                                        // Only a constant index has a key this
+                                        // specialised node can carry; every
+                                        // other key falls through to the
+                                        // general Reference update below.
+                                        match self.try_constant_array_index_expr(expr) {
+                                            Some(index) => PropertyKeyIr::ArrayIndex(Box::new(
+                                                self.static_number_index_expr(index),
+                                            )),
+                                            None => {
+                                                return self.lower_property_reference_update(
+                                                    access,
+                                                    PropertyUpdateOp::Arithmetic(ArithmeticOp::Add),
+                                                    rhs,
+                                                );
+                                            }
+                                        }
                                     }
                                 };
                                 let rhs = self.lower_expression(rhs);
@@ -27934,6 +28460,22 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
                 let AssignTarget::Identifier(identifier) = lhs else {
+                    if let AssignTarget::Access(access) = lhs {
+                        let arithmetic = match op {
+                            AssignOp::Add => ArithmeticOp::Add,
+                            AssignOp::Sub => ArithmeticOp::Sub,
+                            AssignOp::Mul => ArithmeticOp::Mul,
+                            AssignOp::Div => ArithmeticOp::Div,
+                            AssignOp::Mod => ArithmeticOp::Mod,
+                            AssignOp::Exp => ArithmeticOp::Exp,
+                            _ => unreachable!(),
+                        };
+                        return self.lower_property_reference_update(
+                            access,
+                            PropertyUpdateOp::Arithmetic(arithmetic),
+                            rhs,
+                        );
+                    }
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
 
@@ -28045,7 +28587,59 @@ impl<'a> ScriptLowerer<'a> {
                         },
                     );
                 }
-                if !string_add && value.kind != ValueKind::Number {
+                // Anything the specialised number/string forms below cannot
+                // represent still has a meaning: read the binding, apply
+                // ApplyStringOrNumericBinaryOperator, assign the result back.
+                let needs_general_form = (!string_add && value.kind != ValueKind::Number)
+                    || match &binding {
+                        Some(binding) => {
+                            binding.mode != BindingMode::Const
+                                && if string_add {
+                                    !binding_known_string
+                                        && !rhs_may_string
+                                        && !binding_allows_string_add
+                                } else {
+                                    binding.kind != ValueKind::Number
+                                }
+                        }
+                        None => {
+                            self.global_property_is_proven_present(&name)
+                                && !global_info.as_ref().is_some_and(|info| {
+                                    info.proven_present
+                                        && ((string_add
+                                            && (global_known_string
+                                                || rhs_may_string
+                                                || global_allows_string_add))
+                                            || (!string_add
+                                                && info.value_info.kind == ValueKind::Number))
+                                })
+                        }
+                    };
+                if needs_general_form {
+                    if binding
+                        .as_ref()
+                        .is_some_and(|binding| binding.mode == BindingMode::Const)
+                    {
+                        return self.unsupported_expr("assignment to const binding");
+                    }
+                    if let Some(lhs_info) = lhs_info {
+                        let arithmetic = match op {
+                            AssignOp::Add => ArithmeticOp::Add,
+                            AssignOp::Sub => ArithmeticOp::Sub,
+                            AssignOp::Mul => ArithmeticOp::Mul,
+                            AssignOp::Div => ArithmeticOp::Div,
+                            AssignOp::Mod => ArithmeticOp::Mod,
+                            AssignOp::Exp => ArithmeticOp::Exp,
+                            _ => unreachable!(),
+                        };
+                        return self.lower_identifier_arithmetic_general(
+                            &name,
+                            binding_storage_name,
+                            lhs_info,
+                            arithmetic,
+                            value,
+                        );
+                    }
                     return self.unsupported_expr("coercive compound assignment");
                 }
                 let result_info = if string_add {
@@ -28116,6 +28710,19 @@ impl<'a> ScriptLowerer<'a> {
             }
             AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {
                 let AssignTarget::Identifier(identifier) = lhs else {
+                    if let AssignTarget::Access(access) = lhs {
+                        let logical = match op {
+                            AssignOp::BoolAnd => LogicalBinaryOp::And,
+                            AssignOp::BoolOr => LogicalBinaryOp::Or,
+                            AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
+                            _ => unreachable!(),
+                        };
+                        return self.lower_property_reference_update(
+                            access,
+                            PropertyUpdateOp::Logical(logical),
+                            rhs,
+                        );
+                    }
                     return self.unsupported_expr("logical assignment");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -28199,6 +28806,22 @@ impl<'a> ScriptLowerer<'a> {
             | AssignOp::Shr
             | AssignOp::Ushr => {
                 let AssignTarget::Identifier(identifier) = lhs else {
+                    if let AssignTarget::Access(access) = lhs {
+                        let bitwise = match op {
+                            AssignOp::And => BitwiseOp::And,
+                            AssignOp::Or => BitwiseOp::Or,
+                            AssignOp::Xor => BitwiseOp::Xor,
+                            AssignOp::Shl => BitwiseOp::Shl,
+                            AssignOp::Shr => BitwiseOp::Shr,
+                            AssignOp::Ushr => BitwiseOp::UShr,
+                            _ => unreachable!(),
+                        };
+                        return self.lower_property_reference_update(
+                            access,
+                            PropertyUpdateOp::Bitwise(bitwise),
+                            rhs,
+                        );
+                    }
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -28449,13 +29072,25 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_pattern_assign(&mut self, pattern: &Pattern, rhs: &Expression) -> TypedExpr {
-        match pattern {
+        let value = self.lower_expression(rhs);
+        self.lower_pattern_assign_value(pattern, value)
+            .unwrap_or_else(TypedExpr::undefined)
+    }
+
+    /// Applies a *destructuring assignment* pattern (13.15.5) to an already lowered
+    /// value. Both pattern shapes route through the shared assignment-pattern
+    /// lowerings, so every leaf form they support - identifiers, property accesses,
+    /// private names, defaults, rest and arbitrary nesting - is available anywhere a
+    /// destructuring assignment can appear, including `for`/`for-in`/`for-of` heads.
+    fn lower_pattern_assign_value(
+        &mut self,
+        pattern: &Pattern,
+        value: TypedExpr,
+    ) -> Option<TypedExpr> {
+        let value_info = value.value_info();
+        Some(match pattern {
             Pattern::Array(pattern) => {
-                let value = self.lower_expression(rhs);
-                let value_info = value.value_info();
-                let Some(pattern) = self.lower_array_assignment_pattern(pattern.bindings()) else {
-                    return TypedExpr::undefined();
-                };
+                let pattern = self.lower_array_assignment_pattern(pattern.bindings())?;
                 TypedExpr::from_info(
                     value_info,
                     ExprIr::ArrayDestructure {
@@ -28466,11 +29101,7 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             Pattern::Object(pattern) => {
-                let value = self.lower_expression(rhs);
-                let value_info = value.value_info();
-                let Some(pattern) = self.lower_object_assignment_pattern(pattern.bindings()) else {
-                    return TypedExpr::undefined();
-                };
+                let pattern = self.lower_object_assignment_pattern(pattern.bindings())?;
                 TypedExpr::from_info(
                     value_info,
                     ExprIr::ObjectDestructure {
@@ -28479,7 +29110,54 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 )
             }
+        })
+    }
+
+    /// Stages `await <expr>` used as a *destructuring* initializer into a
+    /// suspension-owned temporary, returning the prologue statements plus an
+    /// expression naming the received value.
+    ///
+    /// An identifier binding can hand its `await` straight to the linear async
+    /// lowering, but a pattern cannot: the suspension has to stand as its own
+    /// statement so the resumable driver can split the function there, while the
+    /// pattern itself expands into many statements after the resume. Staging the
+    /// awaited value first lets every pattern shape reuse the ordinary
+    /// `*_from_value` lowerings, so destructuring composes with `await` the same
+    /// way it composes with any other initializer.
+    ///
+    /// Returns `None` when there is nothing to stage - outside a resumable async
+    /// body, or when the initializer is not an `await`.
+    fn stage_await_destructuring_initializer(
+        &mut self,
+        init: &Expression,
+    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
+        if self.current_async_resume_state.is_none() {
+            return None;
         }
+        let Expression::Await(await_expression) = Self::unwrap_parenthesized_expr(init) else {
+            return None;
+        };
+        let received_name = self.alloc_suspension_owned_binding(
+            "async.pattern.received.",
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+        );
+        let mut statements = vec![StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: received_name.clone(),
+            init: TypedExpr::undefined(),
+        }];
+        let (await_statement, _) = self.lower_linear_async_await(
+            await_expression.target(),
+            AsyncResumeModeIr::AssignIdentifier(received_name.clone()),
+        );
+        statements.push(await_statement);
+        let value = self.lower_identifier_name(received_name, false);
+        Some((statements, value))
     }
 
     fn lower_pattern_lexical_binding(
@@ -28488,6 +29166,36 @@ impl<'a> ScriptLowerer<'a> {
         pattern: &Pattern,
         init: &Expression,
     ) -> Option<Vec<StatementIr>> {
+        // `const { a } = await p` - predeclare the bound names into TDZ (so the
+        // awaited expression still observes them uninitialised), suspend, then run
+        // the ordinary pattern lowering against the resumed value.
+        if self.current_async_resume_state.is_some()
+            && matches!(Self::unwrap_parenthesized_expr(init), Expression::Await(_))
+        {
+            let binding = Binding::Pattern(pattern.clone());
+            let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
+                self.unsupported("destructuring binding");
+                return None;
+            };
+            for bound in &bound_names {
+                if !self
+                    .scopes
+                    .last()
+                    .is_some_and(|scope| scope.contains_key(&bound.source_name))
+                {
+                    self.declare_binding(
+                        bound.source_name.clone(),
+                        Self::tdz_binding_info(&bound.source_name, mode),
+                    );
+                }
+            }
+            let (mut statements, value) = self.stage_await_destructuring_initializer(init)?;
+            let mut bindings =
+                self.lower_pattern_lexical_binding_from_value(mode, pattern, value)?;
+            statements.append(&mut bindings);
+            return Some(statements);
+        }
+
         if let Pattern::Array(pattern) = pattern {
             let binding = Binding::Pattern(Pattern::Array(pattern.clone()));
             let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
@@ -28524,15 +29232,10 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
 
-        if pattern
-            .bindings()
-            .iter()
-            .any(|element| matches!(element, ObjectPatternElement::SingleName { name, .. } | ObjectPatternElement::Pattern { name, .. } if !matches!(name, PropertyName::Literal(_))))
-        {
-            self.unsupported("computed object key");
-            return None;
-        }
-
+        // Computed keys (`const { [k]: v } = o`) need no gate here: they bind the
+        // same names as a literal key, and `lower_object_pattern_lexical_binding_from_value`
+        // routes any pattern that is not exclusively literal-keyed single names through
+        // the semantic `ObjectDestructure` node, which models computed keys directly.
         let binding = Binding::Pattern(Pattern::Object(pattern.clone()));
         let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
             self.unsupported("destructuring binding");
@@ -28586,6 +29289,13 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("destructuring binding without initializer");
             return None;
         };
+
+        // `var { a } = await p` - suspend into a temporary first, then destructure
+        // the resumed value. `var` needs no TDZ predeclaration.
+        if let Some((mut statements, value)) = self.stage_await_destructuring_initializer(init) {
+            statements.append(&mut self.lower_pattern_var_binding_from_value(pattern, value)?);
+            return Some(statements);
+        }
 
         let init = self.lower_expression(init);
         let temp_name = self.alloc_temp_binding_name("destructure.internal.");
@@ -29372,6 +30082,271 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// Lowers `x op= rhs` for an identifier whose binding or right-hand side is
+    /// not the plain number/string pair the specialised compound-assign nodes
+    /// carry, by reading the binding and applying the ordinary binary operator.
+    fn lower_identifier_arithmetic_general(
+        &mut self,
+        name: &str,
+        storage_name: Option<String>,
+        lhs_info: ValueInfo,
+        arithmetic: ArithmeticOp,
+        value: TypedExpr,
+    ) -> TypedExpr {
+        let lhs = TypedExpr::from_info(
+            lhs_info,
+            match &storage_name {
+                Some(storage) => ExprIr::Identifier(storage.clone()),
+                None => ExprIr::GlobalPropertyRead {
+                    name: name.to_string(),
+                },
+            },
+        );
+        let result = self.combine_arithmetic(arithmetic, lhs, value);
+        let info = result.value_info();
+        match storage_name {
+            Some(storage) => {
+                self.set_binding_value_info(name, info.clone());
+                TypedExpr::from_info(
+                    info,
+                    ExprIr::AssignIdentifier {
+                        name: storage,
+                        value: Box::new(result),
+                    },
+                )
+            }
+            None => {
+                self.set_global_property_value_info(name.to_string(), info.clone());
+                TypedExpr::from_info(
+                    info,
+                    ExprIr::GlobalPropertyWrite {
+                        name: name.to_string(),
+                        value: Box::new(result),
+                        implicit: false,
+                    },
+                )
+            }
+        }
+    }
+
+    /// Lowers `ref op= rhs` where `ref` is a property Reference.
+    ///
+    /// Spec order (13.15.2 / 13.15.3) is: evaluate the Reference once, read it,
+    /// then evaluate `rhs`, then write back through the *same* Reference. The
+    /// Reference is preserved by lowering the property access as an ordinary
+    /// read, splitting the resulting IR back into its base and key, and pinning
+    /// any effectful base or computed key into a temporary so the write-back
+    /// does not re-evaluate it.
+    fn lower_property_reference_update(
+        &mut self,
+        access: &PropertyAccess,
+        op: PropertyUpdateOp,
+        rhs: &Expression,
+    ) -> TypedExpr {
+        let read = self.lower_expression(&Expression::PropertyAccess(access.clone()));
+        let read_info = read.value_info();
+        let mut reference = match read.expr {
+            ExprIr::PropertyRead { target, key } => PropertyReference::Property {
+                target: *target,
+                key,
+            },
+            ExprIr::PrivateRead {
+                target,
+                private_name_id,
+            } => PropertyReference::Private {
+                target: *target,
+                private_name_id,
+            },
+            ExprIr::SuperPropertyRead { key } => PropertyReference::Super { key },
+            // A dynamic key lowers the read to GetV; the same base and key
+            // written back is an ordinary property write.
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::Get | SpecOperationIr::GetV,
+                operands,
+            } => {
+                let mut operands = operands.into_iter();
+                let (Some(target), Some(key), None) =
+                    (operands.next(), operands.next(), operands.next())
+                else {
+                    return self.unsupported_expr("unsupported property assignment operator");
+                };
+                let key = match key.expr {
+                    ExprIr::String(name) => PropertyKeyIr::StaticString(name),
+                    _ => PropertyKeyIr::StringExpr(Box::new(key)),
+                };
+                PropertyReference::Property { target, key }
+            }
+            // `globalThis.x` on a known global resolves to the global binding
+            // itself rather than to a property of an object.
+            ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {
+                PropertyReference::Global { name }
+            }
+            // Anything else is a read the lowering specialised into a shape that
+            // is not a writable Reference (a folded constant, an intrinsic, ...).
+            _ => return self.unsupported_expr("unsupported property assignment operator"),
+        };
+
+        // Pin the parts of the Reference that must not be evaluated twice.
+        let mut pinned: Vec<(String, TypedExpr)> = Vec::new();
+        if let PropertyReference::Property { target, .. }
+        | PropertyReference::Private { target, .. } = &mut reference
+        {
+            if !Self::is_repeatable_operand(&target.expr) {
+                let info = target.value_info();
+                let name = self.alloc_temp_binding_name("compound.assign.target.");
+                let pinned_target = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
+                pinned.push((name, std::mem::replace(target, pinned_target)));
+            }
+        }
+        if let PropertyReference::Property { key, .. } | PropertyReference::Super { key } =
+            &mut reference
+        {
+            let key_expr = match key {
+                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
+                    Some(&mut **expr)
+                }
+                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => None,
+            };
+            if let Some(key_expr) = key_expr {
+                if !Self::is_repeatable_operand(&key_expr.expr) {
+                    let info = key_expr.value_info();
+                    let name = self.alloc_temp_binding_name("compound.assign.key.");
+                    let pinned_key = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
+                    pinned.push((name, std::mem::replace(key_expr, pinned_key)));
+                }
+            }
+        }
+
+        let read = TypedExpr::from_info(read_info.clone(), reference.read_ir());
+        let rhs = self.lower_expression(rhs);
+        let mut result = match op {
+            PropertyUpdateOp::Logical(logical) => {
+                // The write only happens on the branch that evaluates `rhs`, so
+                // the observable property type is the merge of both branches.
+                let written_info = rhs.value_info();
+                let merged = self.merge_value_infos(read_info, written_info);
+                let write =
+                    self.build_property_reference_write(access, &reference, rhs, merged.clone());
+                TypedExpr::from_info(
+                    merged,
+                    ExprIr::LogicalShortCircuit {
+                        op: logical,
+                        lhs: Box::new(read),
+                        rhs: Box::new(write),
+                    },
+                )
+            }
+            PropertyUpdateOp::Arithmetic(arithmetic) => {
+                let value = self.combine_arithmetic(arithmetic, read, rhs);
+                let info = value.value_info();
+                self.build_property_reference_write(access, &reference, value, info)
+            }
+            PropertyUpdateOp::Bitwise(bitwise) => {
+                let op = match bitwise {
+                    BitwiseOp::And => BitwiseBinaryOp::And,
+                    BitwiseOp::Or => BitwiseBinaryOp::Or,
+                    BitwiseOp::Xor => BitwiseBinaryOp::Xor,
+                    BitwiseOp::Shl => BitwiseBinaryOp::Shl,
+                    BitwiseOp::Shr => BitwiseBinaryOp::Shr,
+                    BitwiseOp::UShr => BitwiseBinaryOp::UShr,
+                };
+                let value = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Number),
+                    ExprIr::BitwiseNumber {
+                        op,
+                        lhs: Box::new(read),
+                        rhs: Box::new(rhs),
+                    },
+                );
+                let info = value.value_info();
+                self.build_property_reference_write(access, &reference, value, info)
+            }
+        };
+
+        for (name, value) in pinned.into_iter().rev() {
+            let info = result.value_info();
+            result = TypedExpr::from_info(
+                info,
+                ExprIr::MaterializeBinding {
+                    name,
+                    value: Box::new(value),
+                    body: Box::new(result),
+                },
+            );
+        }
+        result
+    }
+
+    /// Whether an operand can be duplicated into both the read and the
+    /// write-back of a compound assignment without changing what is observed.
+    fn is_repeatable_operand(expr: &ExprIr) -> bool {
+        matches!(
+            expr,
+            ExprIr::Identifier(_)
+                | ExprIr::This
+                | ExprIr::Undefined
+                | ExprIr::Null
+                | ExprIr::Boolean(_)
+                | ExprIr::Number(_)
+                | ExprIr::String(_)
+        )
+    }
+
+    fn build_property_reference_write(
+        &mut self,
+        access: &PropertyAccess,
+        reference: &PropertyReference,
+        value: TypedExpr,
+        shape_info: ValueInfo,
+    ) -> TypedExpr {
+        let info = value.value_info();
+        let write = match reference {
+            PropertyReference::Property { target, key } => {
+                if let PropertyAccess::Simple(simple) = access {
+                    self.update_written_shape(simple.target(), key, &shape_info);
+                }
+                ExprIr::PropertyWrite {
+                    target: Box::new(target.clone()),
+                    key: key.clone(),
+                    value: Box::new(value),
+                }
+            }
+            PropertyReference::Private {
+                target,
+                private_name_id,
+            } => ExprIr::PrivateWrite {
+                target: Box::new(target.clone()),
+                private_name_id: *private_name_id,
+                value: Box::new(value),
+            },
+            PropertyReference::Super { key } => {
+                // A super Reference reads through the home object's prototype
+                // but writes to `this`, so it is `this`'s recorded shape that
+                // goes stale. This covers a constructor body; a method body has
+                // no tracked `this` shape to update, the same gap the plain
+                // `super.k = v` path has.
+                self.update_binding_shape_path(
+                    LEXICAL_THIS_NAME,
+                    std::slice::from_ref(key),
+                    shape_info,
+                );
+                ExprIr::SuperPropertyWrite {
+                    key: key.clone(),
+                    value: Box::new(value),
+                }
+            }
+            PropertyReference::Global { name } => {
+                self.set_global_property_value_info(name.clone(), shape_info);
+                ExprIr::GlobalPropertyWrite {
+                    name: name.clone(),
+                    value: Box::new(value),
+                    implicit: false,
+                }
+            }
+        };
+        TypedExpr::from_info(info, write)
+    }
+
     fn lower_property_assign_value(
         &mut self,
         access: &PropertyAccess,
@@ -29985,6 +30960,22 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::BigInt(bits.negated()),
                     );
                 }
+                // `BigInt::unaryMinus` (ECMA-262 6.1.6.2.1) is exact, so it
+                // cannot go through the Number negation below; `0n - x` is the
+                // same value and reuses the BigInt arithmetic path.
+                if lowered_target.kind == ValueKind::BigInt {
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::BigInt),
+                        ExprIr::BinaryNumber {
+                            op: ArithmeticBinaryOp::Sub,
+                            lhs: Box::new(TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::BigInt),
+                                ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(0)),
+                            )),
+                            rhs: Box::new(lowered_target),
+                        },
+                    );
+                }
                 TypedExpr::from_info(
                     ValueInfo {
                         kind: ValueKind::Number,
@@ -30043,7 +31034,10 @@ impl<'a> ScriptLowerer<'a> {
             BinaryOp::Logical(logical) => self.lower_logical(logical, lhs, rhs),
             BinaryOp::Bitwise(bitwise) => self.lower_bitwise(bitwise, lhs, rhs),
             BinaryOp::Comma => {
+                let rhs_suspends = contains(rhs, ContainsSymbol::AwaitExpression);
                 let lhs = self.lower_expression(lhs);
+                let lhs =
+                    self.pin_async_operand_before_suspension(lhs, rhs_suspends, "async.comma.lhs.");
                 let rhs = self.lower_expression(rhs);
                 TypedExpr::from_info(
                     rhs.value_info(),
@@ -30062,7 +31056,9 @@ impl<'a> ScriptLowerer<'a> {
         lhs: &Expression,
         rhs: &Expression,
     ) -> TypedExpr {
+        let rhs_suspends = contains(rhs, ContainsSymbol::AwaitExpression);
         let lhs = self.lower_expression(lhs);
+        let lhs = self.pin_async_operand_before_suspension(lhs, rhs_suspends, "async.bitwise.lhs.");
         let rhs = self.lower_expression(rhs);
         let op = match bitwise {
             BitwiseOp::And => BitwiseBinaryOp::And,
@@ -30119,7 +31115,22 @@ impl<'a> ScriptLowerer<'a> {
             lhs = self.lower_identifier_name(lhs_name, false);
         }
         let rhs = self.lower_expression(rhs);
+        self.combine_arithmetic(arithmetic, lhs, rhs)
+    }
 
+    /// Applies `ApplyStringOrNumericBinaryOperator` to two already-lowered
+    /// operands.
+    ///
+    /// Split out of `lower_arithmetic` so compound assignment (`x op= y`) can
+    /// reuse the same coercion decisions: the operands of a compound assignment
+    /// are a property *read* and the right-hand side, neither of which is an
+    /// AST expression the operand-lowering prologue could accept.
+    fn combine_arithmetic(
+        &mut self,
+        arithmetic: ArithmeticOp,
+        lhs: TypedExpr,
+        rhs: TypedExpr,
+    ) -> TypedExpr {
         match arithmetic {
             ArithmeticOp::Add => {
                 if let (ExprIr::BigInt(lhs), ExprIr::BigInt(rhs)) = (&lhs.expr, &rhs.expr) {
@@ -30547,7 +31558,10 @@ impl<'a> ScriptLowerer<'a> {
         lhs: &Expression,
         rhs: &Expression,
     ) -> TypedExpr {
+        let rhs_suspends = contains(rhs, ContainsSymbol::AwaitExpression);
         let lhs = self.lower_expression(lhs);
+        let lhs =
+            self.pin_async_operand_before_suspension(lhs, rhs_suspends, "async.relational.lhs.");
         let rhs = self.lower_expression(rhs);
 
         match relational {
@@ -30668,7 +31682,14 @@ impl<'a> ScriptLowerer<'a> {
             }
             RelationalOp::In => TypedExpr::spec_has_property(rhs, lhs),
             RelationalOp::InstanceOf => {
-                if !rhs.possible_kinds.contains(ValueKind::Function) {
+                // 13.10.2 InstanceofOperator: a right-hand side that is not an
+                // object, or is an object that is not callable, throws a
+                // TypeError — which the emitted check already does. Only a
+                // right-hand side that could carry a `Symbol.hasInstance`
+                // handler needs the OrdinaryHasInstance shortcut to be refused.
+                if !rhs.possible_kinds.contains(ValueKind::Function)
+                    && self.may_have_has_instance_handler(&rhs)
+                {
                     return self.unsupported_expr("unsupported comparison operator");
                 }
                 if Self::static_instanceof_expr(&lhs, &rhs) == Some(true) {
@@ -31018,7 +32039,8 @@ impl<'a> ScriptLowerer<'a> {
         let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
         if !matches!(
             symbol_name.as_str(),
-            "asyncIterator"
+            "asyncDispose"
+                | "asyncIterator"
                 | "dispose"
                 | "hasInstance"
                 | "species"
@@ -32012,6 +33034,17 @@ impl<'a> ScriptLowerer<'a> {
             } => self.accessor_return_info(&getter.function_id),
             ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
         })
+    }
+
+    /// Whether `instanceof` against `target` could dispatch to a
+    /// `Symbol.hasInstance` handler instead of OrdinaryHasInstance.
+    ///
+    /// A proven primitive never can: 13.10.2 step 1 throws before the handler
+    /// is looked up. Any object might, including one whose recorded shape has
+    /// no `Symbol.hasInstance` entry — a computed literal key is not recorded
+    /// in the shape, so absence there does not prove absence at runtime.
+    fn may_have_has_instance_handler(&self, target: &TypedExpr) -> bool {
+        !target.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
     }
 
     fn read_object_shape_property(

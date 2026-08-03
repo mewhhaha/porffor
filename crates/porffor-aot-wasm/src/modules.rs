@@ -9,12 +9,21 @@
 //!
 //! * [`emit_module_unit_once`] — run a module's hoist or body block exactly
 //!   once, which is what makes cycles and repeated `import()` behave;
-//! * [`emit_dynamic_import`] — `ToString` the specifier, look it up in the
-//!   compile-time component registry, and resolve or reject a promise. No
-//!   source is parsed at runtime, ever;
 //! * [`emit_import_meta`] — read the module's `import.meta` object.
 //!
-//! Module namespace objects are *not* on that list. `import * as ns` is
+//! `import()` is *not* on that list, in either goal. The linker desugars every
+//! call site of a graph — `import(`, `import.defer(` and `import.source(` alike
+//! — into an ordinary call to a generated dispatcher function that `ToString`s
+//! the specifier, compares it against the specifiers compiled into the artifact
+//! and resolves or rejects a promise, so no `ImportCall` node reaches this
+//! backend and no source is parsed at runtime, ever. A Script gets the same
+//! treatment as a module: `porffor_ir::lower_script_graph` compiles the targets
+//! of a Script's `import()` calls into the same artifact and wraps them in one
+//! strict function so the Script itself stays Script code. See
+//! `porffor_ir::modules::dynamic`, and [`emit_dynamic_import`] for the one case
+//! that still reaches this file.
+//!
+//! Module namespace objects are *not* on that list either. `import * as ns` is
 //! materialized by the linker as generated Script text — one `Object.create`,
 //! one `Object.defineProperty` per export whose getter names the exporter's own
 //! binding, and one `Object.preventExtensions` — so it reaches this backend as
@@ -103,6 +112,23 @@ impl FunctionBuilder<'_> {
     }
 
     /// `ExprIr::DynamicImport`: leaves a promise payload on the stack.
+    ///
+    /// Reaching this arm means the *host* compiled a source that writes
+    /// `import()` without supplying the graph its specifiers name, so there is
+    /// nothing in the artifact to resolve against and nothing this emitter could
+    /// invent. Both goals normally supply one — a module through
+    /// `lower_module_graph`, a Script through `lower_script_graph` — and
+    /// `porffor_ir::modules::dynamic` desugars every call site of a graph into
+    /// an ordinary call to a generated dispatcher, so no `ImportCall` survives
+    /// to this backend.
+    ///
+    /// What is left here is the case the linker cannot reach at all: a Script
+    /// the loader could not read as module code (a sloppy `with`, an octal
+    /// literal), whose `import()` specifiers therefore could not be discovered.
+    /// Closing it needs the entry's dynamic-import sites read off a *Script*
+    /// parse, not a Wasm emitter — an artifact with no target compiled into it
+    /// can only reject, and rejecting silently would be a wrong answer rather
+    /// than a missing one.
     pub(crate) fn emit_dynamic_import(
         &mut self,
         _referrer: Option<u32>,
@@ -110,7 +136,10 @@ impl FunctionBuilder<'_> {
         _options: Option<&TypedExpr>,
         _function: &mut Function,
     ) -> Result<(), EmitError> {
-        Err(unsupported("dynamic import"))
+        Err(unsupported(
+            "dynamic import without a compiled graph (the host lowered a source that writes \
+             `import()` without loading its targets)",
+        ))
     }
 
     /// `ExprIr::ImportMeta`: leaves the module's `import.meta` object on the

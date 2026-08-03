@@ -5019,6 +5019,12 @@ pub(crate) fn function_param_types() -> Vec<ValType> {
 pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
     match expr {
         ExprIr::BigInt(value) => value.requires_arbitrary_precision_storage,
+        // BigInt arithmetic reports whether its result ended up inline or
+        // heap-backed at runtime; the static kind cannot say which.
+        ExprIr::BinaryNumber { lhs, rhs, .. } | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. } => {
+            lhs.possible_kinds.contains(ValueKind::BigInt)
+                || rhs.possible_kinds.contains(ValueKind::BigInt)
+        }
         ExprIr::UpdateIdentifier {
             value_kind: ValueKind::Dynamic,
             ..

@@ -34,6 +34,7 @@ use porffor_ir::{
 use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
 
 mod abi;
+mod bigint;
 mod builtins;
 mod control_flow;
 mod data;
@@ -51,6 +52,7 @@ mod operations;
 mod planning;
 mod runtime_abi;
 use abi::*;
+use bigint::BigIntHelperOp;
 use builtins::*;
 use data::*;
 pub use emit::emit;

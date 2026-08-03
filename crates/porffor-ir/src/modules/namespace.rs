@@ -331,14 +331,23 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
             .iter()
             .any(|entry| entry.request.phase == ImportPhaseIr::Source)
     });
-    if graph.units.iter().all(|unit| unit.namespace.is_none()) && !has_source_import {
+    let dynamic_source_modules = graph.dynamic_source_modules();
+    if graph.units.iter().all(|unit| unit.namespace.is_none())
+        && !has_source_import
+        && dynamic_source_modules.is_empty()
+    {
         return Ok(String::new());
     }
 
     let mut diagnostics = Vec::new();
     report_shadowed_namespace_globals(graph, &mut diagnostics);
     let aliases = collect_namespace_aliases(graph, &mut diagnostics);
-    let (source_modules, source_aliases) = collect_module_source_aliases(graph, &mut diagnostics);
+    let (mut source_modules, source_aliases) =
+        collect_module_source_aliases(graph, &mut diagnostics);
+    // `import.source("m")` observes `m`'s module source object without binding
+    // a name to it, so the object has to be declared even when no static
+    // `import source` names it.
+    source_modules.extend(dynamic_source_modules);
 
     // Unit order is unit-id order, which is stable across runs and independent
     // of evaluation order — the getters are deferred, so no namespace has to be
@@ -777,7 +786,12 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
         }
     }
     for component in &graph.components {
-        observed.insert(component.module);
+        // A source-phase component hands out a module *source* object, and its
+        // module is never instantiated: a namespace for it would carry getters
+        // naming bindings the merged script never declares.
+        if component.phase != ImportPhaseIr::Source {
+            observed.insert(component.module);
+        }
     }
 
     let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();

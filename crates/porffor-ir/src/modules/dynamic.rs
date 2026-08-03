@@ -39,14 +39,17 @@
 //! lowers. `import()` is served the same way, one stage earlier than the IR:
 //!
 //! * [`ModuleGraphIr::dynamic_import_prelude`] emits one dispatcher function
-//!   per module that writes an `import()`. The namespace objects the
+//!   per module *and phase* that writes an `import()`. The objects the
 //!   dispatchers resolve with are *not* minted here: they are the ones
 //!   `modules::namespace` already emits under
-//!   [`module_namespace_cell_name`], which is what makes
-//!   `import("./a.mjs")` and `import * as ns from "./a.mjs"` produce the same
-//!   object (16.2.1.10 caches `[[Namespace]]` per module);
-//! * [`ModuleGraphIr::rewrite_dynamic_import_calls`] rewrites the `import`
-//!   keyword of every `import(` call site in a unit's text into that unit's
+//!   [`module_namespace_cell_name`] and [`module_source_cell_name`], which is
+//!   what makes `import("./a.mjs")` and `import * as ns from "./a.mjs"` produce
+//!   the same object (16.2.1.10 caches `[[Namespace]]` per module) and
+//!   `import.source("./a.mjs")` and `import source s from "./a.mjs"` produce the
+//!   same module source object;
+//! * [`ModuleGraphIr::rewrite_dynamic_import_calls`] rewrites the head of every
+//!   `import(` call site in a unit's text — the `import` keyword, or the whole
+//!   `import.defer` / `import.source` meta-property — into that unit's
 //!   dispatcher name, so the merged script contains an ordinary call
 //!   expression and no `ImportCall` node survives to the backend;
 //! * [`ModuleGraphIr::check_dynamic_import_linkable`] reports every shape this
@@ -71,6 +74,38 @@
 //! }
 //! ```
 //!
+//! # Phases (`import.defer()`, `import.source()`)
+//!
+//! All three phases of 13.3.10 are served, and the whole difference between them
+//! is *which object the dispatcher resolves with* — the call site, the promise
+//! and the `ToString` are identical:
+//!
+//! * evaluation — the target's namespace object. `classify_evaluation_modes`
+//!   marks the target `Eager`, so it has already run;
+//! * defer — the *same cell*, which for a module nothing else evaluates holds a
+//!   Deferred Module Namespace whose getters run the body on first touch, so
+//!   `import.defer("m")` neither evaluates `m` at the call nor hands back an
+//!   object that pretends it did;
+//! * source — the target's module source object. The target is loaded and
+//!   parsed but never instantiated, and `classify_evaluation_modes` emits no
+//!   body for it at all.
+//!
+//! Two dispatchers, not one, when a module writes two phases: the runtime
+//! argument is only a specifier string, so the phase written at the call site
+//! cannot be recovered from it.
+//!
+//! # `import()` in a Script
+//!
+//! `import()` is legal in Script goal — 13.3.10 takes `GetActiveScriptOrModule`,
+//! which a Script satisfies — and a Script's call names a module exactly as a
+//! module's does. `porffor_ir::lower_script_graph` therefore serves it with the
+//! same machinery: the host loads the closure of the Script's `import()`
+//! specifiers, `modules::link` wraps every module of it in one immediately
+//! invoked strict function (so module code stays strict and its bindings stay
+//! out of the Script's scope), and the Script itself is emitted as itself, with
+//! only its call sites rewritten onto the dispatchers that wrapper exports. A
+//! Script that writes no `import()` never builds a graph at all.
+//!
 //! The specifier and the options expressions are evaluated by the *caller*, at
 //! the call site, before the dispatcher is entered — so an abrupt completion
 //! there throws (steps 3-6). `ToString` happens inside the executor, after the
@@ -79,7 +114,8 @@
 //! over `String(specifier)` precisely because `String(symbol)` does *not*
 //! throw while `ToString(symbol)` does. A specifier that is not in the compiled
 //! graph reaches the final `reject`, so it is a rejected promise and never a
-//! trap.
+//! trap — which is also what a computed specifier gets, since nothing compiled
+//! it into the artifact.
 //!
 //! ## When the target module's body runs
 //!
@@ -138,10 +174,12 @@ use boa_ast::expression::ImportCall;
 
 /// One module reachable through `import()`.
 ///
-/// A component is minted per `(referrer, specifier)` pair, not per module: two
-/// modules may both write `import('./m.js')` and mean different files, so the
-/// specifier alone does not identify a target. The runtime match is therefore
-/// on the pair, which [`ModuleGraphIr::resolve_dynamic_component`] performs.
+/// A component is minted per `(referrer, phase, specifier)` triple, not per
+/// module: two modules may both write `import('./m.js')` and mean different
+/// files, so the specifier alone does not identify a target, and the same
+/// module asked for in two phases hands back two different objects. The runtime
+/// match is therefore on the triple, which
+/// [`ModuleGraphIr::resolve_dynamic_component`] performs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynamicComponentIr {
     /// Host-normalized key of the target. Diagnostics and `import.meta` use
@@ -155,8 +193,9 @@ pub struct DynamicComponentIr {
     pub referrer: ModuleUnitId,
     /// Module `specifier` resolves to.
     pub module: ModuleUnitId,
-    /// `[[Phase]]` of the request. Always [`ImportPhaseIr::Evaluation`]:
-    /// `import.defer()` and `import.source()` are rejected during lowering.
+    /// `[[Phase]]` of the request. `import()` is the evaluation phase,
+    /// `import.defer()` the defer phase and `import.source()` the source phase;
+    /// the phase decides which object the dispatcher resolves with.
     pub phase: ImportPhaseIr,
     /// Cell memoising this component's *evaluation completion* — the namespace
     /// object it resolved to, or the error it threw.
@@ -179,12 +218,6 @@ pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
         let referrer = ModuleUnitId::try_from(index).unwrap_or(ModuleUnitId::MAX);
         let sites = graph.units[index].record.dynamic_import_sites.clone();
         for site in sites {
-            // `import.defer()` / `import.source()` never become components:
-            // lowering rejects them outright, so a component for one could
-            // only ever be dead weight in the artifact.
-            if site.phase != ImportPhaseIr::Evaluation {
-                continue;
-            }
             let Some(specifier) = site.static_specifier else {
                 continue;
             };
@@ -192,10 +225,11 @@ pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
             let Some(module) = graph.resolve_request(referrer, &request) else {
                 continue;
             };
-            if components
-                .iter()
-                .any(|existing| existing.referrer == referrer && existing.specifier == specifier)
-            {
+            if components.iter().any(|existing| {
+                existing.referrer == referrer
+                    && existing.phase == site.phase
+                    && existing.specifier == specifier
+            }) {
                 continue;
             }
             let key = graph.unit(module).record.key.clone();
@@ -238,20 +272,37 @@ impl ModuleGraphIr {
     /// The single authority for the runtime lookup rule, so the backend and
     /// the registry cannot disagree about it.
     ///
-    /// `referrer` is `None` for an `import()` in a Script, which has no module
-    /// graph and therefore no compile-time resolution context at all: such a
-    /// call always rejects, which is exactly what a Script-goal test that only
-    /// checks `import()` produces a Promise needs.
+    /// `referrer` is `None` for an `import()` whose call site belongs to no unit
+    /// of this graph, which has no compile-time resolution context at all: such
+    /// a call always rejects.
     #[must_use]
     pub fn resolve_dynamic_component(
         &self,
         referrer: Option<ModuleUnitId>,
+        phase: ImportPhaseIr,
         specifier: &str,
     ) -> Option<&DynamicComponentIr> {
         let referrer = referrer?;
+        self.components.iter().find(|component| {
+            component.referrer == referrer
+                && component.phase == phase
+                && component.specifier == specifier
+        })
+    }
+
+    /// Modules a `import.source()` call site can hand out a module source object
+    /// for.
+    ///
+    /// `modules::namespace` owns the objects themselves and asks this for the
+    /// dynamic half of the set, so a module reached *only* by
+    /// `import.source("m")` still gets one declared.
+    #[must_use]
+    pub fn dynamic_source_modules(&self) -> BTreeSet<ModuleUnitId> {
         self.components
             .iter()
-            .find(|component| component.referrer == referrer && component.specifier == specifier)
+            .filter(|component| component.phase == ImportPhaseIr::Source)
+            .map(|component| component.module)
+            .collect()
     }
 }
 
@@ -277,12 +328,14 @@ const fn call_phase(phase: ImportPhase) -> ImportPhaseIr {
 /// `import()` is legal in Script goal, so `None` is an ordinary case and not
 /// an error.
 ///
+/// Every phase lowers the same way. What a phase changes is which object the
+/// promise is settled with — an evaluated namespace, a *deferred* namespace or
+/// a module source object — and that is
+/// [`ModuleGraphIr::dynamic_import_dispatchers`]'s decision, not this one's.
+///
 /// # Errors
-/// Returns the diagnostic message for `import.defer()` and `import.source()`,
-/// which are parsed but not implemented. An honest reject beats a silent wrong
-/// answer: `defer` must not evaluate eagerly and `source` must not produce a
-/// namespace, so lowering either as a plain evaluation-phase import would be
-/// observably wrong.
+/// Currently infallible. The signature stays fallible because it is the seam
+/// where a phase the linker cannot serve would be reported.
 pub(crate) fn lower_import_call(
     call: &ImportCall,
     specifier: TypedExpr,
@@ -290,12 +343,6 @@ pub(crate) fn lower_import_call(
     referrer: Option<ModuleUnitId>,
 ) -> Result<TypedExpr, String> {
     let phase = call_phase(call.phase());
-    if phase != ImportPhaseIr::Evaluation {
-        return Err(format!(
-            "unsupported in porffor wasm-aot: import.{}() dynamic import phase",
-            phase.as_str()
-        ));
-    }
     // Always a Promise object, on every path including the rejecting one, so
     // the kind is a singleton and the backend emits the value directly.
     Ok(TypedExpr::from_info(
@@ -309,6 +356,26 @@ pub(crate) fn lower_import_call(
     ))
 }
 
+/// Whether `source` writes an `import()` call of any phase.
+///
+/// A *lexical* answer, so a host can ask it of a Script without parsing one: the
+/// scanner skips comments, strings, templates and regular expressions, so the
+/// only false positives left are the ones a parse would also have to
+/// disambiguate — a property or method literally named `import`
+/// (`{ import(x) {} }`), which `rewrite_dynamic_import_calls` reports rather
+/// than mis-rewrites.
+///
+/// This is what tells a host that a Script needs its `import()` targets loaded
+/// before it can be compiled. `false` means the ordinary single-source pipeline
+/// describes the Script exactly; a source the scanner cannot lex answers `false`
+/// too, because a source that does not lex does not parse either.
+#[must_use]
+pub fn source_writes_dynamic_import(source: &str) -> bool {
+    ImportCallScanner::new(source)
+        .run()
+        .is_ok_and(|sites| !sites.is_empty())
+}
+
 /// Prefix every identifier the linker synthesizes for `import()` carries.
 ///
 /// `$` is an identifier character in JavaScript, so these are ordinary names in
@@ -320,12 +387,55 @@ pub const LINKER_NAME_PREFIX: &str = "$porffor$module$";
 
 /// Merged-scope name of the `import()` dispatcher `unit`'s call sites call.
 ///
-/// One per *referrer*, not one per target: two modules may both write
+/// One per *referrer and phase*, not one per target: two modules may both write
 /// `import('./m.js')` and mean different files, so the specifier alone does not
 /// identify a target and the dispatcher has to be the thing that knows which
-/// module asked.
-fn dispatcher_name(unit: ModuleUnitId) -> String {
-    format!("{LINKER_NAME_PREFIX}import${unit}")
+/// module asked — and one module may write both `import('./m.js')` and
+/// `import.source('./m.js')`, which settle with different objects for the same
+/// runtime string, so the phase cannot be recovered from the argument either.
+fn dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String {
+    match phase {
+        // The unphased name is left exactly as it was: it is by far the common
+        // case and every existing artifact spells it this way.
+        ImportPhaseIr::Evaluation => format!("{LINKER_NAME_PREFIX}import${unit}"),
+        ImportPhaseIr::Defer | ImportPhaseIr::Source => {
+            format!("{LINKER_NAME_PREFIX}import${unit}${}", phase.as_str())
+        }
+    }
+}
+
+/// Name the Script entry of a script graph calls its dispatcher by.
+///
+/// The dispatcher itself is a `function` declaration inside the strict wrapper
+/// that holds every module of the graph, so the Script cannot name it: a
+/// function declaration is scoped to that wrapper. The wrapper therefore assigns
+/// it to this outer `var`, which has to be a *different* name — assigning to the
+/// dispatcher's own name inside the wrapper would just overwrite the inner
+/// binding.
+fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String {
+    format!("{}$call", dispatcher_name(unit, phase))
+}
+
+/// Merged-scope binding a dispatcher resolves a component with.
+///
+/// This is the whole phase distinction, in one place:
+///
+/// * evaluation — the module's namespace object, whose module has already been
+///   evaluated (`classify_evaluation_modes` marks an evaluation-phase dynamic
+///   target `Eager`);
+/// * defer — the *same cell*, which for a module nothing evaluates eagerly
+///   holds a Deferred Module Namespace whose getters run the body on first
+///   touch. `import.defer('m')` and `import defer * as ns from 'm'` therefore
+///   hand back one object, exactly as the two evaluation-phase forms do;
+/// * source — the module source object, which is not a namespace at all: the
+///   module is loaded and parsed but never instantiated.
+fn component_resolution_cell(component: &DynamicComponentIr) -> String {
+    match component.phase {
+        ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {
+            module_namespace_cell_name(component.module)
+        }
+        ImportPhaseIr::Source => module_source_cell_name(component.module),
+    }
 }
 
 impl ModuleGraphIr {
@@ -359,38 +469,51 @@ impl ModuleGraphIr {
     pub fn dynamic_import_dispatchers(&self) -> String {
         let mut text = String::new();
         for (index, unit) in self.units.iter().enumerate() {
-            if unit.record.dynamic_import_sites.is_empty() {
-                continue;
-            }
             let Ok(referrer) = ModuleUnitId::try_from(index) else {
                 continue;
             };
-            if !text.is_empty() {
-                text.push(' ');
-            }
-            text.push_str("function ");
-            text.push_str(&dispatcher_name(referrer));
-            // `options` is bound and ignored. Binding it keeps the call site's
-            // second operand an ordinary argument, so it is still evaluated in
-            // source order before the promise exists (step 6).
-            text.push_str("(specifier, options) { return new Promise(function (resolve, reject) {");
-            // `ToString`, not `String()`: `String(symbol)` answers
-            // `"Symbol(d)"` while `ToString(symbol)` throws, and step 8 wants
-            // the throw so that step 9 can turn it into a rejection.
-            text.push_str(" var key = `${specifier}`;");
-            for component in self
-                .components
+            // One per phase the unit actually writes, so an unphased graph
+            // emits exactly the one dispatcher it always did.
+            let phases: BTreeSet<ImportPhaseIr> = unit
+                .record
+                .dynamic_import_sites
                 .iter()
-                .filter(|component| component.referrer == referrer)
-            {
-                text.push_str(" if (key === ");
-                text.push_str(&js_string_literal(&component.specifier));
-                text.push_str(") { resolve(");
-                text.push_str(&module_namespace_cell_name(component.module));
-                text.push_str("); return; }");
+                .map(|site| site.phase)
+                .collect();
+            for phase in phases {
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.push_str(&self.dispatcher_source(referrer, phase));
             }
-            text.push_str(" reject(new TypeError(\"Cannot find module \" + key)); }); }");
         }
+        text
+    }
+
+    /// One dispatcher function declaration, as a single line.
+    fn dispatcher_source(&self, referrer: ModuleUnitId, phase: ImportPhaseIr) -> String {
+        let mut text = String::from("function ");
+        text.push_str(&dispatcher_name(referrer, phase));
+        // `options` is bound and ignored. Binding it keeps the call site's
+        // second operand an ordinary argument, so it is still evaluated in
+        // source order before the promise exists (step 6).
+        text.push_str("(specifier, options) { return new Promise(function (resolve, reject) {");
+        // `ToString`, not `String()`: `String(symbol)` answers
+        // `"Symbol(d)"` while `ToString(symbol)` throws, and step 8 wants
+        // the throw so that step 9 can turn it into a rejection.
+        text.push_str(" var key = `${specifier}`;");
+        for component in self
+            .components
+            .iter()
+            .filter(|component| component.referrer == referrer && component.phase == phase)
+        {
+            text.push_str(" if (key === ");
+            text.push_str(&js_string_literal(&component.specifier));
+            text.push_str(") { resolve(");
+            text.push_str(&component_resolution_cell(component));
+            text.push_str("); return; }");
+        }
+        text.push_str(" reject(new TypeError(\"Cannot find module \" + key)); }); }");
         text
     }
 
@@ -438,6 +561,56 @@ impl ModuleGraphIr {
         unit: ModuleUnitId,
         source: &str,
     ) -> Result<String, String> {
+        self.rewrite_calls(unit, false, source)
+    }
+
+    /// [`Self::rewrite_dynamic_import_calls`] for the Script entry of a script
+    /// graph, whose dispatchers are declared inside the module wrapper and
+    /// reached through the `var` bindings
+    /// [`Self::script_entry_dispatcher_exports`] names.
+    ///
+    /// # Errors
+    /// As [`Self::rewrite_dynamic_import_calls`].
+    ///
+    /// # Panics
+    /// Panics if the graph has no entry unit.
+    pub fn rewrite_script_entry_import_calls(&self, source: &str) -> Result<String, String> {
+        self.rewrite_calls(self.entry, true, source)
+    }
+
+    /// `(exported name, dispatcher name)` for every phase the Script entry
+    /// writes an `import()` in.
+    ///
+    /// Empty for a module graph, and for a Script that writes no `import()` at
+    /// all.
+    #[must_use]
+    pub fn script_entry_dispatcher_exports(&self) -> Vec<(String, String)> {
+        let Some(unit) = self.units.get(self.entry as usize) else {
+            return Vec::new();
+        };
+        let phases: BTreeSet<ImportPhaseIr> = unit
+            .record
+            .dynamic_import_sites
+            .iter()
+            .map(|site| site.phase)
+            .collect();
+        phases
+            .into_iter()
+            .map(|phase| {
+                (
+                    exported_dispatcher_name(self.entry, phase),
+                    dispatcher_name(self.entry, phase),
+                )
+            })
+            .collect()
+    }
+
+    fn rewrite_calls(
+        &self,
+        unit: ModuleUnitId,
+        exported: bool,
+        source: &str,
+    ) -> Result<String, String> {
         let sites = ImportCallScanner::new(source).run()?;
         // The cross-check runs *before* the empty-sites shortcut, or the
         // shortcut becomes a hole exactly the shape of this check: a scanner
@@ -454,28 +627,49 @@ impl ModuleGraphIr {
         // sites through, renaming a method to a dispatcher (a runtime
         // `TypeError`) or emitting `#$porffor$module$import$0()` (a syntax error
         // in generated source).
-        let recorded = self.unit(unit).record.dynamic_import_sites.len();
-        if sites.len() != recorded {
-            // No module key in the message: the caller in `modules::link`
-            // already prefixes `module {key}:`, and saying it twice reads as a
-            // bug in the diagnostic rather than in the source.
-            return Err(format!(
-                "found {} `import(` call site(s) but the module record lists {recorded}; \
-                 a property or method named `import` cannot be told apart lexically",
-                sites.len()
-            ));
+        //
+        // Compared *per phase*, so a scan that finds the right number of call
+        // sites but reads `import.defer(` as an unphased `import(` is caught
+        // too: that would rewrite the site to the wrong dispatcher and hand back
+        // an evaluated namespace where the program asked for a deferred one.
+        // A multiset rather than a sequence, because the record's order is boa's
+        // visit order and this scan's is source order, and the two need not
+        // agree for nested calls.
+        let recorded = &self.unit(unit).record.dynamic_import_sites;
+        for phase in [
+            ImportPhaseIr::Evaluation,
+            ImportPhaseIr::Defer,
+            ImportPhaseIr::Source,
+        ] {
+            let found = sites.iter().filter(|site| site.phase == phase).count();
+            let listed = recorded.iter().filter(|site| site.phase == phase).count();
+            if found != listed {
+                // No module key in the message: the caller in `modules::link`
+                // already prefixes `module {key}:`, and saying it twice reads as
+                // a bug in the diagnostic rather than in the source.
+                return Err(format!(
+                    "found {found} `import(` call site(s) in the {} phase but the module record \
+                     lists {listed}; a property or method named `import` cannot be told apart \
+                     lexically",
+                    phase.as_str()
+                ));
+            }
         }
         if sites.is_empty() {
             return Ok(source.to_string());
         }
 
-        let name = dispatcher_name(unit);
-        let mut rewritten = String::with_capacity(source.len() + sites.len() * name.len());
+        let mut rewritten = String::with_capacity(source.len() + sites.len() * 32);
         let mut cursor = 0usize;
-        for (start, end) in sites {
-            rewritten.push_str(&source[cursor..start]);
+        for site in sites {
+            rewritten.push_str(&source[cursor..site.start]);
+            let name = if exported {
+                exported_dispatcher_name(unit, site.phase)
+            } else {
+                dispatcher_name(unit, site.phase)
+            };
             rewritten.push_str(&name);
-            cursor = end;
+            cursor = site.end;
         }
         rewritten.push_str(&source[cursor..]);
         Ok(rewritten)
@@ -495,17 +689,6 @@ impl ModuleGraphIr {
 
         for unit in &self.units {
             let key = &unit.record.key;
-            for site in &unit.record.dynamic_import_sites {
-                // `import.defer()` must not evaluate eagerly and
-                // `import.source()` must not produce a namespace, so neither can
-                // be served by a dispatcher that resolves to one.
-                if site.phase != ImportPhaseIr::Evaluation {
-                    diagnostics.push(IrDiagnostic::unsupported(format!(
-                        "unsupported in porffor wasm-aot: module {key}: import.{}() dynamic import phase",
-                        site.phase.as_str()
-                    )));
-                }
-            }
             for binding in &unit.record.environment {
                 if binding.name.starts_with(LINKER_NAME_PREFIX) {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
@@ -515,6 +698,24 @@ impl ModuleGraphIr {
                     )));
                 }
             }
+        }
+
+        // A Script entry is emitted as itself, outside the wrapper that holds
+        // the graph's modules, so it cannot also be *a* module of that graph: it
+        // would either be emitted twice or hand out a namespace over bindings
+        // that are not in the wrapper's scope.
+        if self.entry_is_script
+            && self
+                .resolutions
+                .values()
+                .chain(self.components.iter().map(|component| &component.module))
+                .any(|target| *target == self.entry)
+        {
+            diagnostics.push(IrDiagnostic::unsupported(format!(
+                "unsupported in porffor wasm-aot: script {} is also imported as a module of its \
+                 own `import()` graph",
+                self.unit(self.entry).record.key
+            )));
         }
 
         for module in self.component_namespace_modules() {
@@ -553,8 +754,16 @@ impl ModuleGraphIr {
     /// export *be* another module's namespace: resolving the outer one hands the
     /// inner object to the program even though no `import()` named it.
     fn component_namespace_modules(&self) -> BTreeSet<ModuleUnitId> {
-        let mut observed: BTreeSet<ModuleUnitId> =
-            self.components.iter().map(|entry| entry.module).collect();
+        // A source-phase component reaches a module *source* object, not a
+        // namespace: its module is never instantiated, so it has no exports to
+        // expose and asking for a namespace it must not have would report every
+        // such module as unlinkable.
+        let mut observed: BTreeSet<ModuleUnitId> = self
+            .components
+            .iter()
+            .filter(|entry| entry.phase != ImportPhaseIr::Source)
+            .map(|entry| entry.module)
+            .collect();
         let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();
         while let Some(module) = pending.pop() {
             let Some(namespace) = self
@@ -625,6 +834,19 @@ enum SlashMeaning {
     Regexp,
 }
 
+/// One `import(`, `import.defer(` or `import.source(` call site the scanner
+/// found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ImportCallSite {
+    /// Byte offset of the `import` keyword.
+    start: usize,
+    /// Byte offset one past the last byte the dispatcher name replaces — the
+    /// end of `import` for an unphased call, and the end of the phase name for
+    /// a phased one, so `import . defer (x)` loses its whole head in one piece.
+    end: usize,
+    phase: ImportPhaseIr,
+}
+
 /// Finds the byte range of every `import` keyword that opens an `import(` call.
 ///
 /// A sibling of the scanner in [`source`](super::source), and deliberately not a
@@ -636,8 +858,8 @@ enum SlashMeaning {
 struct ImportCallScanner<'a> {
     source: &'a str,
     bytes: &'a [u8],
-    /// Byte ranges of `import` keywords to replace, ascending, non-overlapping.
-    sites: Vec<(usize, usize)>,
+    /// Byte ranges of `import` heads to replace, ascending, non-overlapping.
+    sites: Vec<ImportCallSite>,
     /// Nesting depth of `(`, `[` and `{`, tracked only so that the `}` closing a
     /// template substitution is told apart from an ordinary `}`.
     depth: usize,
@@ -665,7 +887,7 @@ impl<'a> ImportCallScanner<'a> {
         }
     }
 
-    fn run(mut self) -> Result<Vec<(usize, usize)>, String> {
+    fn run(mut self) -> Result<Vec<ImportCallSite>, String> {
         while self.index < self.bytes.len() {
             let byte = self.bytes[self.index];
             match byte {
@@ -825,8 +1047,20 @@ impl<'a> ImportCallScanner<'a> {
             }
         }
         let word = &self.source[start..self.index];
-        if word == "import" && !self.previous_was_dot && self.peek_significant() == Some(b'(') {
-            self.sites.push((start, self.index));
+        if word == "import" && !self.previous_was_dot {
+            if self.peek_significant() == Some(b'(') {
+                self.sites.push(ImportCallSite {
+                    start,
+                    end: self.index,
+                    phase: ImportPhaseIr::Evaluation,
+                });
+            } else if let Some((phase, end)) = self.peek_phased_call() {
+                // The index is deliberately *not* advanced past the phase name.
+                // The main loop rescans `.defer` as an ordinary property access,
+                // which records nothing and leaves `slash` and `previous_was_dot`
+                // exactly where a hand-written pass would have left them.
+                self.sites.push(ImportCallSite { start, end, phase });
+            }
         }
         self.slash = match word {
             "this" | "super" | "true" | "false" | "null" => SlashMeaning::Divide,
@@ -845,6 +1079,44 @@ impl<'a> ImportCallScanner<'a> {
 
     fn char_at(&self, index: usize) -> char {
         self.source[index..].chars().next().unwrap_or(' ')
+    }
+
+    /// `(phase, end)` when the `import` keyword just scanned is the head of a
+    /// phased call — `import.defer(` or `import.source(` — with `end` one past
+    /// the phase name.
+    ///
+    /// `import.meta`, `import.defer` used as anything but a call, and a phase
+    /// name that is not one of the two all answer `None`, so the caller records
+    /// no site and the ordinary member-access path handles the text.
+    ///
+    /// This is a *lexical* recognition of the `import . defer` sequence, so
+    /// whitespace and comments between the three tokens are as legal here as
+    /// they are to the parser.
+    fn peek_phased_call(&self) -> Option<(ImportPhaseIr, usize)> {
+        let dot = self.skip_trivia_from(self.index).ok()?;
+        if self.bytes.get(dot).copied() != Some(b'.') {
+            return None;
+        }
+        let name_start = self.skip_trivia_from(dot + 1).ok()?;
+        let mut name_end = name_start;
+        while self
+            .bytes
+            .get(name_end)
+            .copied()
+            .is_some_and(is_identifier_part_byte)
+        {
+            name_end += 1;
+        }
+        let phase = match self.source.get(name_start..name_end)? {
+            "defer" => ImportPhaseIr::Defer,
+            "source" => ImportPhaseIr::Source,
+            _ => return None,
+        };
+        let open = self.skip_trivia_from(name_end).ok()?;
+        if self.bytes.get(open).copied() != Some(b'(') {
+            return None;
+        }
+        Some((phase, name_end))
     }
 
     /// First non-whitespace, non-comment byte at or after `self.index`.
@@ -1061,9 +1333,13 @@ mod tests {
     }
 
     fn plain(specifier: &str) -> ModuleRequestIr {
+        phased(specifier, ImportPhaseIr::Evaluation)
+    }
+
+    fn phased(specifier: &str, phase: ImportPhaseIr) -> ModuleRequestIr {
         ModuleRequestIr {
             specifier: specifier.to_string(),
-            phase: ImportPhaseIr::Evaluation,
+            phase,
             attributes: Vec::new(),
         }
     }
@@ -1243,8 +1519,12 @@ mod tests {
         let error = graph
             .rewrite_dynamic_import_calls(0, "print(1);")
             .expect_err("a missing site must be reported");
+        // Assert the two facts, not the sentence: the message now names the
+        // request phase as well, and pinning the exact wording made this test
+        // fail for a phrasing change rather than a behaviour change.
         assert!(
-            error.contains("found 0 `import(` call site(s) but the module record lists 1"),
+            error.contains("found 0 `import(` call site(s)")
+                && error.contains("the module record lists 1"),
             "got {error}"
         );
     }
@@ -1317,30 +1597,91 @@ mod tests {
         assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
     }
 
-    /// `import.defer()` must not evaluate eagerly and `import.source()` must not
-    /// produce a namespace, so neither can be served by a dispatcher that
-    /// resolves to one.
+    /// `import.defer()` must not evaluate its target eagerly and
+    /// `import.source()` must not produce a namespace at all, so the two phases
+    /// resolve with different objects than the evaluation phase does — and the
+    /// source-phase target contributes no body.
     #[test]
-    fn a_non_evaluation_phase_is_reported() {
-        let sources = sources_of(&[("d", "import(\"m\");")], 0, Vec::new());
-        let mut graph = graph_of(&sources);
-        // Built rather than parsed: whether this boa vendors `import.defer(x)`
-        // is not what is under test, and the check must hold for any site the
-        // record carries.
-        graph.units[0]
-            .record
-            .dynamic_import_sites
-            .push(DynamicImportSiteIr {
-                static_specifier: Some("m".to_string()),
-                phase: ImportPhaseIr::Defer,
-            });
-        let diagnostics = graph.check_dynamic_import_linkable();
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("import.defer()")),
-            "got {diagnostics:?}"
+    fn each_phase_resolves_with_its_own_object() {
+        let sources = sources_of(
+            &[
+                ("a", "export const value = 41;"),
+                ("b", "export const other = 1;"),
+                (
+                    "d",
+                    "import.defer(\"./a.mjs\"); import.source(\"./b.mjs\");",
+                ),
+            ],
+            2,
+            vec![
+                (2, phased("./a.mjs", ImportPhaseIr::Defer), 0),
+                (2, phased("./b.mjs", ImportPhaseIr::Source), 1),
+            ],
         );
+        let graph = graph_of(&sources);
+        assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
+
+        let prelude = graph.dynamic_import_prelude();
+        assert!(
+            prelude.contains(&format!(
+                "if (key === \"./a.mjs\") {{ resolve({}); return; }}",
+                module_namespace_cell_name(0)
+            )),
+            "defer resolves with the (deferred) namespace object, got: {prelude}"
+        );
+        assert!(
+            prelude.contains(&format!(
+                "if (key === \"./b.mjs\") {{ resolve({}); return; }}",
+                module_source_cell_name(1)
+            )),
+            "source resolves with the module source object, got: {prelude}"
+        );
+        // One dispatcher per phase: the runtime argument is only a specifier
+        // string, so the two cannot share one.
+        assert_eq!(
+            prelude.matches("function ").count(),
+            4,
+            "two dispatchers, each with one executor, got: {prelude}"
+        );
+
+        assert_eq!(
+            graph.evaluation_mode(0),
+            ModuleEvaluationModeIr::Deferred,
+            "`import.defer()` defers its target"
+        );
+        assert_eq!(
+            graph.evaluation_mode(1),
+            ModuleEvaluationModeIr::NotEvaluated,
+            "`import.source()` never evaluates its target"
+        );
+    }
+
+    /// The scanner is what tells the two phased forms apart, and it has to do it
+    /// lexically: the phase decides which dispatcher a call site is rewritten
+    /// onto, and getting it wrong hands back the wrong object.
+    #[test]
+    fn the_scanner_reads_a_phase_through_trivia() {
+        let sites = ImportCallScanner::new(
+            "import(a); import . /*x*/ defer (b); import.source(c); import.meta.url; obj.import(d);",
+        )
+        .run()
+        .expect("the scan should lex");
+        assert_eq!(
+            sites.iter().map(|site| site.phase).collect::<Vec<_>>(),
+            vec![
+                ImportPhaseIr::Evaluation,
+                ImportPhaseIr::Defer,
+                ImportPhaseIr::Source
+            ],
+            "got {sites:?}"
+        );
+        // The whole meta-property is replaced, not just the keyword, or the
+        // rewritten text would read `$porffor$module$import$0$defer . defer (b)`.
+        assert_eq!(&"import . /*x*/ defer"[..], {
+            let site = sites[1];
+            &"import(a); import . /*x*/ defer (b); import.source(c); import.meta.url; obj.import(d);"
+                [site.start..site.end]
+        });
     }
 
     /// The synthesized names live in the same merged scope as user code, so a

@@ -158,6 +158,12 @@ pub(crate) fn supported_bound_names(
 ) -> Option<Vec<SupportedBoundName>> {
     // Nested array/object patterns and object rest properties all bind names, so the
     // walk has to recurse through both pattern shapes (ECMA-262 8.6 BoundNames).
+    //
+    // BoundNames is a purely syntactic function of the *binding* positions: a
+    // computed property key (`{ [k]: v }`) contributes no bound name and does not
+    // change the names bound by the rest of the pattern, so the key shape is
+    // deliberately not inspected here. Whether a key can be *lowered* is decided by
+    // the pattern lowering, not by this walk.
     fn collect<'a>(
         pattern: &'a Pattern,
         identifiers: &mut Vec<&'a boa_ast::expression::Identifier>,
@@ -166,17 +172,11 @@ pub(crate) fn supported_bound_names(
             Pattern::Object(pattern) => {
                 for element in pattern.bindings() {
                     match element {
-                        ObjectPatternElement::SingleName { name, ident, .. } => {
-                            if !matches!(name, PropertyName::Literal(_)) {
-                                return None;
-                            }
+                        ObjectPatternElement::SingleName { ident, .. } => {
                             identifiers.push(ident);
                         }
                         ObjectPatternElement::RestProperty { ident } => identifiers.push(ident),
-                        ObjectPatternElement::Pattern { name, pattern, .. } => {
-                            if !matches!(name, PropertyName::Literal(_)) {
-                                return None;
-                            }
+                        ObjectPatternElement::Pattern { pattern, .. } => {
                             collect(pattern, identifiers)?;
                         }
                         ObjectPatternElement::AssignmentPropertyAccess { .. }
@@ -1742,5 +1742,171 @@ pub(crate) fn labelled_base_statement<'b>(labelled: &'b AstLabelled) -> Option<&
             LabelledItem::Statement(statement) => return Some(statement),
             LabelledItem::FunctionDeclaration(_) => return None,
         }
+    }
+}
+
+/// True when hoisting the `await`s out of `expression` would change *which* of
+/// them run.
+///
+/// An async body suspends only in statement position: the dispatcher re-enters
+/// the function and resumes at the statement matching the stored state, so the
+/// lowerer rewrites `await x` into a `let` plus an `AsyncAwait` statement
+/// placed *before* the statement that used it. That prefix runs
+/// unconditionally and in order, so it can only carry suspensions the
+/// expression itself always reaches.
+///
+/// The right operand of `&&`/`||`/`??` (and their compound assignments), both
+/// arms of `?:`, and every link after a short-circuiting `?.` are reached only
+/// on some paths. An `await` in one of those must stay where it is, which for
+/// now means the statement refuses rather than silently awaiting on a path the
+/// program never takes.
+///
+/// Anything else evaluates its operands unconditionally, left to right, so the
+/// walk recurses through it. Forms that are not recognised are reported as
+/// conditional whenever they contain an `await` at all, so a shape this
+/// function has not been taught about refuses instead of miscompiling.
+pub(crate) fn await_is_conditionally_reached(expression: &Expression) -> bool {
+    if !contains(expression, ContainsSymbol::AwaitExpression) {
+        return false;
+    }
+    match expression {
+        Expression::Parenthesized(parenthesized) => {
+            await_is_conditionally_reached(parenthesized.expression())
+        }
+        Expression::Await(await_expression) => {
+            await_is_conditionally_reached(await_expression.target())
+        }
+        Expression::Unary(unary) => await_is_conditionally_reached(unary.target()),
+        Expression::Update(update) => match update.target() {
+            UpdateTarget::Identifier(_) => false,
+            UpdateTarget::PropertyAccess(access) => {
+                property_access_await_is_conditionally_reached(access)
+            }
+            UpdateTarget::WebCompatCall(call) => {
+                call.args().iter().any(await_is_conditionally_reached)
+            }
+        },
+        Expression::Binary(binary) => match binary.op() {
+            // 13.13/13.14: the right operand is evaluated only when the left
+            // one does not already decide the result.
+            BinaryOp::Logical(_) => {
+                contains(binary.rhs(), ContainsSymbol::AwaitExpression)
+                    || await_is_conditionally_reached(binary.lhs())
+            }
+            _ => {
+                await_is_conditionally_reached(binary.lhs())
+                    || await_is_conditionally_reached(binary.rhs())
+            }
+        },
+        Expression::BinaryInPrivate(binary) => await_is_conditionally_reached(binary.rhs()),
+        Expression::Conditional(conditional) => {
+            contains(conditional.if_true(), ContainsSymbol::AwaitExpression)
+                || contains(conditional.if_false(), ContainsSymbol::AwaitExpression)
+                || await_is_conditionally_reached(conditional.condition())
+        }
+        Expression::Assign(assign) => match assign.op() {
+            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {
+                contains(assign.rhs(), ContainsSymbol::AwaitExpression)
+                    || assign_target_await_is_conditionally_reached(assign.lhs())
+            }
+            _ => {
+                assign_target_await_is_conditionally_reached(assign.lhs())
+                    || await_is_conditionally_reached(assign.rhs())
+            }
+        },
+        Expression::Call(call) => {
+            await_is_conditionally_reached(call.function())
+                || call.args().iter().any(await_is_conditionally_reached)
+        }
+        Expression::New(new_expression) => {
+            await_is_conditionally_reached(new_expression.constructor())
+        }
+        Expression::SuperCall(call) => call.arguments().iter().any(await_is_conditionally_reached),
+        Expression::PropertyAccess(access) => {
+            property_access_await_is_conditionally_reached(access)
+        }
+        // Every link after the first `?.` is skipped when the target is
+        // nullish, so an `await` anywhere in the chain is path-dependent.
+        Expression::Optional(optional) => {
+            optional
+                .chain()
+                .iter()
+                .any(|operation| contains(operation, ContainsSymbol::AwaitExpression))
+                || await_is_conditionally_reached(optional.target())
+        }
+        Expression::ArrayLiteral(array) => array
+            .as_ref()
+            .iter()
+            .flatten()
+            .any(await_is_conditionally_reached),
+        Expression::ObjectLiteral(object) => object
+            .properties()
+            .iter()
+            .any(object_property_await_is_conditionally_reached),
+        Expression::Spread(spread) => await_is_conditionally_reached(spread.target()),
+        Expression::TemplateLiteral(template) => template
+            .elements()
+            .iter()
+            .filter_map(|element| match element {
+                TemplateElement::Expr(expression) => Some(expression),
+                TemplateElement::String(_) => None,
+            })
+            .any(await_is_conditionally_reached),
+        Expression::TaggedTemplate(template) => {
+            await_is_conditionally_reached(template.tag())
+                || template.exprs().iter().any(await_is_conditionally_reached)
+        }
+        Expression::ImportCall(call) => await_is_conditionally_reached(call.argument()),
+        // `contains` proved an `await` is in there, and this walk cannot show
+        // it is always reached.
+        _ => true,
+    }
+}
+
+fn property_access_await_is_conditionally_reached(access: &PropertyAccess) -> bool {
+    match access {
+        PropertyAccess::Simple(access) => {
+            await_is_conditionally_reached(access.target())
+                || match access.field() {
+                    PropertyAccessField::Const(_) => false,
+                    PropertyAccessField::Expr(key) => await_is_conditionally_reached(key),
+                }
+        }
+        PropertyAccess::Private(access) => await_is_conditionally_reached(access.target()),
+        PropertyAccess::Super(access) => match access.field() {
+            PropertyAccessField::Const(_) => false,
+            PropertyAccessField::Expr(key) => await_is_conditionally_reached(key),
+        },
+    }
+}
+
+fn assign_target_await_is_conditionally_reached(target: &AssignTarget) -> bool {
+    match target {
+        AssignTarget::Identifier(_) => false,
+        AssignTarget::Access(access) => property_access_await_is_conditionally_reached(access),
+        AssignTarget::Pattern(pattern) => contains(pattern, ContainsSymbol::AwaitExpression),
+        AssignTarget::WebCompatCall(call) => call.args().iter().any(await_is_conditionally_reached),
+    }
+}
+
+fn object_property_await_is_conditionally_reached(property: &PropertyDefinition) -> bool {
+    match property {
+        PropertyDefinition::IdentifierReference(_) => false,
+        PropertyDefinition::Property(name, value) => {
+            property_name_await_is_conditionally_reached(name)
+                || await_is_conditionally_reached(value)
+        }
+        PropertyDefinition::SpreadObject(source) => await_is_conditionally_reached(source),
+        PropertyDefinition::MethodDefinition(method) => {
+            property_name_await_is_conditionally_reached(method.name())
+        }
+        PropertyDefinition::CoverInitializedName(_, _) => true,
+    }
+}
+
+fn property_name_await_is_conditionally_reached(name: &PropertyName) -> bool {
+    match name {
+        PropertyName::Literal(_) => false,
+        PropertyName::Computed(key) => await_is_conditionally_reached(key),
     }
 }
