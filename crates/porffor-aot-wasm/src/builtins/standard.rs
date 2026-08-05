@@ -36626,6 +36626,15 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(value_tag_local);
                 self.release_temp_local(value_payload_local);
             }
+            StandardBuiltinId::TemporalNowTimeZoneId => {
+                self.emit_temporal_now_time_zone_id(function)?;
+            }
+            StandardBuiltinId::TemporalNowInstant => {
+                self.emit_temporal_now_instant(function)?;
+            }
+            StandardBuiltinId::TemporalNowZonedDateTimeIso => {
+                self.emit_temporal_now_zoned_date_time_iso(function)?;
+            }
             StandardBuiltinId::TemporalInstantConstructor => {
                 self.emit_temporal_instant_constructor(function)?;
             }
@@ -36643,6 +36652,225 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::TemporalInstantPrototypeToString => {
                 self.emit_temporal_instant_to_string(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateConstructor => {
+                self.emit_temporal_plain_date_constructor(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateFrom => {
+                self.emit_temporal_plain_date_from(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateCompare => {
+                self.emit_temporal_plain_date_compare(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter => {
+                self.emit_temporal_plain_date_field(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeWith => {
+                self.emit_temporal_plain_date_with(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => {
+                self.emit_temporal_plain_date_with_calendar(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeEquals => {
+                self.emit_temporal_plain_date_equals(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeToString
+            | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString => {
+                self.emit_temporal_plain_date_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
+                self.emit_temporal_plain_date_value_of(function)?;
+            }
+            StandardBuiltinId::TemporalDurationConstructor => {
+                self.emit_temporal_duration_constructor(function)?;
+            }
+            StandardBuiltinId::TemporalDurationFrom => {
+                self.emit_temporal_duration_from(function)?;
+            }
+            StandardBuiltinId::TemporalDurationCompare => {
+                self.emit_temporal_duration_compare(function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+            | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+            | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+            | StandardBuiltinId::TemporalDurationPrototypeBlankGetter => {
+                self.emit_temporal_duration_field(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeWith => {
+                self.emit_temporal_duration_with(function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeNegated => {
+                self.emit_temporal_duration_negated_or_abs(true, function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeAbs => {
+                self.emit_temporal_duration_negated_or_abs(false, function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeAdd => {
+                self.emit_temporal_duration_add_or_subtract(false, function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeSubtract => {
+                self.emit_temporal_duration_add_or_subtract(true, function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeRound => {
+                self.emit_temporal_duration_round(function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeTotal => {
+                self.emit_temporal_duration_total(function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeToString
+            | StandardBuiltinId::TemporalDurationPrototypeToJson
+            | StandardBuiltinId::TemporalDurationPrototypeToLocaleString => {
+                self.emit_temporal_duration_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalDurationPrototypeValueOf => {
+                self.emit_temporal_duration_value_of(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimeConstructor => {
+                self.emit_temporal_plain_time_constructor(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimeFrom => {
+                self.emit_temporal_plain_time_from(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimeCompare => {
+                self.emit_temporal_plain_time_compare(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter => {
+                self.emit_temporal_plain_time_field(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeWith => {
+                self.emit_temporal_plain_time_with(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeAdd => {
+                self.emit_temporal_plain_time_add_or_subtract(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeSubtract => {
+                self.emit_temporal_plain_time_add_or_subtract(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeUntil => {
+                self.emit_temporal_plain_time_until_or_since(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeSince => {
+                self.emit_temporal_plain_time_until_or_since(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeRound => {
+                self.emit_temporal_plain_time_round(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeEquals => {
+                self.emit_temporal_plain_time_equals(function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString => {
+                self.emit_temporal_plain_time_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeValueOf => {
+                self.emit_temporal_plain_time_value_of(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimeConstructor => {
+                self.emit_temporal_plain_date_time_constructor(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimeFrom => {
+                self.emit_temporal_plain_date_time_from(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimeCompare => {
+                self.emit_temporal_plain_date_time_compare(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter => {
+                self.emit_temporal_plain_date_time_field(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeWith => {
+                self.emit_temporal_plain_date_time_with(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime => {
+                self.emit_temporal_plain_date_time_with_plain_time(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar => {
+                self.emit_temporal_plain_date_time_with_calendar(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeAdd => {
+                self.emit_temporal_plain_date_time_add_or_subtract(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract => {
+                self.emit_temporal_plain_date_time_add_or_subtract(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeUntil => {
+                self.emit_temporal_plain_date_time_until_or_since(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeSince => {
+                self.emit_temporal_plain_date_time_until_or_since(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeRound => {
+                self.emit_temporal_plain_date_time_round(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEquals => {
+                self.emit_temporal_plain_date_time_equals(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString => {
+                self.emit_temporal_plain_date_time_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf => {
+                self.emit_temporal_plain_date_time_value_of(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate => {
+                self.emit_temporal_plain_date_time_to_component(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime => {
+                self.emit_temporal_plain_date_time_to_component(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => {
+                self.emit_temporal_plain_date_time_to_zoned_date_time(function)?;
             }
             StandardBuiltinId::TemporalZonedDateTimeConstructor => {
                 self.emit_temporal_zoned_date_time_constructor(function)?;

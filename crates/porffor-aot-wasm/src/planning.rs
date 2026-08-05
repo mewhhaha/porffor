@@ -803,6 +803,12 @@ impl RuntimeBootstrapPlan {
             ScriptGlobalBindingKind::TemporalObject => {
                 self.temporal_object = true;
                 self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+                // `Temporal.Now` must be observable from a bare `Temporal`
+                // reference. `timeZoneId` is the one member with no
+                // dependencies, so it is the cheapest anchor for the namespace
+                // object; `instant` and `zonedDateTimeISO` still install only
+                // when the script names them.
+                self.require_standard_builtin(StandardBuiltinId::TemporalNowTimeZoneId);
             }
             ScriptGlobalBindingKind::IntlObject => {
                 self.intl_object = true;
@@ -1201,6 +1207,290 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::IntlLocalePrototypeRegionGetter,
                     StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
                     StandardBuiltinId::IntlLocalePrototypeToString,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
+            // `Temporal.Now` members are rooted individually: each one drags in
+            // only the Temporal type it hands back, so a script that reads the
+            // clock does not pay for the ZonedDateTime family it never names.
+            StandardBuiltinId::TemporalNowTimeZoneId => {
+                self.temporal_object = true;
+            }
+            StandardBuiltinId::TemporalNowInstant => {
+                self.temporal_object = true;
+                self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+            }
+            StandardBuiltinId::TemporalNowZonedDateTimeIso => {
+                self.temporal_object = true;
+                self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+            }
+            // The whole `Temporal.PlainDate` family installs together: the
+            // prototype is built once, so rooting one member without the rest
+            // would leave the object half-populated.
+            StandardBuiltinId::TemporalPlainDateConstructor
+            | StandardBuiltinId::TemporalPlainDateFrom
+            | StandardBuiltinId::TemporalPlainDateCompare
+            | StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWith
+            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDatePrototypeEquals
+            | StandardBuiltinId::TemporalPlainDatePrototypeToString
+            | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
+                self.temporal_object = true;
+                for dependency in [
+                    StandardBuiltinId::TemporalPlainDateConstructor,
+                    StandardBuiltinId::TemporalPlainDateFrom,
+                    StandardBuiltinId::TemporalPlainDateCompare,
+                    StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeEraGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeDayGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter,
+                    StandardBuiltinId::TemporalPlainDatePrototypeWith,
+                    StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar,
+                    StandardBuiltinId::TemporalPlainDatePrototypeEquals,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToString,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToJson,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
+                    StandardBuiltinId::TemporalPlainDatePrototypeValueOf,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
+            // The whole `Temporal.PlainTime` family installs together, for the
+            // same reason `Temporal.PlainDate` does: one shared prototype.
+            StandardBuiltinId::TemporalPlainTimeConstructor
+            | StandardBuiltinId::TemporalPlainTimeFrom
+            | StandardBuiltinId::TemporalPlainTimeCompare
+            | StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainTimePrototypeSince
+            | StandardBuiltinId::TemporalPlainTimePrototypeRound
+            | StandardBuiltinId::TemporalPlainTimePrototypeEquals
+            | StandardBuiltinId::TemporalPlainTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainTimePrototypeValueOf => {
+                self.temporal_object = true;
+                // `until`/`since` hand back a `Temporal.Duration`, and `add`
+                // and `subtract` read one, so the Duration family has to come
+                // along whenever any PlainTime member does.
+                self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
+                for dependency in [
+                    StandardBuiltinId::TemporalPlainTimeConstructor,
+                    StandardBuiltinId::TemporalPlainTimeFrom,
+                    StandardBuiltinId::TemporalPlainTimeCompare,
+                    StandardBuiltinId::TemporalPlainTimePrototypeHourGetter,
+                    StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter,
+                    StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter,
+                    StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter,
+                    StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter,
+                    StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter,
+                    StandardBuiltinId::TemporalPlainTimePrototypeWith,
+                    StandardBuiltinId::TemporalPlainTimePrototypeAdd,
+                    StandardBuiltinId::TemporalPlainTimePrototypeSubtract,
+                    StandardBuiltinId::TemporalPlainTimePrototypeUntil,
+                    StandardBuiltinId::TemporalPlainTimePrototypeSince,
+                    StandardBuiltinId::TemporalPlainTimePrototypeRound,
+                    StandardBuiltinId::TemporalPlainTimePrototypeEquals,
+                    StandardBuiltinId::TemporalPlainTimePrototypeToString,
+                    StandardBuiltinId::TemporalPlainTimePrototypeToJson,
+                    StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
+                    StandardBuiltinId::TemporalPlainTimePrototypeValueOf,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
+            // The whole `Temporal.PlainDateTime` family installs together, for the
+            // same reason `Temporal.PlainDate` does: one shared prototype.
+            StandardBuiltinId::TemporalPlainDateTimeConstructor
+            | StandardBuiltinId::TemporalPlainDateTimeFrom
+            | StandardBuiltinId::TemporalPlainDateTimeCompare
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSince
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeRound
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => {
+                self.temporal_object = true;
+                // `until`/`since` hand back a `Temporal.Duration` and `add`/`subtract`
+                // read one; `toPlainDate`, `toPlainTime` and `toZonedDateTime` hand back
+                // the three sibling types. All four families come along.
+                self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor);
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainTimeConstructor);
+                self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+                for dependency in [
+                    StandardBuiltinId::TemporalPlainDateTimeConstructor,
+                    StandardBuiltinId::TemporalPlainDateTimeFrom,
+                    StandardBuiltinId::TemporalPlainDateTimeCompare,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeWith,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeAdd,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeRound,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeEquals,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeToString,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeToJson,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime,
+                    StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
+            // The whole `Temporal.Duration` family installs together, for the
+            // same reason `Temporal.PlainDate` does: one shared prototype.
+            StandardBuiltinId::TemporalDurationConstructor
+            | StandardBuiltinId::TemporalDurationFrom
+            | StandardBuiltinId::TemporalDurationCompare
+            | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+            | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+            | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+            | StandardBuiltinId::TemporalDurationPrototypeBlankGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWith
+            | StandardBuiltinId::TemporalDurationPrototypeNegated
+            | StandardBuiltinId::TemporalDurationPrototypeAbs
+            | StandardBuiltinId::TemporalDurationPrototypeAdd
+            | StandardBuiltinId::TemporalDurationPrototypeSubtract
+            | StandardBuiltinId::TemporalDurationPrototypeRound
+            | StandardBuiltinId::TemporalDurationPrototypeTotal
+            | StandardBuiltinId::TemporalDurationPrototypeToString
+            | StandardBuiltinId::TemporalDurationPrototypeToJson
+            | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
+            | StandardBuiltinId::TemporalDurationPrototypeValueOf => {
+                self.temporal_object = true;
+                for dependency in [
+                    StandardBuiltinId::TemporalDurationConstructor,
+                    StandardBuiltinId::TemporalDurationFrom,
+                    StandardBuiltinId::TemporalDurationCompare,
+                    StandardBuiltinId::TemporalDurationPrototypeYearsGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeMonthsGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeWeeksGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeDaysGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeHoursGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeMinutesGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeSecondsGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeSignGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeBlankGetter,
+                    StandardBuiltinId::TemporalDurationPrototypeWith,
+                    StandardBuiltinId::TemporalDurationPrototypeNegated,
+                    StandardBuiltinId::TemporalDurationPrototypeAbs,
+                    StandardBuiltinId::TemporalDurationPrototypeAdd,
+                    StandardBuiltinId::TemporalDurationPrototypeSubtract,
+                    StandardBuiltinId::TemporalDurationPrototypeRound,
+                    StandardBuiltinId::TemporalDurationPrototypeTotal,
+                    StandardBuiltinId::TemporalDurationPrototypeToString,
+                    StandardBuiltinId::TemporalDurationPrototypeToJson,
+                    StandardBuiltinId::TemporalDurationPrototypeToLocaleString,
+                    StandardBuiltinId::TemporalDurationPrototypeValueOf,
                 ] {
                     self.standard_roots.insert(dependency);
                 }
@@ -4933,8 +5223,61 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
-        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => 1,
+        | StandardBuiltinId::TemporalPlainDateFrom
+        | StandardBuiltinId::TemporalPlainDatePrototypeWith
+        | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+        | StandardBuiltinId::TemporalPlainDatePrototypeEquals
+        | StandardBuiltinId::TemporalPlainTimeFrom
+        | StandardBuiltinId::TemporalPlainTimePrototypeWith
+        | StandardBuiltinId::TemporalPlainTimePrototypeAdd
+        | StandardBuiltinId::TemporalPlainTimePrototypeSubtract
+        | StandardBuiltinId::TemporalPlainTimePrototypeUntil
+        | StandardBuiltinId::TemporalPlainTimePrototypeSince
+        | StandardBuiltinId::TemporalPlainTimePrototypeRound
+        | StandardBuiltinId::TemporalPlainTimePrototypeEquals
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        | StandardBuiltinId::TemporalPlainDateTimeFrom
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeSince
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeRound
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => 1,
         StandardBuiltinId::TemporalZonedDateTimeConstructor => 2,
+        StandardBuiltinId::TemporalPlainDateCompare => 2,
+        StandardBuiltinId::TemporalPlainTimeCompare => 2,
+        StandardBuiltinId::TemporalPlainDateTimeCompare => 2,
+        StandardBuiltinId::TemporalPlainDateTimeConstructor => 3,
+        StandardBuiltinId::TemporalPlainDateConstructor => 3,
+        StandardBuiltinId::TemporalDurationConstructor => 0,
+        StandardBuiltinId::TemporalDurationCompare => 2,
+        StandardBuiltinId::TemporalDurationFrom
+        | StandardBuiltinId::TemporalDurationPrototypeWith
+        | StandardBuiltinId::TemporalDurationPrototypeAdd
+        | StandardBuiltinId::TemporalDurationPrototypeSubtract
+        | StandardBuiltinId::TemporalDurationPrototypeRound
+        | StandardBuiltinId::TemporalDurationPrototypeTotal => 1,
+        StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+        | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+        | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+        | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+        | StandardBuiltinId::TemporalDurationPrototypeBlankGetter
+        | StandardBuiltinId::TemporalDurationPrototypeNegated
+        | StandardBuiltinId::TemporalDurationPrototypeAbs
+        | StandardBuiltinId::TemporalDurationPrototypeToString
+        | StandardBuiltinId::TemporalDurationPrototypeToJson
+        | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
+        | StandardBuiltinId::TemporalDurationPrototypeValueOf => 0,
         StandardBuiltinId::IntlGetCanonicalLocales | StandardBuiltinId::IntlLocaleConstructor => 1,
         StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
@@ -4960,8 +5303,73 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::ErrorPrototypeToString
         | StandardBuiltinId::ThrowTypeError
         | StandardBuiltinId::BoundFunctionInvoker
+        | StandardBuiltinId::TemporalNowInstant
+        | StandardBuiltinId::TemporalNowTimeZoneId
+        | StandardBuiltinId::TemporalNowZonedDateTimeIso
         | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalPlainTimeConstructor
+        | StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeToString
+        | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+        | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainTimePrototypeValueOf
+        // `toString ( [ options ] )` takes only an optional parameter, so its
+        // `length` is 0 even though the emitter reads argument 0.
+        | StandardBuiltinId::TemporalPlainDatePrototypeToString
+        | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+        | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
         | StandardBuiltinId::TemporalInstantPrototypeToString => 0,
         StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter

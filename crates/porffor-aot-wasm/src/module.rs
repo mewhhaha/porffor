@@ -151,6 +151,14 @@ pub(crate) const INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX: u32 = 118;
 // report.
 pub(crate) const PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX: u32 = 119;
 pub(crate) const PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX: u32 = 120;
+pub(crate) const TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX: u32 = 121;
+pub(crate) const TEMPORAL_PLAIN_DATE_CONSTRUCTOR_GLOBAL_INDEX: u32 = 122;
+pub(crate) const TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX: u32 = 123;
+pub(crate) const TEMPORAL_DURATION_CONSTRUCTOR_GLOBAL_INDEX: u32 = 124;
+pub(crate) const TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX: u32 = 125;
+pub(crate) const TEMPORAL_PLAIN_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 126;
+pub(crate) const TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX: u32 = 127;
+pub(crate) const TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 128;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -661,6 +669,38 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "unhandled_rejection_tail",
         index: PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Temporal.PlainDate.prototype",
+        index: TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainDate",
+        index: TEMPORAL_PLAIN_DATE_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.Duration.prototype",
+        index: TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.Duration",
+        index: TEMPORAL_DURATION_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainTime.prototype",
+        index: TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainTime",
+        index: TEMPORAL_PLAIN_TIME_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainDateTime.prototype",
+        index: TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainDateTime",
+        index: TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -704,6 +744,18 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::DateConstructor => Some(DATE_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::TemporalInstantConstructor => {
             Some(TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainDateConstructor => {
+            Some(TEMPORAL_PLAIN_DATE_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalDurationConstructor => {
+            Some(TEMPORAL_DURATION_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainTimeConstructor => {
+            Some(TEMPORAL_PLAIN_TIME_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainDateTimeConstructor => {
+            Some(TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::TemporalZonedDateTimeConstructor => {
             Some(TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
@@ -1252,6 +1304,118 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::SetIteratorNext
         | StandardBuiltinId::SetPrototypeHas
         | StandardBuiltinId::SetPrototypeSizeGetter
+        | StandardBuiltinId::TemporalPlainDateFrom
+        | StandardBuiltinId::TemporalPlainDateCompare
+        | StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalPlainDatePrototypeWith
+        | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+        | StandardBuiltinId::TemporalPlainDatePrototypeEquals
+        | StandardBuiltinId::TemporalPlainDatePrototypeToString
+        | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+        | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+        | StandardBuiltinId::TemporalDurationFrom
+        | StandardBuiltinId::TemporalDurationCompare
+        | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+        | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+        | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+        | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+        | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+        | StandardBuiltinId::TemporalDurationPrototypeBlankGetter
+        | StandardBuiltinId::TemporalDurationPrototypeWith
+        | StandardBuiltinId::TemporalDurationPrototypeNegated
+        | StandardBuiltinId::TemporalDurationPrototypeAbs
+        | StandardBuiltinId::TemporalDurationPrototypeAdd
+        | StandardBuiltinId::TemporalDurationPrototypeSubtract
+        | StandardBuiltinId::TemporalDurationPrototypeRound
+        | StandardBuiltinId::TemporalDurationPrototypeTotal
+        | StandardBuiltinId::TemporalDurationPrototypeToString
+        | StandardBuiltinId::TemporalDurationPrototypeToJson
+        | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
+        | StandardBuiltinId::TemporalDurationPrototypeValueOf
+        | StandardBuiltinId::TemporalPlainTimeFrom
+        | StandardBuiltinId::TemporalPlainTimeCompare
+        | StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter
+        | StandardBuiltinId::TemporalPlainTimePrototypeWith
+        | StandardBuiltinId::TemporalPlainTimePrototypeAdd
+        | StandardBuiltinId::TemporalPlainTimePrototypeSubtract
+        | StandardBuiltinId::TemporalPlainTimePrototypeUntil
+        | StandardBuiltinId::TemporalPlainTimePrototypeSince
+        | StandardBuiltinId::TemporalPlainTimePrototypeRound
+        | StandardBuiltinId::TemporalPlainTimePrototypeEquals
+        | StandardBuiltinId::TemporalPlainTimePrototypeToString
+        | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+        | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainTimePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainDateTimeFrom
+        | StandardBuiltinId::TemporalPlainDateTimeCompare
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeSince
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeRound
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
+        | StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime
+        | StandardBuiltinId::TemporalNowInstant
+        | StandardBuiltinId::TemporalNowTimeZoneId
+        | StandardBuiltinId::TemporalNowZonedDateTimeIso
         | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEquals
@@ -1592,6 +1756,18 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::TemporalZonedDateTimeConstructor => {
             Some(TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
         }
+        StandardBuiltinId::TemporalPlainDateConstructor => {
+            Some(TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalDurationConstructor => {
+            Some(TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainTimeConstructor => {
+            Some(TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainDateTimeConstructor => {
+            Some(TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
+        }
         StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX),
         _ => None,
     }
@@ -1670,7 +1846,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX as usize + 1
+            TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
         );
     }
 

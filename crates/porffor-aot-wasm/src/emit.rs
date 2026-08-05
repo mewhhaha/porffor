@@ -723,7 +723,9 @@ fn emit_script_with_forced_builtins(
             compiled_standard_builtins.push(*builtin);
         }
     }
-    let uses_wall_clock_millis = compiled_standard_builtins.contains(&StandardBuiltinId::DateNow);
+    let uses_wall_clock_millis = compiled_standard_builtins
+        .iter()
+        .any(|builtin| builtin.requires_wall_clock());
     let number_pow_import_function_index =
         uses_number_pow_import.then_some(1 + u32::from(uses_host_print));
     let wall_clock_millis_import_function_index = uses_wall_clock_millis

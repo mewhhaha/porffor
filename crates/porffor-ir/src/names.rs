@@ -172,8 +172,13 @@ pub const SHARED_ARRAY_BUFFER_NAME: &str = "SharedArrayBuffer";
 pub const DATA_VIEW_NAME: &str = "DataView";
 pub const DATE_NAME: &str = "Date";
 pub const TEMPORAL_NAME: &str = "Temporal";
+pub const TEMPORAL_NOW_NAME: &str = "Now";
 pub const TEMPORAL_INSTANT_NAME: &str = "Instant";
+pub const TEMPORAL_PLAIN_DATE_NAME: &str = "PlainDate";
+pub const TEMPORAL_PLAIN_TIME_NAME: &str = "PlainTime";
+pub const TEMPORAL_PLAIN_DATE_TIME_NAME: &str = "PlainDateTime";
 pub const TEMPORAL_ZONED_DATE_TIME_NAME: &str = "ZonedDateTime";
+pub const TEMPORAL_DURATION_NAME: &str = "Duration";
 pub const INTL_NAME: &str = "Intl";
 pub const INTL_LOCALE_NAME: &str = "Locale";
 pub const REGEXP_NAME: &str = "RegExp";
@@ -650,6 +655,229 @@ pub const BUILTIN_DATE_PROTOTYPE_TO_TIME_STRING_FUNCTION_ID: &str =
 pub const BUILTIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID: &str = "$builtin.Date.prototype.toString";
 pub const BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID: &str =
     "$builtin.Date.prototype.toUTCString";
+pub const BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID: &str = "$builtin.Temporal.Now.instant";
+pub const BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID: &str = "$builtin.Temporal.Now.timeZoneId";
+pub const BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID: &str =
+    "$builtin.Temporal.Now.zonedDateTimeISO";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_FUNCTION_ID: &str = "$builtin.Temporal.PlainDate";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID: &str = "$builtin.Temporal.PlainDate.from";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.compare";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.calendarId.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.era.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.eraYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.year.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.month.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.monthCode.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.day.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.dayOfWeek.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.dayOfYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.weekOfYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.yearOfWeek.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.daysInWeek.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.daysInMonth.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.daysInYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.monthsInYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.inLeapYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.with";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.withCalendar";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.equals";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toString";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toLocaleString";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_FUNCTION_ID: &str = "$builtin.Temporal.PlainTime";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_FROM_FUNCTION_ID: &str = "$builtin.Temporal.PlainTime.from";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_COMPARE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.compare";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.hour.get";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.minute.get";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.second.get";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.millisecond.get";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.microsecond.get";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.nanosecond.get";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.with";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ADD_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.add";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.subtract";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_UNTIL_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.until";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SINCE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.since";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ROUND_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.round";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.equals";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.toString";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.toLocaleString";
+pub const BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainTime.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FUNCTION_ID: &str = "$builtin.Temporal.PlainDateTime";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FROM_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.from";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_COMPARE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.compare";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.calendarId.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.era.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.eraYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.year.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.month.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.monthCode.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.day.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.hour.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.minute.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.second.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.millisecond.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.microsecond.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.nanosecond.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.dayOfWeek.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.dayOfYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.weekOfYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.yearOfWeek.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.daysInWeek.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.daysInMonth.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.daysInYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.monthsInYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.inLeapYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.with";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_PLAIN_TIME_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.withPlainTime";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.withCalendar";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.add";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.subtract";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.until";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.since";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.round";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.equals";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.toString";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.toLocaleString";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.toPlainDate";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_TIME_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.toPlainTime";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDateTime.prototype.toZonedDateTime";
+pub const BUILTIN_TEMPORAL_DURATION_FUNCTION_ID: &str = "$builtin.Temporal.Duration";
+pub const BUILTIN_TEMPORAL_DURATION_FROM_FUNCTION_ID: &str = "$builtin.Temporal.Duration.from";
+pub const BUILTIN_TEMPORAL_DURATION_COMPARE_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.compare";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_YEARS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.years.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MONTHS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.months.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WEEKS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.weeks.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_DAYS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.days.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_HOURS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.hours.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MINUTES_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.minutes.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.seconds.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MILLISECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.milliseconds.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MICROSECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.microseconds.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NANOSECONDS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.nanoseconds.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SIGN_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.sign.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_BLANK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.blank.get";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.with";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NEGATED_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.negated";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ABS_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.abs";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ADD_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.add";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SUBTRACT_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.subtract";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ROUND_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.round";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TOTAL_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.total";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.toString";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.toLocaleString";
+pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.Duration.prototype.valueOf";
 pub const BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID: &str = "$builtin.Temporal.Instant";
 pub const BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID: &str = "$builtin.Temporal.Instant.from";
 pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID: &str =

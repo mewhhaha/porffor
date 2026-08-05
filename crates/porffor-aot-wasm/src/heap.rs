@@ -252,6 +252,10 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_SIZE: u64 = 56;
 pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE: u64 = 32;
+pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_SIZE: u64 = 80;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE: u64 = 48;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
@@ -715,6 +719,53 @@ pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET: u64 = 24;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET: u64 = 32;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET: u64 = 40;
+/// `Temporal.PlainDate` internal slots. The ISO fields are plain signed
+/// integers, not tag/payload pairs: `RejectISODate` bounds year to
+/// ±275760-ish and month/day to two digits, so they always fit an `i64` and
+/// never need the BigInt escape hatch the epoch-nanosecond types use. The
+/// calendar slot holds a bare interned string payload because
+/// `emit_temporal_iso_calendar_or_throw` only ever yields `"iso8601"`.
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET: u64 = 0;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET: u64 = 8;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET: u64 = 16;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET: u64 = 24;
+/// `Temporal.Duration` internal slots. Every field is a plain signed `i64`:
+/// `IsValidDuration` caps years/months/weeks below 2^32 and forces the whole
+/// day-through-nanosecond tail below 2^53 seconds, so no field can escape an
+/// `i64` once construction has succeeded.
+/// `Temporal.PlainTime` internal slots. `RejectTime` bounds every field to two
+/// or three digits, so a plain signed `i64` per field is always enough and
+/// there is no calendar slot to carry — a `PlainTime` has no calendar.
+/// `Temporal.PlainDateTime` internal slots: the three ISO date fields of a
+/// `PlainDate` followed by the six wall-clock fields of a `PlainTime`, then the
+/// interned calendar payload. Every numeric slot is a plain signed `i64` for the
+/// same reason the two component types are - `RejectDateTime` bounds all nine.
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET: u64 = 0;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET: u64 = 8;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET: u64 = 16;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_HOUR_OFFSET: u64 = 24;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_MINUTE_OFFSET: u64 = 32;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_SECOND_OFFSET: u64 = 40;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_MILLISECOND_OFFSET: u64 = 48;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_MICROSECOND_OFFSET: u64 = 56;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_NANOSECOND_OFFSET: u64 = 64;
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET: u64 = 72;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET: u64 = 0;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET: u64 = 8;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET: u64 = 16;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET: u64 = 24;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET: u64 = 32;
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET: u64 = 40;
+pub(crate) const HEAP_TEMPORAL_DURATION_YEARS_OFFSET: u64 = 0;
+pub(crate) const HEAP_TEMPORAL_DURATION_MONTHS_OFFSET: u64 = 8;
+pub(crate) const HEAP_TEMPORAL_DURATION_WEEKS_OFFSET: u64 = 16;
+pub(crate) const HEAP_TEMPORAL_DURATION_DAYS_OFFSET: u64 = 24;
+pub(crate) const HEAP_TEMPORAL_DURATION_HOURS_OFFSET: u64 = 32;
+pub(crate) const HEAP_TEMPORAL_DURATION_MINUTES_OFFSET: u64 = 40;
+pub(crate) const HEAP_TEMPORAL_DURATION_SECONDS_OFFSET: u64 = 48;
+pub(crate) const HEAP_TEMPORAL_DURATION_MILLISECONDS_OFFSET: u64 = 56;
+pub(crate) const HEAP_TEMPORAL_DURATION_MICROSECONDS_OFFSET: u64 = 64;
+pub(crate) const HEAP_TEMPORAL_DURATION_NANOSECONDS_OFFSET: u64 = 72;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
@@ -890,6 +941,10 @@ pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME: u64 = 28;
 pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_CONCAT_HELPER: u64 = 29;
 pub(crate) const OBJECT_INTERNAL_BRAND_IMMUTABLE_PROTOTYPE: u64 = 30;
 pub(crate) const OBJECT_INTERNAL_BRAND_INTL_LOCALE: u64 = 31;
+pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE: u64 = 32;
+pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_DURATION: u64 = 33;
+pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME: u64 = 34;
+pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME: u64 = 35;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -3154,6 +3209,232 @@ pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] 
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "temporal-plain-date-record",
+        name: "iso_year",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-record",
+        name: "iso_month",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-record",
+        name: "iso_day",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-record",
+        name: "calendar_payload",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "iso_year",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "iso_month",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "iso_day",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "hour",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_HOUR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "minute",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_MINUTE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "second",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_SECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "millisecond",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_MILLISECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "microsecond",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_MICROSECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "nanosecond",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_NANOSECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-date-time-record",
+        name: "calendar_payload",
+        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "temporal-plain-time-record",
+        name: "hour",
+        offset: HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-time-record",
+        name: "minute",
+        offset: HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-time-record",
+        name: "second",
+        offset: HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-time-record",
+        name: "millisecond",
+        offset: HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-time-record",
+        name: "microsecond",
+        offset: HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-plain-time-record",
+        name: "nanosecond",
+        offset: HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "years",
+        offset: HEAP_TEMPORAL_DURATION_YEARS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "months",
+        offset: HEAP_TEMPORAL_DURATION_MONTHS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "weeks",
+        offset: HEAP_TEMPORAL_DURATION_WEEKS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "days",
+        offset: HEAP_TEMPORAL_DURATION_DAYS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "hours",
+        offset: HEAP_TEMPORAL_DURATION_HOURS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "minutes",
+        offset: HEAP_TEMPORAL_DURATION_MINUTES_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "seconds",
+        offset: HEAP_TEMPORAL_DURATION_SECONDS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "milliseconds",
+        offset: HEAP_TEMPORAL_DURATION_MILLISECONDS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "microseconds",
+        offset: HEAP_TEMPORAL_DURATION_MICROSECONDS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "temporal-duration-record",
+        name: "nanoseconds",
+        offset: HEAP_TEMPORAL_DURATION_NANOSECONDS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_WEAK_REF_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "weak-ref-record",
@@ -4806,6 +5087,22 @@ mod tests {
             HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT,
             HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE,
         );
+        assert_layout(
+            HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT,
+            HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_TEMPORAL_DURATION_RECORD_LAYOUT,
+            HEAP_TEMPORAL_DURATION_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT,
+            HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT,
+            HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE,
+        );
         assert_layout(HEAP_INTL_LOCALE_RECORD_LAYOUT, HEAP_INTL_LOCALE_RECORD_SIZE);
         assert_layout(
             HEAP_MAP_ITERATOR_RECORD_LAYOUT,
@@ -4868,6 +5165,10 @@ mod tests {
             .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
+            .chain(HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT.iter())
+            .chain(HEAP_TEMPORAL_DURATION_RECORD_LAYOUT.iter())
+            .chain(HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT.iter())
+            .chain(HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_INTL_LOCALE_RECORD_LAYOUT.iter())
             .chain(HEAP_MAP_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_RECORD_LAYOUT.iter())

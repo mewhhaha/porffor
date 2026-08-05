@@ -1755,6 +1755,618 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    /// Temporal proposal 3.3: the `Temporal.PlainDate.prototype` shape. The
+    /// order here mirrors `install_temporal_plain_date_constructor_intrinsics`,
+    /// because property order is observable through `Object.keys`.
+    fn temporal_plain_date_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "calendarId",
+                StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter,
+            ),
+            (
+                "era",
+                StandardBuiltinId::TemporalPlainDatePrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter,
+            ),
+            (
+                "year",
+                StandardBuiltinId::TemporalPlainDatePrototypeYearGetter,
+            ),
+            (
+                "month",
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter,
+            ),
+            (
+                "monthCode",
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter,
+            ),
+            (
+                "day",
+                StandardBuiltinId::TemporalPlainDatePrototypeDayGetter,
+            ),
+            (
+                "dayOfWeek",
+                StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter,
+            ),
+            (
+                "dayOfYear",
+                StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
+            ),
+            (
+                "weekOfYear",
+                StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter,
+            ),
+            (
+                "yearOfWeek",
+                StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter,
+            ),
+            (
+                "daysInWeek",
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter,
+            ),
+            (
+                "daysInMonth",
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter,
+            ),
+            (
+                "daysInYear",
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter,
+            ),
+            (
+                "monthsInYear",
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter,
+            ),
+            (
+                "inLeapYear",
+                StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        properties.insert(
+            "with".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeWith.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "withCalendar".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "equals".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeEquals.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toString".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToString.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toJSON".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToJson.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toLocaleString".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "valueOf".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeValueOf.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDate")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn temporal_plain_date_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::temporal_plain_date_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    /// Temporal proposal 4.3: the `Temporal.PlainTime.prototype` shape. The
+    /// order here mirrors `install_temporal_plain_time_constructor_intrinsics`,
+    /// because property order is observable through `Object.keys`.
+    fn temporal_plain_time_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "hour",
+                StandardBuiltinId::TemporalPlainTimePrototypeHourGetter,
+            ),
+            (
+                "minute",
+                StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter,
+            ),
+            (
+                "second",
+                StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter,
+            ),
+            (
+                "millisecond",
+                StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter,
+            ),
+            (
+                "microsecond",
+                StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter,
+            ),
+            (
+                "nanosecond",
+                StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        for (name, builtin) in [
+            ("add", StandardBuiltinId::TemporalPlainTimePrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalPlainTimePrototypeSubtract,
+            ),
+            ("with", StandardBuiltinId::TemporalPlainTimePrototypeWith),
+            ("until", StandardBuiltinId::TemporalPlainTimePrototypeUntil),
+            ("since", StandardBuiltinId::TemporalPlainTimePrototypeSince),
+            ("round", StandardBuiltinId::TemporalPlainTimePrototypeRound),
+            (
+                "equals",
+                StandardBuiltinId::TemporalPlainTimePrototypeEquals,
+            ),
+            (
+                "toString",
+                StandardBuiltinId::TemporalPlainTimePrototypeToString,
+            ),
+            (
+                "toJSON",
+                StandardBuiltinId::TemporalPlainTimePrototypeToJson,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
+            ),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalPlainTimePrototypeValueOf,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainTime")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn temporal_plain_time_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::temporal_plain_time_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    /// Temporal proposal 5.3: the `Temporal.PlainDateTime.prototype` shape. The
+    /// order here mirrors `install_temporal_plain_date_time_constructor_intrinsics`,
+    /// because property order is observable through `Object.keys`.
+    fn temporal_plain_date_time_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "calendarId",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter,
+            ),
+            (
+                "era",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter,
+            ),
+            (
+                "year",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter,
+            ),
+            (
+                "month",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter,
+            ),
+            (
+                "monthCode",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter,
+            ),
+            (
+                "day",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter,
+            ),
+            (
+                "hour",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter,
+            ),
+            (
+                "minute",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter,
+            ),
+            (
+                "second",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter,
+            ),
+            (
+                "millisecond",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter,
+            ),
+            (
+                "microsecond",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter,
+            ),
+            (
+                "nanosecond",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter,
+            ),
+            (
+                "dayOfWeek",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter,
+            ),
+            (
+                "dayOfYear",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter,
+            ),
+            (
+                "weekOfYear",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter,
+            ),
+            (
+                "yearOfWeek",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter,
+            ),
+            (
+                "daysInWeek",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter,
+            ),
+            (
+                "daysInMonth",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter,
+            ),
+            (
+                "daysInYear",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter,
+            ),
+            (
+                "monthsInYear",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter,
+            ),
+            (
+                "inLeapYear",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        for (name, builtin) in [
+            (
+                "with",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWith,
+            ),
+            (
+                "withPlainTime",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime,
+            ),
+            (
+                "withCalendar",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar,
+            ),
+            ("add", StandardBuiltinId::TemporalPlainDateTimePrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract,
+            ),
+            (
+                "until",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+            ),
+            (
+                "since",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+            ),
+            (
+                "round",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeRound,
+            ),
+            (
+                "equals",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeEquals,
+            ),
+            (
+                "toString",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToString,
+            ),
+            (
+                "toJSON",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToJson,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
+            ),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf,
+            ),
+            (
+                "toPlainDate",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate,
+            ),
+            (
+                "toPlainTime",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime,
+            ),
+            (
+                "toZonedDateTime",
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDateTime")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn temporal_plain_date_time_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::temporal_plain_date_time_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    /// Temporal proposal 7.3: the `Temporal.Duration.prototype` shape. The
+    /// order here mirrors `install_temporal_duration_constructor_intrinsics`,
+    /// because property order is observable through `Object.keys`.
+    fn temporal_duration_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "years",
+                StandardBuiltinId::TemporalDurationPrototypeYearsGetter,
+            ),
+            (
+                "months",
+                StandardBuiltinId::TemporalDurationPrototypeMonthsGetter,
+            ),
+            (
+                "weeks",
+                StandardBuiltinId::TemporalDurationPrototypeWeeksGetter,
+            ),
+            (
+                "days",
+                StandardBuiltinId::TemporalDurationPrototypeDaysGetter,
+            ),
+            (
+                "hours",
+                StandardBuiltinId::TemporalDurationPrototypeHoursGetter,
+            ),
+            (
+                "minutes",
+                StandardBuiltinId::TemporalDurationPrototypeMinutesGetter,
+            ),
+            (
+                "seconds",
+                StandardBuiltinId::TemporalDurationPrototypeSecondsGetter,
+            ),
+            (
+                "milliseconds",
+                StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter,
+            ),
+            (
+                "microseconds",
+                StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter,
+            ),
+            (
+                "nanoseconds",
+                StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter,
+            ),
+            (
+                "sign",
+                StandardBuiltinId::TemporalDurationPrototypeSignGetter,
+            ),
+            (
+                "blank",
+                StandardBuiltinId::TemporalDurationPrototypeBlankGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        properties.insert(
+            "with".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeWith.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "negated".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeNegated.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "abs".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeAbs.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "add".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeAdd.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "subtract".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeSubtract.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "round".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeRound.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "total".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeTotal.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toString".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeToString.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toJSON".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeToJson.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toLocaleString".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeToLocaleString.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "valueOf".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalDurationPrototypeValueOf.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.Duration")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn temporal_duration_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::temporal_duration_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     fn regexp_prototype_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
         properties.insert(
@@ -3146,6 +3758,94 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
+                StandardBuiltinId::TemporalPlainDateConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::temporal_plain_date_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainDateFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainDateCompare.function_id(),
+                            false,
+                        )),
+                    );
+                }
+                StandardBuiltinId::TemporalPlainDateTimeConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::temporal_plain_date_time_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainDateTimeFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainDateTimeCompare.function_id(),
+                            false,
+                        )),
+                    );
+                }
+                StandardBuiltinId::TemporalPlainTimeConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::temporal_plain_time_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainTimeFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainTimeCompare.function_id(),
+                            false,
+                        )),
+                    );
+                }
+                StandardBuiltinId::TemporalDurationConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::temporal_duration_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalDurationFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalDurationCompare.function_id(),
+                            false,
+                        )),
+                    );
+                }
                 StandardBuiltinId::TemporalZonedDateTimeConstructor => {
                     object.properties.insert(
                         "prototype".to_string(),
@@ -3813,8 +4513,44 @@ impl<'a> ScriptLowerer<'a> {
         }))))
     }
 
+    /// The `Temporal.Now` namespace object: a plain object holding only the
+    /// clock-reading functions this backend actually implements.
+    fn temporal_now_object_value_info() -> ValueInfo {
+        let mut properties = BTreeMap::new();
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.Now")),
+        );
+        for (name, builtin) in [
+            ("timeZoneId", StandardBuiltinId::TemporalNowTimeZoneId),
+            ("instant", StandardBuiltinId::TemporalNowInstant),
+            (
+                "zonedDateTimeISO",
+                StandardBuiltinId::TemporalNowZonedDateTimeIso,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
+        Self::value_info_from_shape(Some(Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))))
+    }
+
     fn temporal_object_value_info() -> ValueInfo {
         let properties = BTreeMap::from([
+            (
+                TEMPORAL_NOW_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::temporal_now_object_value_info()),
+            ),
             (
                 TEMPORAL_INSTANT_NAME.to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
@@ -3822,9 +4558,33 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
+                TEMPORAL_PLAIN_DATE_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::TemporalPlainDateConstructor,
+                )),
+            ),
+            (
+                TEMPORAL_PLAIN_TIME_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::TemporalPlainTimeConstructor,
+                )),
+            ),
+            (
+                TEMPORAL_PLAIN_DATE_TIME_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::TemporalPlainDateTimeConstructor,
+                )),
+            ),
+            (
                 TEMPORAL_ZONED_DATE_TIME_NAME.to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::TemporalZonedDateTimeConstructor,
+                )),
+            ),
+            (
+                TEMPORAL_DURATION_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::TemporalDurationConstructor,
                 )),
             ),
             (
@@ -5187,6 +5947,24 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::date_instance_shape()),
                 Self::value_info_from_shape(Some(Self::date_instance_shape())),
             ),
+            StandardBuiltinId::TemporalNowTimeZoneId => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalNowInstant => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_instant_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalNowZonedDateTimeIso => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_zoned_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
             StandardBuiltinId::TemporalInstantConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -5248,6 +6026,267 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimeConstructor
+            | StandardBuiltinId::TemporalPlainDateTimeFrom
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeRound => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSince => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_zoned_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimeCompare
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateConstructor
+            | StandardBuiltinId::TemporalPlainDateFrom
+            | StandardBuiltinId::TemporalPlainDatePrototypeWith
+            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalDurationConstructor
+            | StandardBuiltinId::TemporalDurationFrom
+            | StandardBuiltinId::TemporalDurationPrototypeWith
+            | StandardBuiltinId::TemporalDurationPrototypeNegated
+            | StandardBuiltinId::TemporalDurationPrototypeAbs
+            | StandardBuiltinId::TemporalDurationPrototypeAdd
+            | StandardBuiltinId::TemporalDurationPrototypeSubtract
+            | StandardBuiltinId::TemporalDurationPrototypeRound => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainTimeConstructor
+            | StandardBuiltinId::TemporalPlainTimeFrom
+            | StandardBuiltinId::TemporalPlainTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainTimePrototypeRound => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainTimePrototypeSince => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainTimeCompare
+            | StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainTimePrototypeEquals => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `valueOf` always throws a TypeError, so it has no return kind that
+            // any caller can observe.
+            StandardBuiltinId::TemporalPlainTimePrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalDurationCompare
+            | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+            | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+            | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+            | StandardBuiltinId::TemporalDurationPrototypeTotal => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalDurationPrototypeToString
+            | StandardBuiltinId::TemporalDurationPrototypeToJson
+            | StandardBuiltinId::TemporalDurationPrototypeToLocaleString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalDurationPrototypeBlankGetter => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalDurationPrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDateCompare
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeToString
+            | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEquals => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `era`/`eraYear` are `undefined` in the ISO 8601 calendar, and ISO
+            // 8601 is the only calendar this backend accepts.
+            StandardBuiltinId::TemporalPlainDatePrototypeEraGetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `valueOf` always throws a TypeError, so it has no return kind that
+            // any caller can observe.
+            StandardBuiltinId::TemporalPlainDatePrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -25029,6 +26068,188 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::DateConstructor => Some(Self::value_info_from_shape(Some(
                 Self::date_instance_shape(),
             ))),
+            StandardBuiltinId::TemporalNowTimeZoneId => Some(ValueInfo::new(ValueKind::String)),
+            StandardBuiltinId::TemporalPlainDateConstructor
+            | StandardBuiltinId::TemporalPlainDateFrom
+            | StandardBuiltinId::TemporalPlainDatePrototypeWith
+            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalDurationConstructor
+            | StandardBuiltinId::TemporalDurationFrom
+            | StandardBuiltinId::TemporalDurationPrototypeWith
+            | StandardBuiltinId::TemporalDurationPrototypeNegated
+            | StandardBuiltinId::TemporalDurationPrototypeAbs
+            | StandardBuiltinId::TemporalDurationPrototypeAdd
+            | StandardBuiltinId::TemporalDurationPrototypeSubtract
+            | StandardBuiltinId::TemporalDurationPrototypeRound => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainTimeConstructor
+            | StandardBuiltinId::TemporalPlainTimeFrom
+            | StandardBuiltinId::TemporalPlainTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainTimePrototypeRound => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainTimePrototypeSince => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainTimeCompare
+            | StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeEquals => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalDurationCompare
+            | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+            | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+            | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+            | StandardBuiltinId::TemporalDurationPrototypeTotal => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::TemporalDurationPrototypeToString
+            | StandardBuiltinId::TemporalDurationPrototypeToJson
+            | StandardBuiltinId::TemporalDurationPrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalDurationPrototypeBlankGetter => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::TemporalDurationPrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalPlainDateCompare
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeToString
+            | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEquals => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalPlainDateTimeConstructor
+            | StandardBuiltinId::TemporalPlainDateTimeFrom
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeRound => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSince => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDateTimeCompare
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
+            StandardBuiltinId::TemporalNowInstant => Some(Self::value_info_from_shape(Some(
+                Self::temporal_instant_instance_shape(),
+            ))),
+            StandardBuiltinId::TemporalNowZonedDateTimeIso => Some(Self::value_info_from_shape(
+                Some(Self::temporal_zoned_date_time_instance_shape()),
+            )),
             StandardBuiltinId::TemporalInstantConstructor => Some(Self::value_info_from_shape(
                 Some(Self::temporal_instant_instance_shape()),
             )),

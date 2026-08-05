@@ -14,6 +14,13 @@
 # growth, and a run whose log stops growing for --stall seconds is killed and
 # reported rather than left to spin.
 #
+# DO NOT pipe the wrapped command through grep, head, tail or any other filter.
+# The guard judges liveness by whether the log is growing, so a filter that
+# discards progress output makes a perfectly healthy run look stalled and get
+# killed. `porf test262 report` streams "test262 checkpoint: N/M cases" lines
+# precisely so this works - filtering them out defeats it. Let the full output
+# reach the log and grep the log afterwards.
+#
 # usage:
 #   ./scripts/run-watched.sh [--label NAME] [--stall SECONDS] [--poll SECONDS] -- <command...>
 #

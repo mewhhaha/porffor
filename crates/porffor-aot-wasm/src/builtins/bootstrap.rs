@@ -338,6 +338,18 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinId::TemporalPlainDateConstructor => self
+                .install_temporal_plain_date_constructor_intrinsics(&intrinsic_context, function)?,
+            StandardBuiltinId::TemporalDurationConstructor => {
+                self.install_temporal_duration_constructor_intrinsics(&intrinsic_context, function)?
+            }
+            StandardBuiltinId::TemporalPlainTimeConstructor => self
+                .install_temporal_plain_time_constructor_intrinsics(&intrinsic_context, function)?,
+            StandardBuiltinId::TemporalPlainDateTimeConstructor => self
+                .install_temporal_plain_date_time_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
             StandardBuiltinId::IntlLocaleConstructor => {
                 self.install_intl_locale_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -825,6 +837,118 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
             | StandardBuiltinId::IntlLocalePrototypeToString
+            | StandardBuiltinId::TemporalPlainDateFrom
+            | StandardBuiltinId::TemporalPlainDateCompare
+            | StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeWith
+            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDatePrototypeEquals
+            | StandardBuiltinId::TemporalPlainDatePrototypeToString
+            | StandardBuiltinId::TemporalPlainDatePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+            | StandardBuiltinId::TemporalDurationFrom
+            | StandardBuiltinId::TemporalDurationCompare
+            | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMonthsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWeeksGetter
+            | StandardBuiltinId::TemporalDurationPrototypeDaysGetter
+            | StandardBuiltinId::TemporalDurationPrototypeHoursGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMinutesGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter
+            | StandardBuiltinId::TemporalDurationPrototypeSignGetter
+            | StandardBuiltinId::TemporalDurationPrototypeBlankGetter
+            | StandardBuiltinId::TemporalDurationPrototypeWith
+            | StandardBuiltinId::TemporalDurationPrototypeNegated
+            | StandardBuiltinId::TemporalDurationPrototypeAbs
+            | StandardBuiltinId::TemporalDurationPrototypeAdd
+            | StandardBuiltinId::TemporalDurationPrototypeSubtract
+            | StandardBuiltinId::TemporalDurationPrototypeRound
+            | StandardBuiltinId::TemporalDurationPrototypeTotal
+            | StandardBuiltinId::TemporalDurationPrototypeToString
+            | StandardBuiltinId::TemporalDurationPrototypeToJson
+            | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
+            | StandardBuiltinId::TemporalDurationPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainTimeFrom
+            | StandardBuiltinId::TemporalPlainTimeCompare
+            | StandardBuiltinId::TemporalPlainTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainTimePrototypeSince
+            | StandardBuiltinId::TemporalPlainTimePrototypeRound
+            | StandardBuiltinId::TemporalPlainTimePrototypeEquals
+            | StandardBuiltinId::TemporalPlainTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainTimePrototypeValueOf
+            | StandardBuiltinId::TemporalPlainDateTimeFrom
+            | StandardBuiltinId::TemporalPlainDateTimeCompare
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeHourGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMinuteGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMillisecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMicrosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeNanosecondGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithPlainTime
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeSince
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeRound
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime
+            | StandardBuiltinId::TemporalNowInstant
+            | StandardBuiltinId::TemporalNowTimeZoneId
+            | StandardBuiltinId::TemporalNowZonedDateTimeIso
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEquals
@@ -1103,6 +1227,78 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Temporal proposal 2.2: the `Temporal.Now` namespace object. It is an
+    /// ordinary object, not a constructor, so it gets no prototype global and
+    /// no branded record — only `Object.prototype`, `Symbol.toStringTag` and
+    /// the clock functions this backend can actually answer.
+    ///
+    /// `plainDateISO`, `plainDateTimeISO` and `plainTimeISO` are deliberately
+    /// absent: `Temporal.PlainDate`, `Temporal.PlainDateTime` and
+    /// `Temporal.PlainTime` do not exist yet, so those functions would have no
+    /// honest value to return.
+    fn init_temporal_now_object(
+        &mut self,
+        object_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(object_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("Temporal.Now")));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+
+        for (name, builtin) in [
+            ("timeZoneId", StandardBuiltinId::TemporalNowTimeZoneId),
+            ("instant", StandardBuiltinId::TemporalNowInstant),
+            (
+                "zonedDateTimeISO",
+                StandardBuiltinId::TemporalNowZonedDateTimeIso,
+            ),
+        ] {
+            if !self
+                .runtime_bootstrap_plan
+                .should_initialize_standard_builtin(builtin)
+            {
+                continue;
+            }
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(object_local, name, meta, function)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn init_temporal_object(
         &mut self,
         function: &mut Function,
@@ -1120,6 +1316,34 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(object_local));
+        if [
+            StandardBuiltinId::TemporalNowTimeZoneId,
+            StandardBuiltinId::TemporalNowInstant,
+            StandardBuiltinId::TemporalNowZonedDateTimeIso,
+        ]
+        .into_iter()
+        .any(|builtin| {
+            self.runtime_bootstrap_plan
+                .should_initialize_standard_builtin(builtin)
+        }) {
+            let now_local = self.reserve_temp_local();
+            let now_tag_local = self.reserve_temp_local();
+            self.init_temporal_now_object(now_local, function)?;
+            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+            function.instruction(&Instruction::LocalSet(now_tag_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_NOW_NAME,
+                now_local,
+                now_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+            self.release_temp_local(now_tag_local);
+            self.release_temp_local(now_local);
+        }
         function.instruction(&Instruction::GlobalGet(
             TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX,
         ));
@@ -1138,6 +1362,25 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         if self
             .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor)
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_PLAIN_DATE_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_PLAIN_DATE_NAME,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor)
         {
             function.instruction(&Instruction::GlobalGet(
@@ -1147,6 +1390,63 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_object_append_local_data_property_with_flags(
                 object_local,
                 "ZonedDateTime",
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainTimeConstructor)
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_PLAIN_TIME_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_PLAIN_TIME_NAME,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor)
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_PLAIN_DATE_TIME_NAME,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalDurationConstructor)
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_DURATION_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_DURATION_NAME,
                 constructor_local,
                 constructor_tag_local,
                 true,
@@ -3447,6 +3747,38 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         function.instruction(&Instruction::GlobalSet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
         self.emit_alloc_plain_object_with_prototype(
             None,
@@ -3675,6 +4007,46 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::TemporalInstantConstructor,
                 TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalPlainDateConstructor,
+                TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalDurationConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalDurationConstructor,
+                TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainTimeConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalPlainTimeConstructor,
+                TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalPlainDateTimeConstructor,
+                TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

@@ -1,3 +1,88 @@
+use crate::names::{
+    BUILTIN_TEMPORAL_DURATION_COMPARE_FUNCTION_ID, BUILTIN_TEMPORAL_DURATION_FROM_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_FUNCTION_ID, BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ABS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ADD_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_BLANK_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_DAYS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_HOURS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MICROSECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MILLISECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MINUTES_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MONTHS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NANOSECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NEGATED_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ROUND_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SECONDS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SIGN_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SUBTRACT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TOTAL_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_JSON_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_VALUE_OF_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WEEKS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WITH_FUNCTION_ID,
+    BUILTIN_TEMPORAL_DURATION_PROTOTYPE_YEARS_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_COMPARE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FROM_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_PLAIN_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_COMPARE_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_TIME_FROM_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ADD_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ROUND_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SINCE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_UNTIL_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_WITH_FUNCTION_ID,
+};
 use crate::{
     FunctionId, AGENT_BROADCAST_NAME, AGENT_GET_REPORT_NAME, AGENT_LEAVING_NAME,
     AGENT_MONOTONIC_NOW_NAME, AGENT_RECEIVE_BROADCAST_NAME, AGENT_REPORT_NAME, AGENT_SLEEP_NAME,
@@ -300,6 +385,33 @@ use crate::{
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID, BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID,
+    BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
@@ -766,6 +878,122 @@ pub enum StandardBuiltinId {
     DatePrototypeToTimeString,
     DatePrototypeToString,
     DatePrototypeToUtcString,
+    TemporalPlainDateConstructor,
+    TemporalPlainDateFrom,
+    TemporalPlainDateCompare,
+    TemporalPlainDatePrototypeCalendarIdGetter,
+    TemporalPlainDatePrototypeEraGetter,
+    TemporalPlainDatePrototypeEraYearGetter,
+    TemporalPlainDatePrototypeYearGetter,
+    TemporalPlainDatePrototypeMonthGetter,
+    TemporalPlainDatePrototypeMonthCodeGetter,
+    TemporalPlainDatePrototypeDayGetter,
+    TemporalPlainDatePrototypeDayOfWeekGetter,
+    TemporalPlainDatePrototypeDayOfYearGetter,
+    TemporalPlainDatePrototypeWeekOfYearGetter,
+    TemporalPlainDatePrototypeYearOfWeekGetter,
+    TemporalPlainDatePrototypeDaysInWeekGetter,
+    TemporalPlainDatePrototypeDaysInMonthGetter,
+    TemporalPlainDatePrototypeDaysInYearGetter,
+    TemporalPlainDatePrototypeMonthsInYearGetter,
+    TemporalPlainDatePrototypeInLeapYearGetter,
+    TemporalPlainDatePrototypeWith,
+    TemporalPlainDatePrototypeWithCalendar,
+    TemporalPlainDatePrototypeEquals,
+    TemporalPlainDatePrototypeToString,
+    TemporalPlainDatePrototypeToJson,
+    TemporalPlainDatePrototypeToLocaleString,
+    TemporalPlainDatePrototypeValueOf,
+    TemporalPlainTimeConstructor,
+    TemporalPlainTimeFrom,
+    TemporalPlainTimeCompare,
+    TemporalPlainTimePrototypeHourGetter,
+    TemporalPlainTimePrototypeMinuteGetter,
+    TemporalPlainTimePrototypeSecondGetter,
+    TemporalPlainTimePrototypeMillisecondGetter,
+    TemporalPlainTimePrototypeMicrosecondGetter,
+    TemporalPlainTimePrototypeNanosecondGetter,
+    TemporalPlainTimePrototypeWith,
+    TemporalPlainTimePrototypeAdd,
+    TemporalPlainTimePrototypeSubtract,
+    TemporalPlainTimePrototypeUntil,
+    TemporalPlainTimePrototypeSince,
+    TemporalPlainTimePrototypeRound,
+    TemporalPlainTimePrototypeEquals,
+    TemporalPlainTimePrototypeToString,
+    TemporalPlainTimePrototypeToJson,
+    TemporalPlainTimePrototypeToLocaleString,
+    TemporalPlainTimePrototypeValueOf,
+    TemporalPlainDateTimeConstructor,
+    TemporalPlainDateTimeFrom,
+    TemporalPlainDateTimeCompare,
+    TemporalPlainDateTimePrototypeCalendarIdGetter,
+    TemporalPlainDateTimePrototypeEraGetter,
+    TemporalPlainDateTimePrototypeEraYearGetter,
+    TemporalPlainDateTimePrototypeYearGetter,
+    TemporalPlainDateTimePrototypeMonthGetter,
+    TemporalPlainDateTimePrototypeMonthCodeGetter,
+    TemporalPlainDateTimePrototypeDayGetter,
+    TemporalPlainDateTimePrototypeHourGetter,
+    TemporalPlainDateTimePrototypeMinuteGetter,
+    TemporalPlainDateTimePrototypeSecondGetter,
+    TemporalPlainDateTimePrototypeMillisecondGetter,
+    TemporalPlainDateTimePrototypeMicrosecondGetter,
+    TemporalPlainDateTimePrototypeNanosecondGetter,
+    TemporalPlainDateTimePrototypeDayOfWeekGetter,
+    TemporalPlainDateTimePrototypeDayOfYearGetter,
+    TemporalPlainDateTimePrototypeWeekOfYearGetter,
+    TemporalPlainDateTimePrototypeYearOfWeekGetter,
+    TemporalPlainDateTimePrototypeDaysInWeekGetter,
+    TemporalPlainDateTimePrototypeDaysInMonthGetter,
+    TemporalPlainDateTimePrototypeDaysInYearGetter,
+    TemporalPlainDateTimePrototypeMonthsInYearGetter,
+    TemporalPlainDateTimePrototypeInLeapYearGetter,
+    TemporalPlainDateTimePrototypeWith,
+    TemporalPlainDateTimePrototypeWithPlainTime,
+    TemporalPlainDateTimePrototypeWithCalendar,
+    TemporalPlainDateTimePrototypeAdd,
+    TemporalPlainDateTimePrototypeSubtract,
+    TemporalPlainDateTimePrototypeUntil,
+    TemporalPlainDateTimePrototypeSince,
+    TemporalPlainDateTimePrototypeRound,
+    TemporalPlainDateTimePrototypeEquals,
+    TemporalPlainDateTimePrototypeToString,
+    TemporalPlainDateTimePrototypeToJson,
+    TemporalPlainDateTimePrototypeToLocaleString,
+    TemporalPlainDateTimePrototypeValueOf,
+    TemporalPlainDateTimePrototypeToPlainDate,
+    TemporalPlainDateTimePrototypeToPlainTime,
+    TemporalPlainDateTimePrototypeToZonedDateTime,
+    TemporalDurationConstructor,
+    TemporalDurationFrom,
+    TemporalDurationCompare,
+    TemporalDurationPrototypeYearsGetter,
+    TemporalDurationPrototypeMonthsGetter,
+    TemporalDurationPrototypeWeeksGetter,
+    TemporalDurationPrototypeDaysGetter,
+    TemporalDurationPrototypeHoursGetter,
+    TemporalDurationPrototypeMinutesGetter,
+    TemporalDurationPrototypeSecondsGetter,
+    TemporalDurationPrototypeMillisecondsGetter,
+    TemporalDurationPrototypeMicrosecondsGetter,
+    TemporalDurationPrototypeNanosecondsGetter,
+    TemporalDurationPrototypeSignGetter,
+    TemporalDurationPrototypeBlankGetter,
+    TemporalDurationPrototypeWith,
+    TemporalDurationPrototypeNegated,
+    TemporalDurationPrototypeAbs,
+    TemporalDurationPrototypeAdd,
+    TemporalDurationPrototypeSubtract,
+    TemporalDurationPrototypeRound,
+    TemporalDurationPrototypeTotal,
+    TemporalDurationPrototypeToString,
+    TemporalDurationPrototypeToJson,
+    TemporalDurationPrototypeToLocaleString,
+    TemporalDurationPrototypeValueOf,
+    TemporalNowInstant,
+    TemporalNowTimeZoneId,
+    TemporalNowZonedDateTimeIso,
     TemporalInstantConstructor,
     TemporalInstantFrom,
     TemporalInstantPrototypeEpochMillisecondsGetter,
@@ -1166,7 +1394,123 @@ impl StandardBuiltinId {
             Self::SharedArrayBufferConstructor => Some(SHARED_ARRAY_BUFFER_NAME),
             Self::DataViewConstructor => Some(DATA_VIEW_NAME),
             Self::DateConstructor => Some(DATE_NAME),
-            Self::TemporalInstantConstructor
+            Self::TemporalPlainDateConstructor
+            | Self::TemporalPlainDateFrom
+            | Self::TemporalPlainDateCompare
+            | Self::TemporalPlainDatePrototypeCalendarIdGetter
+            | Self::TemporalPlainDatePrototypeEraGetter
+            | Self::TemporalPlainDatePrototypeEraYearGetter
+            | Self::TemporalPlainDatePrototypeYearGetter
+            | Self::TemporalPlainDatePrototypeMonthGetter
+            | Self::TemporalPlainDatePrototypeMonthCodeGetter
+            | Self::TemporalPlainDatePrototypeDayGetter
+            | Self::TemporalPlainDatePrototypeDayOfWeekGetter
+            | Self::TemporalPlainDatePrototypeDayOfYearGetter
+            | Self::TemporalPlainDatePrototypeWeekOfYearGetter
+            | Self::TemporalPlainDatePrototypeYearOfWeekGetter
+            | Self::TemporalPlainDatePrototypeDaysInWeekGetter
+            | Self::TemporalPlainDatePrototypeDaysInMonthGetter
+            | Self::TemporalPlainDatePrototypeDaysInYearGetter
+            | Self::TemporalPlainDatePrototypeMonthsInYearGetter
+            | Self::TemporalPlainDatePrototypeInLeapYearGetter
+            | Self::TemporalPlainDatePrototypeWith
+            | Self::TemporalPlainDatePrototypeWithCalendar
+            | Self::TemporalPlainDatePrototypeEquals
+            | Self::TemporalPlainDatePrototypeToString
+            | Self::TemporalPlainDatePrototypeToJson
+            | Self::TemporalPlainDatePrototypeToLocaleString
+            | Self::TemporalPlainDatePrototypeValueOf
+            | Self::TemporalPlainTimeConstructor
+            | Self::TemporalPlainTimeFrom
+            | Self::TemporalPlainTimeCompare
+            | Self::TemporalPlainTimePrototypeHourGetter
+            | Self::TemporalPlainTimePrototypeMinuteGetter
+            | Self::TemporalPlainTimePrototypeSecondGetter
+            | Self::TemporalPlainTimePrototypeMillisecondGetter
+            | Self::TemporalPlainTimePrototypeMicrosecondGetter
+            | Self::TemporalPlainTimePrototypeNanosecondGetter
+            | Self::TemporalPlainTimePrototypeWith
+            | Self::TemporalPlainTimePrototypeAdd
+            | Self::TemporalPlainTimePrototypeSubtract
+            | Self::TemporalPlainTimePrototypeUntil
+            | Self::TemporalPlainTimePrototypeSince
+            | Self::TemporalPlainTimePrototypeRound
+            | Self::TemporalPlainTimePrototypeEquals
+            | Self::TemporalPlainTimePrototypeToString
+            | Self::TemporalPlainTimePrototypeToJson
+            | Self::TemporalPlainTimePrototypeToLocaleString
+            | Self::TemporalPlainTimePrototypeValueOf
+            | Self::TemporalPlainDateTimeConstructor
+            | Self::TemporalPlainDateTimeFrom
+            | Self::TemporalPlainDateTimeCompare
+            | Self::TemporalPlainDateTimePrototypeCalendarIdGetter
+            | Self::TemporalPlainDateTimePrototypeEraGetter
+            | Self::TemporalPlainDateTimePrototypeEraYearGetter
+            | Self::TemporalPlainDateTimePrototypeYearGetter
+            | Self::TemporalPlainDateTimePrototypeMonthGetter
+            | Self::TemporalPlainDateTimePrototypeMonthCodeGetter
+            | Self::TemporalPlainDateTimePrototypeDayGetter
+            | Self::TemporalPlainDateTimePrototypeHourGetter
+            | Self::TemporalPlainDateTimePrototypeMinuteGetter
+            | Self::TemporalPlainDateTimePrototypeSecondGetter
+            | Self::TemporalPlainDateTimePrototypeMillisecondGetter
+            | Self::TemporalPlainDateTimePrototypeMicrosecondGetter
+            | Self::TemporalPlainDateTimePrototypeNanosecondGetter
+            | Self::TemporalPlainDateTimePrototypeDayOfWeekGetter
+            | Self::TemporalPlainDateTimePrototypeDayOfYearGetter
+            | Self::TemporalPlainDateTimePrototypeWeekOfYearGetter
+            | Self::TemporalPlainDateTimePrototypeYearOfWeekGetter
+            | Self::TemporalPlainDateTimePrototypeDaysInWeekGetter
+            | Self::TemporalPlainDateTimePrototypeDaysInMonthGetter
+            | Self::TemporalPlainDateTimePrototypeDaysInYearGetter
+            | Self::TemporalPlainDateTimePrototypeMonthsInYearGetter
+            | Self::TemporalPlainDateTimePrototypeInLeapYearGetter
+            | Self::TemporalPlainDateTimePrototypeWith
+            | Self::TemporalPlainDateTimePrototypeWithPlainTime
+            | Self::TemporalPlainDateTimePrototypeWithCalendar
+            | Self::TemporalPlainDateTimePrototypeAdd
+            | Self::TemporalPlainDateTimePrototypeSubtract
+            | Self::TemporalPlainDateTimePrototypeUntil
+            | Self::TemporalPlainDateTimePrototypeSince
+            | Self::TemporalPlainDateTimePrototypeRound
+            | Self::TemporalPlainDateTimePrototypeEquals
+            | Self::TemporalPlainDateTimePrototypeToString
+            | Self::TemporalPlainDateTimePrototypeToJson
+            | Self::TemporalPlainDateTimePrototypeToLocaleString
+            | Self::TemporalPlainDateTimePrototypeValueOf
+            | Self::TemporalPlainDateTimePrototypeToPlainDate
+            | Self::TemporalPlainDateTimePrototypeToPlainTime
+            | Self::TemporalPlainDateTimePrototypeToZonedDateTime
+            | Self::TemporalDurationConstructor
+            | Self::TemporalDurationFrom
+            | Self::TemporalDurationCompare
+            | Self::TemporalDurationPrototypeYearsGetter
+            | Self::TemporalDurationPrototypeMonthsGetter
+            | Self::TemporalDurationPrototypeWeeksGetter
+            | Self::TemporalDurationPrototypeDaysGetter
+            | Self::TemporalDurationPrototypeHoursGetter
+            | Self::TemporalDurationPrototypeMinutesGetter
+            | Self::TemporalDurationPrototypeSecondsGetter
+            | Self::TemporalDurationPrototypeMillisecondsGetter
+            | Self::TemporalDurationPrototypeMicrosecondsGetter
+            | Self::TemporalDurationPrototypeNanosecondsGetter
+            | Self::TemporalDurationPrototypeSignGetter
+            | Self::TemporalDurationPrototypeBlankGetter
+            | Self::TemporalDurationPrototypeWith
+            | Self::TemporalDurationPrototypeNegated
+            | Self::TemporalDurationPrototypeAbs
+            | Self::TemporalDurationPrototypeAdd
+            | Self::TemporalDurationPrototypeSubtract
+            | Self::TemporalDurationPrototypeRound
+            | Self::TemporalDurationPrototypeTotal
+            | Self::TemporalDurationPrototypeToString
+            | Self::TemporalDurationPrototypeToJson
+            | Self::TemporalDurationPrototypeToLocaleString
+            | Self::TemporalDurationPrototypeValueOf
+            | Self::TemporalNowInstant
+            | Self::TemporalNowTimeZoneId
+            | Self::TemporalNowZonedDateTimeIso
+            | Self::TemporalInstantConstructor
             | Self::TemporalInstantFrom
             | Self::TemporalInstantPrototypeEpochMillisecondsGetter
             | Self::TemporalInstantPrototypeEpochNanosecondsGetter
@@ -1978,6 +2322,236 @@ impl StandardBuiltinId {
             Self::DatePrototypeToTimeString => "Date.prototype.toTimeString",
             Self::DatePrototypeToString => "Date.prototype.toString",
             Self::DatePrototypeToUtcString => "Date.prototype.toUTCString",
+            Self::TemporalPlainDateConstructor => "Temporal.PlainDate",
+            Self::TemporalPlainDateFrom => "Temporal.PlainDate.from",
+            Self::TemporalPlainDateCompare => "Temporal.PlainDate.compare",
+            Self::TemporalPlainDatePrototypeCalendarIdGetter => {
+                "get Temporal.PlainDate.prototype.calendarId"
+            }
+            Self::TemporalPlainDatePrototypeEraGetter => "get Temporal.PlainDate.prototype.era",
+            Self::TemporalPlainDatePrototypeEraYearGetter => {
+                "get Temporal.PlainDate.prototype.eraYear"
+            }
+            Self::TemporalPlainDatePrototypeYearGetter => "get Temporal.PlainDate.prototype.year",
+            Self::TemporalPlainDatePrototypeMonthGetter => "get Temporal.PlainDate.prototype.month",
+            Self::TemporalPlainDatePrototypeMonthCodeGetter => {
+                "get Temporal.PlainDate.prototype.monthCode"
+            }
+            Self::TemporalPlainDatePrototypeDayGetter => "get Temporal.PlainDate.prototype.day",
+            Self::TemporalPlainDatePrototypeDayOfWeekGetter => {
+                "get Temporal.PlainDate.prototype.dayOfWeek"
+            }
+            Self::TemporalPlainDatePrototypeDayOfYearGetter => {
+                "get Temporal.PlainDate.prototype.dayOfYear"
+            }
+            Self::TemporalPlainDatePrototypeWeekOfYearGetter => {
+                "get Temporal.PlainDate.prototype.weekOfYear"
+            }
+            Self::TemporalPlainDatePrototypeYearOfWeekGetter => {
+                "get Temporal.PlainDate.prototype.yearOfWeek"
+            }
+            Self::TemporalPlainDatePrototypeDaysInWeekGetter => {
+                "get Temporal.PlainDate.prototype.daysInWeek"
+            }
+            Self::TemporalPlainDatePrototypeDaysInMonthGetter => {
+                "get Temporal.PlainDate.prototype.daysInMonth"
+            }
+            Self::TemporalPlainDatePrototypeDaysInYearGetter => {
+                "get Temporal.PlainDate.prototype.daysInYear"
+            }
+            Self::TemporalPlainDatePrototypeMonthsInYearGetter => {
+                "get Temporal.PlainDate.prototype.monthsInYear"
+            }
+            Self::TemporalPlainDatePrototypeInLeapYearGetter => {
+                "get Temporal.PlainDate.prototype.inLeapYear"
+            }
+            Self::TemporalPlainDatePrototypeWith => "Temporal.PlainDate.prototype.with",
+            Self::TemporalPlainDatePrototypeWithCalendar => {
+                "Temporal.PlainDate.prototype.withCalendar"
+            }
+            Self::TemporalPlainDatePrototypeEquals => "Temporal.PlainDate.prototype.equals",
+            Self::TemporalPlainDatePrototypeToString => "Temporal.PlainDate.prototype.toString",
+            Self::TemporalPlainDatePrototypeToJson => "Temporal.PlainDate.prototype.toJSON",
+            Self::TemporalPlainDatePrototypeToLocaleString => {
+                "Temporal.PlainDate.prototype.toLocaleString"
+            }
+            Self::TemporalPlainDatePrototypeValueOf => "Temporal.PlainDate.prototype.valueOf",
+            Self::TemporalPlainTimeConstructor => "Temporal.PlainTime",
+            Self::TemporalPlainTimeFrom => "Temporal.PlainTime.from",
+            Self::TemporalPlainTimeCompare => "Temporal.PlainTime.compare",
+            Self::TemporalPlainTimePrototypeHourGetter => "get Temporal.PlainTime.prototype.hour",
+            Self::TemporalPlainTimePrototypeMinuteGetter => {
+                "get Temporal.PlainTime.prototype.minute"
+            }
+            Self::TemporalPlainTimePrototypeSecondGetter => {
+                "get Temporal.PlainTime.prototype.second"
+            }
+            Self::TemporalPlainTimePrototypeMillisecondGetter => {
+                "get Temporal.PlainTime.prototype.millisecond"
+            }
+            Self::TemporalPlainTimePrototypeMicrosecondGetter => {
+                "get Temporal.PlainTime.prototype.microsecond"
+            }
+            Self::TemporalPlainTimePrototypeNanosecondGetter => {
+                "get Temporal.PlainTime.prototype.nanosecond"
+            }
+            Self::TemporalPlainTimePrototypeWith => "Temporal.PlainTime.prototype.with",
+            Self::TemporalPlainTimePrototypeAdd => "Temporal.PlainTime.prototype.add",
+            Self::TemporalPlainTimePrototypeSubtract => "Temporal.PlainTime.prototype.subtract",
+            Self::TemporalPlainTimePrototypeUntil => "Temporal.PlainTime.prototype.until",
+            Self::TemporalPlainTimePrototypeSince => "Temporal.PlainTime.prototype.since",
+            Self::TemporalPlainTimePrototypeRound => "Temporal.PlainTime.prototype.round",
+            Self::TemporalPlainTimePrototypeEquals => "Temporal.PlainTime.prototype.equals",
+            Self::TemporalPlainTimePrototypeToString => "Temporal.PlainTime.prototype.toString",
+            Self::TemporalPlainTimePrototypeToJson => "Temporal.PlainTime.prototype.toJSON",
+            Self::TemporalPlainTimePrototypeToLocaleString => {
+                "Temporal.PlainTime.prototype.toLocaleString"
+            }
+            Self::TemporalPlainTimePrototypeValueOf => "Temporal.PlainTime.prototype.valueOf",
+            Self::TemporalPlainDateTimeConstructor => "Temporal.PlainDateTime",
+            Self::TemporalPlainDateTimeFrom => "Temporal.PlainDateTime.from",
+            Self::TemporalPlainDateTimeCompare => "Temporal.PlainDateTime.compare",
+            Self::TemporalPlainDateTimePrototypeCalendarIdGetter => {
+                "get Temporal.PlainDateTime.prototype.calendarId"
+            }
+            Self::TemporalPlainDateTimePrototypeEraGetter => {
+                "get Temporal.PlainDateTime.prototype.era"
+            }
+            Self::TemporalPlainDateTimePrototypeEraYearGetter => {
+                "get Temporal.PlainDateTime.prototype.eraYear"
+            }
+            Self::TemporalPlainDateTimePrototypeYearGetter => {
+                "get Temporal.PlainDateTime.prototype.year"
+            }
+            Self::TemporalPlainDateTimePrototypeMonthGetter => {
+                "get Temporal.PlainDateTime.prototype.month"
+            }
+            Self::TemporalPlainDateTimePrototypeMonthCodeGetter => {
+                "get Temporal.PlainDateTime.prototype.monthCode"
+            }
+            Self::TemporalPlainDateTimePrototypeDayGetter => {
+                "get Temporal.PlainDateTime.prototype.day"
+            }
+            Self::TemporalPlainDateTimePrototypeHourGetter => {
+                "get Temporal.PlainDateTime.prototype.hour"
+            }
+            Self::TemporalPlainDateTimePrototypeMinuteGetter => {
+                "get Temporal.PlainDateTime.prototype.minute"
+            }
+            Self::TemporalPlainDateTimePrototypeSecondGetter => {
+                "get Temporal.PlainDateTime.prototype.second"
+            }
+            Self::TemporalPlainDateTimePrototypeMillisecondGetter => {
+                "get Temporal.PlainDateTime.prototype.millisecond"
+            }
+            Self::TemporalPlainDateTimePrototypeMicrosecondGetter => {
+                "get Temporal.PlainDateTime.prototype.microsecond"
+            }
+            Self::TemporalPlainDateTimePrototypeNanosecondGetter => {
+                "get Temporal.PlainDateTime.prototype.nanosecond"
+            }
+            Self::TemporalPlainDateTimePrototypeDayOfWeekGetter => {
+                "get Temporal.PlainDateTime.prototype.dayOfWeek"
+            }
+            Self::TemporalPlainDateTimePrototypeDayOfYearGetter => {
+                "get Temporal.PlainDateTime.prototype.dayOfYear"
+            }
+            Self::TemporalPlainDateTimePrototypeWeekOfYearGetter => {
+                "get Temporal.PlainDateTime.prototype.weekOfYear"
+            }
+            Self::TemporalPlainDateTimePrototypeYearOfWeekGetter => {
+                "get Temporal.PlainDateTime.prototype.yearOfWeek"
+            }
+            Self::TemporalPlainDateTimePrototypeDaysInWeekGetter => {
+                "get Temporal.PlainDateTime.prototype.daysInWeek"
+            }
+            Self::TemporalPlainDateTimePrototypeDaysInMonthGetter => {
+                "get Temporal.PlainDateTime.prototype.daysInMonth"
+            }
+            Self::TemporalPlainDateTimePrototypeDaysInYearGetter => {
+                "get Temporal.PlainDateTime.prototype.daysInYear"
+            }
+            Self::TemporalPlainDateTimePrototypeMonthsInYearGetter => {
+                "get Temporal.PlainDateTime.prototype.monthsInYear"
+            }
+            Self::TemporalPlainDateTimePrototypeInLeapYearGetter => {
+                "get Temporal.PlainDateTime.prototype.inLeapYear"
+            }
+            Self::TemporalPlainDateTimePrototypeWith => "Temporal.PlainDateTime.prototype.with",
+            Self::TemporalPlainDateTimePrototypeWithPlainTime => {
+                "Temporal.PlainDateTime.prototype.withPlainTime"
+            }
+            Self::TemporalPlainDateTimePrototypeWithCalendar => {
+                "Temporal.PlainDateTime.prototype.withCalendar"
+            }
+            Self::TemporalPlainDateTimePrototypeAdd => "Temporal.PlainDateTime.prototype.add",
+            Self::TemporalPlainDateTimePrototypeSubtract => {
+                "Temporal.PlainDateTime.prototype.subtract"
+            }
+            Self::TemporalPlainDateTimePrototypeUntil => "Temporal.PlainDateTime.prototype.until",
+            Self::TemporalPlainDateTimePrototypeSince => "Temporal.PlainDateTime.prototype.since",
+            Self::TemporalPlainDateTimePrototypeRound => "Temporal.PlainDateTime.prototype.round",
+            Self::TemporalPlainDateTimePrototypeEquals => "Temporal.PlainDateTime.prototype.equals",
+            Self::TemporalPlainDateTimePrototypeToString => {
+                "Temporal.PlainDateTime.prototype.toString"
+            }
+            Self::TemporalPlainDateTimePrototypeToJson => "Temporal.PlainDateTime.prototype.toJSON",
+            Self::TemporalPlainDateTimePrototypeToLocaleString => {
+                "Temporal.PlainDateTime.prototype.toLocaleString"
+            }
+            Self::TemporalPlainDateTimePrototypeValueOf => {
+                "Temporal.PlainDateTime.prototype.valueOf"
+            }
+            Self::TemporalPlainDateTimePrototypeToPlainDate => {
+                "Temporal.PlainDateTime.prototype.toPlainDate"
+            }
+            Self::TemporalPlainDateTimePrototypeToPlainTime => {
+                "Temporal.PlainDateTime.prototype.toPlainTime"
+            }
+            Self::TemporalPlainDateTimePrototypeToZonedDateTime => {
+                "Temporal.PlainDateTime.prototype.toZonedDateTime"
+            }
+            Self::TemporalDurationConstructor => "Temporal.Duration",
+            Self::TemporalDurationFrom => "Temporal.Duration.from",
+            Self::TemporalDurationCompare => "Temporal.Duration.compare",
+            Self::TemporalDurationPrototypeYearsGetter => "get Temporal.Duration.prototype.years",
+            Self::TemporalDurationPrototypeMonthsGetter => "get Temporal.Duration.prototype.months",
+            Self::TemporalDurationPrototypeWeeksGetter => "get Temporal.Duration.prototype.weeks",
+            Self::TemporalDurationPrototypeDaysGetter => "get Temporal.Duration.prototype.days",
+            Self::TemporalDurationPrototypeHoursGetter => "get Temporal.Duration.prototype.hours",
+            Self::TemporalDurationPrototypeMinutesGetter => {
+                "get Temporal.Duration.prototype.minutes"
+            }
+            Self::TemporalDurationPrototypeSecondsGetter => {
+                "get Temporal.Duration.prototype.seconds"
+            }
+            Self::TemporalDurationPrototypeMillisecondsGetter => {
+                "get Temporal.Duration.prototype.milliseconds"
+            }
+            Self::TemporalDurationPrototypeMicrosecondsGetter => {
+                "get Temporal.Duration.prototype.microseconds"
+            }
+            Self::TemporalDurationPrototypeNanosecondsGetter => {
+                "get Temporal.Duration.prototype.nanoseconds"
+            }
+            Self::TemporalDurationPrototypeSignGetter => "get Temporal.Duration.prototype.sign",
+            Self::TemporalDurationPrototypeBlankGetter => "get Temporal.Duration.prototype.blank",
+            Self::TemporalDurationPrototypeWith => "Temporal.Duration.prototype.with",
+            Self::TemporalDurationPrototypeNegated => "Temporal.Duration.prototype.negated",
+            Self::TemporalDurationPrototypeAbs => "Temporal.Duration.prototype.abs",
+            Self::TemporalDurationPrototypeAdd => "Temporal.Duration.prototype.add",
+            Self::TemporalDurationPrototypeSubtract => "Temporal.Duration.prototype.subtract",
+            Self::TemporalDurationPrototypeRound => "Temporal.Duration.prototype.round",
+            Self::TemporalDurationPrototypeTotal => "Temporal.Duration.prototype.total",
+            Self::TemporalDurationPrototypeToString => "Temporal.Duration.prototype.toString",
+            Self::TemporalDurationPrototypeToJson => "Temporal.Duration.prototype.toJSON",
+            Self::TemporalDurationPrototypeToLocaleString => {
+                "Temporal.Duration.prototype.toLocaleString"
+            }
+            Self::TemporalDurationPrototypeValueOf => "Temporal.Duration.prototype.valueOf",
+            Self::TemporalNowInstant => "Temporal.Now.instant",
+            Self::TemporalNowTimeZoneId => "Temporal.Now.timeZoneId",
+            Self::TemporalNowZonedDateTimeIso => "Temporal.Now.zonedDateTimeISO",
             Self::TemporalInstantConstructor => "Temporal.Instant",
             Self::TemporalInstantFrom => "Temporal.Instant.from",
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
@@ -2950,6 +3524,357 @@ impl StandardBuiltinId {
             Self::DatePrototypeToString => BUILTIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string(),
             Self::DatePrototypeToUtcString => {
                 BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateConstructor => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateFrom => BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID.to_string(),
+            Self::TemporalPlainDateCompare => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeCalendarIdGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeEraGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeEraYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeMonthGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeMonthCodeGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeDayGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeDayOfWeekGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeDayOfYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeWeekOfYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeYearOfWeekGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeDaysInWeekGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeDaysInMonthGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeDaysInYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeMonthsInYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeInLeapYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeWith => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeWithCalendar => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeEquals => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_EQUALS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeToString => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeToJson => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeToLocaleString => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeValueOf => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimeConstructor => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimeFrom => BUILTIN_TEMPORAL_PLAIN_TIME_FROM_FUNCTION_ID.to_string(),
+            Self::TemporalPlainTimeCompare => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeHourGetter => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeMinuteGetter => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeSecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeMillisecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeMicrosecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeNanosecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeWith => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_WITH_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeAdd => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ADD_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeSubtract => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeUntil => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_UNTIL_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeSince => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SINCE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeRound => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ROUND_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeEquals => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_EQUALS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeToString => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeToJson => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeToLocaleString => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainTimePrototypeValueOf => {
+                BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimeConstructor => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimeFrom => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FROM_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimeCompare => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeCalendarIdGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeEraGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeEraYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeMonthGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeMonthCodeGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeDayGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeHourGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeMinuteGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeSecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeMillisecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeMicrosecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeNanosecondGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeDayOfWeekGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeDayOfYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeWeekOfYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeYearOfWeekGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeDaysInWeekGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeDaysInMonthGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeDaysInYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeMonthsInYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeInLeapYearGetter => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeWith => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeWithPlainTime => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_PLAIN_TIME_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeWithCalendar => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeAdd => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeSubtract => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeUntil => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeSince => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeRound => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeEquals => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeToString => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeToJson => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeToLocaleString => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeValueOf => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeToPlainDate => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeToPlainTime => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_TIME_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDateTimePrototypeToZonedDateTime => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID
+                    .to_string()
+            }
+            Self::TemporalDurationConstructor => BUILTIN_TEMPORAL_DURATION_FUNCTION_ID.to_string(),
+            Self::TemporalDurationFrom => BUILTIN_TEMPORAL_DURATION_FROM_FUNCTION_ID.to_string(),
+            Self::TemporalDurationCompare => {
+                BUILTIN_TEMPORAL_DURATION_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeYearsGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_YEARS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeMonthsGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MONTHS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeWeeksGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WEEKS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeDaysGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_DAYS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeHoursGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_HOURS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeMinutesGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MINUTES_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeSecondsGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SECONDS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeMillisecondsGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MILLISECONDS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeMicrosecondsGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MICROSECONDS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeNanosecondsGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NANOSECONDS_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeSignGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SIGN_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeBlankGetter => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_BLANK_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeWith => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WITH_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeNegated => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NEGATED_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeAbs => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ABS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeAdd => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ADD_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeSubtract => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SUBTRACT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeRound => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ROUND_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeTotal => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TOTAL_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeToString => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeToJson => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeToLocaleString => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalDurationPrototypeValueOf => {
+                BUILTIN_TEMPORAL_DURATION_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
+            }
+            Self::TemporalNowInstant => BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID.to_string(),
+            Self::TemporalNowTimeZoneId => {
+                BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID.to_string()
+            }
+            Self::TemporalNowZonedDateTimeIso => {
+                BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID.to_string()
             }
             Self::TemporalInstantConstructor => BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID.to_string(),
             Self::TemporalInstantFrom => BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID.to_string(),
@@ -4019,6 +4944,332 @@ impl StandardBuiltinId {
             BUILTIN_DATE_PROTOTYPE_TO_UTC_STRING_FUNCTION_ID => {
                 Some(Self::DatePrototypeToUtcString)
             }
+            BUILTIN_TEMPORAL_PLAIN_DATE_FUNCTION_ID => Some(Self::TemporalPlainDateConstructor),
+            BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID => Some(Self::TemporalPlainDateFrom),
+            BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID => Some(Self::TemporalPlainDateCompare),
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeCalendarIdGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeEraGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeEraYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeMonthGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeMonthCodeGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeDayGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeDayOfWeekGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeDayOfYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeWeekOfYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeYearOfWeekGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeDaysInWeekGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeDaysInMonthGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeDaysInYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeMonthsInYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeInLeapYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeWith)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeWithCalendar)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_EQUALS_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeEquals)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeToString)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeToJson)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeToLocaleString)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeValueOf)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_FUNCTION_ID => Some(Self::TemporalPlainTimeConstructor),
+            BUILTIN_TEMPORAL_PLAIN_TIME_FROM_FUNCTION_ID => Some(Self::TemporalPlainTimeFrom),
+            BUILTIN_TEMPORAL_PLAIN_TIME_COMPARE_FUNCTION_ID => Some(Self::TemporalPlainTimeCompare),
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeHourGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeMinuteGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeSecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeMillisecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeMicrosecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeNanosecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_WITH_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeWith)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ADD_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeAdd)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeSubtract)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_UNTIL_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeUntil)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_SINCE_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeSince)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_ROUND_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeRound)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_EQUALS_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeEquals)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeToString)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeToJson)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeToLocaleString)
+            }
+            BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
+                Some(Self::TemporalPlainTimePrototypeValueOf)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimeConstructor)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_FROM_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimeFrom)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_COMPARE_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimeCompare)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeCalendarIdGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeEraGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeEraYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeMonthGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeMonthCodeGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeDayGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeHourGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeMinuteGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeSecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeMillisecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeMicrosecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeNanosecondGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeDayOfWeekGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeDayOfYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeWeekOfYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeYearOfWeekGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeDaysInWeekGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeDaysInMonthGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeDaysInYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeMonthsInYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeInLeapYearGetter)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeWith)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_PLAIN_TIME_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeWithPlainTime)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeWithCalendar)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeAdd)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeSubtract)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeUntil)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeSince)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeRound)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeEquals)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeToString)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_JSON_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeToJson)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeToLocaleString)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeValueOf)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeToPlainDate)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_PLAIN_TIME_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeToPlainTime)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID => {
+                Some(Self::TemporalPlainDateTimePrototypeToZonedDateTime)
+            }
+            BUILTIN_TEMPORAL_DURATION_FUNCTION_ID => Some(Self::TemporalDurationConstructor),
+            BUILTIN_TEMPORAL_DURATION_FROM_FUNCTION_ID => Some(Self::TemporalDurationFrom),
+            BUILTIN_TEMPORAL_DURATION_COMPARE_FUNCTION_ID => Some(Self::TemporalDurationCompare),
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_YEARS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeYearsGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MONTHS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeMonthsGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WEEKS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeWeeksGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_DAYS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeDaysGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_HOURS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeHoursGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MINUTES_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeMinutesGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeSecondsGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MILLISECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeMillisecondsGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_MICROSECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeMicrosecondsGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NANOSECONDS_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeNanosecondsGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SIGN_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeSignGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_BLANK_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeBlankGetter)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_WITH_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeWith)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_NEGATED_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeNegated)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ABS_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeAbs)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ADD_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeAdd)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_SUBTRACT_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeSubtract)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ROUND_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeRound)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TOTAL_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeTotal)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_STRING_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeToString)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_JSON_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeToJson)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeToLocaleString)
+            }
+            BUILTIN_TEMPORAL_DURATION_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
+                Some(Self::TemporalDurationPrototypeValueOf)
+            }
+            BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID => Some(Self::TemporalNowInstant),
+            BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID => Some(Self::TemporalNowTimeZoneId),
+            BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID => {
+                Some(Self::TemporalNowZonedDateTimeIso)
+            }
             BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID => Some(Self::TemporalInstantConstructor),
             BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID => Some(Self::TemporalInstantFrom),
             BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID => {
@@ -4821,6 +6072,122 @@ impl StandardBuiltinId {
             Self::DatePrototypeToTimeString,
             Self::DatePrototypeToString,
             Self::DatePrototypeToUtcString,
+            Self::TemporalPlainDateConstructor,
+            Self::TemporalPlainDateFrom,
+            Self::TemporalPlainDateCompare,
+            Self::TemporalPlainDatePrototypeCalendarIdGetter,
+            Self::TemporalPlainDatePrototypeEraGetter,
+            Self::TemporalPlainDatePrototypeEraYearGetter,
+            Self::TemporalPlainDatePrototypeYearGetter,
+            Self::TemporalPlainDatePrototypeMonthGetter,
+            Self::TemporalPlainDatePrototypeMonthCodeGetter,
+            Self::TemporalPlainDatePrototypeDayGetter,
+            Self::TemporalPlainDatePrototypeDayOfWeekGetter,
+            Self::TemporalPlainDatePrototypeDayOfYearGetter,
+            Self::TemporalPlainDatePrototypeWeekOfYearGetter,
+            Self::TemporalPlainDatePrototypeYearOfWeekGetter,
+            Self::TemporalPlainDatePrototypeDaysInWeekGetter,
+            Self::TemporalPlainDatePrototypeDaysInMonthGetter,
+            Self::TemporalPlainDatePrototypeDaysInYearGetter,
+            Self::TemporalPlainDatePrototypeMonthsInYearGetter,
+            Self::TemporalPlainDatePrototypeInLeapYearGetter,
+            Self::TemporalPlainDatePrototypeWith,
+            Self::TemporalPlainDatePrototypeWithCalendar,
+            Self::TemporalPlainDatePrototypeEquals,
+            Self::TemporalPlainDatePrototypeToString,
+            Self::TemporalPlainDatePrototypeToJson,
+            Self::TemporalPlainDatePrototypeToLocaleString,
+            Self::TemporalPlainDatePrototypeValueOf,
+            Self::TemporalPlainTimeConstructor,
+            Self::TemporalPlainTimeFrom,
+            Self::TemporalPlainTimeCompare,
+            Self::TemporalPlainTimePrototypeHourGetter,
+            Self::TemporalPlainTimePrototypeMinuteGetter,
+            Self::TemporalPlainTimePrototypeSecondGetter,
+            Self::TemporalPlainTimePrototypeMillisecondGetter,
+            Self::TemporalPlainTimePrototypeMicrosecondGetter,
+            Self::TemporalPlainTimePrototypeNanosecondGetter,
+            Self::TemporalPlainTimePrototypeWith,
+            Self::TemporalPlainTimePrototypeAdd,
+            Self::TemporalPlainTimePrototypeSubtract,
+            Self::TemporalPlainTimePrototypeUntil,
+            Self::TemporalPlainTimePrototypeSince,
+            Self::TemporalPlainTimePrototypeRound,
+            Self::TemporalPlainTimePrototypeEquals,
+            Self::TemporalPlainTimePrototypeToString,
+            Self::TemporalPlainTimePrototypeToJson,
+            Self::TemporalPlainTimePrototypeToLocaleString,
+            Self::TemporalPlainTimePrototypeValueOf,
+            Self::TemporalPlainDateTimeConstructor,
+            Self::TemporalPlainDateTimeFrom,
+            Self::TemporalPlainDateTimeCompare,
+            Self::TemporalPlainDateTimePrototypeCalendarIdGetter,
+            Self::TemporalPlainDateTimePrototypeEraGetter,
+            Self::TemporalPlainDateTimePrototypeEraYearGetter,
+            Self::TemporalPlainDateTimePrototypeYearGetter,
+            Self::TemporalPlainDateTimePrototypeMonthGetter,
+            Self::TemporalPlainDateTimePrototypeMonthCodeGetter,
+            Self::TemporalPlainDateTimePrototypeDayGetter,
+            Self::TemporalPlainDateTimePrototypeHourGetter,
+            Self::TemporalPlainDateTimePrototypeMinuteGetter,
+            Self::TemporalPlainDateTimePrototypeSecondGetter,
+            Self::TemporalPlainDateTimePrototypeMillisecondGetter,
+            Self::TemporalPlainDateTimePrototypeMicrosecondGetter,
+            Self::TemporalPlainDateTimePrototypeNanosecondGetter,
+            Self::TemporalPlainDateTimePrototypeDayOfWeekGetter,
+            Self::TemporalPlainDateTimePrototypeDayOfYearGetter,
+            Self::TemporalPlainDateTimePrototypeWeekOfYearGetter,
+            Self::TemporalPlainDateTimePrototypeYearOfWeekGetter,
+            Self::TemporalPlainDateTimePrototypeDaysInWeekGetter,
+            Self::TemporalPlainDateTimePrototypeDaysInMonthGetter,
+            Self::TemporalPlainDateTimePrototypeDaysInYearGetter,
+            Self::TemporalPlainDateTimePrototypeMonthsInYearGetter,
+            Self::TemporalPlainDateTimePrototypeInLeapYearGetter,
+            Self::TemporalPlainDateTimePrototypeWith,
+            Self::TemporalPlainDateTimePrototypeWithPlainTime,
+            Self::TemporalPlainDateTimePrototypeWithCalendar,
+            Self::TemporalPlainDateTimePrototypeAdd,
+            Self::TemporalPlainDateTimePrototypeSubtract,
+            Self::TemporalPlainDateTimePrototypeUntil,
+            Self::TemporalPlainDateTimePrototypeSince,
+            Self::TemporalPlainDateTimePrototypeRound,
+            Self::TemporalPlainDateTimePrototypeEquals,
+            Self::TemporalPlainDateTimePrototypeToString,
+            Self::TemporalPlainDateTimePrototypeToJson,
+            Self::TemporalPlainDateTimePrototypeToLocaleString,
+            Self::TemporalPlainDateTimePrototypeValueOf,
+            Self::TemporalPlainDateTimePrototypeToPlainDate,
+            Self::TemporalPlainDateTimePrototypeToPlainTime,
+            Self::TemporalPlainDateTimePrototypeToZonedDateTime,
+            Self::TemporalDurationConstructor,
+            Self::TemporalDurationFrom,
+            Self::TemporalDurationCompare,
+            Self::TemporalDurationPrototypeYearsGetter,
+            Self::TemporalDurationPrototypeMonthsGetter,
+            Self::TemporalDurationPrototypeWeeksGetter,
+            Self::TemporalDurationPrototypeDaysGetter,
+            Self::TemporalDurationPrototypeHoursGetter,
+            Self::TemporalDurationPrototypeMinutesGetter,
+            Self::TemporalDurationPrototypeSecondsGetter,
+            Self::TemporalDurationPrototypeMillisecondsGetter,
+            Self::TemporalDurationPrototypeMicrosecondsGetter,
+            Self::TemporalDurationPrototypeNanosecondsGetter,
+            Self::TemporalDurationPrototypeSignGetter,
+            Self::TemporalDurationPrototypeBlankGetter,
+            Self::TemporalDurationPrototypeWith,
+            Self::TemporalDurationPrototypeNegated,
+            Self::TemporalDurationPrototypeAbs,
+            Self::TemporalDurationPrototypeAdd,
+            Self::TemporalDurationPrototypeSubtract,
+            Self::TemporalDurationPrototypeRound,
+            Self::TemporalDurationPrototypeTotal,
+            Self::TemporalDurationPrototypeToString,
+            Self::TemporalDurationPrototypeToJson,
+            Self::TemporalDurationPrototypeToLocaleString,
+            Self::TemporalDurationPrototypeValueOf,
+            Self::TemporalNowInstant,
+            Self::TemporalNowTimeZoneId,
+            Self::TemporalNowZonedDateTimeIso,
             Self::TemporalInstantConstructor,
             Self::TemporalInstantFrom,
             Self::TemporalInstantPrototypeEpochMillisecondsGetter,
@@ -5128,6 +6495,17 @@ impl StandardBuiltinId {
         ]
     }
 
+    /// Builtins whose body reads the host wall clock. The backend derives the
+    /// `porf_host.wall_clock_millis` import (and therefore every later import
+    /// index) from this, so a new clock reader must be listed here or its
+    /// emitter has no import to call.
+    pub const fn requires_wall_clock(self) -> bool {
+        matches!(
+            self,
+            Self::DateNow | Self::TemporalNowInstant | Self::TemporalNowZonedDateTimeIso
+        )
+    }
+
     pub const fn constructable(self) -> bool {
         matches!(
             self,
@@ -5150,6 +6528,10 @@ impl StandardBuiltinId {
                 | Self::DateConstructor
                 | Self::TemporalInstantConstructor
                 | Self::TemporalZonedDateTimeConstructor
+                | Self::TemporalPlainDateConstructor
+                | Self::TemporalPlainTimeConstructor
+                | Self::TemporalPlainDateTimeConstructor
+                | Self::TemporalDurationConstructor
                 | Self::IntlLocaleConstructor
                 | Self::RegExpConstructor
                 | Self::Float64ArrayConstructor
@@ -5660,6 +7042,122 @@ impl StandardBuiltinId {
             Self::DatePrototypeToTimeString => Some("toTimeString"),
             Self::DatePrototypeToString => Some("toString"),
             Self::DatePrototypeToUtcString => Some("toUTCString"),
+            Self::TemporalPlainDateConstructor => Some("PlainDate"),
+            Self::TemporalPlainDateFrom => Some("from"),
+            Self::TemporalPlainDateCompare => Some("compare"),
+            Self::TemporalPlainDatePrototypeCalendarIdGetter => Some("get calendarId"),
+            Self::TemporalPlainDatePrototypeEraGetter => Some("get era"),
+            Self::TemporalPlainDatePrototypeEraYearGetter => Some("get eraYear"),
+            Self::TemporalPlainDatePrototypeYearGetter => Some("get year"),
+            Self::TemporalPlainDatePrototypeMonthGetter => Some("get month"),
+            Self::TemporalPlainDatePrototypeMonthCodeGetter => Some("get monthCode"),
+            Self::TemporalPlainDatePrototypeDayGetter => Some("get day"),
+            Self::TemporalPlainDatePrototypeDayOfWeekGetter => Some("get dayOfWeek"),
+            Self::TemporalPlainDatePrototypeDayOfYearGetter => Some("get dayOfYear"),
+            Self::TemporalPlainDatePrototypeWeekOfYearGetter => Some("get weekOfYear"),
+            Self::TemporalPlainDatePrototypeYearOfWeekGetter => Some("get yearOfWeek"),
+            Self::TemporalPlainDatePrototypeDaysInWeekGetter => Some("get daysInWeek"),
+            Self::TemporalPlainDatePrototypeDaysInMonthGetter => Some("get daysInMonth"),
+            Self::TemporalPlainDatePrototypeDaysInYearGetter => Some("get daysInYear"),
+            Self::TemporalPlainDatePrototypeMonthsInYearGetter => Some("get monthsInYear"),
+            Self::TemporalPlainDatePrototypeInLeapYearGetter => Some("get inLeapYear"),
+            Self::TemporalPlainDatePrototypeWith => Some("with"),
+            Self::TemporalPlainDatePrototypeWithCalendar => Some("withCalendar"),
+            Self::TemporalPlainDatePrototypeEquals => Some("equals"),
+            Self::TemporalPlainDatePrototypeToString => Some("toString"),
+            Self::TemporalPlainDatePrototypeToJson => Some("toJSON"),
+            Self::TemporalPlainDatePrototypeToLocaleString => Some("toLocaleString"),
+            Self::TemporalPlainDatePrototypeValueOf => Some("valueOf"),
+            Self::TemporalPlainTimeConstructor => Some("PlainTime"),
+            Self::TemporalPlainTimeFrom => Some("from"),
+            Self::TemporalPlainTimeCompare => Some("compare"),
+            Self::TemporalPlainTimePrototypeHourGetter => Some("get hour"),
+            Self::TemporalPlainTimePrototypeMinuteGetter => Some("get minute"),
+            Self::TemporalPlainTimePrototypeSecondGetter => Some("get second"),
+            Self::TemporalPlainTimePrototypeMillisecondGetter => Some("get millisecond"),
+            Self::TemporalPlainTimePrototypeMicrosecondGetter => Some("get microsecond"),
+            Self::TemporalPlainTimePrototypeNanosecondGetter => Some("get nanosecond"),
+            Self::TemporalPlainTimePrototypeWith => Some("with"),
+            Self::TemporalPlainTimePrototypeAdd => Some("add"),
+            Self::TemporalPlainTimePrototypeSubtract => Some("subtract"),
+            Self::TemporalPlainTimePrototypeUntil => Some("until"),
+            Self::TemporalPlainTimePrototypeSince => Some("since"),
+            Self::TemporalPlainTimePrototypeRound => Some("round"),
+            Self::TemporalPlainTimePrototypeEquals => Some("equals"),
+            Self::TemporalPlainTimePrototypeToString => Some("toString"),
+            Self::TemporalPlainTimePrototypeToJson => Some("toJSON"),
+            Self::TemporalPlainTimePrototypeToLocaleString => Some("toLocaleString"),
+            Self::TemporalPlainTimePrototypeValueOf => Some("valueOf"),
+            Self::TemporalPlainDateTimeConstructor => Some("PlainDateTime"),
+            Self::TemporalPlainDateTimeFrom => Some("from"),
+            Self::TemporalPlainDateTimeCompare => Some("compare"),
+            Self::TemporalPlainDateTimePrototypeCalendarIdGetter => Some("get calendarId"),
+            Self::TemporalPlainDateTimePrototypeEraGetter => Some("get era"),
+            Self::TemporalPlainDateTimePrototypeEraYearGetter => Some("get eraYear"),
+            Self::TemporalPlainDateTimePrototypeYearGetter => Some("get year"),
+            Self::TemporalPlainDateTimePrototypeMonthGetter => Some("get month"),
+            Self::TemporalPlainDateTimePrototypeMonthCodeGetter => Some("get monthCode"),
+            Self::TemporalPlainDateTimePrototypeDayGetter => Some("get day"),
+            Self::TemporalPlainDateTimePrototypeHourGetter => Some("get hour"),
+            Self::TemporalPlainDateTimePrototypeMinuteGetter => Some("get minute"),
+            Self::TemporalPlainDateTimePrototypeSecondGetter => Some("get second"),
+            Self::TemporalPlainDateTimePrototypeMillisecondGetter => Some("get millisecond"),
+            Self::TemporalPlainDateTimePrototypeMicrosecondGetter => Some("get microsecond"),
+            Self::TemporalPlainDateTimePrototypeNanosecondGetter => Some("get nanosecond"),
+            Self::TemporalPlainDateTimePrototypeDayOfWeekGetter => Some("get dayOfWeek"),
+            Self::TemporalPlainDateTimePrototypeDayOfYearGetter => Some("get dayOfYear"),
+            Self::TemporalPlainDateTimePrototypeWeekOfYearGetter => Some("get weekOfYear"),
+            Self::TemporalPlainDateTimePrototypeYearOfWeekGetter => Some("get yearOfWeek"),
+            Self::TemporalPlainDateTimePrototypeDaysInWeekGetter => Some("get daysInWeek"),
+            Self::TemporalPlainDateTimePrototypeDaysInMonthGetter => Some("get daysInMonth"),
+            Self::TemporalPlainDateTimePrototypeDaysInYearGetter => Some("get daysInYear"),
+            Self::TemporalPlainDateTimePrototypeMonthsInYearGetter => Some("get monthsInYear"),
+            Self::TemporalPlainDateTimePrototypeInLeapYearGetter => Some("get inLeapYear"),
+            Self::TemporalPlainDateTimePrototypeWith => Some("with"),
+            Self::TemporalPlainDateTimePrototypeWithPlainTime => Some("withPlainTime"),
+            Self::TemporalPlainDateTimePrototypeWithCalendar => Some("withCalendar"),
+            Self::TemporalPlainDateTimePrototypeAdd => Some("add"),
+            Self::TemporalPlainDateTimePrototypeSubtract => Some("subtract"),
+            Self::TemporalPlainDateTimePrototypeUntil => Some("until"),
+            Self::TemporalPlainDateTimePrototypeSince => Some("since"),
+            Self::TemporalPlainDateTimePrototypeRound => Some("round"),
+            Self::TemporalPlainDateTimePrototypeEquals => Some("equals"),
+            Self::TemporalPlainDateTimePrototypeToString => Some("toString"),
+            Self::TemporalPlainDateTimePrototypeToJson => Some("toJSON"),
+            Self::TemporalPlainDateTimePrototypeToLocaleString => Some("toLocaleString"),
+            Self::TemporalPlainDateTimePrototypeValueOf => Some("valueOf"),
+            Self::TemporalPlainDateTimePrototypeToPlainDate => Some("toPlainDate"),
+            Self::TemporalPlainDateTimePrototypeToPlainTime => Some("toPlainTime"),
+            Self::TemporalPlainDateTimePrototypeToZonedDateTime => Some("toZonedDateTime"),
+            Self::TemporalDurationConstructor => Some("Duration"),
+            Self::TemporalDurationFrom => Some("from"),
+            Self::TemporalDurationCompare => Some("compare"),
+            Self::TemporalDurationPrototypeYearsGetter => Some("get years"),
+            Self::TemporalDurationPrototypeMonthsGetter => Some("get months"),
+            Self::TemporalDurationPrototypeWeeksGetter => Some("get weeks"),
+            Self::TemporalDurationPrototypeDaysGetter => Some("get days"),
+            Self::TemporalDurationPrototypeHoursGetter => Some("get hours"),
+            Self::TemporalDurationPrototypeMinutesGetter => Some("get minutes"),
+            Self::TemporalDurationPrototypeSecondsGetter => Some("get seconds"),
+            Self::TemporalDurationPrototypeMillisecondsGetter => Some("get milliseconds"),
+            Self::TemporalDurationPrototypeMicrosecondsGetter => Some("get microseconds"),
+            Self::TemporalDurationPrototypeNanosecondsGetter => Some("get nanoseconds"),
+            Self::TemporalDurationPrototypeSignGetter => Some("get sign"),
+            Self::TemporalDurationPrototypeBlankGetter => Some("get blank"),
+            Self::TemporalDurationPrototypeWith => Some("with"),
+            Self::TemporalDurationPrototypeNegated => Some("negated"),
+            Self::TemporalDurationPrototypeAbs => Some("abs"),
+            Self::TemporalDurationPrototypeAdd => Some("add"),
+            Self::TemporalDurationPrototypeSubtract => Some("subtract"),
+            Self::TemporalDurationPrototypeRound => Some("round"),
+            Self::TemporalDurationPrototypeTotal => Some("total"),
+            Self::TemporalDurationPrototypeToString => Some("toString"),
+            Self::TemporalDurationPrototypeToJson => Some("toJSON"),
+            Self::TemporalDurationPrototypeToLocaleString => Some("toLocaleString"),
+            Self::TemporalDurationPrototypeValueOf => Some("valueOf"),
+            Self::TemporalNowInstant => Some("instant"),
+            Self::TemporalNowTimeZoneId => Some("timeZoneId"),
+            Self::TemporalNowZonedDateTimeIso => Some("zonedDateTimeISO"),
             Self::TemporalInstantConstructor => Some(TEMPORAL_INSTANT_NAME),
             Self::TemporalInstantFrom => Some("from"),
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => Some("get epochMilliseconds"),
@@ -6249,6 +7747,48 @@ mod tests {
         assert!(!StandardBuiltinId::FinalizationRegistryPrototypeUnregister.constructable());
         assert!(StandardBuiltinId::all_globals()
             .contains(&StandardBuiltinId::FinalizationRegistryConstructor));
+    }
+
+    #[test]
+    fn temporal_now_members_are_registered_as_nonconstructable_functions() {
+        for (builtin, debug_name, native_name) in [
+            (
+                StandardBuiltinId::TemporalNowTimeZoneId,
+                "Temporal.Now.timeZoneId",
+                "timeZoneId",
+            ),
+            (
+                StandardBuiltinId::TemporalNowInstant,
+                "Temporal.Now.instant",
+                "instant",
+            ),
+            (
+                StandardBuiltinId::TemporalNowZonedDateTimeIso,
+                "Temporal.Now.zonedDateTimeISO",
+                "zonedDateTimeISO",
+            ),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.debug_name(), debug_name);
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(!builtin.constructable());
+            assert!(builtin.global_name().is_none());
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+    }
+
+    #[test]
+    fn temporal_now_clock_readers_declare_the_wall_clock_import() {
+        assert!(StandardBuiltinId::TemporalNowInstant.requires_wall_clock());
+        assert!(StandardBuiltinId::TemporalNowZonedDateTimeIso.requires_wall_clock());
+        assert!(StandardBuiltinId::DateNow.requires_wall_clock());
+        // `timeZoneId` answers from a constant string, so it must not drag the
+        // host import in.
+        assert!(!StandardBuiltinId::TemporalNowTimeZoneId.requires_wall_clock());
     }
 
     #[test]

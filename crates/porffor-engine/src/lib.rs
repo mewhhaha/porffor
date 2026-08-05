@@ -8023,6 +8023,172 @@ if (Date.prototype.getYear.name !== "getYear" || Date.prototype.setYear.name !==
     }
 
     #[test]
+    fn wasm_backend_brands_temporal_plain_dates_and_derives_iso_calendar_fields() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var date = new Temporal.PlainDate(2020, 5, 2);
+if (Object.getPrototypeOf(date) !== Temporal.PlainDate.prototype) throw "prototype";
+if (Object.prototype.toString.call(date) !== "[object Temporal.PlainDate]") throw "tag";
+if (date.year !== 2020 || date.month !== 5 || date.day !== 2) throw "iso fields";
+if (date.monthCode !== "M05") throw "monthCode";
+if (date.calendarId !== "iso8601") throw "calendarId";
+
+// Derived ISO fields. 2020-05-02 is a Saturday; 2020 is a leap year, so the
+// day-of-year count includes 29 February.
+if (date.dayOfWeek !== 6) throw "dayOfWeek";
+if (date.dayOfYear !== 123) throw "dayOfYear";
+if (date.weekOfYear !== 18 || date.yearOfWeek !== 2020) throw "weekOfYear";
+if (date.daysInWeek !== 7 || date.monthsInYear !== 12) throw "constant fields";
+if (date.daysInMonth !== 31 || date.daysInYear !== 366) throw "length fields";
+if (date.inLeapYear !== true) throw "inLeapYear";
+
+// The ISO 8601 calendar has no eras.
+if (date.era !== undefined || date.eraYear !== undefined) throw "era";
+
+// The ISO week-numbering year runs ahead of the calendar year at the boundary:
+// 1977-01-01 belongs to week 53 of 1976.
+var boundary = new Temporal.PlainDate(1977, 1, 1);
+if (boundary.weekOfYear !== 53 || boundary.yearOfWeek !== 1976) throw "week boundary";
+
+// Pre-epoch dates must floor, not truncate, when reducing days to a weekday.
+if (new Temporal.PlainDate(1969, 12, 31).dayOfWeek !== 3) throw "pre-epoch dayOfWeek";
+
+// `RejectISODate` plus `ISODateWithinLimits`: one more day is representable
+// below the epoch-day limit than above it.
+if (new Temporal.PlainDate(-271821, 4, 19).toString() !== "-271821-04-19") throw "min";
+if (new Temporal.PlainDate(275760, 9, 13).toString() !== "+275760-09-13") throw "max";
+var limitErrors = 0;
+for (var argv of [[-271821, 4, 18], [275760, 9, 14], [2020, 13, 1], [2021, 2, 29]]) {
+  try {
+    new Temporal.PlainDate(argv[0], argv[1], argv[2]);
+  } catch (error) {
+    if (error instanceof RangeError) limitErrors += 1;
+  }
+}
+if (limitErrors !== 4) throw "limits";
+
+// Temporal forbids implicit comparison outright.
+var valueOfThrew = false;
+try { date.valueOf(); } catch (error) { valueOfThrew = error instanceof TypeError; }
+if (!valueOfThrew) throw "valueOf";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should brand Temporal.PlainDate instances");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_converts_strings_and_property_bags_to_temporal_plain_dates() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (Temporal.PlainDate.from("2020-05-02").toString() !== "2020-05-02") throw "string";
+if (Temporal.PlainDate.from("2020-05-02T09:00:00").toString() !== "2020-05-02") throw "date-time";
+if (Temporal.PlainDate.from("2020-05-02T09:00:00+01:00").toString() !== "2020-05-02") {
+  throw "offset is ignored";
+}
+if (Temporal.PlainDate.from("2020-05-02[America/New_York]").toString() !== "2020-05-02") {
+  throw "time zone annotation is accepted without being resolved";
+}
+// Only the FIRST calendar annotation is resolved, but a repeated critical one
+// is still rejected.
+if (Temporal.PlainDate.from("2000-05-02T15:23[u-ca=iso8601][u-ca=discord]").toString()
+    !== "2000-05-02") {
+  throw "second calendar annotation";
+}
+
+var rangeErrors = 0;
+for (var text of [
+  "2019-10-01T09:00:00Z",
+  "2019-10-01T09:00:00Z[UTC]",
+  "1970-01-01[u-ca=iso8601][!u-ca=iso8601]",
+  "1970-01-01[u-ca=notacal]",
+  "-000000-10-31",
+  "",
+]) {
+  try { Temporal.PlainDate.from(text); } catch (error) {
+    if (error instanceof RangeError) rangeErrors += 1;
+  }
+}
+if (rangeErrors !== 6) throw "string rejections";
+
+var typeErrors = 0;
+for (var value of [undefined, null, true, 1, 1n]) {
+  try { Temporal.PlainDate.from(value); } catch (error) {
+    if (error instanceof TypeError) typeErrors += 1;
+  }
+}
+if (typeErrors !== 5) throw "primitive rejections";
+
+if (Temporal.PlainDate.from({ year: 2000, month: 5, day: 2 }).toString() !== "2000-05-02") {
+  throw "property bag";
+}
+if (Temporal.PlainDate.from({ year: 2000, monthCode: "M05", day: 2 }).toString()
+    !== "2000-05-02") {
+  throw "monthCode bag";
+}
+if (Temporal.PlainDate.from({ year: 2021, month: 1, day: 32 }).toString() !== "2021-01-31") {
+  throw "overflow constrain";
+}
+var rejected = false;
+try {
+  Temporal.PlainDate.from({ year: 2021, month: 1, day: 32 }, { overflow: "reject" });
+} catch (error) { rejected = error instanceof RangeError; }
+if (!rejected) throw "overflow reject";
+
+// `CalendarResolveFields` validates presence before range, so a missing
+// required key is a TypeError even when another field is also out of range.
+var missingYear = false;
+try { Temporal.PlainDate.from({ monthCode: "M99L", day: 1 }); } catch (error) {
+  missingYear = error instanceof TypeError;
+}
+if (!missingYear) throw "missing year is a TypeError";
+var badMonthCode = false;
+try { Temporal.PlainDate.from({ year: 2021, monthCode: "M99L", day: 1 }); } catch (error) {
+  badMonthCode = error instanceof RangeError;
+}
+if (!badMonthCode) throw "invalid monthCode is a RangeError";
+
+if (Temporal.PlainDate.compare("2000-05-02", "2000-05-03") !== -1) throw "compare lt";
+if (Temporal.PlainDate.compare("2001-05-02", "2000-05-03") !== 1) throw "compare gt";
+if (Temporal.PlainDate.compare("2000-05-02", "2000-05-02") !== 0) throw "compare eq";
+
+var date = new Temporal.PlainDate(2000, 5, 2);
+if (!date.equals({ year: 2000, month: 5, day: 2 })) throw "equals";
+if (date.with({ month: 2, day: 31 }).toString() !== "2000-02-29") throw "with constrain";
+if (date.withCalendar("iso8601").toString() !== "2000-05-02") throw "withCalendar";
+if (date.toString({ calendarName: "always" }) !== "2000-05-02[u-ca=iso8601]") throw "always";
+if (date.toString({ calendarName: "critical" }) !== "2000-05-02[!u-ca=iso8601]") throw "critical";
+if (date.toJSON() !== "2000-05-02") throw "toJSON";
+
+// `with` takes a partial date, never a calendar or a time zone.
+var withErrors = 0;
+for (var bag of [{}, { calendar: "iso8601" }, { timeZone: "UTC" }]) {
+  try { date.with(bag); } catch (error) {
+    if (error instanceof TypeError) withErrors += 1;
+  }
+}
+if (withErrors !== 3) throw "with rejections";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should convert values to Temporal.PlainDate");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
     fn wasm_backend_exposes_temporal_instant_private_epoch_slots() {
         let outcome = engine()
             .run_script(
@@ -8503,6 +8669,119 @@ same(errors, 7, "errors");
             )
             .expect("wasm backend should construct fixed-zone Temporal property bags");
         assert!(outcome.note.contains("number(271"));
+    }
+
+    #[test]
+    fn wasm_backend_exposes_the_temporal_now_namespace_object() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (typeof Temporal.Now !== "object") throw "typeof";
+if (Object.getPrototypeOf(Temporal.Now) !== Object.prototype) throw "prototype";
+if (Temporal.Now.prototype !== undefined) throw "prototype property";
+if (!Object.isExtensible(Temporal.Now)) throw "extensible";
+if (Object.prototype.toString.call(Temporal.Now) !== "[object Temporal.Now]") {
+  throw "toStringTag";
+}
+
+var namespaceDescriptor = Object.getOwnPropertyDescriptor(Temporal, "Now");
+if (!namespaceDescriptor.writable) throw "Now writable";
+if (namespaceDescriptor.enumerable) throw "Now enumerable";
+if (!namespaceDescriptor.configurable) throw "Now configurable";
+
+var tagDescriptor = Object.getOwnPropertyDescriptor(
+  Temporal.Now,
+  Symbol.toStringTag
+);
+if (tagDescriptor.value !== "Temporal.Now") throw "tag value";
+if (tagDescriptor.writable || tagDescriptor.enumerable) throw "tag flags";
+if (!tagDescriptor.configurable) throw "tag configurable";
+
+for (var name of ["timeZoneId", "instant", "zonedDateTimeISO"]) {
+  var descriptor = Object.getOwnPropertyDescriptor(Temporal.Now, name);
+  if (typeof descriptor.value !== "function") throw "member " + name;
+  if (!descriptor.writable || descriptor.enumerable) throw "flags " + name;
+  if (!descriptor.configurable) throw "configurable " + name;
+  if (descriptor.value.length !== 0) throw "length " + name;
+  if (descriptor.value.name !== name) throw "name " + name;
+}
+
+var constructErrors = 0;
+for (var member of [
+  Temporal.Now.timeZoneId,
+  Temporal.Now.instant,
+  Temporal.Now.zonedDateTimeISO,
+]) {
+  try { new member(); } catch (error) {
+    if (error instanceof TypeError) constructErrors += 1;
+  }
+}
+if (constructErrors !== 3) throw "constructability";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should expose the Temporal.Now namespace object");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_reads_the_wall_clock_through_temporal_now() {
+        let outcome = engine()
+            .run_script(
+                r#"
+if (Temporal.Now.timeZoneId() !== "UTC") throw "timeZoneId";
+
+var before = Date.now();
+var instant = Temporal.Now.instant();
+var after = Date.now();
+if (!(instant instanceof Temporal.Instant)) throw "instant brand";
+if (Object.getPrototypeOf(instant) !== Temporal.Instant.prototype) throw "instant proto";
+var millis = Number(instant.epochNanoseconds / 1000000n);
+if (millis < before || millis > after) throw "instant clock";
+if (instant.epochMilliseconds !== millis) throw "epochMilliseconds";
+if (Temporal.Now.instant() === Temporal.Now.instant()) throw "distinct";
+
+var zoned = Temporal.Now.zonedDateTimeISO();
+if (!(zoned instanceof Temporal.ZonedDateTime)) throw "zoned brand";
+if (zoned.calendarId !== "iso8601") throw "calendar";
+if (zoned.timeZoneId !== Temporal.Now.timeZoneId()) throw "zone";
+if (Temporal.Now.zonedDateTimeISO(undefined).timeZoneId !== "UTC") throw "undefined zone";
+if (Temporal.Now.zonedDateTimeISO("UtC").timeZoneId !== "UTC") throw "case folding";
+if (Temporal.Now.zonedDateTimeISO("+01:30").timeZoneId !== "+01:30") throw "offset zone";
+if (Temporal.Now.zonedDateTimeISO("2021-08-19T17:30Z[UTC]").timeZoneId !== "UTC") {
+  throw "annotated zone";
+}
+
+var zoneErrors = 0;
+for (var zone of [null, true, 1, 1n, {}]) {
+  try { Temporal.Now.zonedDateTimeISO(zone); } catch (error) {
+    if (error instanceof TypeError) zoneErrors += 1;
+  }
+}
+if (zoneErrors !== 5) throw "zone type errors";
+
+var rangeErrors = 0;
+for (var zone of ["", "2021-08-19T17:30", "Europe/Vienna", "-12:12:59.9"]) {
+  try { Temporal.Now.zonedDateTimeISO(zone); } catch (error) {
+    if (error instanceof RangeError) rangeErrors += 1;
+  }
+}
+if (rangeErrors !== 4) throw "zone range errors";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should answer Temporal.Now clock reads");
+        assert!(outcome.note.contains("number(262"));
     }
 
     #[test]

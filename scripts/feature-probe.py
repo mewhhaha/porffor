@@ -9,6 +9,13 @@ A probe proves presence, not conformance: passing means the feature is not
 categorically missing, and says nothing about edge cases. A failing probe is the
 stronger signal - it means every Test262 case carrying that tag is out of reach.
 
+CRITICAL: reference builtins STATICALLY. The backend runs a demand-driven
+bootstrap plan (`should_initialize_standard_builtin`) that only initializes
+builtins the program is seen to reference, so a dynamic lookup is invisible to
+it. `Temporal[name]` in a loop, or `Object.keys(Temporal)`, reports every type as
+missing even when all of them work - write `typeof Temporal.PlainDate` instead.
+This produced a false "regression" report once already.
+
 usage: python3 scripts/feature-probe.py [--jobs N]
 """
 import argparse

@@ -27,9 +27,10 @@ use porffor_ir::{
     PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
     PORFFOR_STATIC_GENERATOR_VALUES_METHOD, PRINT_NAME, PROXY_NAME, RANGE_ERROR_NAME,
     REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SET_NAME, SHARED_ARRAY_BUFFER_NAME,
-    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TYPE_ERROR_NAME,
-    UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
-    URI_ERROR_NAME,
+    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TEMPORAL_DURATION_NAME,
+    TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME, TEMPORAL_PLAIN_DATE_TIME_NAME,
+    TEMPORAL_PLAIN_TIME_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME,
+    UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
 use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
 
@@ -995,6 +996,70 @@ pick(true);"#,
         assert!(program.ir_summary().contains("spec_operations=1"));
         let artifact = emit(&program).expect("StrictEqualityComparison spec operation should emit");
         assert!(!artifact.bytes.is_empty());
+    }
+
+    #[test]
+    fn temporal_now_builtins_emit() {
+        let source = parse(
+            "Temporal.Now.timeZoneId(); Temporal.Now.instant(); Temporal.Now.zonedDateTimeISO();",
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact = emit(&program).expect("Temporal.Now members should emit");
+
+        assert!(!artifact.bytes.is_empty());
+        assert!(
+            artifact
+                .debug_dump
+                .contains("import func: porf_host.wall_clock_millis"),
+            "{}",
+            artifact.debug_dump
+        );
+    }
+
+    #[test]
+    fn temporal_duration_family_emits() {
+        // Every member installs together, so naming one accessor has to bring
+        // the whole prototype with it.
+        let source = parse(
+            "const d = new Temporal.Duration(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);\n\
+             d.years; d.sign; d.blank; d.toString(); d.toJSON(); d.negated(); d.abs();\n\
+             d.with({ hours: 1 }); d.add({ hours: 1 }); d.subtract({ hours: 1 });\n\
+             d.round('seconds'); d.total('seconds');\n\
+             Temporal.Duration.from('P1Y'); Temporal.Duration.compare(d, d);",
+            ParseOptions::script(),
+        )
+        .expect("script should parse");
+        let program = lower(&source);
+        let artifact = emit(&program).expect("Temporal.Duration should emit");
+
+        assert!(!artifact.bytes.is_empty());
+        assert!(
+            artifact.debug_dump.contains("Temporal.Duration.prototype"),
+            "{}",
+            artifact.debug_dump
+        );
+    }
+
+    #[test]
+    fn temporal_now_namespace_exists_from_a_bare_temporal_reference() {
+        // `Temporal.Now` has to be observable even when no member is named, so
+        // the namespace must not be gated on a member reference.
+        let source =
+            parse("typeof Temporal.Now;", ParseOptions::script()).expect("script should parse");
+        let program = lower(&source);
+        let artifact = emit(&program).expect("Temporal.Now namespace should emit");
+
+        assert!(!artifact.bytes.is_empty());
+        // The clock readers are not named, so the host import must stay out.
+        assert!(
+            !artifact
+                .debug_dump
+                .contains("import func: porf_host.wall_clock_millis"),
+            "{}",
+            artifact.debug_dump
+        );
     }
 
     #[test]

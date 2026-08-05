@@ -18,6 +18,14 @@ mod regexp;
 mod standard;
 mod string;
 mod temporal;
+mod temporal_duration;
+mod temporal_duration_methods;
+mod temporal_plain_date;
+mod temporal_plain_date_methods;
+mod temporal_plain_date_time;
+mod temporal_plain_date_time_methods;
+mod temporal_plain_time;
+mod temporal_plain_time_methods;
 mod weak_ref;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xC2, 0xA0],       // U+00A0
