@@ -305,7 +305,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
         function.instruction(&Instruction::F64Const(Ieee64::from(1_000_000_000.0)));
-        function.instruction(&Instruction::F64Ge);
+        // `GetRoundingIncrementOption` rejects `integerIncrement > 10**9`, so
+        // an increment that truncates to exactly 10**9 is still in range.
+        function.instruction(&Instruction::F64Gt);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);

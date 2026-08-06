@@ -350,6 +350,16 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinId::TemporalPlainYearMonthConstructor => self
+                .install_temporal_plain_year_month_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
+            StandardBuiltinId::TemporalPlainMonthDayConstructor => self
+                .install_temporal_plain_month_day_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
             StandardBuiltinId::IntlLocaleConstructor => {
                 self.install_intl_locale_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -862,6 +872,40 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalPlainDatePrototypeToJson
             | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
             | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+            | StandardBuiltinId::TemporalPlainYearMonthFrom
+            | StandardBuiltinId::TemporalPlainYearMonthCompare
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeWith
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSince
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate
+            | StandardBuiltinId::TemporalPlainMonthDayFrom
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeWith
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate
             | StandardBuiltinId::TemporalDurationFrom
             | StandardBuiltinId::TemporalDurationCompare
             | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
@@ -1428,6 +1472,46 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_object_append_local_data_property_with_flags(
                 object_local,
                 TEMPORAL_PLAIN_DATE_TIME_NAME,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(
+                StandardBuiltinId::TemporalPlainYearMonthConstructor,
+            )
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_PLAIN_YEAR_MONTH_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_PLAIN_YEAR_MONTH_NAME,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainMonthDayConstructor)
+        {
+            function.instruction(&Instruction::GlobalGet(
+                TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                TEMPORAL_PLAIN_MONTH_DAY_NAME,
                 constructor_local,
                 constructor_tag_local,
                 true,
@@ -3779,6 +3863,22 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         function.instruction(&Instruction::GlobalSet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
         self.emit_alloc_plain_object_with_prototype(
             None,
@@ -4047,6 +4147,28 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::TemporalPlainDateTimeConstructor,
                 TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(
+                StandardBuiltinId::TemporalPlainYearMonthConstructor,
+            )
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalPlainYearMonthConstructor,
+                TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainMonthDayConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::TemporalPlainMonthDayConstructor,
+                TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

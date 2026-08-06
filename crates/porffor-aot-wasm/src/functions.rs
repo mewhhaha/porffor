@@ -7725,40 +7725,36 @@ impl<'a> FunctionBuilder<'a> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            let iterator_lookup_exit = self.push_control(ControlFrameKind::Block);
-            for kind in [
-                ValueKind::Object,
-                ValueKind::Function,
-                ValueKind::Array,
-                ValueKind::Arguments,
-                ValueKind::Number,
-                ValueKind::Boolean,
-                ValueKind::String,
-                ValueKind::Symbol,
-                ValueKind::BigInt,
-            ] {
-                function.instruction(&Instruction::LocalGet(source_tag_local));
-                function.instruction(&Instruction::I64Const(kind.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
-                let runtime_source = TypedExpr::from_info(ValueInfo::new(kind), ExprIr::Undefined);
-                self.compile_property_read_from_locals(
-                    &runtime_source,
-                    &PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
-                    source_payload_local,
-                    source_tag_local,
-                    method_payload_local,
-                    method_tag_local,
-                    function,
-                )?;
-                self.emit_branch_to_target(iterator_lookup_exit, 0, function);
-                self.pop_control(ControlFrameKind::If);
-                function.instruction(&Instruction::End);
-            }
-            self.pop_control(ControlFrameKind::Block);
-            function.instruction(&Instruction::End);
+            // `GetMethod(source, @@iterator)`. The key is the well-known
+            // symbol, not the string "Symbol.iterator": a static-string key
+            // reads an ordinary string-named property and never finds the
+            // symbol-keyed method, which made every spread argument report
+            // "not iterable". Building the key as a Symbol-kinded expression is
+            // the same encoding `yield*` delegation uses.
+            let runtime_source = TypedExpr::from_info(
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags()
+                        .without(ValueKind::Undefined)
+                        .without(ValueKind::Null),
+                    heap_shape: None,
+                    function_targets: BTreeSet::new(),
+                },
+                ExprIr::Undefined,
+            );
+            let iterator_symbol_key = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Symbol),
+                ExprIr::String("Symbol.iterator".to_string()),
+            );
+            self.compile_property_read_from_locals(
+                &runtime_source,
+                &PropertyKeyIr::StringExpr(Box::new(iterator_symbol_key)),
+                source_payload_local,
+                source_tag_local,
+                method_payload_local,
+                method_tag_local,
+                function,
+            )?;
             self.emit_propagate_throw_from_locals_if_needed(
                 method_payload_local,
                 method_tag_local,

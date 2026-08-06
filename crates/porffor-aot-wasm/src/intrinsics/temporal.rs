@@ -1060,4 +1060,312 @@ impl<'a> FunctionBuilder<'a> {
 
         Ok(())
     }
+
+    /// Property installation order is observable through `Object.keys`, so the
+    /// sequence here - statics on the constructor, then prototype accessors,
+    /// then prototype methods, then `Symbol.toStringTag` - matches the order
+    /// `lowering::temporal_plain_year_month_prototype_shape` declares.
+    pub(crate) fn install_temporal_plain_year_month_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        #[allow(unused_variables)]
+        let IntrinsicInstall {
+            builtin,
+            meta,
+            prototype_global_index,
+            constructor_global_index,
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            prototype_object_local,
+        } = *context;
+
+        for (name, builtin) in [
+            ("from", StandardBuiltinId::TemporalPlainYearMonthFrom),
+            ("compare", StandardBuiltinId::TemporalPlainYearMonthCompare),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(object_local, name, meta, function)?;
+        }
+        function.instruction(&Instruction::GlobalGet(prototype_global_index));
+        function.instruction(&Instruction::LocalSet(prototype_object_local));
+        for (name, builtin) in [
+            (
+                "calendarId",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter,
+            ),
+            (
+                "era",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter,
+            ),
+            (
+                "year",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter,
+            ),
+            (
+                "month",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter,
+            ),
+            (
+                "monthCode",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter,
+            ),
+            (
+                "daysInYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter,
+            ),
+            (
+                "daysInMonth",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter,
+            ),
+            (
+                "monthsInYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter,
+            ),
+            (
+                "inLeapYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter,
+            ),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_append_accessor_property_with_flags(
+                prototype_object_local,
+                key_local,
+                Some((payload_local, tag_local)),
+                None,
+                false,
+                true,
+                function,
+            )?;
+        }
+        for (name, builtin) in [
+            (
+                "with",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeWith,
+            ),
+            ("add", StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract,
+            ),
+            (
+                "until",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil,
+            ),
+            (
+                "since",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSince,
+            ),
+            (
+                "equals",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals,
+            ),
+            (
+                "toString",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToString,
+            ),
+            (
+                "toJSON",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
+            ),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf,
+            ),
+            (
+                "toPlainDate",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate,
+            ),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
+        }
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Temporal.PlainYearMonth"),
+        ));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+
+        Ok(())
+    }
+
+    /// Property installation order is observable through `Object.keys`, so the
+    /// sequence here - statics on the constructor, then prototype accessors,
+    /// then prototype methods, then `Symbol.toStringTag` - matches the order
+    /// `lowering::temporal_plain_month_day_prototype_shape` declares.
+    pub(crate) fn install_temporal_plain_month_day_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        #[allow(unused_variables)]
+        let IntrinsicInstall {
+            builtin,
+            meta,
+            prototype_global_index,
+            constructor_global_index,
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            prototype_object_local,
+        } = *context;
+
+        for (name, builtin) in [("from", StandardBuiltinId::TemporalPlainMonthDayFrom)] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(object_local, name, meta, function)?;
+        }
+        function.instruction(&Instruction::GlobalGet(prototype_global_index));
+        function.instruction(&Instruction::LocalSet(prototype_object_local));
+        for (name, builtin) in [
+            (
+                "calendarId",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter,
+            ),
+            (
+                "monthCode",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter,
+            ),
+            (
+                "day",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter,
+            ),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_function_value_payload(meta, function)?;
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_append_accessor_property_with_flags(
+                prototype_object_local,
+                key_local,
+                Some((payload_local, tag_local)),
+                None,
+                false,
+                true,
+                function,
+            )?;
+        }
+        for (name, builtin) in [
+            (
+                "with",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeWith,
+            ),
+            (
+                "equals",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals,
+            ),
+            (
+                "toString",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToString,
+            ),
+            (
+                "toJSON",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
+            ),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf,
+            ),
+            (
+                "toPlainDate",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate,
+            ),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
+        }
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("Temporal.PlainMonthDay"),
+        ));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+
+        Ok(())
+    }
 }

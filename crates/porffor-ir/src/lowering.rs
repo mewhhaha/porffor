@@ -1906,6 +1906,221 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    /// Temporal proposal 9.3: the `Temporal.PlainYearMonth.prototype` shape.
+    /// The order mirrors `install_temporal_plain_year_month_constructor_intrinsics`,
+    /// because property order is observable through `Object.keys`.
+    fn temporal_plain_year_month_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "calendarId",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter,
+            ),
+            (
+                "era",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter,
+            ),
+            (
+                "year",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter,
+            ),
+            (
+                "month",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter,
+            ),
+            (
+                "monthCode",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter,
+            ),
+            (
+                "daysInYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter,
+            ),
+            (
+                "daysInMonth",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter,
+            ),
+            (
+                "monthsInYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter,
+            ),
+            (
+                "inLeapYear",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        for (name, method) in [
+            (
+                "with",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeWith,
+            ),
+            ("add", StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract,
+            ),
+            (
+                "until",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil,
+            ),
+            (
+                "since",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSince,
+            ),
+            (
+                "equals",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals,
+            ),
+            (
+                "toString",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToString,
+            ),
+            (
+                "toJSON",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
+            ),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf,
+            ),
+            (
+                "toPlainDate",
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    method.function_id(),
+                    false,
+                )),
+            );
+        }
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainYearMonth")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn temporal_plain_year_month_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::temporal_plain_year_month_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    /// Temporal proposal 10.3: the `Temporal.PlainMonthDay.prototype` shape.
+    fn temporal_plain_month_day_prototype_shape() -> Box<HeapShape> {
+        let mut properties = BTreeMap::new();
+        for (name, getter) in [
+            (
+                "calendarId",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter,
+            ),
+            (
+                "monthCode",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter,
+            ),
+            (
+                "day",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: getter.function_id(),
+                    }),
+                    setter: None,
+                },
+            );
+        }
+        for (name, method) in [
+            (
+                "with",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeWith,
+            ),
+            (
+                "equals",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals,
+            ),
+            (
+                "toString",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToString,
+            ),
+            (
+                "toJSON",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson,
+            ),
+            (
+                "toLocaleString",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
+            ),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf,
+            ),
+            (
+                "toPlainDate",
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    method.function_id(),
+                    false,
+                )),
+            );
+        }
+        properties.insert(
+            "Symbol.toStringTag".to_string(),
+            ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainMonthDay")),
+        );
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties,
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    fn temporal_plain_month_day_instance_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::temporal_plain_month_day_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     /// Temporal proposal 4.3: the `Temporal.PlainTime.prototype` shape. The
     /// order here mirrors `install_temporal_plain_time_constructor_intrinsics`,
     /// because property order is observable through `Object.keys`.
@@ -3780,6 +3995,43 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                 }
+                StandardBuiltinId::TemporalPlainYearMonthConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::temporal_plain_year_month_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainYearMonthFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainYearMonthCompare.function_id(),
+                            false,
+                        )),
+                    );
+                }
+                StandardBuiltinId::TemporalPlainMonthDayConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::temporal_plain_month_day_prototype_shape(),
+                        ))),
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalPlainMonthDayFrom.function_id(),
+                            false,
+                        )),
+                    );
+                }
                 StandardBuiltinId::TemporalPlainDateTimeConstructor => {
                     object.properties.insert(
                         "prototype".to_string(),
@@ -4573,6 +4825,18 @@ impl<'a> ScriptLowerer<'a> {
                 TEMPORAL_PLAIN_DATE_TIME_NAME.to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::TemporalPlainDateTimeConstructor,
+                )),
+            ),
+            (
+                TEMPORAL_PLAIN_YEAR_MONTH_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::TemporalPlainYearMonthConstructor,
+                )),
+            ),
+            (
+                TEMPORAL_PLAIN_MONTH_DAY_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::TemporalPlainMonthDayConstructor,
                 )),
             ),
             (
@@ -6129,6 +6393,88 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_plain_date_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthConstructor
+            | StandardBuiltinId::TemporalPlainYearMonthFrom
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeWith
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_year_month_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_year_month_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSince => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_instance_shape()),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainMonthDayConstructor
+            | StandardBuiltinId::TemporalPlainMonthDayFrom
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeWith => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_month_day_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_month_day_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthCompare
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::TemporalDurationConstructor
             | StandardBuiltinId::TemporalDurationFrom
@@ -26075,6 +26421,58 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
             ),
+            StandardBuiltinId::TemporalPlainYearMonthConstructor
+            | StandardBuiltinId::TemporalPlainYearMonthFrom
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeWith
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_year_month_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainMonthDayConstructor
+            | StandardBuiltinId::TemporalPlainMonthDayFrom
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeWith => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_month_day_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSince => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainYearMonthCompare
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter => {
+                Some(ValueInfo::new(ValueKind::Number))
+            }
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
             StandardBuiltinId::TemporalDurationConstructor
             | StandardBuiltinId::TemporalDurationFrom
             | StandardBuiltinId::TemporalDurationPrototypeWith
@@ -32064,7 +32462,17 @@ impl<'a> ScriptLowerer<'a> {
             };
             let storage_name = binding.storage_name.clone();
             self.set_binding_value_info(&name, ValueInfo::new(update_kind));
-            (Some(storage_name), update_kind)
+            // A script-level `var` is a property of the global object, and
+            // `lower_identifier_name_inner` reads it from there. Updating the
+            // local mirror instead would read a value that is stale by every
+            // write a closure made through the global object, so `n++` after
+            // `function bump(){ n++ }; bump()` would resume from the old value.
+            if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
+                self.set_global_property_value_info(name.clone(), ValueInfo::new(update_kind));
+                (None, update_kind)
+            } else {
+                (Some(storage_name), update_kind)
+            }
         } else if let Some(info) = self.lookup_global_property_info(&name) {
             if info.proven_present {
                 let update_kind = if info

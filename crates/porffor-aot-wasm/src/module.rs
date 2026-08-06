@@ -159,6 +159,10 @@ pub(crate) const TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX: u32 = 125;
 pub(crate) const TEMPORAL_PLAIN_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 126;
 pub(crate) const TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX: u32 = 127;
 pub(crate) const TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX: u32 = 128;
+pub(crate) const TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX: u32 = 129;
+pub(crate) const TEMPORAL_PLAIN_YEAR_MONTH_CONSTRUCTOR_GLOBAL_INDEX: u32 = 130;
+pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX: u32 = 131;
+pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 132;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -701,6 +705,22 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Temporal.PlainDateTime",
         index: TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Temporal.PlainYearMonth.prototype",
+        index: TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainYearMonth",
+        index: TEMPORAL_PLAIN_YEAR_MONTH_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainMonthDay.prototype",
+        index: TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Temporal.PlainMonthDay",
+        index: TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -756,6 +776,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         }
         StandardBuiltinId::TemporalPlainDateTimeConstructor => {
             Some(TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainYearMonthConstructor => {
+            Some(TEMPORAL_PLAIN_YEAR_MONTH_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainMonthDayConstructor => {
+            Some(TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::TemporalZonedDateTimeConstructor => {
             Some(TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
@@ -1329,6 +1355,40 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalPlainDatePrototypeToJson
         | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
         | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainYearMonthFrom
+        | StandardBuiltinId::TemporalPlainYearMonthCompare
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeWith
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeSince
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate
+        | StandardBuiltinId::TemporalPlainMonthDayFrom
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeWith
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate
         | StandardBuiltinId::TemporalDurationFrom
         | StandardBuiltinId::TemporalDurationCompare
         | StandardBuiltinId::TemporalDurationPrototypeYearsGetter
@@ -1768,6 +1828,12 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::TemporalPlainDateTimeConstructor => {
             Some(TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
         }
+        StandardBuiltinId::TemporalPlainYearMonthConstructor => {
+            Some(TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::TemporalPlainMonthDayConstructor => {
+            Some(TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX)
+        }
         StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX),
         _ => None,
     }
@@ -1846,7 +1912,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
         );
     }
 

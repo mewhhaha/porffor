@@ -177,6 +177,8 @@ pub const TEMPORAL_INSTANT_NAME: &str = "Instant";
 pub const TEMPORAL_PLAIN_DATE_NAME: &str = "PlainDate";
 pub const TEMPORAL_PLAIN_TIME_NAME: &str = "PlainTime";
 pub const TEMPORAL_PLAIN_DATE_TIME_NAME: &str = "PlainDateTime";
+pub const TEMPORAL_PLAIN_YEAR_MONTH_NAME: &str = "PlainYearMonth";
+pub const TEMPORAL_PLAIN_MONTH_DAY_NAME: &str = "PlainMonthDay";
 pub const TEMPORAL_ZONED_DATE_TIME_NAME: &str = "ZonedDateTime";
 pub const TEMPORAL_DURATION_NAME: &str = "Duration";
 pub const INTL_NAME: &str = "Intl";
@@ -709,6 +711,76 @@ pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &s
     "$builtin.Temporal.PlainDate.prototype.toLocaleString";
 pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
     "$builtin.Temporal.PlainDate.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_FUNCTION_ID: &str = "$builtin.Temporal.PlainYearMonth";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_FROM_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.from";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_COMPARE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.compare";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.calendarId.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_ERA_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.era.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.eraYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.year.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.month.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.monthCode.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.daysInYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.daysInMonth.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.monthsInYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.inLeapYear.get";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.with";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_ADD_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.add";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_SUBTRACT_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.subtract";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_UNTIL_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.until";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_SINCE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.since";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.equals";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.toString";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.toLocaleString";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainYearMonth.prototype.toPlainDate";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_FUNCTION_ID: &str = "$builtin.Temporal.PlainMonthDay";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_FROM_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.from";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.calendarId.get";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.monthCode.get";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_DAY_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.day.get";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.with";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.equals";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.toString";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.toLocaleString";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainMonthDay.prototype.toPlainDate";
 pub const BUILTIN_TEMPORAL_PLAIN_TIME_FUNCTION_ID: &str = "$builtin.Temporal.PlainTime";
 pub const BUILTIN_TEMPORAL_PLAIN_TIME_FROM_FUNCTION_ID: &str = "$builtin.Temporal.PlainTime.from";
 pub const BUILTIN_TEMPORAL_PLAIN_TIME_COMPARE_FUNCTION_ID: &str =

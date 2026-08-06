@@ -13,6 +13,11 @@
 
 use super::super::*;
 
+/// The first epoch day a `PlainDateTime` may name. Equal to
+/// `TEMPORAL_PLAIN_DATE_MINIMUM_EPOCH_DAY`: `PlainDate` may hold the whole day,
+/// but `PlainDateTime` may not hold its midnight.
+const TEMPORAL_PLAIN_DATE_TIME_MINIMUM_EPOCH_DAY: i64 = -100_000_001;
+
 /// Field order: the constructor argument order, and the order the fields are
 /// written into the record. Indices 0..3 are the date, 3..9 the time.
 pub(crate) const TEMPORAL_PLAIN_DATE_TIME_FIELD_OFFSETS: [u64; 9] = [
@@ -200,6 +205,11 @@ impl<'a> FunctionBuilder<'a> {
         prototype_payload_local: Option<u32>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // `CreateTemporalDateTime` runs `ISODateTimeWithinLimits`. Every caller
+        // reaches here with the final ISO fields, so validating once here keeps
+        // `with`, `withPlainTime`, `round` and friends from minting the one
+        // midnight the day-range check cannot reject.
+        self.emit_temporal_reject_date_time_lower_bound(field_locals, function)?;
         let object_payload_local = self.reserve_temp_local();
         let record_local = self.reserve_temp_local();
         let prototype_local = match prototype_payload_local {
@@ -372,7 +382,53 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         let time_locals = Self::temporal_plain_date_time_time_locals(field_locals);
-        self.emit_temporal_reject_time(&time_locals, function)
+        self.emit_temporal_reject_time(&time_locals, function)?;
+        self.emit_temporal_reject_date_time_lower_bound(field_locals, function)
+    }
+
+    /// The nanosecond the day-range check cannot see. `ISODateTimeWithinLimits`
+    /// rejects `ns <= nsMinInstant - nsPerDay`, and that bound lands exactly on
+    /// `-271821-04-19T00:00:00`. The day itself is inside the `RejectISODate`
+    /// range (`PlainDate` may hold it), so only the midnight instant on the
+    /// first representable day is out of range; every later time that day is
+    /// fine. The upper bound needs no companion check: `+275760-09-14` is
+    /// already outside the day range, and `nsMaxInstant + nsPerDay` is that
+    /// day's midnight.
+    pub(crate) fn emit_temporal_reject_date_time_lower_bound(
+        &mut self,
+        field_locals: &[u32; 9],
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let days_local = self.reserve_temp_local();
+        self.emit_temporal_plain_date_epoch_days(
+            field_locals[0],
+            field_locals[1],
+            field_locals[2],
+            days_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(days_local));
+        function.instruction(&Instruction::I64Const(
+            TEMPORAL_PLAIN_DATE_TIME_MINIMUM_EPOCH_DAY,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        for time_local in Self::temporal_plain_date_time_time_locals(field_locals) {
+            function.instruction(&Instruction::LocalGet(time_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32And);
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Temporal.PlainDateTime is outside the supported date range",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(days_local);
+        Ok(())
     }
 
     /// Temporal proposal 5.1: `Temporal.PlainDateTime(isoYear, isoMonth, isoDay

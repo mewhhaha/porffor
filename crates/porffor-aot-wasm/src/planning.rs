@@ -1286,6 +1286,95 @@ impl RuntimeBootstrapPlan {
                     self.standard_roots.insert(dependency);
                 }
             }
+            // The whole `Temporal.PlainYearMonth` family installs together: one shared prototype, and `until`/`since`/`toPlainDate` hand back sibling types.
+            StandardBuiltinId::TemporalPlainYearMonthConstructor
+            | StandardBuiltinId::TemporalPlainYearMonthFrom
+            | StandardBuiltinId::TemporalPlainYearMonthCompare
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeWith
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeSince
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate => {
+                self.temporal_object = true;
+                self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor);
+                for dependency in [
+                    StandardBuiltinId::TemporalPlainYearMonthConstructor,
+                    StandardBuiltinId::TemporalPlainYearMonthFrom,
+                    StandardBuiltinId::TemporalPlainYearMonthCompare,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeWith,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeSince,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeToString,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf,
+                    StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
+            // The whole `Temporal.PlainMonthDay` family installs together; `toPlainDate` hands back a `Temporal.PlainDate`.
+            StandardBuiltinId::TemporalPlainMonthDayConstructor
+            | StandardBuiltinId::TemporalPlainMonthDayFrom
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeWith
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate => {
+                self.temporal_object = true;
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor);
+                for dependency in [
+                    StandardBuiltinId::TemporalPlainMonthDayConstructor,
+                    StandardBuiltinId::TemporalPlainMonthDayFrom,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeWith,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeToString,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf,
+                    StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
+            }
             // The whole `Temporal.PlainTime` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
             StandardBuiltinId::TemporalPlainTimeConstructor
@@ -5246,6 +5335,42 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainDateTimePrototypeRound
         | StandardBuiltinId::TemporalPlainDateTimePrototypeEquals
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => 1,
+        StandardBuiltinId::TemporalPlainYearMonthConstructor
+        | StandardBuiltinId::TemporalPlainYearMonthCompare
+        | StandardBuiltinId::TemporalPlainMonthDayConstructor => 2,
+        StandardBuiltinId::TemporalPlainYearMonthFrom
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeWith
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeAdd
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeSubtract
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeSince
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeEquals
+        | StandardBuiltinId::TemporalPlainMonthDayFrom
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeWith
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeEquals
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate => 1,
+        StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeMonthCodeGetter
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeDayGetter
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
+        | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf => 0,
         StandardBuiltinId::TemporalZonedDateTimeConstructor => 2,
         StandardBuiltinId::TemporalPlainDateCompare => 2,
         StandardBuiltinId::TemporalPlainTimeCompare => 2,

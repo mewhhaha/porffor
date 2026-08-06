@@ -150,7 +150,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `CalendarResolveFields` runs after `GetTemporalOverflowOption` and the
     /// option read is observable.
     #[allow(clippy::too_many_arguments)]
-    fn emit_temporal_plain_date_read_fields(
+    pub(crate) fn emit_temporal_plain_date_read_fields(
         &mut self,
         argument_payload_local: u32,
         argument_tag_local: u32,
@@ -165,6 +165,7 @@ impl<'a> FunctionBuilder<'a> {
         day_local: u32,
         day_present_local: u32,
         read_calendar: bool,
+        strict_month_code: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let property_key_local = self.reserve_temp_local();
@@ -232,12 +233,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(month_code_present_local));
-        self.emit_temporal_property_bag_string(
-            value_payload_local,
-            value_tag_local,
-            "Temporal.PlainDate monthCode must be a string",
-            function,
-        )?;
+        if strict_month_code {
+            self.emit_temporal_month_code_string(
+                value_payload_local,
+                value_tag_local,
+                "Temporal.PlainDate monthCode must be a string",
+                "Invalid Temporal.PlainDate monthCode",
+                function,
+            )?;
+        } else {
+            self.emit_temporal_property_bag_string(
+                value_payload_local,
+                value_tag_local,
+                "Temporal.PlainDate monthCode must be a string",
+                function,
+            )?;
+        }
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(month_code_payload_local));
 
@@ -545,6 +556,7 @@ impl<'a> FunctionBuilder<'a> {
             day_local,
             day_present_local,
             true,
+            false,
             function,
         )?;
         if read_options {
@@ -971,6 +983,7 @@ impl<'a> FunctionBuilder<'a> {
             month_code_present_local,
             new_day_local,
             day_present_local,
+            false,
             false,
             function,
         )?;
