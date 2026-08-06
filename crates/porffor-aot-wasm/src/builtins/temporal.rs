@@ -1,4 +1,78 @@
 use super::super::*;
+use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
+
+/// The three options `Temporal.ZonedDateTime.from` reads, in read order.
+///
+/// The option's identity used to be the `&str` the loop iterated, compared
+/// again at two later points; a typo in the loop literal still compiled, routed
+/// the code into the wrong destination local and reached a live `unreachable!()`
+/// in the compiler. Every derived fact is now a total function of the variant.
+#[derive(Clone, Copy)]
+enum ZonedDateTimeOptionKey {
+    Disambiguation,
+    Offset,
+    Overflow,
+}
+
+impl ZonedDateTimeOptionKey {
+    const ALL: [ZonedDateTimeOptionKey; 3] = [
+        ZonedDateTimeOptionKey::Disambiguation,
+        ZonedDateTimeOptionKey::Offset,
+        ZonedDateTimeOptionKey::Overflow,
+    ];
+
+    fn property(self) -> &'static str {
+        match self {
+            ZonedDateTimeOptionKey::Disambiguation => Disambiguation::PROPERTY,
+            ZonedDateTimeOptionKey::Offset => OffsetOption::PROPERTY,
+            ZonedDateTimeOptionKey::Overflow => TemporalOverflow::PROPERTY,
+        }
+    }
+
+    fn range_error(self) -> &'static str {
+        match self {
+            ZonedDateTimeOptionKey::Disambiguation => {
+                "Invalid Temporal.ZonedDateTime disambiguation option"
+            }
+            ZonedDateTimeOptionKey::Offset => "Invalid Temporal.ZonedDateTime offset option",
+            ZonedDateTimeOptionKey::Overflow => "Invalid Temporal.ZonedDateTime overflow option",
+        }
+    }
+
+    fn allowed(self) -> Vec<(&'static str, i64)> {
+        fn pairs<O: StringValuedOption>() -> Vec<(&'static str, i64)> {
+            O::ALLOWED
+                .iter()
+                .map(|value| (value.name(), value.code()))
+                .collect()
+        }
+        match self {
+            ZonedDateTimeOptionKey::Disambiguation => pairs::<Disambiguation>(),
+            ZonedDateTimeOptionKey::Offset => pairs::<OffsetOption>(),
+            ZonedDateTimeOptionKey::Overflow => pairs::<TemporalOverflow>(),
+        }
+    }
+
+    fn default_code(self) -> i64 {
+        match self {
+            ZonedDateTimeOptionKey::Disambiguation => Disambiguation::DEFAULT.code(),
+            ZonedDateTimeOptionKey::Offset => OffsetOption::DEFAULT.code(),
+            ZonedDateTimeOptionKey::Overflow => StringValuedOption::code(TemporalOverflow::DEFAULT),
+        }
+    }
+
+    /// Which caller-supplied local receives the code. `disambiguation` has no
+    /// destination: this backend resolves only `UTC` and fixed offsets, so the
+    /// value is validated and then deliberately dropped. That gap is now named
+    /// rather than expressed as an absent code in a table.
+    fn destination(self, offset_local: u32, overflow_local: u32) -> Option<u32> {
+        match self {
+            ZonedDateTimeOptionKey::Disambiguation => None,
+            ZonedDateTimeOptionKey::Offset => Some(offset_local),
+            ZonedDateTimeOptionKey::Overflow => Some(overflow_local),
+        }
+    }
+}
 
 const TEMPORAL_INSTANT_LIMIT_HIGH_LIMB: i64 = 468;
 const TEMPORAL_INSTANT_LIMIT_LOW_LIMB: i64 = 6_923_773_503_929_843_712;
@@ -1452,10 +1526,12 @@ impl<'a> FunctionBuilder<'a> {
         let expected_payload_local = self.reserve_temp_local();
         let recognized_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(offset_option_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(overflow_option_local));
+        for key in ZonedDateTimeOptionKey::ALL {
+            if let Some(destination) = key.destination(offset_option_local, overflow_option_local) {
+                function.instruction(&Instruction::I64Const(key.default_code()));
+                function.instruction(&Instruction::LocalSet(destination));
+            }
+        }
         function.instruction(&Instruction::LocalGet(options_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
@@ -1472,31 +1548,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        for (property, allowed_values) in [
-            (
-                "disambiguation",
-                &[
-                    ("compatible", None),
-                    ("earlier", None),
-                    ("later", None),
-                    ("reject", None),
-                ][..],
-            ),
-            (
-                "offset",
-                &[
-                    ("reject", Some(0)),
-                    ("use", Some(1)),
-                    ("prefer", Some(2)),
-                    ("ignore", Some(3)),
-                ][..],
-            ),
-            (
-                "overflow",
-                &[("constrain", Some(0)), ("reject", Some(1))][..],
-            ),
-        ] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(property)));
+        for key in ZonedDateTimeOptionKey::ALL {
+            let destination = key.destination(offset_option_local, overflow_option_local);
+            function.instruction(&Instruction::I64Const(self.strings.payload(key.property())));
             function.instruction(&Instruction::LocalSet(property_key_local));
             self.emit_object_read(
                 options_payload_local,
@@ -1518,7 +1572,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion_if_throw(function);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(recognized_local));
-            for (expected, offset_code) in allowed_values {
+            for (expected, code) in key.allowed() {
                 function.instruction(&Instruction::I64Const(self.strings.payload(expected)));
                 function.instruction(&Instruction::LocalSet(expected_payload_local));
                 self.emit_string_payload_equality_i32(
@@ -1529,13 +1583,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(recognized_local));
-                if let Some(offset_code) = offset_code {
-                    function.instruction(&Instruction::I64Const(*offset_code));
-                    function.instruction(&Instruction::LocalSet(if property == "overflow" {
-                        overflow_option_local
-                    } else {
-                        offset_option_local
-                    }));
+                if let Some(destination) = destination {
+                    function.instruction(&Instruction::I64Const(code));
+                    function.instruction(&Instruction::LocalSet(destination));
                 }
                 function.instruction(&Instruction::End);
             }
@@ -1543,12 +1593,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(
-                match property {
-                    "disambiguation" => "Invalid Temporal.ZonedDateTime disambiguation option",
-                    "offset" => "Invalid Temporal.ZonedDateTime offset option",
-                    "overflow" => "Invalid Temporal.ZonedDateTime overflow option",
-                    _ => unreachable!(),
-                },
+                key.range_error(),
                 self.result_local,
                 self.result_tag_local,
                 function,

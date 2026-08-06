@@ -14,6 +14,61 @@
 
 use super::super::*;
 
+/// The two Temporal types stored in the `Temporal.PlainDate` record shape.
+///
+/// The internal brand and the prototype are two halves of one decision, and
+/// they used to be two independent arguments to
+/// [`FunctionBuilder::emit_alloc_temporal_partial_date`]: pairing the month-day
+/// brand with the year-month prototype compiled, and produced an object that is
+/// a `Temporal.PlainMonthDay` to every brand check and a
+/// `Temporal.PlainYearMonth` to every method lookup. Nothing throws on such an
+/// object; it simply answers the wrong questions. Naming the type once, and
+/// deriving both halves from it, makes that pairing unrepresentable.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalPartialDateType {
+    PlainYearMonth,
+    PlainMonthDay,
+}
+
+impl TemporalPartialDateType {
+    /// `[[InitializedTemporalYearMonth]]` / `[[InitializedTemporalMonthDay]]`.
+    pub(crate) const fn brand(self) -> u64 {
+        match self {
+            TemporalPartialDateType::PlainYearMonth => {
+                OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH
+            }
+            TemporalPartialDateType::PlainMonthDay => {
+                OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY
+            }
+        }
+    }
+
+    /// The realm intrinsic `%Temporal.PlainYearMonth.prototype%` /
+    /// `%Temporal.PlainMonthDay.prototype%`.
+    pub(crate) const fn prototype_global_index(self) -> u32 {
+        match self {
+            TemporalPartialDateType::PlainYearMonth => {
+                TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX
+            }
+            TemporalPartialDateType::PlainMonthDay => {
+                TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX
+            }
+        }
+    }
+}
+
+/// Where a partial-date object's prototype comes from. Both arms resolve
+/// against the [`TemporalPartialDateType`] that also supplies the brand, so the
+/// two cannot name different types.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalPartialDatePrototype {
+    /// The realm intrinsic, for the `from`/`with`/`add` paths that never see a
+    /// `new.target`.
+    Intrinsic,
+    /// `GetPrototypeFromConstructor(newTarget, ...)`, for the constructor.
+    FromNewTarget,
+}
+
 /// `ISOYearMonthWithinLimits`. The year bound is one wider than
 /// `ISODateWithinLimits` at each end because a whole month, not a single day,
 /// has to fit.
@@ -106,20 +161,37 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Allocates a partial-date object: the `Temporal.PlainDate` record shape
-    /// under a different brand and prototype.
+    /// under `kind`'s brand and `kind`'s prototype. Both come from the same
+    /// argument, so the object cannot be branded as one type and shaped as the
+    /// other.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_alloc_temporal_partial_date(
         &mut self,
-        brand: u64,
+        kind: TemporalPartialDateType,
         year_local: u32,
         month_local: u32,
         day_local: u32,
         calendar_payload_local: u32,
-        prototype_payload_local: u32,
+        prototype: TemporalPartialDatePrototype,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let object_payload_local = self.reserve_temp_local();
         let record_local = self.reserve_temp_local();
+        let prototype_payload_local = self.reserve_temp_local();
+        match prototype {
+            TemporalPartialDatePrototype::Intrinsic => {
+                function.instruction(&Instruction::GlobalGet(kind.prototype_global_index()));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+            }
+            TemporalPartialDatePrototype::FromNewTarget => {
+                self.emit_error_new_target_prototype_to_local(
+                    kind.prototype_global_index(),
+                    None,
+                    prototype_payload_local,
+                    function,
+                )?;
+            }
+        }
         self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_payload_local));
         self.emit_heap_alloc_const(HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE, function)?;
@@ -138,7 +210,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             object_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand,
+            kind.brand(),
             function,
         );
         self.store_i64_local_at_offset(
@@ -151,6 +223,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.release_temp_local(prototype_payload_local);
         self.release_temp_local(record_local);
         self.release_temp_local(object_payload_local);
         Ok(())
@@ -267,7 +340,6 @@ impl<'a> FunctionBuilder<'a> {
         let day_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
 
@@ -340,26 +412,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_temporal_reject_iso_year_month(year_local, month_local, day_local, function)?;
-        self.emit_error_new_target_prototype_to_local(
-            TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
-            None,
-            prototype_payload_local,
-            function,
-        )?;
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            TemporalPartialDateType::PlainYearMonth,
             year_local,
             month_local,
             day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::FromNewTarget,
             function,
         )?;
 
         for local in [
             new_target_tag_local,
             new_target_payload_local,
-            prototype_payload_local,
             calendar_tag_local,
             calendar_payload_local,
             day_local,

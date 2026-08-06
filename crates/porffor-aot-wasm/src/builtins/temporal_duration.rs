@@ -14,6 +14,7 @@
 //! fit an `i64`. Anything at or beyond 2^63 is rejected with a RangeError.
 
 use super::super::*;
+use super::temporal_options::{TemporalUnit, TEMPORAL_UNIT_SECONDS};
 
 /// `IsValidDuration` step 3: years, months and weeks are each capped below
 /// 2^32.
@@ -226,31 +227,46 @@ impl<'a> FunctionBuilder<'a> {
     /// Split the sub-day fields into whole seconds and a signed remainder in
     /// (-10^9, 10^9). Both outputs carry the duration's sign.
     ///
-    /// `first_field` is the coarsest declaration-order index to fold in: 3
-    /// takes days and everything below, which is what `IsValidDuration` needs;
-    /// 4 takes hours down, which is the unit `TemporalDurationToString`
-    /// rebalances across; 6 takes only the seconds-and-below tail, which is
-    /// what it prints when no rounding happens.
+    /// `first_unit` is the coarsest unit to fold in: `Day` takes days and
+    /// everything below, which is what `IsValidDuration` needs; `Hour` takes
+    /// hours down, which is the unit `TemporalDurationToString` rebalances
+    /// across; `Second` takes only the seconds-and-below tail, which is what it
+    /// prints when no rounding happens.
+    ///
+    /// It is a `TemporalUnit`, not the bare field index it used to be: the
+    /// index and the emitted unit code are different numberings that happen to
+    /// coincide, and one caller was already writing `TEMPORAL_UNIT_DAY as
+    /// usize` to bridge them.
     pub(crate) fn emit_temporal_duration_normalize_seconds(
         &mut self,
         field_locals: &[u32; 10],
-        first_field: usize,
+        first_unit: TemporalUnit,
         seconds_local: u32,
         subsecond_local: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(field_locals[6]));
-        for (index, scale) in [(3_usize, 86_400_i64), (4, 3_600), (5, 60)] {
-            if index < first_field {
+        function.instruction(&Instruction::LocalGet(
+            field_locals[TemporalUnit::Second.duration_field_index()],
+        ));
+        for (unit, scale) in TEMPORAL_UNIT_SECONDS {
+            if unit == TemporalUnit::Second || unit.is_larger_than(first_unit) {
                 continue;
             }
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+            function.instruction(&Instruction::LocalGet(
+                field_locals[unit.duration_field_index()],
+            ));
             function.instruction(&Instruction::I64Const(scale));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
         }
-        for (index, scale) in [(7_usize, 1_000_i64), (8, 1_000_000), (9, 1_000_000_000)] {
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+        for (unit, scale) in [
+            (TemporalUnit::Millisecond, 1_000_i64),
+            (TemporalUnit::Microsecond, 1_000_000),
+            (TemporalUnit::Nanosecond, 1_000_000_000),
+        ] {
+            function.instruction(&Instruction::LocalGet(
+                field_locals[unit.duration_field_index()],
+            ));
             function.instruction(&Instruction::I64Const(scale));
             function.instruction(&Instruction::I64DivS);
             function.instruction(&Instruction::I64Add);
@@ -259,13 +275,15 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(subsecond_local));
-        for (index, modulus, scale) in [
-            (7_usize, 1_000_i64, 1_000_000_i64),
-            (8, 1_000_000, 1_000),
-            (9, 1_000_000_000, 1),
+        for (unit, modulus, scale) in [
+            (TemporalUnit::Millisecond, 1_000_i64, 1_000_000_i64),
+            (TemporalUnit::Microsecond, 1_000_000, 1_000),
+            (TemporalUnit::Nanosecond, 1_000_000_000, 1),
         ] {
             function.instruction(&Instruction::LocalGet(subsecond_local));
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+            function.instruction(&Instruction::LocalGet(
+                field_locals[unit.duration_field_index()],
+            ));
             function.instruction(&Instruction::I64Const(modulus));
             function.instruction(&Instruction::I64RemS);
             function.instruction(&Instruction::I64Const(scale));
@@ -358,7 +376,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_temporal_duration_normalize_seconds(
             field_locals,
-            3,
+            TemporalUnit::Day,
             seconds_local,
             subsecond_local,
             function,

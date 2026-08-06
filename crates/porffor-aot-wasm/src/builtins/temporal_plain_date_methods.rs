@@ -4,41 +4,32 @@
 //! two halves stay readable; both are `impl FunctionBuilder` blocks.
 
 use super::super::*;
-
-/// `GetTemporalOverflowOption` codes, matching the encoding
-/// `emit_temporal_regulate_property_bag_date_time` already expects.
-const TEMPORAL_OVERFLOW_CONSTRAIN: i64 = 0;
-const TEMPORAL_OVERFLOW_REJECT: i64 = 1;
-
-/// `GetTemporalShowCalendarNameOption` codes.
-const TEMPORAL_SHOW_CALENDAR_AUTO: i64 = 0;
-const TEMPORAL_SHOW_CALENDAR_ALWAYS: i64 = 1;
-const TEMPORAL_SHOW_CALENDAR_NEVER: i64 = 2;
-const TEMPORAL_SHOW_CALENDAR_CRITICAL: i64 = 3;
+use super::temporal_options::{ShowCalendarName, StringValuedOption, TemporalOverflow};
 
 impl<'a> FunctionBuilder<'a> {
     /// `GetOptionsObject` followed by a single string-valued option lookup.
-    /// `allowed` maps each accepted string to the code written into
-    /// `option_local`; the first entry is the default when the property is
-    /// absent.
-    pub(crate) fn emit_temporal_plain_date_string_option(
+    ///
+    /// The accepted spellings, the emitted codes and the default when the
+    /// property is absent all come from `O`'s [`StringValuedOption`] impl, so
+    /// there is no per-call-site slice whose first entry silently decides the
+    /// default.
+    pub(crate) fn emit_temporal_string_valued_option<O: StringValuedOption>(
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
-        property: &str,
-        allowed: &[(&str, i64)],
         option_local: u32,
         options_type_error: &str,
         option_range_error: &str,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let property = O::PROPERTY;
         let property_key_local = self.reserve_temp_local();
         let option_payload_local = self.reserve_temp_local();
         let option_tag_local = self.reserve_temp_local();
         let expected_payload_local = self.reserve_temp_local();
         let recognized_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::I64Const(allowed[0].1));
+        function.instruction(&Instruction::I64Const(O::DEFAULT.code()));
         function.instruction(&Instruction::LocalSet(option_local));
         function.instruction(&Instruction::LocalGet(options_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -78,8 +69,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(recognized_local));
-        for (expected, code) in allowed {
-            function.instruction(&Instruction::I64Const(self.strings.payload(expected)));
+        for accepted in O::ALLOWED {
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(accepted.name()),
+            ));
             function.instruction(&Instruction::LocalSet(expected_payload_local));
             self.emit_string_payload_equality_i32(
                 option_payload_local,
@@ -89,7 +82,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::LocalSet(recognized_local));
-            function.instruction(&Instruction::I64Const(*code));
+            function.instruction(&Instruction::I64Const(accepted.code()));
             function.instruction(&Instruction::LocalSet(option_local));
             function.instruction(&Instruction::End);
         }
@@ -126,14 +119,9 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_plain_date_string_option(
+        self.emit_temporal_string_valued_option::<TemporalOverflow>(
             options_payload_local,
             options_tag_local,
-            "overflow",
-            &[
-                ("constrain", TEMPORAL_OVERFLOW_CONSTRAIN),
-                ("reject", TEMPORAL_OVERFLOW_REJECT),
-            ],
             overflow_local,
             "Temporal.PlainDate options must be an object or undefined",
             "Invalid Temporal.PlainDate overflow option",
@@ -428,7 +416,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let maximum_day_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(overflow_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_REJECT));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Reject.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_reject_iso_date(year_local, month_local, day_local, function)?;
@@ -488,7 +476,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
 
         self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
@@ -1201,23 +1189,16 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.load_i64_to_local_from_offset(record_local, offset, local, function);
         }
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_AUTO));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Auto.code()));
         function.instruction(&Instruction::LocalSet(show_calendar_local));
         if matches!(
             builtin,
             StandardBuiltinId::TemporalPlainDatePrototypeToString
         ) {
             self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
-            self.emit_temporal_plain_date_string_option(
+            self.emit_temporal_string_valued_option::<ShowCalendarName>(
                 options_payload_local,
                 options_tag_local,
-                "calendarName",
-                &[
-                    ("auto", TEMPORAL_SHOW_CALENDAR_AUTO),
-                    ("always", TEMPORAL_SHOW_CALENDAR_ALWAYS),
-                    ("never", TEMPORAL_SHOW_CALENDAR_NEVER),
-                    ("critical", TEMPORAL_SHOW_CALENDAR_CRITICAL),
-                ],
                 show_calendar_local,
                 "Temporal.PlainDate options must be an object or undefined",
                 "Invalid Temporal.PlainDate calendarName option",
@@ -1238,15 +1219,15 @@ impl<'a> FunctionBuilder<'a> {
         // `FormatCalendarAnnotation`: `auto` suppresses the annotation for the
         // ISO calendar, which is the only calendar this backend has.
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_ALWAYS));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));

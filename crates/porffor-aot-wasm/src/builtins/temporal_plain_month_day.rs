@@ -9,19 +9,11 @@
 //! The reference year is 1972 - a leap year, so `--02-29` is representable.
 
 use super::super::*;
+use super::temporal_options::{ShowCalendarName, TemporalOverflow};
+use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
 /// `ISO_REFERENCE_YEAR` from the proposal.
 const TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR: i64 = 1972;
-
-/// `GetTemporalOverflowOption` codes, shared with `Temporal.PlainDate`.
-const TEMPORAL_OVERFLOW_CONSTRAIN: i64 = 0;
-const TEMPORAL_OVERFLOW_REJECT: i64 = 1;
-
-/// `GetTemporalShowCalendarNameOption` codes, shared with `Temporal.PlainDate`.
-const TEMPORAL_SHOW_CALENDAR_AUTO: i64 = 0;
-const TEMPORAL_SHOW_CALENDAR_ALWAYS: i64 = 1;
-const TEMPORAL_SHOW_CALENDAR_NEVER: i64 = 2;
-const TEMPORAL_SHOW_CALENDAR_CRITICAL: i64 = 3;
 
 impl<'a> FunctionBuilder<'a> {
     fn emit_temporal_month_day_overflow_option(
@@ -31,14 +23,9 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_plain_date_string_option(
+        self.emit_temporal_string_valued_option::<TemporalOverflow>(
             options_payload_local,
             options_tag_local,
-            "overflow",
-            &[
-                ("constrain", TEMPORAL_OVERFLOW_CONSTRAIN),
-                ("reject", TEMPORAL_OVERFLOW_REJECT),
-            ],
             overflow_local,
             "Temporal.PlainMonthDay options must be an object or undefined",
             "Invalid Temporal.PlainMonthDay overflow option",
@@ -59,7 +46,6 @@ impl<'a> FunctionBuilder<'a> {
         let day_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
 
@@ -132,26 +118,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_temporal_reject_iso_date(year_local, month_local, day_local, function)?;
-        self.emit_error_new_target_prototype_to_local(
-            TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX,
-            None,
-            prototype_payload_local,
-            function,
-        )?;
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            TemporalPartialDateType::PlainMonthDay,
             year_local,
             month_local,
             day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::FromNewTarget,
             function,
         )?;
 
         for local in [
             new_target_tag_local,
             new_target_payload_local,
-            prototype_payload_local,
             calendar_tag_local,
             calendar_payload_local,
             day_local,
@@ -251,7 +230,7 @@ impl<'a> FunctionBuilder<'a> {
         let maximum_day_local = self.reserve_temp_local();
         self.emit_temporal_iso_days_in_month(year_local, month_local, maximum_day_local, function);
         function.instruction(&Instruction::LocalGet(overflow_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_REJECT));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Reject.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(month_local));
@@ -462,7 +441,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
 
         self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
@@ -623,7 +602,6 @@ impl<'a> FunctionBuilder<'a> {
         let month_local = self.reserve_temp_local();
         let day_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
@@ -639,22 +617,17 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            TemporalPartialDateType::PlainMonthDay,
             year_local,
             month_local,
             day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::Intrinsic,
             function,
         )?;
 
         for local in [
-            prototype_payload_local,
             calendar_payload_local,
             day_local,
             month_local,
@@ -819,7 +792,6 @@ impl<'a> FunctionBuilder<'a> {
         let month_code_present_local = self.reserve_temp_local();
         let new_day_local = self.reserve_temp_local();
         let day_present_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
 
         self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
         self.emit_temporal_partial_date_load_record(
@@ -949,22 +921,17 @@ impl<'a> FunctionBuilder<'a> {
             overflow_local,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            TemporalPartialDateType::PlainMonthDay,
             new_year_local,
             new_month_local,
             new_day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::Intrinsic,
             function,
         )?;
 
         for local in [
-            prototype_payload_local,
             day_present_local,
             new_day_local,
             month_code_present_local,
@@ -1021,23 +988,16 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_AUTO));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Auto.code()));
         function.instruction(&Instruction::LocalSet(show_calendar_local));
         if matches!(
             builtin,
             StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
         ) {
             self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
-            self.emit_temporal_plain_date_string_option(
+            self.emit_temporal_string_valued_option::<ShowCalendarName>(
                 options_payload_local,
                 options_tag_local,
-                "calendarName",
-                &[
-                    ("auto", TEMPORAL_SHOW_CALENDAR_AUTO),
-                    ("always", TEMPORAL_SHOW_CALENDAR_ALWAYS),
-                    ("never", TEMPORAL_SHOW_CALENDAR_NEVER),
-                    ("critical", TEMPORAL_SHOW_CALENDAR_CRITICAL),
-                ],
                 show_calendar_local,
                 "Temporal.PlainMonthDay options must be an object or undefined",
                 "Invalid Temporal.PlainMonthDay calendarName option",
@@ -1046,10 +1006,10 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_ALWAYS));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1184,7 +1144,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
         self.emit_temporal_plain_date_regulate(
             year_local,

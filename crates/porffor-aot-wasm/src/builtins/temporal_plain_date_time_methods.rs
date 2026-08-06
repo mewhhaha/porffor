@@ -14,30 +14,11 @@
 //! (`CalendarDateUntil` for the ISO calendar).
 
 use super::super::*;
-use super::temporal_duration_methods::{
-    TEMPORAL_ROUNDING_MODE_HALF_EXPAND, TEMPORAL_ROUNDING_MODE_TRUNC, TEMPORAL_UNIT_UNSET,
+use super::temporal_options::{
+    ShowCalendarName, TemporalOverflow, TemporalRoundingMode, TemporalUnit, TemporalUnitSlot,
 };
-use super::temporal_plain_time::{
-    NANOSECONDS_PER_TEMPORAL_DAY, TEMPORAL_TIME_OVERFLOW_CONSTRAIN, TEMPORAL_TIME_OVERFLOW_REJECT,
-};
+use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
 use super::temporal_plain_time_methods::{TEMPORAL_PRECISION_AUTO, TEMPORAL_PRECISION_MINUTE};
-
-/// `GetTemporalShowCalendarNameOption` codes, matching `Temporal.PlainDate`.
-const TEMPORAL_SHOW_CALENDAR_AUTO: i64 = 0;
-const TEMPORAL_SHOW_CALENDAR_ALWAYS: i64 = 1;
-const TEMPORAL_SHOW_CALENDAR_NEVER: i64 = 2;
-const TEMPORAL_SHOW_CALENDAR_CRITICAL: i64 = 3;
-
-/// Unit codes. Smaller code, larger unit.
-const UNIT_YEAR: i64 = 0;
-const UNIT_MONTH: i64 = 1;
-const UNIT_WEEK: i64 = 2;
-const UNIT_DAY: i64 = 3;
-const UNIT_HOUR: i64 = 4;
-const UNIT_MINUTE: i64 = 5;
-const UNIT_NANOSECOND: i64 = 9;
-/// `"auto"` is encoded one past nanosecond by the shared unit-option reader.
-const UNIT_AUTO: i64 = 10;
 
 /// `ToTemporalTimeRecord` field order for the six wall-clock keys inside the
 /// combined alphabetical `PrepareCalendarFields` sweep.
@@ -62,14 +43,9 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_plain_date_string_option(
+        self.emit_temporal_string_valued_option::<TemporalOverflow>(
             options_payload_local,
             options_tag_local,
-            "overflow",
-            &[
-                ("constrain", TEMPORAL_TIME_OVERFLOW_CONSTRAIN),
-                ("reject", TEMPORAL_TIME_OVERFLOW_REJECT),
-            ],
             overflow_local,
             "Temporal.PlainDateTime options must be an object or undefined",
             "Invalid Temporal.PlainDateTime overflow option",
@@ -277,7 +253,7 @@ impl<'a> FunctionBuilder<'a> {
         );
 
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_WEEK));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Week.code()));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(right_epoch_local));
@@ -285,7 +261,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(days_local));
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_WEEK));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Week.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(days_local));
@@ -409,7 +385,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_MONTH));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Month.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(months_local));
@@ -650,7 +626,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_TIME_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
         function.instruction(&Instruction::LocalSet(calendar_payload_local));
@@ -1452,7 +1428,7 @@ impl<'a> FunctionBuilder<'a> {
         // fall out of it join the duration's own day count.
         self.emit_temporal_duration_normalize_seconds(
             &duration_locals,
-            4,
+            TemporalUnit::Hour,
             seconds_local,
             subsecond_local,
             function,
@@ -1579,11 +1555,11 @@ impl<'a> FunctionBuilder<'a> {
         let zero_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
 
-        function.instruction(&Instruction::I64Const(TEMPORAL_TIME_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(zero_local));
@@ -1667,9 +1643,9 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(destination));
         }
         for (unit, local) in [
-            (UNIT_YEAR, nudge_years_local),
-            (UNIT_MONTH, nudge_months_local),
-            (UNIT_WEEK, nudge_weeks_local),
+            (TemporalUnit::Year.code(), nudge_years_local),
+            (TemporalUnit::Month.code(), nudge_months_local),
+            (TemporalUnit::Week.code(), nudge_weeks_local),
         ] {
             function.instruction(&Instruction::LocalGet(smallest_unit_local));
             function.instruction(&Instruction::I64Const(unit));
@@ -1917,7 +1893,9 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(increment_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_ROUNDING_MODE_HALF_EXPAND));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfExpand.code(),
+        ));
         function.instruction(&Instruction::LocalSet(mode_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -1943,7 +1921,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_rounding_mode_option(
             argument_payload_local,
             argument_tag_local,
-            TEMPORAL_ROUNDING_MODE_HALF_EXPAND,
+            TemporalRoundingMode::HalfExpand,
             mode_local,
             function,
         )?;
@@ -1956,7 +1934,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
@@ -1969,14 +1947,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.emit_temporal_plain_time_require_unit_range(
+        self.emit_temporal_require_unit_range(
             unit_local,
-            UNIT_DAY,
-            UNIT_NANOSECOND,
+            TemporalUnit::Day,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.PlainDateTime unit option",
             function,
         )?;
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(increment_local));
@@ -2110,7 +2089,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_rounding_mode_option(
             options_payload_local,
             options_tag_local,
-            TEMPORAL_ROUNDING_MODE_TRUNC,
+            TemporalRoundingMode::Trunc,
             mode_local,
             function,
         )?;
@@ -2119,12 +2098,15 @@ impl<'a> FunctionBuilder<'a> {
             // halfFloor; the sign-symmetric modes are unchanged.
             function.instruction(&Instruction::LocalGet(mode_local));
             function.instruction(&Instruction::LocalSet(original_mode_local));
-            for (from, to) in [(0_i64, 1_i64), (1, 0), (4, 5), (5, 4)] {
+            for mode in TemporalRoundingMode::ALL {
+                if mode.negated() == mode {
+                    continue;
+                }
                 function.instruction(&Instruction::LocalGet(original_mode_local));
-                function.instruction(&Instruction::I64Const(from));
+                function.instruction(&Instruction::I64Const(mode.code()));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(to));
+                function.instruction(&Instruction::I64Const(mode.negated().code()));
                 function.instruction(&Instruction::LocalSet(mode_local));
                 function.instruction(&Instruction::End);
             }
@@ -2138,58 +2120,53 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(UNIT_NANOSECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
         function.instruction(&Instruction::LocalSet(smallest_unit_local));
         function.instruction(&Instruction::End);
-        self.emit_temporal_plain_time_require_unit_range(
+        self.emit_temporal_require_unit_range(
             smallest_unit_local,
-            UNIT_YEAR,
-            UNIT_NANOSECOND,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.PlainDateTime unit option",
             function,
         )?;
         // An unset or `"auto"` largestUnit falls back to the larger of day and
         // the smallest unit.
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_AUTO));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalSet(largest_unit_local));
         function.instruction(&Instruction::End);
-        self.emit_temporal_plain_time_require_unit_range(
+        self.emit_temporal_require_unit_range(
             largest_unit_local,
-            UNIT_YEAR,
-            UNIT_NANOSECOND,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.PlainDateTime unit option",
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "smallestUnit must be smaller than largestUnit",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_temporal_require_largest_not_smaller(
+            largest_unit_local,
+            smallest_unit_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_plain_time_validate_increment(
@@ -2214,7 +2191,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         // Hour and below: the whole difference is a nanosecond count.
@@ -2320,7 +2297,7 @@ impl<'a> FunctionBuilder<'a> {
             days_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(UNIT_HOUR));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Hour.code()));
         function.instruction(&Instruction::LocalSet(time_largest_unit_local));
         function.instruction(&Instruction::End);
 
@@ -2329,7 +2306,7 @@ impl<'a> FunctionBuilder<'a> {
         // count itself; a calendar smallestUnit truncates, which is what an
         // unrounded difference already is.
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_plain_time_rounding_quantum(
@@ -2345,7 +2322,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64LeS);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(total_local));
@@ -2365,7 +2342,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(days_local));
@@ -2393,9 +2370,9 @@ impl<'a> FunctionBuilder<'a> {
         // `trunc` answer and the lower of the two candidates every other mode
         // picks between.
         for (limit, local) in [
-            (UNIT_WEEK, days_local),
-            (UNIT_MONTH, weeks_local),
-            (UNIT_YEAR, months_local),
+            (TemporalUnit::Week.code(), days_local),
+            (TemporalUnit::Month.code(), weeks_local),
+            (TemporalUnit::Year.code(), months_local),
         ] {
             function.instruction(&Instruction::LocalGet(smallest_unit_local));
             function.instruction(&Instruction::I64Const(limit));
@@ -2527,7 +2504,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(TEMPORAL_PRECISION_AUTO));
         function.instruction(&Instruction::LocalSet(precision_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_AUTO));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Auto.code()));
         function.instruction(&Instruction::LocalSet(show_calendar_local));
         if matches!(
             builtin,
@@ -2539,16 +2516,9 @@ impl<'a> FunctionBuilder<'a> {
                 options_tag_local,
                 function,
             )?;
-            self.emit_temporal_plain_date_string_option(
+            self.emit_temporal_string_valued_option::<ShowCalendarName>(
                 options_payload_local,
                 options_tag_local,
-                "calendarName",
-                &[
-                    ("auto", TEMPORAL_SHOW_CALENDAR_AUTO),
-                    ("always", TEMPORAL_SHOW_CALENDAR_ALWAYS),
-                    ("never", TEMPORAL_SHOW_CALENDAR_NEVER),
-                    ("critical", TEMPORAL_SHOW_CALENDAR_CRITICAL),
-                ],
                 show_calendar_local,
                 "Temporal.PlainDateTime options must be an object or undefined",
                 "Invalid Temporal.PlainDateTime calendarName option",
@@ -2563,7 +2533,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_temporal_duration_rounding_mode_option(
                 options_payload_local,
                 options_tag_local,
-                TEMPORAL_ROUNDING_MODE_TRUNC,
+                TemporalRoundingMode::Trunc,
                 mode_local,
                 function,
             )?;
@@ -2576,24 +2546,25 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+            function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_plain_time_require_unit_range(
+            self.emit_temporal_require_unit_range(
                 unit_local,
-                UNIT_MINUTE,
-                UNIT_NANOSECOND,
+                TemporalUnit::Minute,
+                TemporalUnit::Nanosecond,
+                "Invalid Temporal.PlainDateTime unit option",
                 function,
             )?;
             for (unit, precision) in [
-                (UNIT_MINUTE, TEMPORAL_PRECISION_MINUTE),
-                (6, 0),
-                (7, 3),
-                (8, 6),
-                (9, 9),
+                (TemporalUnit::Minute, TEMPORAL_PRECISION_MINUTE),
+                (TemporalUnit::Second, 0),
+                (TemporalUnit::Millisecond, 3),
+                (TemporalUnit::Microsecond, 6),
+                (TemporalUnit::Nanosecond, 9),
             ] {
                 function.instruction(&Instruction::LocalGet(unit_local));
-                function.instruction(&Instruction::I64Const(unit));
+                function.instruction(&Instruction::I64Const(unit.code()));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::I64Const(precision));
@@ -2605,15 +2576,15 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::Else);
             function.instruction(&Instruction::LocalGet(digits_local));
             function.instruction(&Instruction::LocalSet(precision_local));
-            function.instruction(&Instruction::I64Const(UNIT_NANOSECOND));
+            function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
             function.instruction(&Instruction::LocalSet(unit_local));
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::LocalSet(increment_local));
             for (low, high, unit, scale) in [
-                (0_i64, 0_i64, 6_i64, 0_i64),
-                (1, 3, 7, 3),
-                (4, 6, 8, 6),
-                (7, 9, 9, 9),
+                (0_i64, 0_i64, TemporalUnit::Second, 0_i64),
+                (1, 3, TemporalUnit::Millisecond, 3),
+                (4, 6, TemporalUnit::Microsecond, 6),
+                (7, 9, TemporalUnit::Nanosecond, 9),
             ] {
                 function.instruction(&Instruction::LocalGet(digits_local));
                 function.instruction(&Instruction::I64Const(low));
@@ -2623,7 +2594,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64LeS);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(unit));
+                function.instruction(&Instruction::I64Const(unit.code()));
                 function.instruction(&Instruction::LocalSet(unit_local));
                 for digits in low..=high {
                     function.instruction(&Instruction::LocalGet(digits_local));
@@ -2687,15 +2658,15 @@ impl<'a> FunctionBuilder<'a> {
         // `FormatCalendarAnnotation`: `auto` suppresses the annotation for the
         // ISO calendar, which is the only calendar this backend has.
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_ALWAYS));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));

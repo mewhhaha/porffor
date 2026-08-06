@@ -5,22 +5,10 @@
 //! `impl FunctionBuilder` blocks.
 
 use super::super::*;
-use super::temporal_duration_methods::{TEMPORAL_ROUNDING_MODE_TRUNC, TEMPORAL_UNIT_UNSET};
-
-/// `GetTemporalOverflowOption` codes, shared with `Temporal.PlainDate`.
-const TEMPORAL_OVERFLOW_CONSTRAIN: i64 = 0;
-const TEMPORAL_OVERFLOW_REJECT: i64 = 1;
-
-/// `GetTemporalShowCalendarNameOption` codes, shared with `Temporal.PlainDate`.
-const TEMPORAL_SHOW_CALENDAR_AUTO: i64 = 0;
-const TEMPORAL_SHOW_CALENDAR_ALWAYS: i64 = 1;
-const TEMPORAL_SHOW_CALENDAR_NEVER: i64 = 2;
-const TEMPORAL_SHOW_CALENDAR_CRITICAL: i64 = 3;
-
-/// Unit codes. Smaller code, larger unit.
-const UNIT_YEAR: i64 = 0;
-const UNIT_MONTH: i64 = 1;
-const UNIT_AUTO: i64 = 10;
+use super::temporal_options::{
+    ShowCalendarName, TemporalOverflow, TemporalRoundingMode, TemporalUnit, TemporalUnitSlot,
+};
+use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
 impl<'a> FunctionBuilder<'a> {
     fn emit_temporal_year_month_overflow_option(
@@ -30,14 +18,9 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_plain_date_string_option(
+        self.emit_temporal_string_valued_option::<TemporalOverflow>(
             options_payload_local,
             options_tag_local,
-            "overflow",
-            &[
-                ("constrain", TEMPORAL_OVERFLOW_CONSTRAIN),
-                ("reject", TEMPORAL_OVERFLOW_REJECT),
-            ],
             overflow_local,
             "Temporal.PlainYearMonth options must be an object or undefined",
             "Invalid Temporal.PlainYearMonth overflow option",
@@ -300,7 +283,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let maximum_day_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(overflow_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_REJECT));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Reject.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_reject_iso_year_month(year_local, month_local, day_local, function)?;
@@ -354,7 +337,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
 
         self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
@@ -871,7 +854,6 @@ impl<'a> FunctionBuilder<'a> {
         let month_local = self.reserve_temp_local();
         let day_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
@@ -887,22 +869,17 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            TemporalPartialDateType::PlainYearMonth,
             year_local,
             month_local,
             day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::Intrinsic,
             function,
         )?;
 
         for local in [
-            prototype_payload_local,
             calendar_payload_local,
             day_local,
             month_local,
@@ -1130,7 +1107,6 @@ impl<'a> FunctionBuilder<'a> {
         let month_present_local = self.reserve_temp_local();
         let month_code_payload_local = self.reserve_temp_local();
         let month_code_present_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
 
         self.emit_temporal_plain_year_month_record_from_receiver(record_local, function)?;
         self.emit_temporal_partial_date_load_record(
@@ -1255,22 +1231,17 @@ impl<'a> FunctionBuilder<'a> {
             overflow_local,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            TemporalPartialDateType::PlainYearMonth,
             new_year_local,
             new_month_local,
             day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::Intrinsic,
             function,
         )?;
 
         for local in [
-            prototype_payload_local,
             month_code_present_local,
             month_code_payload_local,
             month_present_local,
@@ -1318,7 +1289,6 @@ impl<'a> FunctionBuilder<'a> {
         let seconds_local = self.reserve_temp_local();
         let subsecond_local = self.reserve_temp_local();
         let day_delta_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
         let duration_locals = self.reserve_temporal_duration_field_locals();
 
         self.emit_temporal_plain_year_month_record_from_receiver(record_local, function)?;
@@ -1363,7 +1333,7 @@ impl<'a> FunctionBuilder<'a> {
         // something silently folded away.
         self.emit_temporal_duration_normalize_seconds(
             &duration_locals,
-            3,
+            TemporalUnit::Day,
             seconds_local,
             subsecond_local,
             function,
@@ -1419,23 +1389,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(day_local));
         self.emit_temporal_year_month_within_limits_check(year_local, month_local, function)?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_partial_date(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            TemporalPartialDateType::PlainYearMonth,
             year_local,
             month_local,
             day_local,
             calendar_payload_local,
-            prototype_payload_local,
+            TemporalPartialDatePrototype::Intrinsic,
             function,
         )?;
 
         self.release_temporal_duration_field_locals(duration_locals);
         for local in [
-            prototype_payload_local,
             day_delta_local,
             subsecond_local,
             seconds_local,
@@ -1549,19 +1514,22 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_rounding_mode_option(
             options_payload_local,
             options_tag_local,
-            TEMPORAL_ROUNDING_MODE_TRUNC,
+            TemporalRoundingMode::Trunc,
             mode_local,
             function,
         )?;
         if since {
             function.instruction(&Instruction::LocalGet(mode_local));
             function.instruction(&Instruction::LocalSet(original_mode_local));
-            for (from, to) in [(0_i64, 1_i64), (1, 0), (4, 5), (5, 4)] {
+            for mode in TemporalRoundingMode::ALL {
+                if mode.negated() == mode {
+                    continue;
+                }
                 function.instruction(&Instruction::LocalGet(original_mode_local));
-                function.instruction(&Instruction::I64Const(from));
+                function.instruction(&Instruction::I64Const(mode.code()));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(to));
+                function.instruction(&Instruction::I64Const(mode.negated().code()));
                 function.instruction(&Instruction::LocalSet(mode_local));
                 function.instruction(&Instruction::End);
             }
@@ -1575,69 +1543,44 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(UNIT_MONTH));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Month.code()));
         function.instruction(&Instruction::LocalSet(smallest_unit_local));
         function.instruction(&Instruction::End);
         // Only `year` and `month` survive; every smaller unit, and `week`, is a
         // RangeError for this type.
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_MONTH));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_YEAR));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
+        self.emit_temporal_require_unit_range(
+            smallest_unit_local,
+            TemporalUnit::Year,
+            TemporalUnit::Month,
             "Invalid Temporal.PlainYearMonth smallestUnit",
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_AUTO));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(UNIT_YEAR));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
         function.instruction(&Instruction::LocalSet(largest_unit_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_MONTH));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_YEAR));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
+        self.emit_temporal_require_unit_range(
+            largest_unit_local,
+            TemporalUnit::Year,
+            TemporalUnit::Month,
             "Invalid Temporal.PlainYearMonth largestUnit",
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "smallestUnit must be smaller than largestUnit",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_temporal_require_largest_not_smaller(
+            largest_unit_local,
+            smallest_unit_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.emit_temporal_duration_zero_fields(&duration_locals, function);
 
@@ -1655,7 +1598,7 @@ impl<'a> FunctionBuilder<'a> {
 
         // `quantum` is the rounding step measured in months.
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_YEAR));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(12));
@@ -1773,7 +1716,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_YEAR));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(12));
@@ -1793,7 +1736,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(UNIT_YEAR));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(total_local));
@@ -1887,23 +1830,16 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_AUTO));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Auto.code()));
         function.instruction(&Instruction::LocalSet(show_calendar_local));
         if matches!(
             builtin,
             StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
         ) {
             self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
-            self.emit_temporal_plain_date_string_option(
+            self.emit_temporal_string_valued_option::<ShowCalendarName>(
                 options_payload_local,
                 options_tag_local,
-                "calendarName",
-                &[
-                    ("auto", TEMPORAL_SHOW_CALENDAR_AUTO),
-                    ("always", TEMPORAL_SHOW_CALENDAR_ALWAYS),
-                    ("never", TEMPORAL_SHOW_CALENDAR_NEVER),
-                    ("critical", TEMPORAL_SHOW_CALENDAR_CRITICAL),
-                ],
                 show_calendar_local,
                 "Temporal.PlainYearMonth options must be an object or undefined",
                 "Invalid Temporal.PlainYearMonth calendarName option",
@@ -1927,10 +1863,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_ALWAYS));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -2088,15 +2024,15 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_ALWAYS));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_SHOW_CALENDAR_CRITICAL));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));
@@ -2207,7 +2143,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(TEMPORAL_OVERFLOW_CONSTRAIN));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
         function.instruction(&Instruction::LocalSet(overflow_local));
         self.emit_temporal_plain_date_regulate(
             year_local,

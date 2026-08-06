@@ -10,6 +10,7 @@
 //! read first.
 
 use super::super::*;
+use super::temporal_options::{TemporalOverflow, TemporalTimeUnit, TemporalUnit};
 
 /// Field order: the constructor argument order, and the order the fields are
 /// written into the record.
@@ -47,24 +48,13 @@ pub(crate) const TEMPORAL_PLAIN_TIME_ALPHABETICAL_FIELDS: [(&str, usize); 6] = [
     ("second", 2),
 ];
 
-/// Nanoseconds in one of each unit, indexed the same way the fields are.
-pub(crate) const TEMPORAL_PLAIN_TIME_UNIT_NANOSECONDS: [i64; 6] = [
-    3_600_000_000_000,
-    60_000_000_000,
-    1_000_000_000,
-    1_000_000,
-    1_000,
-    1,
-];
-
-/// `MaximumTemporalDurationRoundingIncrement` for the six time units.
-pub(crate) const TEMPORAL_PLAIN_TIME_ROUNDING_MAXIMA: [i64; 6] = [24, 60, 60, 1000, 1000, 1000];
-
-pub(crate) const NANOSECONDS_PER_TEMPORAL_DAY: i64 = 86_400_000_000_000;
-
-/// `GetTemporalOverflowOption` codes, matching `Temporal.PlainDate`'s encoding.
-pub(crate) const TEMPORAL_TIME_OVERFLOW_CONSTRAIN: i64 = 0;
-pub(crate) const TEMPORAL_TIME_OVERFLOW_REJECT: i64 = 1;
+/// `nsPerDay`. Derived from the unit table rather than restated, so the two
+/// cannot drift; the `panic!` arm is const-evaluated and would fail the build
+/// if `day` ever stopped having a fixed length.
+pub(crate) const NANOSECONDS_PER_TEMPORAL_DAY: i64 = match TemporalUnit::Day.nanoseconds() {
+    Some(nanoseconds) => nanoseconds,
+    None => panic!("the day unit has a fixed nanosecond length"),
+};
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn reserve_temporal_plain_time_field_locals(&mut self) -> [u32; 6] {
@@ -261,7 +251,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(overflow_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_TIME_OVERFLOW_REJECT));
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Reject.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_reject_time(field_locals, function)?;
@@ -295,9 +285,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        for (index, scale) in TEMPORAL_PLAIN_TIME_UNIT_NANOSECONDS.iter().enumerate() {
+        for (index, unit) in TemporalTimeUnit::ALL.iter().enumerate() {
             function.instruction(&Instruction::LocalGet(field_locals[index]));
-            function.instruction(&Instruction::I64Const(*scale));
+            function.instruction(&Instruction::I64Const(unit.nanoseconds()));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
         }

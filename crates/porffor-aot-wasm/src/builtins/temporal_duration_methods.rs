@@ -1,56 +1,17 @@
 //! `Temporal.Duration` prototype methods, `from`, `compare`, and the shared
 //! option plumbing (`GetOptionsObject`, `GetTemporalUnitValuedOption`,
-//! `GetRoundingModeOption`) that the other Temporal types will reuse.
+//! `GetRoundingModeOption`) that the other Temporal types reuse.
 //!
-//! Units are carried as an `i64` code: 0..=9 is year, month, week, day, hour,
-//! minute, second, millisecond, microsecond, nanosecond — so a *smaller* code
-//! is a *larger* unit and `LargerOfTwoTemporalUnits` is just `min`. 10 means
-//! `"auto"`, -1 means the option was absent, and -2 means the string did not
-//! name a unit at all.
+//! The unit, rounding-mode and overflow domains live in
+//! [`super::temporal_options`]; this module only emits them.
 
 use super::super::*;
 use super::temporal_duration::{
     TEMPORAL_DURATION_ALPHABETICAL_FIELDS, TEMPORAL_DURATION_FIELD_NAMES,
 };
-
-pub(crate) const TEMPORAL_UNIT_DAY: i64 = 3;
-pub(crate) const TEMPORAL_UNIT_SECOND: i64 = 6;
-pub(crate) const TEMPORAL_UNIT_NANOSECOND: i64 = 9;
-pub(crate) const TEMPORAL_UNIT_AUTO: i64 = 10;
-pub(crate) const TEMPORAL_UNIT_UNSET: i64 = -1;
-pub(crate) const TEMPORAL_UNIT_INVALID: i64 = -2;
-
-/// `ToTemporalRoundingMode` codes.
-const TEMPORAL_ROUNDING_MODES: [&str; 9] = [
-    "ceil",
-    "floor",
-    "expand",
-    "trunc",
-    "halfCeil",
-    "halfFloor",
-    "halfExpand",
-    "halfTrunc",
-    "halfEven",
-];
-pub(crate) const TEMPORAL_ROUNDING_MODE_TRUNC: i64 = 3;
-pub(crate) const TEMPORAL_ROUNDING_MODE_HALF_EXPAND: i64 = 6;
-
-/// Singular and plural spellings for each unit code.
-pub(crate) const TEMPORAL_UNIT_SPELLINGS: [(&str, &str); 10] = [
-    ("year", "years"),
-    ("month", "months"),
-    ("week", "weeks"),
-    ("day", "days"),
-    ("hour", "hours"),
-    ("minute", "minutes"),
-    ("second", "seconds"),
-    ("millisecond", "milliseconds"),
-    ("microsecond", "microseconds"),
-    ("nanosecond", "nanoseconds"),
-];
-
-/// Seconds per unit for the day-through-second codes.
-const TEMPORAL_UNIT_SECONDS: [(i64, i64); 4] = [(3, 86_400), (4, 3_600), (5, 60), (6, 1)];
+use super::temporal_options::{
+    TemporalRoundingMode, TemporalTimeUnit, TemporalUnit, TemporalUnitSlot, TEMPORAL_UNIT_SECONDS,
+};
 
 impl<'a> FunctionBuilder<'a> {
     /// `GetOptionsObject`: `undefined` stays `undefined`, an Object passes
@@ -145,8 +106,8 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `GetTemporalUnitValuedOption`. Leaves a unit code in `output_local`:
-    /// `TEMPORAL_UNIT_UNSET` when the property is absent, `TEMPORAL_UNIT_AUTO`
-    /// for `"auto"` when `allow_auto`, `TEMPORAL_UNIT_INVALID` for a string
+    /// `TemporalUnitSlot::Unset.code()` when the property is absent, `TemporalUnitSlot::Auto.code()`
+    /// for `"auto"` when `allow_auto`, `TemporalUnitSlot::Invalid.code()` for a string
     /// that names no unit.
     pub(crate) fn emit_temporal_duration_unit_option(
         &mut self,
@@ -169,7 +130,7 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -178,17 +139,17 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_string_payload(value_payload_local, value_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(value_payload_local));
         self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_INVALID));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));
         function.instruction(&Instruction::LocalSet(output_local));
         if allow_auto {
             self.emit_temporal_string_matches(value_payload_local, "auto", scratch_local, function);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_AUTO));
+            function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
             function.instruction(&Instruction::LocalSet(output_local));
             function.instruction(&Instruction::End);
         }
-        for (code, (singular, plural)) in TEMPORAL_UNIT_SPELLINGS.iter().enumerate() {
-            for spelling in [singular, plural] {
+        for unit in TemporalUnit::ALL {
+            for spelling in [unit.singular(), unit.plural()] {
                 self.emit_temporal_string_matches(
                     value_payload_local,
                     spelling,
@@ -196,7 +157,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(code as i64));
+                function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unit(unit).code()));
                 function.instruction(&Instruction::LocalSet(output_local));
                 function.instruction(&Instruction::End);
             }
@@ -214,7 +175,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
-        default_mode: i64,
+        default_mode: TemporalRoundingMode,
         output_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -230,7 +191,7 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(default_mode));
+        function.instruction(&Instruction::I64Const(default_mode.code()));
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -241,10 +202,15 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::LocalSet(output_local));
-        for (code, mode) in TEMPORAL_ROUNDING_MODES.iter().enumerate() {
-            self.emit_temporal_string_matches(value_payload_local, mode, scratch_local, function);
+        for mode in TemporalRoundingMode::ALL {
+            self.emit_temporal_string_matches(
+                value_payload_local,
+                mode.name(),
+                scratch_local,
+                function,
+            );
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(code as i64));
+            function.instruction(&Instruction::I64Const(mode.code()));
             function.instruction(&Instruction::LocalSet(output_local));
             function.instruction(&Instruction::End);
         }
@@ -336,25 +302,62 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// A unit code that is out of `[low, high]` (or was never a unit at all)
-    /// is a RangeError.
-    fn emit_temporal_duration_require_unit_range(
+    /// A unit code outside `[low, high]` — which includes
+    /// [`TemporalUnitSlot::Auto`], [`TemporalUnitSlot::Unset`] and
+    /// [`TemporalUnitSlot::Invalid`], none of which is a `TemporalUnit` and so
+    /// none of which can be passed as a bound — is a RangeError.
+    ///
+    /// `low` and `high` are `TemporalUnit`, not `i64`: the old signature shared
+    /// its parameter type with the rounding-mode and overflow codes, so
+    /// `require_unit_range(unit, HOUR, AUTO)` compiled and silently widened the
+    /// accepted range to include `"auto"`.
+    pub(crate) fn emit_temporal_require_unit_range(
         &mut self,
         unit_local: u32,
-        low: i64,
-        high: i64,
+        low: TemporalUnit,
+        high: TemporalUnit,
+        range_error: &'static str,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        assert!(
+            low == high || low.is_larger_than(high),
+            "unit range bounds are written largest-first",
+        );
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(low));
+        function.instruction(&Instruction::I64Const(low.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(high));
+        function.instruction(&Instruction::I64Const(high.code()));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.Duration unit option",
+            range_error,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// `largestUnit` must not name a unit smaller than `smallestUnit`. Both
+    /// locals hold unit codes, where a *smaller* code is a *larger* unit, so
+    /// the test reads backwards; it was hand-emitted at four sites, each with
+    /// its own copy of the message.
+    pub(crate) fn emit_temporal_require_largest_not_smaller(
+        &mut self,
+        largest_unit_local: u32,
+        smallest_unit_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::LocalGet(largest_unit_local));
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "smallestUnit must be smaller than largestUnit",
             self.result_local,
             self.result_tag_local,
             function,
@@ -700,14 +703,20 @@ impl<'a> FunctionBuilder<'a> {
         output_local: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_NANOSECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
         function.instruction(&Instruction::LocalSet(output_local));
-        for index in (0..10).rev() {
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+        // Smallest unit first, so the last write wins and leaves the largest
+        // non-zero field. The array subscript and the emitted code are the two
+        // separate numberings, named as such: this loop used to use one `index`
+        // for both.
+        for unit in TemporalUnit::ALL.into_iter().rev() {
+            function.instruction(&Instruction::LocalGet(
+                field_locals[unit.duration_field_index()],
+            ));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(index as i64));
+            function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::LocalSet(output_local));
             function.instruction(&Instruction::End);
         }
@@ -721,11 +730,19 @@ impl<'a> FunctionBuilder<'a> {
         field_locals: &[u32; 10],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(field_locals[0]));
-        function.instruction(&Instruction::LocalGet(field_locals[1]));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(field_locals[2]));
-        function.instruction(&Instruction::I64Or);
+        let mut calendar_units = TemporalUnit::ALL
+            .into_iter()
+            .filter(|unit| unit.is_calendar_unit());
+        let first = calendar_units.next().expect("year is a calendar unit");
+        function.instruction(&Instruction::LocalGet(
+            field_locals[first.duration_field_index()],
+        ));
+        for unit in calendar_units {
+            function.instruction(&Instruction::LocalGet(
+                field_locals[unit.duration_field_index()],
+            ));
+            function.instruction(&Instruction::I64Or);
+        }
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -788,27 +805,28 @@ impl<'a> FunctionBuilder<'a> {
 
         // The seconds-and-above split depends on the largest unit; the
         // sub-second tail is the same for every unit down to millisecond.
-        for (unit, _scale) in TEMPORAL_UNIT_SECONDS {
+        for (index, (unit, _scale)) in TEMPORAL_UNIT_SECONDS.iter().enumerate() {
             function.instruction(&Instruction::LocalGet(largest_unit_local));
-            function.instruction(&Instruction::I64Const(unit));
+            function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::I64Eq);
             // Year, month and week durations balance the same way a day
             // duration does once the calendar fields are known to be zero.
-            if unit == TEMPORAL_UNIT_DAY {
+            if *unit == TemporalUnit::Day {
                 function.instruction(&Instruction::LocalGet(largest_unit_local));
-                function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_DAY));
+                function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
                 function.instruction(&Instruction::I64LtS);
                 function.instruction(&Instruction::I32Or);
             }
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::LocalGet(magnitude_local));
             function.instruction(&Instruction::LocalSet(remainder_local));
-            let index = (unit - TEMPORAL_UNIT_DAY) as usize;
             for (slot, divisor) in TEMPORAL_UNIT_SECONDS.iter().skip(index) {
                 function.instruction(&Instruction::LocalGet(remainder_local));
                 function.instruction(&Instruction::I64Const(*divisor));
                 function.instruction(&Instruction::I64DivU);
-                function.instruction(&Instruction::LocalSet(field_locals[*slot as usize]));
+                function.instruction(&Instruction::LocalSet(
+                    field_locals[slot.duration_field_index()],
+                ));
                 function.instruction(&Instruction::LocalGet(remainder_local));
                 function.instruction(&Instruction::I64Const(*divisor));
                 function.instruction(&Instruction::I64RemU);
@@ -819,9 +837,13 @@ impl<'a> FunctionBuilder<'a> {
         // Millisecond, microsecond and nanosecond largest units fold the whole
         // second count down into the sub-second field, which can overflow the
         // `i64` the record holds; that case is reported as a RangeError.
-        for (unit, scale) in [(7_i64, 1_000_i64), (8, 1_000_000), (9, 1_000_000_000)] {
+        for (unit, scale) in [
+            (TemporalUnit::Millisecond, 1_000_i64),
+            (TemporalUnit::Microsecond, 1_000_000),
+            (TemporalUnit::Nanosecond, 1_000_000_000),
+        ] {
             function.instruction(&Instruction::LocalGet(largest_unit_local));
-            function.instruction(&Instruction::I64Const(unit));
+            function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::LocalGet(magnitude_local));
@@ -839,46 +861,60 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(magnitude_local));
             function.instruction(&Instruction::I64Const(scale));
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalSet(field_locals[unit as usize]));
+            function.instruction(&Instruction::LocalSet(
+                field_locals[unit.duration_field_index()],
+            ));
             function.instruction(&Instruction::End);
         }
         // Sub-second tail: whatever the largest unit, milliseconds and below
         // come straight out of the nanosecond remainder, except that a
         // microsecond or nanosecond largest unit absorbs the coarser slots.
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Microsecond.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(field_locals[7]));
+        function.instruction(&Instruction::LocalGet(
+            field_locals[TemporalUnit::Millisecond.duration_field_index()],
+        ));
         function.instruction(&Instruction::LocalGet(sub_local));
         function.instruction(&Instruction::I64Const(1_000_000));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(field_locals[7]));
+        function.instruction(&Instruction::LocalSet(
+            field_locals[TemporalUnit::Millisecond.duration_field_index()],
+        ));
         function.instruction(&Instruction::LocalGet(sub_local));
         function.instruction(&Instruction::I64Const(1_000_000));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::LocalSet(sub_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(9));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(field_locals[8]));
+        function.instruction(&Instruction::LocalGet(
+            field_locals[TemporalUnit::Microsecond.duration_field_index()],
+        ));
         function.instruction(&Instruction::LocalGet(sub_local));
         function.instruction(&Instruction::I64Const(1_000));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(field_locals[8]));
+        function.instruction(&Instruction::LocalSet(
+            field_locals[TemporalUnit::Microsecond.duration_field_index()],
+        ));
         function.instruction(&Instruction::LocalGet(sub_local));
         function.instruction(&Instruction::I64Const(1_000));
         function.instruction(&Instruction::I64RemU);
         function.instruction(&Instruction::LocalSet(sub_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(field_locals[9]));
+        function.instruction(&Instruction::LocalGet(
+            field_locals[TemporalUnit::Nanosecond.duration_field_index()],
+        ));
         function.instruction(&Instruction::LocalGet(sub_local));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(field_locals[9]));
+        function.instruction(&Instruction::LocalSet(
+            field_locals[TemporalUnit::Nanosecond.duration_field_index()],
+        ));
 
         for local in field_locals.iter() {
             function.instruction(&Instruction::LocalGet(*local));
@@ -951,14 +987,14 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
-            TEMPORAL_UNIT_DAY as usize,
+            TemporalUnit::Day,
             seconds_local,
             subsecond_local,
             function,
         );
         self.emit_temporal_duration_normalize_seconds(
             &other_locals,
-            TEMPORAL_UNIT_DAY as usize,
+            TemporalUnit::Day,
             other_seconds_local,
             other_subsecond_local,
             function,
@@ -1131,14 +1167,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_reject_calendar_units(&two_locals, function)?;
         self.emit_temporal_duration_normalize_seconds(
             &one_locals,
-            TEMPORAL_UNIT_DAY as usize,
+            TemporalUnit::Day,
             one_seconds_local,
             one_subsecond_local,
             function,
         );
         self.emit_temporal_duration_normalize_seconds(
             &two_locals,
-            TEMPORAL_UNIT_DAY as usize,
+            TemporalUnit::Day,
             two_seconds_local,
             two_subsecond_local,
             function,
@@ -1225,7 +1261,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         // ceil
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(TemporalRoundingMode::Ceil.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(sign_local));
         function.instruction(&Instruction::I64Const(0));
@@ -1233,7 +1269,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         // floor
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Const(TemporalRoundingMode::Floor.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(sign_local));
         function.instruction(&Instruction::I64Const(0));
@@ -1242,16 +1278,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         // expand
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Const(TemporalRoundingMode::Expand.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(decision_local));
         function.instruction(&Instruction::End);
-        // The half-* family: compare 2 x remainder against the increment.
+        // The half-* family: compare 2 x remainder against the increment. The
+        // family is contiguous at the top of the code range, which the `const`
+        // assertion in `temporal_options` pins, so one `>=` covers all five.
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfCeil.code(),
+        ));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(remainder_local));
@@ -1273,14 +1313,18 @@ impl<'a> FunctionBuilder<'a> {
         // always expands; halfTrunc never does; halfEven breaks the tie on the
         // parity of the truncated quotient.
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(4));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfCeil.code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(sign_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfFloor.code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(sign_local));
         function.instruction(&Instruction::I64Const(0));
@@ -1288,11 +1332,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_ROUNDING_MODE_HALF_EXPAND));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfExpand.code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(mode_local));
-        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfEven.code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(quotient_local));
         function.instruction(&Instruction::I64Const(1));
@@ -1552,11 +1600,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         // A string argument is shorthand for `{ smallestUnit: <string> }`.
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::LocalSet(largest_local));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(increment_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_ROUNDING_MODE_HALF_EXPAND));
+        function.instruction(&Instruction::I64Const(
+            TemporalRoundingMode::HalfExpand.code(),
+        ));
         function.instruction(&Instruction::LocalSet(mode_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(relative_payload_local));
@@ -1607,7 +1657,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_rounding_mode_option(
             options_payload_local,
             options_tag_local,
-            TEMPORAL_ROUNDING_MODE_HALF_EXPAND,
+            TemporalRoundingMode::HalfExpand,
             mode_local,
             function,
         )?;
@@ -1622,10 +1672,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(largest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1638,31 +1688,33 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_duration_require_unit_range(
+        self.emit_temporal_require_unit_range(
             smallest_local,
-            0,
-            TEMPORAL_UNIT_NANOSECOND,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.Duration unit option",
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_NANOSECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
         function.instruction(&Instruction::LocalSet(smallest_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(largest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::LocalGet(largest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_AUTO));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_duration_require_unit_range(
+        self.emit_temporal_require_unit_range(
             largest_local,
-            0,
-            TEMPORAL_UNIT_NANOSECOND,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.Duration unit option",
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -1677,7 +1729,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::LocalGet(largest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_AUTO));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1691,37 +1743,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalSet(largest_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(largest_local));
-        function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "smallestUnit must be smaller than largestUnit",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        self.emit_temporal_require_largest_not_smaller(largest_local, smallest_local, function)?;
 
         // `ValidateTemporalRoundingIncrement`: the increment must be strictly
         // below the unit's maximum and must divide it exactly. Year through
         // day have no maximum at all.
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(maximum_local));
-        for (unit, maximum) in [
-            (4_i64, 24_i64),
-            (5, 60),
-            (6, 60),
-            (7, 1_000),
-            (8, 1_000),
-            (9, 1_000),
-        ] {
+        for unit in TemporalTimeUnit::ALL {
             function.instruction(&Instruction::LocalGet(smallest_local));
-            function.instruction(&Instruction::I64Const(unit));
+            function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(maximum));
+            function.instruction(&Instruction::I64Const(unit.maximum_rounding_increment()));
             function.instruction(&Instruction::LocalSet(maximum_local));
             function.instruction(&Instruction::End);
         }
@@ -1751,10 +1785,10 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_temporal_duration_reject_calendar_units(&field_locals, function)?;
         function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::LocalGet(largest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1769,7 +1803,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
-            TEMPORAL_UNIT_DAY as usize,
+            TemporalUnit::Day,
             seconds_local,
             subsecond_local,
             function,
@@ -1781,7 +1815,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_SECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
         function.instruction(&Instruction::I64LeS);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_duration_round_seconds(
@@ -1875,10 +1909,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         let scratch_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_INVALID));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));
         function.instruction(&Instruction::LocalSet(output_local));
-        for (code, (singular, plural)) in TEMPORAL_UNIT_SPELLINGS.iter().enumerate() {
-            for spelling in [singular, plural] {
+        for unit in TemporalUnit::ALL {
+            for spelling in [unit.singular(), unit.plural()] {
                 self.emit_temporal_string_matches(
                     string_payload_local,
                     spelling,
@@ -1886,7 +1920,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(code as i64));
+                function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unit(unit).code()));
                 function.instruction(&Instruction::LocalSet(output_local));
                 function.instruction(&Instruction::End);
             }
@@ -1958,7 +1992,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
@@ -1970,15 +2004,16 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_temporal_duration_require_unit_range(
+        self.emit_temporal_require_unit_range(
             unit_local,
-            0,
-            TEMPORAL_UNIT_NANOSECOND,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.Duration unit option",
             function,
         )?;
         self.emit_temporal_duration_reject_calendar_units(&field_locals, function)?;
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_DAY));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
@@ -1992,7 +2027,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
-            TEMPORAL_UNIT_DAY as usize,
+            TemporalUnit::Day,
             seconds_local,
             subsecond_local,
             function,
@@ -2003,7 +2038,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(scale_local));
         for (unit, scale) in TEMPORAL_UNIT_SECONDS {
             function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(unit));
+            function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(scale));
@@ -2011,7 +2046,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_SECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
         function.instruction(&Instruction::I64LeS);
         function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
         function.instruction(&Instruction::LocalGet(seconds_local));
@@ -2121,9 +2156,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::LocalSet(digits_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::LocalSet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_ROUNDING_MODE_TRUNC));
+        function.instruction(&Instruction::I64Const(TemporalRoundingMode::Trunc.code()));
         function.instruction(&Instruction::LocalSet(mode_local));
         if reads_options {
             self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
@@ -2199,7 +2234,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_temporal_duration_rounding_mode_option(
                 options_payload_local,
                 options_tag_local,
-                TEMPORAL_ROUNDING_MODE_TRUNC,
+                TemporalRoundingMode::Trunc,
                 mode_local,
                 function,
             )?;
@@ -2212,13 +2247,14 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             function.instruction(&Instruction::LocalGet(smallest_local));
-            function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+            function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_duration_require_unit_range(
+            self.emit_temporal_require_unit_range(
                 smallest_local,
-                TEMPORAL_UNIT_SECOND,
-                TEMPORAL_UNIT_NANOSECOND,
+                TemporalUnit::Second,
+                TemporalUnit::Nanosecond,
+                "Invalid Temporal.Duration unit option",
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -2226,11 +2262,11 @@ impl<'a> FunctionBuilder<'a> {
         // `ToSecondsStringPrecisionRecord`: smallestUnit wins, otherwise the
         // digit count picks both the printed width and the rounding quantum.
         function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_UNSET));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(smallest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_SECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64Mul);
@@ -2266,7 +2302,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(minutes_local));
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
-            6,
+            TemporalUnit::Second,
             seconds_local,
             subsecond_local,
             function,
@@ -2281,7 +2317,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(minutes_local));
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
-            4,
+            TemporalUnit::Hour,
             seconds_local,
             subsecond_local,
             function,
@@ -2301,10 +2337,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(default_largest_local));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_SECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
         function.instruction(&Instruction::I64GtS);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(TEMPORAL_UNIT_SECOND));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
         function.instruction(&Instruction::LocalSet(default_largest_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(default_largest_local));
