@@ -11532,6 +11532,277 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(buffer_local);
     }
 
+    /// ToPropertyDescriptor followed by FromPropertyDescriptor: converts an
+    /// arbitrary attributes object into a freshly allocated ordinary object
+    /// that owns exactly the fields the conversion found present.
+    ///
+    /// Reading descriptor fields straight out of the caller's object with
+    /// `emit_object_own_data_field_read` misses inherited fields and own
+    /// accessors, and re-reading the same object later would run user getters
+    /// more than once.  The normalized object answers both problems: it is
+    /// safe to read back with own-data reads, and absent fields stay absent.
+    pub(crate) fn emit_to_property_descriptor_object(
+        &mut self,
+        descriptor_payload_local: u32,
+        descriptor_tag_local: u32,
+        type_error_message: &str,
+        result_payload_local: u32,
+        result_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let field_key_local = self.reserve_temp_local();
+        let field_key_tag_local = self.reserve_temp_local();
+        let value_present_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let writable_present_local = self.reserve_temp_local();
+        let writable_payload_local = self.reserve_temp_local();
+        let writable_tag_local = self.reserve_temp_local();
+        let enumerable_present_local = self.reserve_temp_local();
+        let enumerable_payload_local = self.reserve_temp_local();
+        let enumerable_tag_local = self.reserve_temp_local();
+        let configurable_present_local = self.reserve_temp_local();
+        let configurable_payload_local = self.reserve_temp_local();
+        let configurable_tag_local = self.reserve_temp_local();
+        let getter_present_local = self.reserve_temp_local();
+        let getter_payload_local = self.reserve_temp_local();
+        let getter_tag_local = self.reserve_temp_local();
+        let setter_present_local = self.reserve_temp_local();
+        let setter_payload_local = self.reserve_temp_local();
+        let setter_tag_local = self.reserve_temp_local();
+
+        self.emit_is_heap_object_like_tag_i32(descriptor_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            type_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // ToPropertyDescriptor observes the fields in this order, and reads
+        // each present field exactly once after its HasProperty check.
+        for (key, present_local, payload_local, tag_local) in [
+            (
+                "enumerable",
+                enumerable_present_local,
+                enumerable_payload_local,
+                enumerable_tag_local,
+            ),
+            (
+                "configurable",
+                configurable_present_local,
+                configurable_payload_local,
+                configurable_tag_local,
+            ),
+            (
+                "value",
+                value_present_local,
+                value_payload_local,
+                value_tag_local,
+            ),
+            (
+                "writable",
+                writable_present_local,
+                writable_payload_local,
+                writable_tag_local,
+            ),
+            (
+                "get",
+                getter_present_local,
+                getter_payload_local,
+                getter_tag_local,
+            ),
+            (
+                "set",
+                setter_present_local,
+                setter_payload_local,
+                setter_tag_local,
+            ),
+        ] {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+            function.instruction(&Instruction::LocalSet(field_key_local));
+            self.emit_property_key_tag_from_payload(field_key_local, field_key_tag_local, function);
+            self.emit_object_has_property_with_key_tag_i32(
+                descriptor_payload_local,
+                descriptor_tag_local,
+                field_key_local,
+                field_key_tag_local,
+                present_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(present_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_object_read_without_throw_propagation(
+                descriptor_payload_local,
+                descriptor_tag_local,
+                descriptor_payload_local,
+                descriptor_tag_local,
+                field_key_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+
+            if matches!(key, "enumerable" | "configurable" | "writable") {
+                // These fields are stored as the result of ToBoolean, so the
+                // normalized object never carries the original tagged value.
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_to_boolean_payload_from_tagged_locals(
+                    tag_local,
+                    payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::End);
+            }
+
+            if matches!(key, "get" | "set") {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::LocalGet(tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32Or);
+                self.emit_is_callable_i32(tag_local, payload_local, function)?;
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Property descriptor getter/setter must be callable or undefined",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
+        }
+
+        function.instruction(&Instruction::LocalGet(getter_present_local));
+        function.instruction(&Instruction::LocalGet(setter_present_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalGet(value_present_local));
+        function.instruction(&Instruction::LocalGet(writable_present_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Property descriptor cannot be both accessor and data",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // FromPropertyDescriptor: an ordinary object with the standard
+        // prototype, carrying the present fields in specification order.
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(result_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(result_tag_local));
+        for (key, present_local, payload_local, tag_local) in [
+            (
+                "value",
+                value_present_local,
+                value_payload_local,
+                value_tag_local,
+            ),
+            (
+                "writable",
+                writable_present_local,
+                writable_payload_local,
+                writable_tag_local,
+            ),
+            (
+                "get",
+                getter_present_local,
+                getter_payload_local,
+                getter_tag_local,
+            ),
+            (
+                "set",
+                setter_present_local,
+                setter_payload_local,
+                setter_tag_local,
+            ),
+            (
+                "enumerable",
+                enumerable_present_local,
+                enumerable_payload_local,
+                enumerable_tag_local,
+            ),
+            (
+                "configurable",
+                configurable_present_local,
+                configurable_payload_local,
+                configurable_tag_local,
+            ),
+        ] {
+            function.instruction(&Instruction::LocalGet(present_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+            function.instruction(&Instruction::LocalSet(field_key_local));
+            self.emit_object_define_enumerable_data(
+                result_payload_local,
+                field_key_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+        }
+
+        self.release_temp_local(setter_tag_local);
+        self.release_temp_local(setter_payload_local);
+        self.release_temp_local(setter_present_local);
+        self.release_temp_local(getter_tag_local);
+        self.release_temp_local(getter_payload_local);
+        self.release_temp_local(getter_present_local);
+        self.release_temp_local(configurable_tag_local);
+        self.release_temp_local(configurable_payload_local);
+        self.release_temp_local(configurable_present_local);
+        self.release_temp_local(enumerable_tag_local);
+        self.release_temp_local(enumerable_payload_local);
+        self.release_temp_local(enumerable_present_local);
+        self.release_temp_local(writable_tag_local);
+        self.release_temp_local(writable_payload_local);
+        self.release_temp_local(writable_present_local);
+        self.release_temp_local(value_tag_local);
+        self.release_temp_local(value_payload_local);
+        self.release_temp_local(value_present_local);
+        self.release_temp_local(field_key_tag_local);
+        self.release_temp_local(field_key_local);
+        Ok(())
+    }
+
     /// Read an Array instance's own named property, including invoking an own
     /// accessor. The lower-level `emit_array_named_prop_read` only publishes
     /// stored data and a presence bit for prototype-chain traversal.
@@ -13186,7 +13457,12 @@ impl<'a> FunctionBuilder<'a> {
                 getter_payload_local,
                 function,
             );
-            self.emit_tagged_payload_equality_i32(
+            // ValidateAndApplyPropertyDescriptor step 4.a.ii compares the
+            // existing and incoming [[Value]] with SameValue, not strict
+            // equality: redefining a non-writable property with NaN (or with
+            // the same signed zero) must be an accepted no-op, and redefining
+            // +0 as -0 must be rejected.
+            self.emit_tagged_payload_same_value_i32(
                 getter_tag_local,
                 getter_payload_local,
                 stored_data_tag_local,
@@ -13317,22 +13593,38 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
         }
-        if let Some(present_local) = writable_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        // ValidateAndApplyPropertyDescriptor only carries [[Writable]] over
+        // from the existing property when both the existing and the incoming
+        // descriptors are data descriptors (step 7.b).  Converting an accessor
+        // property into a data property keeps only [[Configurable]] and
+        // [[Enumerable]] and resets everything else to its default (step
+        // 7.c.i), so writable must come out false; and an accessor entry must
+        // never pick up a writable bit of its own, because that stale bit is
+        // what a later accessor-to-data conversion would read back.
+        if has_data {
+            if let Some(present_local) = writable_present_local {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(descriptor_kind_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
         }
         if let Some(present_local) = enumerable_present_local {
             function.instruction(&Instruction::LocalGet(present_local));

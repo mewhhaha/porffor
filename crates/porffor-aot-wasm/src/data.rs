@@ -1484,7 +1484,8 @@ impl StringPool {
             "Object.create prototype must be object or null",
             "Object.defineProperties target must be object",
             "Object.defineProperties properties must not be null or undefined",
-            "Object.defineProperties could not convert descriptor",
+            "Object.defineProperties descriptor must be object",
+            "Object.defineProperty attributes must be object",
             "Cannot convert object to primitive value",
             "ArrayBuffer byteLength getter requires ArrayBuffer",
             "ArrayBuffer detached getter requires ArrayBuffer",
@@ -2933,7 +2934,7 @@ impl StringPool {
                     self.collect_expr(operand);
                 }
             }
-            ExprIr::DeleteIdentifier { name, .. } | ExprIr::DeleteGlobalProperty { name } => {
+            ExprIr::DeleteIdentifier { name, .. } | ExprIr::DeleteGlobalProperty { name, .. } => {
                 self.uses_heap = true;
                 self.intern_string(name);
             }

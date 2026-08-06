@@ -10695,6 +10695,8 @@ impl<'a> FunctionBuilder<'a> {
                 let typed_array_numeric_index_payload_local = self.reserve_temp_local();
                 let typed_array_canonical_numeric_index_local = self.reserve_temp_local();
                 let typed_array_valid_index_local = self.reserve_temp_local();
+                let converted_descriptor_payload_local = self.reserve_temp_local();
+                let converted_descriptor_tag_local = self.reserve_temp_local();
 
                 let object_define_meta = self
                     .functions
@@ -10742,6 +10744,25 @@ impl<'a> FunctionBuilder<'a> {
                     proxy_key_value_payload_local,
                     function,
                 );
+
+                // ToPropertyDescriptor has to observe inherited fields and own
+                // accessors, and has to observe every present field exactly
+                // once.  The own-data reads below therefore run against the
+                // normalized descriptor, never against the caller's object.
+                // Converting up front also means the Proxy `defineProperty`
+                // trap receives a completed descriptor.
+                self.emit_to_property_descriptor_object(
+                    descriptor_payload_local,
+                    descriptor_tag_local,
+                    "Object.defineProperty attributes must be object",
+                    converted_descriptor_payload_local,
+                    converted_descriptor_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(converted_descriptor_payload_local));
+                function.instruction(&Instruction::LocalSet(descriptor_payload_local));
+                function.instruction(&Instruction::LocalGet(converted_descriptor_tag_local));
+                function.instruction(&Instruction::LocalSet(descriptor_tag_local));
 
                 function.instruction(&Instruction::I64Const(self.strings.payload("get")));
                 function.instruction(&Instruction::LocalSet(get_key_local));
@@ -11926,6 +11947,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::End);
 
+                self.release_temp_local(converted_descriptor_tag_local);
+                self.release_temp_local(converted_descriptor_payload_local);
                 self.release_temp_local(typed_array_valid_index_local);
                 self.release_temp_local(typed_array_canonical_numeric_index_local);
                 self.release_temp_local(typed_array_numeric_index_payload_local);
@@ -12017,6 +12040,9 @@ impl<'a> FunctionBuilder<'a> {
                 let enumerable_tag_local = self.reserve_temp_local();
                 let descriptor_payload_local = self.reserve_temp_local();
                 let descriptor_tag_local = self.reserve_temp_local();
+                let converted_descriptor_payload_local = self.reserve_temp_local();
+                let converted_descriptor_tag_local = self.reserve_temp_local();
+                let converted_descriptor_present_local = self.reserve_temp_local();
                 let define_result_payload_local = self.reserve_temp_local();
                 let define_result_tag_local = self.reserve_temp_local();
                 let own_keys_meta = self
@@ -12030,13 +12056,6 @@ impl<'a> FunctionBuilder<'a> {
                     .cloned()
                     .ok_or_else(|| {
                         EmitError::unsupported("missing Reflect.getOwnPropertyDescriptor builtin")
-                    })?;
-                let reflect_define_meta = self
-                    .functions
-                    .get(&StandardBuiltinId::ReflectDefineProperty.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported("missing Reflect.defineProperty builtin")
                     })?;
                 let object_define_meta = self
                     .functions
@@ -12182,33 +12201,26 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 self.emit_return_current_completion_if_throw(function);
-                self.emit_direct_js_call(
-                    &reflect_define_meta,
-                    None,
-                    &[
-                        (
-                            converted_descriptors_payload_local,
-                            converted_descriptors_tag_local,
-                        ),
-                        (own_key_payload_local, own_key_tag_local),
-                        (descriptor_payload_local, descriptor_tag_local),
-                    ],
-                    define_result_payload_local,
-                    define_result_tag_local,
+                // Store the completed descriptor itself, not a property whose
+                // attributes were taken from it: a heap property entry keeps
+                // only the four attribute bits, so defining the descriptor as
+                // a real property would turn every absent field into an
+                // explicit `false` for the second pass.
+                self.emit_to_property_descriptor_object(
+                    descriptor_payload_local,
+                    descriptor_tag_local,
+                    "Object.defineProperties descriptor must be object",
+                    converted_descriptor_payload_local,
+                    converted_descriptor_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(define_result_payload_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "Object.defineProperties could not convert descriptor",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_object_define_enumerable_data(
+                    converted_descriptors_payload_local,
+                    own_property_key_local,
+                    converted_descriptor_payload_local,
+                    converted_descriptor_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
@@ -12235,23 +12247,31 @@ impl<'a> FunctionBuilder<'a> {
                     own_key_tag_local,
                     function,
                 );
-                self.emit_direct_js_call(
-                    &get_own_descriptor_meta,
-                    None,
-                    &[
-                        (
-                            converted_descriptors_payload_local,
-                            converted_descriptors_tag_local,
-                        ),
-                        (own_key_payload_local, own_key_tag_local),
-                    ],
+                function.instruction(&Instruction::LocalGet(own_key_payload_local));
+                function.instruction(&Instruction::LocalSet(own_property_key_local));
+                function.instruction(&Instruction::LocalGet(own_key_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(own_property_key_local));
+                function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(own_property_key_local));
+                function.instruction(&Instruction::End);
+                // The scratch object is ours, so an own data read returns the
+                // stored descriptor without observable operations, and its
+                // presence bit marks the keys the first pass skipped.
+                self.emit_object_own_data_field_read(
+                    converted_descriptors_payload_local,
+                    converted_descriptors_tag_local,
+                    own_property_key_local,
+                    converted_descriptor_present_local,
                     descriptor_payload_local,
                     descriptor_tag_local,
                     function,
-                )?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(descriptor_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                );
+                function.instruction(&Instruction::LocalGet(converted_descriptor_present_local));
+                function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_direct_js_call(
@@ -12283,6 +12303,9 @@ impl<'a> FunctionBuilder<'a> {
 
                 self.release_temp_local(define_result_tag_local);
                 self.release_temp_local(define_result_payload_local);
+                self.release_temp_local(converted_descriptor_present_local);
+                self.release_temp_local(converted_descriptor_tag_local);
+                self.release_temp_local(converted_descriptor_payload_local);
                 self.release_temp_local(descriptor_tag_local);
                 self.release_temp_local(descriptor_payload_local);
                 self.release_temp_local(enumerable_tag_local);

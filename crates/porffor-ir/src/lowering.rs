@@ -11191,7 +11191,10 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::DeleteGlobalProperty { name: name.clone() },
+                            ExprIr::DeleteGlobalProperty {
+                                name: name.clone(),
+                                strict: self.is_current_owner_strict(),
+                            },
                         );
                     }
                 }
@@ -11233,7 +11236,13 @@ impl<'a> ScriptLowerer<'a> {
                         self.mark_global_property_deleted(&name);
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::DeleteGlobalProperty { name },
+                            // `delete <identifier>` is an early SyntaxError in
+                            // strict code, and this arm only fires for a
+                            // configurable property, so [[Delete]] cannot fail.
+                            ExprIr::DeleteGlobalProperty {
+                                name,
+                                strict: false,
+                            },
                         );
                     }
                     if info.proven_present {
@@ -19606,16 +19615,20 @@ impl<'a> ScriptLowerer<'a> {
         }
         if matches!(
             execution_kind,
-            FunctionExecutionKind::Async | FunctionExecutionKind::AsyncGenerator
+            FunctionExecutionKind::Async
+                | FunctionExecutionKind::AsyncGenerator
+                | FunctionExecutionKind::Generator
         ) {
-            let signature = lowerer
-                .function_signatures
-                .get_mut(&function_id)
-                .expect("generated async class method signature must be registered");
-            signature.return_kind = return_info.kind;
-            signature.return_possible_kinds = return_info.possible_kinds;
-            signature.return_shape = return_info.heap_shape.clone();
-            signature.return_targets = return_info.function_targets.clone();
+            // The signature registered before the body was lowered still carries
+            // the *body's* return kind. Call sites read the signature, so without
+            // this write-back `c.m()` on a generator method types as the body's
+            // `return` value instead of the generator object.
+            if let Some(signature) = lowerer.function_signatures.get_mut(&function_id) {
+                signature.return_kind = return_info.kind;
+                signature.return_possible_kinds = return_info.possible_kinds;
+                signature.return_shape = return_info.heap_shape.clone();
+                signature.return_targets = return_info.function_targets.clone();
+            }
         }
         let resumable_plan = lowerer.current_resumable_plan.clone().or(resumable_plan);
 
@@ -30203,6 +30216,7 @@ impl<'a> ScriptLowerer<'a> {
                             name,
                             value: Box::new(result),
                             implicit: false,
+                            strict: false,
                         },
                     );
                 }
@@ -30414,6 +30428,7 @@ impl<'a> ScriptLowerer<'a> {
                             name,
                             value: Box::new(value),
                             implicit: false,
+                            strict: false,
                         },
                     )
                 }
@@ -30513,6 +30528,7 @@ impl<'a> ScriptLowerer<'a> {
                             name,
                             value: Box::new(value),
                             implicit: false,
+                            strict: false,
                         },
                     )
                 }
@@ -30644,6 +30660,12 @@ impl<'a> ScriptLowerer<'a> {
             )
         } else {
             let implicit = !self.global_property_is_proven_present(&name);
+            // PutValue step 2.b: assigning through an unresolvable Reference in
+            // strict code is a ReferenceError. Whether the name resolves is only
+            // decidable at run time (the global object may have grown the
+            // property via `globalThis.x = ...`), so the strictness travels with
+            // the node and the backend performs the presence check.
+            let strict = self.is_current_owner_strict();
             self.set_global_property_value_info_with_source(
                 name.clone(),
                 value.value_info(),
@@ -30659,6 +30681,7 @@ impl<'a> ScriptLowerer<'a> {
                     name,
                     value: Box::new(value),
                     implicit,
+                    strict,
                 },
             )
         }
@@ -31742,6 +31765,7 @@ impl<'a> ScriptLowerer<'a> {
                         name: name.to_string(),
                         value: Box::new(result),
                         implicit: false,
+                        strict: false,
                     },
                 )
             }
@@ -31960,6 +31984,7 @@ impl<'a> ScriptLowerer<'a> {
                     name: name.clone(),
                     value: Box::new(value),
                     implicit: false,
+                    strict: false,
                 }
             }
         };

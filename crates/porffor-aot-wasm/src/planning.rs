@@ -2784,7 +2784,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             names.insert(name.clone());
             collect_expr_global_property_names(value, names);
         }
-        ExprIr::GlobalPropertyUpdate { name, .. } | ExprIr::DeleteGlobalProperty { name } => {
+        ExprIr::GlobalPropertyUpdate { name, .. } | ExprIr::DeleteGlobalProperty { name, .. } => {
             names.insert(name.clone());
         }
         ExprIr::ObjectLiteral(properties) => {

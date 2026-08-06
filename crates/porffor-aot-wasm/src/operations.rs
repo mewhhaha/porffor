@@ -2329,6 +2329,111 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `emit_tagged_to_primitive_locals` plus the throw propagation that
+    /// `compile_expr_to_primitive_locals_with_extra_depth` performs, for
+    /// callers that need to split "evaluate the operand" from "coerce it".
+    fn emit_to_primitive_from_raw_locals(
+        &mut self,
+        hint: ToPrimitiveHint,
+        raw_payload_local: u32,
+        raw_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_tagged_to_primitive_locals(
+            hint,
+            raw_payload_local,
+            raw_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            0,
+            function,
+        )
+    }
+
+    /// Evaluates both operands of a binary operator first, and only then runs
+    /// ToPrimitive on each, left to right.
+    ///
+    /// Calling `compile_expr_to_primitive_locals` once per operand is wrong for
+    /// binary operators: it coerces the left operand as soon as it is
+    /// evaluated, so an object lhs runs its @@toPrimitive/valueOf/toString hook
+    /// before the rhs expression is evaluated at all. The spec evaluates both
+    /// operands (EvaluateStringOrNumericBinaryExpression steps 1-4) before
+    /// ApplyStringOrNumericBinaryOperator coerces either of them, which is
+    /// observable whenever both sides have side effects.
+    pub(crate) fn compile_operand_pair_to_primitive_locals(
+        &mut self,
+        lhs: &TypedExpr,
+        rhs: &TypedExpr,
+        hint: ToPrimitiveHint,
+        lhs_payload_local: u32,
+        lhs_tag_local: u32,
+        rhs_payload_local: u32,
+        rhs_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
+            // Nothing to coerce on the left, so the naive order is already the
+            // spec order.
+            self.compile_expr_to_locals(lhs, lhs_payload_local, lhs_tag_local, function)?;
+            return self.compile_expr_to_primitive_locals(
+                rhs,
+                hint,
+                rhs_payload_local,
+                rhs_tag_local,
+                function,
+            );
+        }
+
+        let lhs_raw_payload = self.reserve_temp_local();
+        let lhs_raw_tag = self.reserve_temp_local();
+        self.compile_expr_to_locals(lhs, lhs_raw_payload, lhs_raw_tag, function)?;
+
+        if rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
+            self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
+            self.emit_to_primitive_from_raw_locals(
+                hint,
+                lhs_raw_payload,
+                lhs_raw_tag,
+                lhs_payload_local,
+                lhs_tag_local,
+                function,
+            )?;
+        } else {
+            let rhs_raw_payload = self.reserve_temp_local();
+            let rhs_raw_tag = self.reserve_temp_local();
+            self.compile_expr_to_locals(rhs, rhs_raw_payload, rhs_raw_tag, function)?;
+            self.emit_to_primitive_from_raw_locals(
+                hint,
+                lhs_raw_payload,
+                lhs_raw_tag,
+                lhs_payload_local,
+                lhs_tag_local,
+                function,
+            )?;
+            self.emit_to_primitive_from_raw_locals(
+                hint,
+                rhs_raw_payload,
+                rhs_raw_tag,
+                rhs_payload_local,
+                rhs_tag_local,
+                function,
+            )?;
+            self.release_temp_local(rhs_raw_tag);
+            self.release_temp_local(rhs_raw_payload);
+        }
+
+        self.release_temp_local(lhs_raw_tag);
+        self.release_temp_local(lhs_raw_payload);
+        Ok(())
+    }
+
     pub(crate) fn emit_tagged_to_primitive_locals(
         &mut self,
         hint: ToPrimitiveHint,
@@ -2994,16 +3099,12 @@ impl<'a> FunctionBuilder<'a> {
         let lhs_string_local = self.reserve_temp_local();
         let rhs_string_local = self.reserve_temp_local();
 
-        self.compile_expr_to_primitive_locals(
+        self.compile_operand_pair_to_primitive_locals(
             lhs,
+            rhs,
             ToPrimitiveHint::Default,
             lhs_payload,
             lhs_tag,
-            function,
-        )?;
-        self.compile_expr_to_primitive_locals(
-            rhs,
-            ToPrimitiveHint::Default,
             rhs_payload,
             rhs_tag,
             function,
@@ -6559,16 +6660,12 @@ impl<'a> FunctionBuilder<'a> {
         let lhs_tag = self.reserve_temp_local();
         let rhs_payload = self.reserve_temp_local();
         let rhs_tag = self.reserve_temp_local();
-        self.compile_expr_to_primitive_locals(
+        self.compile_operand_pair_to_primitive_locals(
             lhs,
+            rhs,
             ToPrimitiveHint::Number,
             lhs_payload,
             lhs_tag,
-            function,
-        )?;
-        self.compile_expr_to_primitive_locals(
-            rhs,
-            ToPrimitiveHint::Number,
             rhs_payload,
             rhs_tag,
             function,

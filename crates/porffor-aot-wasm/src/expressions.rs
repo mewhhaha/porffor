@@ -319,12 +319,23 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }
-            ExprIr::GlobalPropertyWrite { name, value, .. } => {
+            ExprIr::GlobalPropertyWrite {
+                name,
+                value,
+                strict,
+                ..
+            } => {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.compile_expr_to_locals(value, value_local, tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(value_local, tag_local, function)?;
-                self.emit_global_property_write(name, value_local, tag_local, function)?;
+                self.emit_global_property_write_checked(
+                    name,
+                    value_local,
+                    tag_local,
+                    *strict,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(value_local));
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
@@ -751,9 +762,9 @@ impl<'a> FunctionBuilder<'a> {
                 };
                 function.instruction(&Instruction::I64Const(value));
             }
-            ExprIr::DeleteGlobalProperty { name } => {
+            ExprIr::DeleteGlobalProperty { name, strict } => {
                 let result_local = self.reserve_temp_local();
-                self.emit_global_property_delete(name, result_local, function)?;
+                self.emit_global_property_delete(name, result_local, *strict, function)?;
                 function.instruction(&Instruction::LocalGet(result_local));
                 self.release_temp_local(result_local);
             }
@@ -2729,14 +2740,25 @@ impl<'a> FunctionBuilder<'a> {
                 self.write_binding_from_locals(storage, payload_local, tag_local, function);
                 self.mirror_binding_to_global_object(name, storage, function)?;
             }
-            ExprIr::GlobalPropertyWrite { name, value, .. } => {
+            ExprIr::GlobalPropertyWrite {
+                name,
+                value,
+                strict,
+                ..
+            } => {
                 self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
                     tag_local,
                     function,
                 )?;
-                self.emit_global_property_write(name, payload_local, tag_local, function)?;
+                self.emit_global_property_write_checked(
+                    name,
+                    payload_local,
+                    tag_local,
+                    *strict,
+                    function,
+                )?;
             }
             ExprIr::PropertyRead { target, key } => {
                 self.compile_property_read_to_locals(

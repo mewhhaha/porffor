@@ -1362,6 +1362,11 @@ pub enum ExprIr {
         name: String,
         value: Box<TypedExpr>,
         implicit: bool,
+        /// `true` when the assignment appears in strict code. PutValue step 2.b
+        /// then requires a ReferenceError if the reference is unresolvable, so
+        /// the backend guards the write with a runtime presence check on the
+        /// global object rather than silently creating the property.
+        strict: bool,
     },
     PropertyRead {
         target: Box<TypedExpr>,
@@ -1431,6 +1436,9 @@ pub enum ExprIr {
     },
     DeleteGlobalProperty {
         name: String,
+        /// `true` when the `delete` appears in strict code, so a `false`
+        /// `[[Delete]]` result must raise a TypeError (13.5.1.2 step 5.d).
+        strict: bool,
     },
     DeleteProperty {
         target: Box<TypedExpr>,

@@ -1244,10 +1244,78 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Emits `name = value` on the script global object with PutValue's strict
+    /// check (9.1.1.4.5 / 6.2.5.6 step 2.b): in strict code an assignment to a
+    /// name that resolves nowhere is a ReferenceError instead of an implicit
+    /// global. Resolution is only decidable at run time, so the presence of the
+    /// property on the global object is tested here rather than in lowering.
+    pub(crate) fn emit_global_property_write_checked(
+        &mut self,
+        name: &str,
+        payload_local: u32,
+        tag_local: u32,
+        strict: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if !strict {
+            return self.emit_global_property_write(name, payload_local, tag_local, function);
+        }
+        let key_local = self.reserve_temp_local();
+        let object_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        let has_property_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(object_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(object_tag_local));
+        self.emit_object_has_property_i32(
+            object_local,
+            object_tag_local,
+            key_local,
+            has_property_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(has_property_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            REFERENCE_ERROR_NAME,
+            "assignment to unresolvable reference",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        // Extra depth 1: the propagation helper opens its own `if`, and this
+        // site sits inside the presence-check `if` as well.
+        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            payload_local,
+            tag_local,
+            1,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.emit_object_write(
+            object_local,
+            object_tag_local,
+            key_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(has_property_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_local);
+        self.release_temp_local(key_local);
+        Ok(())
+    }
+
     pub(crate) fn emit_global_property_delete(
         &mut self,
         name: &str,
         result_local: u32,
+        strict: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
@@ -1266,6 +1334,34 @@ impl<'a> FunctionBuilder<'a> {
             result_local,
             function,
         )?;
+        // 13.5.1.2 step 5.d: a `false` [[Delete]] result is a TypeError in
+        // strict code. The generic `delete obj.k` path does this in
+        // `compile_delete_property_i32`; the global fast path needs it too.
+        if strict {
+            let error_payload_local = self.reserve_temp_local();
+            let error_tag_local = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(result_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                "Cannot delete property",
+                error_payload_local,
+                error_tag_local,
+                function,
+            )?;
+            // Extra depth 1: the propagation helper opens its own `if`, and
+            // this site sits inside the `[[Delete]] returned false` `if`.
+            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                error_payload_local,
+                error_tag_local,
+                1,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.release_temp_local(error_tag_local);
+            self.release_temp_local(error_payload_local);
+        }
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
