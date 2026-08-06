@@ -44,6 +44,36 @@
 - Permanent skip lists and silent expected failures are not acceptable.
 - Never call fake-suite green "100% ECMAScript" or "100% Test262". Fake subset truth and full pinned Test262 truth must stay separate.
 
+## Code Invariants Before Test Invariants
+
+Prefer an invariant the compiler enforces over one a test discovers. A full
+conformance run is measured in hours; `cargo check` is measured in seconds, and
+it never forgets to run.
+
+- Make illegal states unrepresentable. If a value must be validated, validate it
+  once in a constructor that returns the only type the rest of the code accepts,
+  rather than re-checking at each use and hoping a test covers the path that
+  forgets.
+- Prefer enums to strings and newtypes to bare integers wherever the domain is
+  closed. A rounding mode, an overflow behavior, a property attribute and a
+  temporal unit are all closed sets; spelling them as `&str` or `u32` moves the
+  error from compile time to run time.
+- Prefer exhaustive `match` to a catch-all. An exhaustive match over a builtin or
+  an opcode turns "you forgot to handle the new case" into a compile error. A
+  `_ => ...` arm turns the same omission into a silent wrong answer, and this
+  repository has shipped both.
+- Encode ordering and lifecycle requirements in the types. If two operands must
+  be evaluated before either is coerced, a builder that will not emit the
+  coercion until it holds both is worth more than a comment saying so.
+- If something is unreachable from the product path, that should fail to build,
+  not merely fail to run. Code with no call site has been written here more than
+  once; it compiled, formatted cleanly and produced no dead-code warning because
+  it was `pub`.
+
+This is not a licence to add speculative abstraction. The test is whether a
+plausible mistake becomes a compile error. If it does not, the type is decoration
+and a plain function is better.
+
 ## Development Workflow
 
 - Batch implementation before expensive verification. At the start of a task, identify the complete coherent feature batch and the independent chunks within it.
