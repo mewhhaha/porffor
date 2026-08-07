@@ -257,7 +257,7 @@ pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
-pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 160;
+pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 168;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -742,6 +742,10 @@ pub(crate) const HEAP_INTL_DTF_TIME_STYLE_OFFSET: u64 = 136;
 pub(crate) const HEAP_INTL_DTF_HOUR12_OFFSET: u64 = 144;
 /// Memoised `[[BoundFormat]]` function object payload, 0 until first read.
 pub(crate) const HEAP_INTL_DTF_BOUND_FORMAT_OFFSET: u64 = 152;
+/// `needDefaults` as computed by `CreateDateTimeFormat`: 1 when the options
+/// bag named no date/time component and no dateStyle/timeStyle, so the
+/// Temporal `toLocaleString` path may substitute the type's own defaults.
+pub(crate) const HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET: u64 = 160;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
@@ -3334,6 +3338,13 @@ pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot] = &
         offset: HEAP_INTL_DTF_BOUND_FORMAT_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "need_defaults",
+        offset: HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET,
+        width: 8,
+        pointer: false,
     },
 ];
 

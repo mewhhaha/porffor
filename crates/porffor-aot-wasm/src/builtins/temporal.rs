@@ -780,9 +780,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
+        // Property bag: `ToTemporalCalendarIdentifier`, so an ISO date string
+        // parses rather than throwing.
         self.emit_temporal_zoned_date_time_calendar(
             calendar_payload_local,
             calendar_tag_local,
+            true,
             function,
         )?;
 
@@ -1813,9 +1816,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_builtin_arg_to_locals(2, calendar_payload_local, calendar_tag_local, function);
+        // Constructor: `CanonicalizeCalendar` only — an ISO date string is a
+        // RangeError here.
         self.emit_temporal_zoned_date_time_calendar(
             calendar_payload_local,
             calendar_tag_local,
+            false,
             function,
         )?;
         self.emit_error_new_target_prototype_to_local(
@@ -2173,12 +2179,30 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `Temporal.ZonedDateTime`'s calendar coercion.
+    ///
+    /// `parse_iso_strings` selects the specification operation, and the two are
+    /// not interchangeable. The property-bag path
+    /// (`emit_temporal_zoned_date_time_from_property_bag`) performs
+    /// `ToTemporalCalendarIdentifier`, which runs `ParseTemporalCalendarString`
+    /// and therefore accepts `"1111-11-11"`. The constructor performs
+    /// `CanonicalizeCalendar` only, where the same string must stay a
+    /// RangeError (`ZonedDateTime/calendar-invalid-iso-string.js`).
     fn emit_temporal_zoned_date_time_calendar(
         &mut self,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
+        parse_iso_strings: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if parse_iso_strings {
+            return self.emit_temporal_to_temporal_calendar_identifier(
+                calendar_payload_local,
+                calendar_tag_local,
+                "Temporal.ZonedDateTime calendar must be a string",
+                function,
+            );
+        }
         let expected_payload_local = self.reserve_temp_local();
         let case_fold_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
@@ -5882,27 +5906,40 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_temporal_instant_epoch_milliseconds(
+    /// `floor(epochNanoseconds / 10^6)` as an f64, read out of the epoch
+    /// nanoseconds slot pair of `record_local`.
+    ///
+    /// The division is a *floor*, not a truncation: `-1n` nanosecond is
+    /// millisecond `-1`, not `0`, so the negative remainder is corrected
+    /// explicitly. Both the small-integer and heap-BigInt representations of
+    /// the slot are handled, because either can reach a record.
+    ///
+    /// `Temporal.Instant` and `Temporal.ZonedDateTime` lay their epoch
+    /// nanoseconds out identically, which is why the offsets are parameters
+    /// rather than baked in.
+    pub(crate) fn emit_temporal_epoch_nanoseconds_record_to_milliseconds(
         &mut self,
+        record_local: u32,
+        payload_offset: u64,
+        tag_offset: u64,
+        dest_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
+    ) {
         let nanoseconds_payload_local = self.reserve_temp_local();
         let nanoseconds_tag_local = self.reserve_temp_local();
         let quotient_local = self.reserve_temp_local();
         let remainder_local = self.reserve_temp_local();
         let negative_local = self.reserve_temp_local();
 
-        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
         self.load_i64_to_local_from_offset(
             record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+            payload_offset,
             nanoseconds_payload_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
+            tag_offset,
             nanoseconds_tag_local,
             function,
         );
@@ -5949,15 +5986,32 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(quotient_local));
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(dest_local));
 
         self.release_temp_local(negative_local);
         self.release_temp_local(remainder_local);
         self.release_temp_local(quotient_local);
         self.release_temp_local(nanoseconds_tag_local);
         self.release_temp_local(nanoseconds_payload_local);
+    }
+
+    pub(crate) fn emit_temporal_instant_epoch_milliseconds(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+
+        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
+        self.emit_temporal_epoch_nanoseconds_record_to_milliseconds(
+            record_local,
+            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
+            self.result_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
         self.release_temp_local(record_local);
         Ok(())
     }
@@ -6626,5 +6680,264 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(limb_count_local);
         self.release_temp_local(limbs_local);
         self.release_temp_local(sign_local);
+    }
+
+    /// Emits the five-byte stub body (`i64.const 0` ×4 + `end`) both Temporal
+    /// calendar helpers use when no Temporal builtin is compiled. The slots are
+    /// reserved unconditionally so the fixed helper offsets never shift with
+    /// the shape of the program; only the bodies are elided.
+    fn temporal_calendar_helper_stub(&self) -> Function {
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        for _ in 0..4 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::End);
+        self.finish_function(function)
+    }
+
+    /// Compiles the `ParseTemporalCalendarString` date-shaped probe helper: one
+    /// inlined copy of the ISO date parser that all three date-ish goals reuse
+    /// by rewriting the string first.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=candidate string
+    /// payload, 1=rewrite form (0 = none/`TemporalDateString`, 1 =
+    /// `TemporalYearMonthString`, 2 = `TemporalMonthDayString`), 2..5 unused,
+    /// 6=calling standard builtin's realm environment (or zero). On success the
+    /// result tuple carries the resolved calendar payload with a normal
+    /// completion; on a parse failure — including a `[u-ca=...]` annotation
+    /// naming a calendar this backend does not ship — it carries a `Throw`
+    /// completion the caller is expected to inspect and discard.
+    ///
+    /// The rewrite runs *before* the parse on purpose: that is what keeps this
+    /// to a single inlined copy of `emit_temporal_parse_iso_string` instead of
+    /// three, which is the difference between compiling and tripping
+    /// Cranelift's per-function code-size limit.
+    pub(crate) fn compile_temporal_calendar_iso_date_probe_helper(
+        &mut self,
+        real: bool,
+    ) -> Result<Function, EmitError> {
+        if !real {
+            return Ok(self.temporal_calendar_helper_stub());
+        }
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+
+        let normalized_local = self.reserve_temp_local();
+        let year_local = self.reserve_temp_local();
+        let month_local = self.reserve_temp_local();
+        let day_local = self.reserve_temp_local();
+        let calendar_payload_local = self.reserve_temp_local();
+        let calendar_tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(0));
+        function.instruction(&Instruction::LocalSet(normalized_local));
+        function.instruction(&Instruction::LocalGet(1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_partial_date_rewrite_string(0, true, normalized_local, &mut function)?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(1));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_month_day_rewrite_string(0, normalized_local, &mut function)?;
+        function.instruction(&Instruction::End);
+
+        self.emit_temporal_parse_plain_date_string(
+            normalized_local,
+            year_local,
+            month_local,
+            day_local,
+            calendar_payload_local,
+            calendar_tag_local,
+            &mut function,
+        )?;
+
+        function.instruction(&Instruction::LocalGet(calendar_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        self.release_temp_local(calendar_tag_local);
+        self.release_temp_local(calendar_payload_local);
+        self.release_temp_local(day_local);
+        self.release_temp_local(month_local);
+        self.release_temp_local(year_local);
+        self.release_temp_local(normalized_local);
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared `ToTemporalCalendarIdentifier` string-resolution
+    /// helper — `ParseTemporalCalendarString` followed by
+    /// `CanonicalizeCalendar`.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=calendar string
+    /// payload, 1..5 unused, 6=calling standard builtin's realm environment (or
+    /// zero). A normal completion carries the canonical `iso8601` payload; a
+    /// `Throw` completion carries the RangeError.
+    ///
+    /// Order is load-bearing in both directions and must not be "tidied":
+    ///
+    /// * The three ISO date goals run first because `"152330"` is both a legal
+    ///   `AnnotationValue` and a legal `HHMMSS`, and the specification resolves
+    ///   that tie in favor of the ISO parse (`withCalendar/calendar-time-string.js`).
+    /// * The bare `AnnotationValue` compare is hoisted *above* the time attempt
+    ///   so the time parser's own RangeError can fall out as the final answer
+    ///   without a fourth helper to catch it. That reordering is invisible only
+    ///   because `CanonicalizeCalendar` accepts nothing but `iso8601` here, and
+    ///   `"iso8601"` is not a valid ISO date or time string. Adding a second
+    ///   calendar would make the hoist wrong.
+    ///
+    /// Known deviation: `emit_temporal_parse_plain_time_string` has no calendar
+    /// out-parameter and never reaches `emit_temporal_iso_calendar_annotation`,
+    /// so the time arm hard-codes `iso8601` and
+    /// `pd.withCalendar("T11:30[u-ca=notacal]")` wrongly succeeds instead of
+    /// throwing. No `built-ins` test covers it; the only tests in that shape
+    /// are `intl402` files that need a non-ISO calendar and are out of scope.
+    pub(crate) fn compile_temporal_calendar_identifier_helper(
+        &mut self,
+        real: bool,
+    ) -> Result<Function, EmitError> {
+        if !real {
+            return Ok(self.temporal_calendar_helper_stub());
+        }
+        let probe_helper_index = self
+            .temporal_calendar_iso_date_probe_helper_function_index()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: \
+                     Temporal calendar date-probe helper without heap",
+                )
+            })?;
+        let mut function =
+            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+
+        let iso_payload_local = self.reserve_temp_local();
+        let resolved_local = self.reserve_temp_local();
+        let probe_payload_local = self.reserve_temp_local();
+        let probe_tag_local = self.reserve_temp_local();
+        let probe_completion_local = self.reserve_temp_local();
+        let probe_aux_local = self.reserve_temp_local();
+        let case_fold_local = self.reserve_temp_local();
+        let hour_local = self.reserve_temp_local();
+        let minute_local = self.reserve_temp_local();
+        let second_local = self.reserve_temp_local();
+        let nanosecond_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+        function.instruction(&Instruction::LocalSet(iso_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(resolved_local));
+
+        for form in 0..3_i64 {
+            function.instruction(&Instruction::LocalGet(resolved_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(0));
+            function.instruction(&Instruction::I64Const(form));
+            for _ in 0..4 {
+                function.instruction(&Instruction::I64Const(0));
+            }
+            function.instruction(&Instruction::LocalGet(6));
+            function.instruction(&Instruction::Call(probe_helper_index));
+            // Deliberately NOT `store_call_results` — the probe's throw must not
+            // become this helper's completion. This is the whole "try and
+            // recover": the four results land in scratch locals and a `Throw`
+            // simply leaves `resolved` at zero so the next form runs.
+            self.store_call_results_to(
+                probe_payload_local,
+                probe_tag_local,
+                probe_completion_local,
+                probe_aux_local,
+                &mut function,
+            );
+            function.instruction(&Instruction::LocalGet(probe_completion_local));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(resolved_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+        }
+
+        // `CanonicalizeCalendar` on a bare `AnnotationValue`.
+        function.instruction(&Instruction::LocalGet(resolved_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(case_fold_local));
+        self.emit_string_payload_equality_i32_with_ascii_case_folding(
+            0,
+            iso_payload_local,
+            Some(case_fold_local),
+            &mut function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(resolved_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        // Last attempt: a bare `TemporalTimeString`. Its RangeError is the
+        // final answer, so nothing catches this one.
+        function.instruction(&Instruction::LocalGet(resolved_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_parse_plain_time_string(
+            0,
+            hour_local,
+            minute_local,
+            second_local,
+            nanosecond_local,
+            &mut function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(iso_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        for local in [
+            nanosecond_local,
+            second_local,
+            minute_local,
+            hour_local,
+            case_fold_local,
+            probe_aux_local,
+            probe_completion_local,
+            probe_tag_local,
+            probe_payload_local,
+            resolved_local,
+            iso_payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
     }
 }

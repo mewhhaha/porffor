@@ -1368,6 +1368,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalPlainDatePrototypeToJson
         | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
         | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainDatePrototypeAdd
+        | StandardBuiltinId::TemporalPlainDatePrototypeSubtract
+        | StandardBuiltinId::TemporalPlainDatePrototypeUntil
+        | StandardBuiltinId::TemporalPlainDatePrototypeSince
+        | StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime
+        | StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth
+        | StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay
         | StandardBuiltinId::TemporalPlainYearMonthFrom
         | StandardBuiltinId::TemporalPlainYearMonthCompare
         | StandardBuiltinId::TemporalPlainYearMonthPrototypeCalendarIdGetter
@@ -1524,6 +1531,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
         | StandardBuiltinId::IntlDateTimeFormatBoundFormat
         | StandardBuiltinId::WeakRefPrototypeDeref
         | StandardBuiltinId::FinalizationRegistryPrototypeRegister

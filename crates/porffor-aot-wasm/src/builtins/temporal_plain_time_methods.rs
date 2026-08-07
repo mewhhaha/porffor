@@ -1383,8 +1383,28 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Temporal proposal 4.3.x `toString`, `toJSON` and `toLocaleString`. Only
-    /// `toString` reads options; the other two are fixed at `"auto"` precision.
+    /// `Temporal.PlainTime.prototype.toLocaleString`.
+    ///
+    /// `new Intl.DateTimeFormat(locales, options).format(this)`. The time-only
+    /// field set is what makes `{ era: "narrow" }` render a plain time rather
+    /// than throwing: `era` never cleared `needDefaults`, so the format falls
+    /// back to this type's own hour/minute/second defaults and the `era` is
+    /// then masked off.
+    pub(crate) fn emit_temporal_plain_time_to_locale_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let field_locals = self.reserve_temporal_plain_time_field_locals();
+        self.emit_temporal_plain_time_fields_from_receiver(&field_locals, function)?;
+        self.release_temporal_plain_time_field_locals(field_locals);
+        self.emit_intl_dtf_temporal_to_locale_string(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME,
+            function,
+        )
+    }
+
+    /// Temporal proposal 4.3.x `toString` and `toJSON`. Only `toString` reads
+    /// options; `toJSON` is fixed at `"auto"` precision.
     pub(crate) fn emit_temporal_plain_time_to_string(
         &mut self,
         builtin: StandardBuiltinId,

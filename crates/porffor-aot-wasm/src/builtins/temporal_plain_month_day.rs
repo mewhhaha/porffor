@@ -967,6 +967,24 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `Temporal.PlainMonthDay.prototype.toLocaleString`.
+    ///
+    /// `new Intl.DateTimeFormat(locales, options).format(this)`. The reference
+    /// year is masked away by the month-day field set, so the year the record
+    /// carries never reaches the output.
+    pub(crate) fn emit_temporal_plain_month_day_to_locale_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        self.emit_temporal_plain_month_day_record_from_receiver(record_local, function)?;
+        self.release_temp_local(record_local);
+        self.emit_intl_dtf_temporal_to_locale_string(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            function,
+        )
+    }
+
     /// `TemporalMonthDayToString`. The reference year is prefixed only when the
     /// calendar annotation is shown, which is the only way a round-trip could
     /// otherwise lose it.

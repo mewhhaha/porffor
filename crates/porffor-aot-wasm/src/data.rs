@@ -1770,6 +1770,9 @@ impl StringPool {
                 "Temporal.PlainDate month and day must be positive",
                 "Temporal.PlainDate options must be an object or undefined",
                 "Invalid Temporal.PlainDate overflow option",
+                // `until`/`since` reject an out-of-range smallestUnit or
+                // largestUnit with this one message for both options.
+                "Invalid Temporal.PlainDate unit option",
                 "Invalid Temporal.PlainDate calendarName option",
                 "Temporal.PlainDate.prototype.with requires an object",
                 "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",
@@ -1797,6 +1800,12 @@ impl StringPool {
                 "01",
                 "1972",
                 "1972-",
+                // The shared `ToTemporalCalendarIdentifier` helper inlines the
+                // ISO-date parser and is emitted for every calendar-bearing
+                // Temporal family, so its PlainDate diagnostics cannot stay
+                // behind the PlainDate-only gate above.
+                "Invalid Temporal.PlainDate calendar annotation",
+                "Invalid Temporal.PlainDate string",
                 "Invalid Temporal.PlainMonthDay calendarName option",
                 "Invalid Temporal.PlainMonthDay monthCode",
                 "Invalid Temporal.PlainMonthDay overflow option",
@@ -1820,6 +1829,7 @@ impl StringPool {
                 "PlainMonthDay",
                 "PlainYearMonth",
                 "Temporal partial-date strings must not carry a UTC designator",
+                "Temporal.PlainDate string must not use the UTC designator",
                 "Temporal.PlainMonthDay",
                 "Temporal.PlainMonthDay constructor requires new",
                 "Temporal.PlainMonthDay day must be an integer",

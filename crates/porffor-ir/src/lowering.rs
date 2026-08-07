@@ -1886,6 +1886,55 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
+            "add".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeAdd.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "subtract".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeSubtract.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "until".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeUntil.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "since".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeSince.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toPlainDateTime".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toPlainYearMonth".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toPlainMonthDay".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
             "Symbol.toStringTag".to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDate")),
         );
@@ -6307,7 +6356,8 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts => (
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => (
                 ValueKind::Array,
                 KindSet::from_kind(ValueKind::Array),
                 None,
@@ -6319,7 +6369,8 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::IntlDateTimeFormatBoundFormat => (
+            StandardBuiltinId::IntlDateTimeFormatBoundFormat
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
                 None,
@@ -6420,11 +6471,38 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalPlainDateConstructor
             | StandardBuiltinId::TemporalPlainDateFrom
             | StandardBuiltinId::TemporalPlainDatePrototypeWith
-            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => (
+            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDatePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDatePrototypeSubtract => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_plain_date_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDatePrototypeSince => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_year_month_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_year_month_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_month_day_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_month_day_instance_shape())),
             ),
             StandardBuiltinId::TemporalPlainYearMonthConstructor
             | StandardBuiltinId::TemporalPlainYearMonthFrom
@@ -14429,12 +14507,47 @@ impl<'a> ScriptLowerer<'a> {
                 });
                 let inferred_info =
                     lowerer.infer_owner_var_binding_info(capture.owner_id.as_str(), source_name);
+                // A hoisted function declaration is lowered before the
+                // top-level `const` it captures, so `lookup_binding` can still
+                // see the hoist-time TDZ placeholder, whose kind is
+                // `Undefined`. Publishing that as a proven singleton kind is
+                // unsound: it propagates into `signature.return_kind` and lets
+                // constant folding claim the callee returns `undefined`. The
+                // prepass ran the whole root statement list to completion, so
+                // its root-scope metadata carries the post-initialization kind.
+                let prepass_info = (capture.owner_id.as_str() == SCRIPT_OWNER_ID)
+                    .then(|| self.var_bindings.get(source_name))
+                    .flatten()
+                    .filter(|metadata| metadata.is_lexical_metadata)
+                    .filter(|metadata| {
+                        metadata.kind != ValueKind::Undefined && metadata.kind != ValueKind::Dynamic
+                    })
+                    .map(|metadata| ValueInfo {
+                        kind: metadata.kind,
+                        possible_kinds: metadata.possible_kinds,
+                        heap_shape: metadata.heap_shape.clone(),
+                        function_targets: metadata.function_targets.clone(),
+                    });
                 match (binding_info, inferred_info) {
                     (Some(binding), Some(inferred))
                         if binding.kind == ValueKind::Undefined
                             || binding.kind == ValueKind::Dynamic =>
                     {
                         inferred
+                    }
+                    // Never publish the TDZ placeholder itself. Prefer the
+                    // prepass kind, and fall back to `Dynamic` rather than to
+                    // a singleton `Undefined` nothing ever proved.
+                    (Some(binding), None)
+                        if binding.kind == ValueKind::Undefined
+                            || binding.kind == ValueKind::Dynamic =>
+                    {
+                        prepass_info.unwrap_or(ValueInfo {
+                            kind: ValueKind::Dynamic,
+                            possible_kinds: KindSet::all_runtime_tags(),
+                            heap_shape: None,
+                            function_targets: BTreeSet::new(),
+                        })
                     }
                     (Some(binding), _) => binding,
                     (None, Some(inferred)) => inferred,
@@ -26545,8 +26658,23 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalPlainDateConstructor
             | StandardBuiltinId::TemporalPlainDateFrom
             | StandardBuiltinId::TemporalPlainDatePrototypeWith
-            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => Some(
+            | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+            | StandardBuiltinId::TemporalPlainDatePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDatePrototypeSubtract => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDatePrototypeSince => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_year_month_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_month_day_instance_shape())),
             ),
             StandardBuiltinId::TemporalPlainYearMonthConstructor
             | StandardBuiltinId::TemporalPlainYearMonthFrom
@@ -26809,13 +26937,15 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ValueInfo::new(ValueKind::Object))
             }
             StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts => {
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => {
                 Some(ValueInfo::new(ValueKind::Array))
             }
             StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => {
                 Some(ValueInfo::new(ValueKind::Function))
             }
-            StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
+            StandardBuiltinId::IntlDateTimeFormatBoundFormat
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => {
                 Some(ValueInfo::new(ValueKind::String))
             }
             StandardBuiltinId::TemporalZonedDateTimeConstructor => Some(

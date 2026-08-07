@@ -170,6 +170,14 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
             ),
             (
+                "formatRange",
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
+            ),
+            (
+                "formatRangeToParts",
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
+            ),
+            (
                 "resolvedOptions",
                 StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
             ),

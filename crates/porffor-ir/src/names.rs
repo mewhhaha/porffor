@@ -712,6 +712,20 @@ pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID: &s
     "$builtin.Temporal.PlainDate.prototype.toLocaleString";
 pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
     "$builtin.Temporal.PlainDate.prototype.valueOf";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ADD_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.add";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SUBTRACT_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.subtract";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_UNTIL_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.until";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SINCE_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.since";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toPlainDateTime";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_YEAR_MONTH_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toPlainYearMonth";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_MONTH_DAY_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toPlainMonthDay";
 pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_FUNCTION_ID: &str = "$builtin.Temporal.PlainYearMonth";
 pub const BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_FROM_FUNCTION_ID: &str =
     "$builtin.Temporal.PlainYearMonth.from";
@@ -1014,6 +1028,10 @@ pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID: &st
     "$builtin.Intl.DateTimeFormat.prototype.format.get";
 pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
     "$builtin.Intl.DateTimeFormat.prototype.formatToParts";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.prototype.formatRange";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.prototype.formatRangeToParts";
 pub const BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID: &str =
     "$builtin.Intl.DateTimeFormat.boundFormat";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID: &str =

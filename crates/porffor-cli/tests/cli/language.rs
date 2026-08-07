@@ -1732,3 +1732,39 @@ fn run_wasm_backend_validates_async_generator_yield_star_throw_across_method_wra
         "{stdout}"
     );
 }
+
+/// A hoisted function's `const` capture must not be typed from the hoist-time
+/// TDZ placeholder.
+///
+/// Function declarations are lowered before the statement list, so when
+/// `function fb() { return B; }` captures the top-level `const B`, `B` is still
+/// the uninitialized placeholder whose kind is `Undefined`. Publishing that as
+/// the capture's proven value propagates into `signature.return_kind`, and then
+/// `typeof fb()` constant-folds to `"undefined"` without ever calling `fb`.
+///
+/// Both fields are plain observable JavaScript, so this stays a black-box
+/// check rather than an assertion about inferred kinds. The fixture documents
+/// the wider const-capture operator-selection defect that this test
+/// deliberately does not cover.
+#[test]
+fn run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_const_capture_return_kind.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("const-capture-return-kind:object:1"),
+        "{stdout}"
+    );
+}

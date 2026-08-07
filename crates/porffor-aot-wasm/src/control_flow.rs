@@ -6054,6 +6054,27 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// Leave `low <= state <= high` (unsigned) on the stack as an i32 boolean.
+    ///
+    /// The for-await emitter tests its plan states as spans rather than as
+    /// individual equalities, because the states a suspension in the loop body
+    /// resumes into are allocated *inside* the loop's span and are not known
+    /// to the loop itself — only their bounds are.
+    fn emit_state_in_inclusive_range_i32(
+        state_local: u32,
+        low: u32,
+        high: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(i64::from(low)));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(i64::from(high)));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+    }
+
     pub(crate) fn compile_async_for_of_iterator(
         &mut self,
         mode: BindingMode,
@@ -6068,28 +6089,65 @@ impl<'a> FunctionBuilder<'a> {
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
             EmitError::unsupported("for-await-of requires the async function call ABI")
         })?;
-        // The loop's entry test admits three states and then re-dispatches on
-        // which one it saw, so two of them holding the same number silently
-        // routes a `next()` resume into the iterator-close path (or vice versa).
-        // Refuse instead: a wrong answer here is unobservable at compile time.
-        let states = [
-            async_plan.entry_state,
-            async_plan.value_resume_state,
-            async_plan.close_resume_state,
-            async_plan.exit_state,
-        ];
-        if states
-            .iter()
-            .enumerate()
-            .any(|(index, state)| states[index + 1..].contains(state))
+        // The loop replays itself out of its plan states, and the two gates
+        // below read the plan as a *span* rather than as a set of three
+        // numbers: the loop is entered for any state in
+        // `[entry_state, close_resume_state]`, and one iteration is resumed
+        // for any state in `[value_resume_state, close_resume_state)`. The
+        // half-open upper end is what carries a suspension inside the body:
+        // `AsyncGeneratorSuspensionCollector::visit_for_of_loop`
+        // (porffor-ir/src/lowering_helpers.rs) suspends `ForAwaitNext`, then
+        // visits the body — whose suspensions chain off `next()`'s resume
+        // state — then `reserve()`s one state, then suspends `ForAwaitClose`,
+        // so every state the body can resume into lies strictly between
+        // `value_resume_state` and `close_resume_state`. A body with no
+        // suspension is the degenerate case `entry, entry+1, entry+2,
+        // entry+3`, where the span collapses back onto the three states the
+        // loop owns itself.
+        //
+        // Both gates therefore depend on the plan being strictly ordered, and
+        // an out-of-order plan is unobservable at compile time: it would
+        // silently route a `next()` resume into the iterator-close path (or
+        // skip the loop entirely). Refuse instead of guessing.
+        if !(async_plan.entry_state < async_plan.value_resume_state
+            && async_plan.value_resume_state < async_plan.close_resume_state
+            && async_plan.close_resume_state < async_plan.exit_state)
         {
             return Err(EmitError::unsupported(format!(
-                "for-await-of resume plan reuses a state (entry {}, value {}, close {}, exit {})",
+                "for-await-of resume plan is not strictly ordered (entry {}, value {}, close {}, exit {})",
                 async_plan.entry_state,
                 async_plan.value_resume_state,
                 async_plan.close_resume_state,
                 async_plan.exit_state,
             )));
+        }
+        // Whether one iteration can be split across more than one wasm
+        // invocation. This is the same predicate `compile_block_contents`
+        // uses to decide that the body compiles as a resumable statement
+        // sequence, so the gates below and the body's own dispatch cannot
+        // disagree about which states exist.
+        let body_suspends = Self::async_statement_entry_state(body).is_some();
+        if body_suspends {
+            // A per-iteration environment is entered at the loop head and left
+            // after the body, both inside the same invocation. Split the
+            // iteration and the resume would enter a second environment while
+            // the first is still current, and leave only one of them.
+            if lexical_environment
+                .and_then(|environment| environment.iteration_environment.as_ref())
+                .is_some()
+            {
+                return Err(EmitError::unsupported(
+                    "for-await-of with a per-iteration lexical environment and a body suspension",
+                ));
+            }
+            // `compile_async_block_contents` enters a body block's own
+            // environment unconditionally, i.e. once per invocation, and
+            // leaves it only on the invocation that runs the block to its end.
+            if matches!(body, StatementIr::Block(block) if block.lexical_environment.is_some()) {
+                return Err(EmitError::unsupported(
+                    "for-await-of with a block-scoped body environment and a body suspension",
+                ));
+            }
         }
         let (
             resume_state_offset,
@@ -6154,17 +6212,18 @@ impl<'a> FunctionBuilder<'a> {
             state_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.close_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        // Enter the loop for every state it owns *and* every state its body
+        // owns. For a suspension-free body the span is exactly
+        // `{entry, entry+1, entry+2}`, the three states the previous equality
+        // test admitted; for a suspending body it additionally admits the body's
+        // resume states, which is what stops a body resume from falling straight
+        // through the loop and completing the generator.
+        Self::emit_state_in_inclusive_range_i32(
+            state_local,
+            async_plan.entry_state,
+            async_plan.close_resume_state,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.push_control(ControlFrameKind::If);
 
@@ -6178,6 +6237,24 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             None
         };
+        // The loop variable is written on the invocation that resumes from
+        // `next()` and read by whatever the body does afterwards. Once the body
+        // can suspend those stop being the same invocation, so the binding has
+        // to live in an environment slot: wasm locals are reset on every
+        // resume. `collect_owner_root_bindings_from_statement`
+        // (porffor-ir/src/analysis.rs) gives every for-of loop binding of a
+        // resumable owner an activation slot, so this guards that invariant
+        // rather than a shape callers are expected to write.
+        if body_suspends
+            && !matches!(
+                storage_without_environment,
+                Some(BindingStorage::EnvSlot { .. })
+            )
+        {
+            return Err(EmitError::unsupported(format!(
+                "for-await-of binding `{name}` does not survive a suspension in the loop body"
+            )));
+        }
         if mode == BindingMode::Var {
             self.binding_scopes
                 .last_mut()
@@ -6446,11 +6523,40 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
+        // Everything from here to the close of this frame is one iteration:
+        // unpack the awaited `next()` result, bind the loop variable, run the
+        // body, then decide whether the iterator has to be closed. It is
+        // entered for `value_resume_state` — the invocation that resumes from
+        // `await next()` — and, when the body can suspend, for every state
+        // between that and `close_resume_state`, which is where the collector
+        // put the body's own resume states. Those are the invocations that
+        // finish an iteration whose body was cut in half.
+        if body_suspends {
+            Self::emit_state_in_inclusive_range_i32(
+                state_local,
+                async_plan.value_resume_state,
+                async_plan.close_resume_state - 1,
+                function,
+            );
+        } else {
+            function.instruction(&Instruction::LocalGet(state_local));
+            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
+            function.instruction(&Instruction::I64Eq);
+        }
         function.instruction(&Instruction::If(BlockType::Empty));
         self.push_control(ControlFrameKind::If);
+        // Unpacking the result reads the activation's resume payload/tag/kind,
+        // which describe the `await` that just settled. On a body resume they
+        // describe the body's own suspension instead, and the iteration's
+        // `value` was consumed an invocation ago, so this whole section runs
+        // only on the invocation that came back from `next()`.
+        if body_suspends {
+            function.instruction(&Instruction::LocalGet(state_local));
+            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.push_control(ControlFrameKind::If);
+        }
         self.load_i64_to_local_from_offset(
             activation_local,
             resume_kind_offset,
@@ -6546,6 +6652,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        if body_suspends {
+            // Close the `state == value_resume_state` gate around unpacking.
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
         function.instruction(&Instruction::Block(BlockType::Empty));
         let continue_frame = self.push_control(ControlFrameKind::Block);
         self.loop_stack.push(LoopTargets { continue_frame });
@@ -6553,6 +6664,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Block(BlockType::Empty));
         let finally_frame = self.push_control(ControlFrameKind::Block);
         self.finally_stack.push(finally_frame);
+        // A sync iterator whose `next()` promise rejected reports the rejection
+        // here rather than through the async-iterator path. It reads the resume
+        // kind and the async-iterator flag, both of which only describe the
+        // `next()` await, so on a body resume it is skipped rather than left to
+        // be accidentally right about locals this invocation never assigned.
+        if body_suspends {
+            function.instruction(&Instruction::LocalGet(state_local));
+            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.push_control(ControlFrameKind::If);
+        }
         function.instruction(&Instruction::LocalGet(resume_kind_local));
         function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
         function.instruction(&Instruction::I64Eq);
@@ -6596,10 +6719,34 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dispatch_current_completion(function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        if body_suspends {
+            // Close the `state == value_resume_state` gate around the
+            // sync-iterator rejection pre-check.
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        // `done` is read from the loop's own suspension-owned binding, not from
+        // a local, so this test is meaningful on a body resume too: the
+        // `next()` that produced the in-flight iteration wrote `false` there,
+        // and the iteration is not finished, so the loop correctly does not
+        // break out from under a half-run body.
         self.read_binding_to_locals(done_storage, done_payload_local, done_tag_local, function)?;
         function.instruction(&Instruction::LocalGet(done_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        // Binding the loop variable belongs to the start of an iteration. On a
+        // body resume the iteration is already under way, the value locals hold
+        // nothing this invocation assigned, and the binding still holds the
+        // value the body was suspended with — so rebinding would overwrite it
+        // with garbage. A per-iteration environment is refused above when the
+        // body can suspend, so entering one here stays a value-path-only step.
+        if body_suspends {
+            function.instruction(&Instruction::LocalGet(state_local));
+            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.push_control(ControlFrameKind::If);
+        }
         if let Some(environment) =
             lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
         {
@@ -6611,6 +6758,13 @@ impl<'a> FunctionBuilder<'a> {
             .expect("for-await-of lexical storage must exist");
         self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
+        if body_suspends {
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        }
+        // Emitted at the same control depth as before the gates above, so every
+        // `break`/`continue`/`return` inside the body still resolves to the same
+        // frame it did when a suspending body was refused outright.
         self.compile_statement(body, function)?;
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
@@ -6637,10 +6791,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        // Pairs with the per-iteration enter at the loop head, and reads
+        // `resume_kind_local`. Both are sound only while an iteration begins
+        // and ends inside one invocation, which is why a per-iteration
+        // environment and a suspending body are refused together above.
         if lexical_environment
             .and_then(|environment| environment.iteration_environment.as_ref())
             .is_some()
         {
+            debug_assert!(
+                !body_suspends,
+                "a per-iteration environment and a body suspension must have been refused"
+            );
             function.instruction(&Instruction::LocalGet(resume_kind_local));
             function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
             function.instruction(&Instruction::I64Ne);

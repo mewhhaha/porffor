@@ -222,6 +222,8 @@ use crate::{
     BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID,
     BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID,
     BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
     BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
     BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
     BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
@@ -394,7 +396,7 @@ use crate::{
     BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID, BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID,
     BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID,
-    BUILTIN_TEMPORAL_PLAIN_DATE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ADD_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID,
@@ -409,9 +411,15 @@ use crate::{
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SINCE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SUBTRACT_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_JSON_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_MONTH_DAY_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_YEAR_MONTH_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_UNTIL_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
@@ -947,6 +955,13 @@ pub enum StandardBuiltinId {
     TemporalPlainDatePrototypeToJson,
     TemporalPlainDatePrototypeToLocaleString,
     TemporalPlainDatePrototypeValueOf,
+    TemporalPlainDatePrototypeAdd,
+    TemporalPlainDatePrototypeSubtract,
+    TemporalPlainDatePrototypeUntil,
+    TemporalPlainDatePrototypeSince,
+    TemporalPlainDatePrototypeToPlainDateTime,
+    TemporalPlainDatePrototypeToPlainYearMonth,
+    TemporalPlainDatePrototypeToPlainMonthDay,
     TemporalPlainTimeConstructor,
     TemporalPlainTimeFrom,
     TemporalPlainTimeCompare,
@@ -1112,6 +1127,8 @@ pub enum StandardBuiltinId {
     IntlDateTimeFormatPrototypeResolvedOptions,
     IntlDateTimeFormatPrototypeFormatGetter,
     IntlDateTimeFormatPrototypeFormatToParts,
+    IntlDateTimeFormatPrototypeFormatRange,
+    IntlDateTimeFormatPrototypeFormatRangeToParts,
     IntlDateTimeFormatBoundFormat,
     RegExpConstructor,
     RegExpSpeciesGetter,
@@ -1505,6 +1522,13 @@ impl StandardBuiltinId {
             | Self::TemporalPlainDatePrototypeToJson
             | Self::TemporalPlainDatePrototypeToLocaleString
             | Self::TemporalPlainDatePrototypeValueOf
+            | Self::TemporalPlainDatePrototypeAdd
+            | Self::TemporalPlainDatePrototypeSubtract
+            | Self::TemporalPlainDatePrototypeUntil
+            | Self::TemporalPlainDatePrototypeSince
+            | Self::TemporalPlainDatePrototypeToPlainDateTime
+            | Self::TemporalPlainDatePrototypeToPlainYearMonth
+            | Self::TemporalPlainDatePrototypeToPlainMonthDay
             | Self::TemporalPlainYearMonthConstructor
             | Self::TemporalPlainYearMonthFrom
             | Self::TemporalPlainYearMonthCompare
@@ -1670,6 +1694,8 @@ impl StandardBuiltinId {
             | Self::IntlDateTimeFormatPrototypeResolvedOptions
             | Self::IntlDateTimeFormatPrototypeFormatGetter
             | Self::IntlDateTimeFormatPrototypeFormatToParts
+            | Self::IntlDateTimeFormatPrototypeFormatRange
+            | Self::IntlDateTimeFormatPrototypeFormatRangeToParts
             | Self::IntlDateTimeFormatBoundFormat => None,
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
@@ -2503,6 +2529,19 @@ impl StandardBuiltinId {
                 "Temporal.PlainDate.prototype.toLocaleString"
             }
             Self::TemporalPlainDatePrototypeValueOf => "Temporal.PlainDate.prototype.valueOf",
+            Self::TemporalPlainDatePrototypeAdd => "Temporal.PlainDate.prototype.add",
+            Self::TemporalPlainDatePrototypeSubtract => "Temporal.PlainDate.prototype.subtract",
+            Self::TemporalPlainDatePrototypeUntil => "Temporal.PlainDate.prototype.until",
+            Self::TemporalPlainDatePrototypeSince => "Temporal.PlainDate.prototype.since",
+            Self::TemporalPlainDatePrototypeToPlainDateTime => {
+                "Temporal.PlainDate.prototype.toPlainDateTime"
+            }
+            Self::TemporalPlainDatePrototypeToPlainYearMonth => {
+                "Temporal.PlainDate.prototype.toPlainYearMonth"
+            }
+            Self::TemporalPlainDatePrototypeToPlainMonthDay => {
+                "Temporal.PlainDate.prototype.toPlainMonthDay"
+            }
             Self::TemporalPlainYearMonthConstructor => "Temporal.PlainYearMonth",
             Self::TemporalPlainYearMonthFrom => "Temporal.PlainYearMonth.from",
             Self::TemporalPlainYearMonthCompare => "Temporal.PlainYearMonth.compare",
@@ -2843,6 +2882,12 @@ impl StandardBuiltinId {
             }
             Self::IntlDateTimeFormatPrototypeFormatGetter => {
                 "get Intl.DateTimeFormat.prototype.format"
+            }
+            Self::IntlDateTimeFormatPrototypeFormatRange => {
+                "Intl.DateTimeFormat.prototype.formatRange"
+            }
+            Self::IntlDateTimeFormatPrototypeFormatRangeToParts => {
+                "Intl.DateTimeFormat.prototype.formatRangeToParts"
             }
             Self::IntlDateTimeFormatPrototypeFormatToParts => {
                 "Intl.DateTimeFormat.prototype.formatToParts"
@@ -3823,6 +3868,27 @@ impl StandardBuiltinId {
             Self::TemporalPlainDatePrototypeValueOf => {
                 BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
             }
+            Self::TemporalPlainDatePrototypeAdd => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ADD_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeSubtract => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SUBTRACT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeUntil => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_UNTIL_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeSince => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SINCE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeToPlainDateTime => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeToPlainYearMonth => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_YEAR_MONTH_FUNCTION_ID.to_string()
+            }
+            Self::TemporalPlainDatePrototypeToPlainMonthDay => {
+                BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_MONTH_DAY_FUNCTION_ID.to_string()
+            }
             Self::TemporalPlainYearMonthConstructor => {
                 BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_FUNCTION_ID.to_string()
             }
@@ -4328,6 +4394,13 @@ impl StandardBuiltinId {
             }
             Self::IntlDateTimeFormatPrototypeFormatGetter => {
                 BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatPrototypeFormatRange => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatPrototypeFormatRangeToParts => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID
+                    .to_string()
             }
             Self::IntlDateTimeFormatPrototypeFormatToParts => {
                 BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID.to_string()
@@ -5372,6 +5445,27 @@ impl StandardBuiltinId {
             BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
                 Some(Self::TemporalPlainDatePrototypeValueOf)
             }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ADD_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeAdd)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SUBTRACT_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeSubtract)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_UNTIL_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeUntil)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SINCE_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeSince)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeToPlainDateTime)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_YEAR_MONTH_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeToPlainYearMonth)
+            }
+            BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_PLAIN_MONTH_DAY_FUNCTION_ID => {
+                Some(Self::TemporalPlainDatePrototypeToPlainMonthDay)
+            }
             BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_FUNCTION_ID => {
                 Some(Self::TemporalPlainYearMonthConstructor)
             }
@@ -5838,6 +5932,12 @@ impl StandardBuiltinId {
             }
             BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID => {
                 Some(Self::IntlDateTimeFormatPrototypeFormatGetter)
+            }
+            BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatPrototypeFormatRange)
+            }
+            BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatPrototypeFormatRangeToParts)
             }
             BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID => {
                 Some(Self::IntlDateTimeFormatPrototypeFormatToParts)
@@ -6579,6 +6679,13 @@ impl StandardBuiltinId {
             Self::TemporalPlainDatePrototypeToJson,
             Self::TemporalPlainDatePrototypeToLocaleString,
             Self::TemporalPlainDatePrototypeValueOf,
+            Self::TemporalPlainDatePrototypeAdd,
+            Self::TemporalPlainDatePrototypeSubtract,
+            Self::TemporalPlainDatePrototypeUntil,
+            Self::TemporalPlainDatePrototypeSince,
+            Self::TemporalPlainDatePrototypeToPlainDateTime,
+            Self::TemporalPlainDatePrototypeToPlainYearMonth,
+            Self::TemporalPlainDatePrototypeToPlainMonthDay,
             Self::TemporalPlainYearMonthConstructor,
             Self::TemporalPlainYearMonthFrom,
             Self::TemporalPlainYearMonthCompare,
@@ -6744,6 +6851,8 @@ impl StandardBuiltinId {
             Self::IntlDateTimeFormatPrototypeResolvedOptions,
             Self::IntlDateTimeFormatPrototypeFormatGetter,
             Self::IntlDateTimeFormatPrototypeFormatToParts,
+            Self::IntlDateTimeFormatPrototypeFormatRange,
+            Self::IntlDateTimeFormatPrototypeFormatRangeToParts,
             Self::IntlDateTimeFormatBoundFormat,
             Self::RegExpConstructor,
             Self::RegExpSpeciesGetter,
@@ -7599,6 +7708,13 @@ impl StandardBuiltinId {
             Self::TemporalPlainDatePrototypeToJson => Some("toJSON"),
             Self::TemporalPlainDatePrototypeToLocaleString => Some("toLocaleString"),
             Self::TemporalPlainDatePrototypeValueOf => Some("valueOf"),
+            Self::TemporalPlainDatePrototypeAdd => Some("add"),
+            Self::TemporalPlainDatePrototypeSubtract => Some("subtract"),
+            Self::TemporalPlainDatePrototypeUntil => Some("until"),
+            Self::TemporalPlainDatePrototypeSince => Some("since"),
+            Self::TemporalPlainDatePrototypeToPlainDateTime => Some("toPlainDateTime"),
+            Self::TemporalPlainDatePrototypeToPlainYearMonth => Some("toPlainYearMonth"),
+            Self::TemporalPlainDatePrototypeToPlainMonthDay => Some("toPlainMonthDay"),
             Self::TemporalPlainYearMonthConstructor => Some("PlainYearMonth"),
             Self::TemporalPlainYearMonthFrom => Some("from"),
             Self::TemporalPlainYearMonthCompare => Some("compare"),
@@ -7795,6 +7911,8 @@ impl StandardBuiltinId {
             Self::IntlDateTimeFormatPrototypeResolvedOptions => Some("resolvedOptions"),
             Self::IntlDateTimeFormatPrototypeFormatGetter => Some("get format"),
             Self::IntlDateTimeFormatPrototypeFormatToParts => Some("formatToParts"),
+            Self::IntlDateTimeFormatPrototypeFormatRange => Some("formatRange"),
+            Self::IntlDateTimeFormatPrototypeFormatRangeToParts => Some("formatRangeToParts"),
             // ECMA-402 11.1.5: the DateTime Format Function has name "".
             Self::IntlDateTimeFormatBoundFormat => Some(""),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),

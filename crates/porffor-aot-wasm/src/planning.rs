@@ -846,6 +846,37 @@ impl RuntimeBootstrapPlan {
         }
     }
 
+    /// Root the whole `Intl.DateTimeFormat` family.
+    ///
+    /// `require_standard_builtin` does not recurse through its own match, so a
+    /// caller that needs the formatter must seed every id itself. The five
+    /// `Temporal.Plain*.prototype.toLocaleString` emitters look up the
+    /// `Intl.DateTimeFormat` constructor and format getter by function id and
+    /// return `EmitError::unsupported` when either is missing, so any family
+    /// that installs a `toLocaleString` has to pull this in.
+    fn require_intl_date_time_format_family(&mut self) {
+        self.intl_object = true;
+        for dependency in [
+            StandardBuiltinId::IntlGetCanonicalLocales,
+            StandardBuiltinId::IntlLocaleConstructor,
+            StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
+            StandardBuiltinId::IntlLocalePrototypeScriptGetter,
+            StandardBuiltinId::IntlLocalePrototypeRegionGetter,
+            StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
+            StandardBuiltinId::IntlLocalePrototypeToString,
+            StandardBuiltinId::IntlDateTimeFormatConstructor,
+            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
+            StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter,
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
+            StandardBuiltinId::IntlDateTimeFormatBoundFormat,
+        ] {
+            self.standard_roots.insert(dependency);
+        }
+    }
+
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
         self.standard_roots.insert(builtin);
         if builtin == StandardBuiltinId::ArrayFromAsync {
@@ -1203,6 +1234,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
             | StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
                 self.intl_object = true;
                 for dependency in [
@@ -1218,6 +1251,8 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
                     StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter,
                     StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
+                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
+                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
                     StandardBuiltinId::IntlDateTimeFormatBoundFormat,
                 ] {
                     self.standard_roots.insert(dependency);
@@ -1265,6 +1300,13 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainDatePrototypeToString
             | StandardBuiltinId::TemporalPlainDatePrototypeToJson
             | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
+            | StandardBuiltinId::TemporalPlainDatePrototypeAdd
+            | StandardBuiltinId::TemporalPlainDatePrototypeSubtract
+            | StandardBuiltinId::TemporalPlainDatePrototypeUntil
+            | StandardBuiltinId::TemporalPlainDatePrototypeSince
+            | StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime
+            | StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth
+            | StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay
             | StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
                 self.temporal_object = true;
                 for dependency in [
@@ -1294,9 +1336,19 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalPlainDatePrototypeToJson,
                     StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
                     StandardBuiltinId::TemporalPlainDatePrototypeValueOf,
+                    StandardBuiltinId::TemporalPlainDatePrototypeAdd,
+                    StandardBuiltinId::TemporalPlainDatePrototypeSubtract,
+                    StandardBuiltinId::TemporalPlainDatePrototypeUntil,
+                    StandardBuiltinId::TemporalPlainDatePrototypeSince,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay,
                 ] {
                     self.standard_roots.insert(dependency);
                 }
+                // `Temporal.PlainDate.prototype.toLocaleString` builds an
+                // `Intl.DateTimeFormat` and calls its bound format function.
+                self.require_intl_date_time_format_family();
             }
             // The whole `Temporal.PlainYearMonth` family installs together: one shared prototype, and `until`/`since`/`toPlainDate` hand back sibling types.
             StandardBuiltinId::TemporalPlainYearMonthConstructor
@@ -1354,6 +1406,9 @@ impl RuntimeBootstrapPlan {
                 ] {
                     self.standard_roots.insert(dependency);
                 }
+                // `Temporal.PlainYearMonth.prototype.toLocaleString` builds an
+                // `Intl.DateTimeFormat` and calls its bound format function.
+                self.require_intl_date_time_format_family();
             }
             // The whole `Temporal.PlainMonthDay` family installs together; `toPlainDate` hands back a `Temporal.PlainDate`.
             StandardBuiltinId::TemporalPlainMonthDayConstructor
@@ -1386,6 +1441,9 @@ impl RuntimeBootstrapPlan {
                 ] {
                     self.standard_roots.insert(dependency);
                 }
+                // `Temporal.PlainMonthDay.prototype.toLocaleString` builds an
+                // `Intl.DateTimeFormat` and calls its bound format function.
+                self.require_intl_date_time_format_family();
             }
             // The whole `Temporal.PlainTime` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
@@ -1438,6 +1496,9 @@ impl RuntimeBootstrapPlan {
                 ] {
                     self.standard_roots.insert(dependency);
                 }
+                // `Temporal.PlainTime.prototype.toLocaleString` builds an
+                // `Intl.DateTimeFormat` and calls its bound format function.
+                self.require_intl_date_time_format_family();
             }
             // The whole `Temporal.PlainDateTime` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
@@ -1535,6 +1596,9 @@ impl RuntimeBootstrapPlan {
                 ] {
                     self.standard_roots.insert(dependency);
                 }
+                // `Temporal.PlainDateTime.prototype.toLocaleString` builds an
+                // `Intl.DateTimeFormat` and calls its bound format function.
+                self.require_intl_date_time_format_family();
             }
             // The whole `Temporal.Duration` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
@@ -5336,6 +5400,10 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainDateFrom
         | StandardBuiltinId::TemporalPlainDatePrototypeWith
         | StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar
+        | StandardBuiltinId::TemporalPlainDatePrototypeAdd
+        | StandardBuiltinId::TemporalPlainDatePrototypeSubtract
+        | StandardBuiltinId::TemporalPlainDatePrototypeUntil
+        | StandardBuiltinId::TemporalPlainDatePrototypeSince
         | StandardBuiltinId::TemporalPlainDatePrototypeEquals
         | StandardBuiltinId::TemporalPlainTimeFrom
         | StandardBuiltinId::TemporalPlainTimePrototypeWith
@@ -5433,6 +5501,10 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
         | StandardBuiltinId::IntlDateTimeFormatBoundFormat => 1,
+        // ECMA-402 11.4.6/11.4.7: `formatRange` and `formatRangeToParts` each
+        // take (startDate, endDate), so their `length` is 2, not 1.
+        StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => 2,
         StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
@@ -5495,6 +5567,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainDatePrototypeToJson
         | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString
         | StandardBuiltinId::TemporalPlainDatePrototypeValueOf
+        | StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime
+        | StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth
+        | StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay
         | StandardBuiltinId::TemporalPlainDateTimePrototypeCalendarIdGetter
         | StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
         | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter

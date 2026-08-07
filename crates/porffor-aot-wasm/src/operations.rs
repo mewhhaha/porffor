@@ -7177,14 +7177,17 @@ impl<'a> FunctionBuilder<'a> {
         expr: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let is_runtime_storage_read = matches!(
-            &expr.expr,
-            ExprIr::Identifier(_)
-                | ExprIr::GlobalPropertyRead { .. }
-                | ExprIr::PropertyRead { .. }
-                | ExprIr::This
-                | ExprIr::Arguments
-        );
+        // One predicate, spelled once. This used to hand-roll a five-variant
+        // `matches!` that meant the same thing as
+        // `expr_result_tag_is_runtime_dynamic` but omitted every call form, so a
+        // call whose inferred kind was a (wrong) singleton got constant-folded
+        // into a literal type name instead of re-reading the runtime tag. That
+        // is exactly the distrust `compile_expr_to_locals` already applies
+        // (expressions.rs:2560); duplicating it here only created a second,
+        // weaker copy. `ExprIr::Arguments` is not part of the planning
+        // predicate, so it stays explicit.
+        let is_runtime_storage_read = matches!(&expr.expr, ExprIr::Arguments)
+            || expr_result_tag_is_runtime_dynamic(&expr.expr);
         if expr.possible_kinds.is_singleton()
             && !is_runtime_storage_read
             && expr.kind != ValueKind::Object

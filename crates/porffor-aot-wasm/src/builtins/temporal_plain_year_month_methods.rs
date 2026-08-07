@@ -67,9 +67,13 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.emit_return_current_completion_if_throw(function);
-            self.emit_temporal_plain_date_calendar(
+            // Deliberately the PlainDate spelling: `PlainYearMonth` reuses the
+            // PlainDate emitters wholesale and the string pool only seeds the
+            // PlainDate message for this family. No Test262 case reads it.
+            self.emit_temporal_to_temporal_calendar_identifier(
                 calendar_payload_local,
                 calendar_tag_local,
+                "Temporal.PlainDate calendar must be a string",
                 function,
             )?;
         }
@@ -528,7 +532,7 @@ impl<'a> FunctionBuilder<'a> {
     /// gains the reference year `1972`, and anything longer (a full date or
     /// date-time) is handed through unchanged. A UTC designator is a RangeError
     /// for both goals, so it is rejected here rather than inside the parser.
-    fn emit_temporal_partial_date_rewrite_string(
+    pub(crate) fn emit_temporal_partial_date_rewrite_string(
         &mut self,
         string_payload_local: u32,
         year_month: bool,
@@ -1808,6 +1812,24 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(local);
         }
         Ok(())
+    }
+
+    /// `Temporal.PlainYearMonth.prototype.toLocaleString`.
+    ///
+    /// `new Intl.DateTimeFormat(locales, options).format(this)`, with the
+    /// reference day masked away by the year-month field set — the one thing
+    /// that distinguishes it from `PlainDate`'s.
+    pub(crate) fn emit_temporal_plain_year_month_to_locale_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        self.emit_temporal_plain_year_month_record_from_receiver(record_local, function)?;
+        self.release_temp_local(record_local);
+        self.emit_intl_dtf_temporal_to_locale_string(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            function,
+        )
     }
 
     /// `TemporalYearMonthToString`. The reference day is appended only when the

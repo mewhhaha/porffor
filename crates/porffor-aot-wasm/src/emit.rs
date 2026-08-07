@@ -563,16 +563,39 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             body,
             async_plan: Some(_),
             ..
-        }
-        | StatementIr::ForOfIterator {
-            body,
-            async_plan: Some(_),
-            ..
         } => {
+            // `compile_async_for_of_array` still gates the loop on the three
+            // states the loop itself owns, so a body suspension would resume
+            // outside that test and skip the loop entirely.
             if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Await)
                 || async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
             {
                 return Some("for-await iteration with a suspension in the loop body");
+            }
+            None
+        }
+        StatementIr::ForOfIterator {
+            body,
+            lexical_environment,
+            async_plan: Some(_),
+            ..
+        } => {
+            // A nested `for await` allocates its own four states inside this
+            // loop's span, so this loop's per-iteration gate would enter the
+            // inner loop's head instead of the inner loop entering it.
+            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Await) {
+                return Some("for-await iteration with a nested for-await in the loop body");
+            }
+            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
+                && (lexical_environment
+                    .as_ref()
+                    .and_then(|environment| environment.iteration_environment.as_ref())
+                    .is_some()
+                    || matches!(body.as_ref(), StatementIr::Block(block) if block.lexical_environment.is_some()))
+            {
+                return Some(
+                    "for-await-of with a per-iteration lexical environment and a body suspension",
+                );
             }
             None
         }
@@ -785,6 +808,15 @@ fn emit_script_with_forced_builtins(
         + u32::from(uses_agent_host);
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
+    // The Temporal calendar helpers are only *called* from the five types that
+    // carry a [[Calendar]] slot; nothing else can reach them.
+    let uses_temporal_calendar = compiled_standard_builtins.iter().any(|builtin| {
+        let name = builtin.debug_name();
+        name.contains("Temporal.PlainDate")
+            || name.contains("Temporal.PlainYearMonth")
+            || name.contains("Temporal.PlainMonthDay")
+            || name.contains("Temporal.ZonedDateTime")
+    });
     let runtime_bootstrap_plan =
         RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
     let has_shared_stub =
@@ -1341,6 +1373,44 @@ fn emit_script_with_forced_builtins(
             builder.compile_json_stringify_value_helper()
         })
         .transpose()?;
+    // Both Temporal calendar helpers are emitted whenever the heap is enabled,
+    // with a stub body when no calendar-bearing Temporal builtin is compiled,
+    // so their fixed function offsets never shift. Order matters: the probe
+    // helper takes the lower index.
+    let temporal_calendar_iso_date_probe_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_temporal_calendar_iso_date_probe_helper(uses_temporal_calendar)
+        })
+        .transpose()?;
+    let temporal_calendar_identifier_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_temporal_calendar_identifier_helper(uses_temporal_calendar)
+        })
+        .transpose()?;
 
     let mut types = TypeSection::new();
     types.ty().function([], [ValType::I64]);
@@ -1462,6 +1532,12 @@ fn emit_script_with_forced_builtins(
         // Exact decimal source text to binary64 conversion helper.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // Arbitrary-precision BigInt arithmetic helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // Temporal ParseTemporalCalendarString ISO-date probe helper.
+        functions.function(JS_FUNCTION_TYPE_INDEX);
+        // Temporal ToTemporalCalendarIdentifier string-resolution helper.
+        // Both carry stub bodies unless a calendar-bearing Temporal builtin is
+        // compiled, so their fixed offsets never shift.
         functions.function(JS_FUNCTION_TYPE_INDEX);
         // JSON.stringify value helper (only when JSON.stringify is compiled).
         if uses_json_stringify {
@@ -1733,6 +1809,16 @@ fn emit_script_with_forced_builtins(
                 .as_ref()
                 .expect("BigInt arithmetic helper must exist when heap is enabled"),
         );
+        code.function(
+            temporal_calendar_iso_date_probe_helper_function
+                .as_ref()
+                .expect("temporal calendar date-probe helper must exist when heap is enabled"),
+        );
+        code.function(
+            temporal_calendar_identifier_helper_function
+                .as_ref()
+                .expect("temporal calendar identifier helper must exist when heap is enabled"),
+        );
         if let Some(json_stringify_value_helper_function) =
             json_stringify_value_helper_function.as_ref()
         {
@@ -1845,7 +1931,7 @@ fn emit_script_with_forced_builtins(
         format!(
             "runtime helper functions: {}",
             if uses_heap {
-                25 + usize::from(uses_json_stringify)
+                27 + usize::from(uses_json_stringify)
             } else {
                 0
             }
@@ -2505,12 +2591,25 @@ impl<'a> FunctionBuilder<'a> {
         self.heap_alloc_function_index.map(|base| base + 29)
     }
 
+    /// Wasm function index of the Temporal ISO-date calendar-probe helper.
+    /// Always emitted (stubbed when no calendar-bearing Temporal builtin is
+    /// compiled) so its fixed offset never shifts.
+    pub(crate) fn temporal_calendar_iso_date_probe_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 30)
+    }
+
+    /// Wasm function index of the shared `ToTemporalCalendarIdentifier`
+    /// string-resolution helper. Always emitted (stubbed when unused).
+    pub(crate) fn temporal_calendar_identifier_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index.map(|base| base + 31)
+    }
+
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
     /// only when `JSON.stringify` is compiled, immediately after the last
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 30)
+        self.heap_alloc_function_index.map(|base| base + 32)
     }
 
     pub(crate) fn local_count(&self) -> usize {

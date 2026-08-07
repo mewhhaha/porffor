@@ -213,7 +213,7 @@ impl<'a> FunctionBuilder<'a> {
     /// between the year/month form (calendar arithmetic with a day clamp) and
     /// the week/day form (a plain epoch-day subtraction).
     #[allow(clippy::too_many_arguments)]
-    fn emit_temporal_difference_iso_date(
+    pub(crate) fn emit_temporal_difference_iso_date(
         &mut self,
         left: [u32; 3],
         right: [u32; 3],
@@ -517,9 +517,10 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.emit_return_current_completion_if_throw(function);
-            self.emit_temporal_plain_date_calendar(
+            self.emit_temporal_to_temporal_calendar_identifier(
                 calendar_payload_local,
                 calendar_tag_local,
+                "Temporal.PlainDateTime calendar must be a string",
                 function,
             )?;
         }
@@ -1341,9 +1342,10 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.emit_temporal_plain_date_calendar(
+        self.emit_temporal_to_temporal_calendar_identifier(
             calendar_payload_local,
             calendar_tag_local,
+            "Temporal.PlainDateTime calendar must be a string",
             function,
         )?;
         self.emit_alloc_temporal_plain_date_time(
@@ -2501,9 +2503,33 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `Temporal.PlainDateTime.prototype.toLocaleString`.
+    ///
+    /// `new Intl.DateTimeFormat(locales, options).format(this)`. This is the
+    /// one plain type with no rejected style — it has both date and time
+    /// fields, so `dateStyle` and `timeStyle` are each meaningful.
+    pub(crate) fn emit_temporal_plain_date_time_to_locale_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let calendar_payload_local = self.reserve_temp_local();
+        let field_locals = self.reserve_temporal_plain_date_time_field_locals();
+        self.emit_temporal_plain_date_time_fields_from_receiver(
+            &field_locals,
+            calendar_payload_local,
+            function,
+        )?;
+        self.release_temporal_plain_date_time_field_locals(field_locals);
+        self.release_temp_local(calendar_payload_local);
+        self.emit_intl_dtf_temporal_to_locale_string(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
+            function,
+        )
+    }
+
     /// `TemporalDateTimeToString`. `builtin` selects whether the option bag is
-    /// read: `toString` reads it, `toJSON` and `toLocaleString` are fixed at
-    /// `auto` precision and `auto` calendar name.
+    /// read: `toString` reads it and `toJSON` is fixed at `auto` precision and
+    /// `auto` calendar name.
     pub(crate) fn emit_temporal_plain_date_time_to_string(
         &mut self,
         builtin: StandardBuiltinId,

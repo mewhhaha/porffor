@@ -187,6 +187,127 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `ToTemporalCalendarIdentifier` — the property-bag / `withCalendar` form,
+    /// which runs `ParseTemporalCalendarString` on a string argument. A string
+    /// is first tried as a `TemporalDateString` / `TemporalYearMonthString` /
+    /// `TemporalMonthDayString` / `TemporalTimeString`, and only the bare
+    /// `AnnotationValue` spelling falls through to `CanonicalizeCalendar`. So
+    /// `{ calendar: "2020-01-01" }` resolves to `iso8601` rather than throwing.
+    ///
+    /// This is NOT the constructor form: `new Temporal.PlainDate(y, m, d, cal)`
+    /// calls `CanonicalizeCalendar` directly, so `"1111-11-11"` and
+    /// `"11111111"` must stay a RangeError there
+    /// (`PlainDate/calendar-invalid-iso-string.js` and its four siblings).
+    /// Keep using [`Self::emit_temporal_plain_date_calendar`] for the five
+    /// constructors — switching them here is a net regression.
+    ///
+    /// The prefix (slot fast path, `undefined` default, non-string TypeError)
+    /// is identical to `emit_temporal_plain_date_calendar`; only the string
+    /// resolution differs, and that is outlined into the shared
+    /// `ToTemporalCalendarIdentifier` helper so the ISO parser is inlined once
+    /// per module rather than once per call site.
+    pub(crate) fn emit_temporal_to_temporal_calendar_identifier(
+        &mut self,
+        calendar_payload_local: u32,
+        calendar_tag_local: u32,
+        type_error_message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let helper_index = self
+            .temporal_calendar_identifier_helper_function_index()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: \
+                     ToTemporalCalendarIdentifier helper without heap",
+                )
+            })?;
+        let expected_payload_local = self.reserve_temp_local();
+        let saved_result_local = self.reserve_temp_local();
+        let saved_result_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+        function.instruction(&Instruction::LocalSet(expected_payload_local));
+        self.emit_temporal_calendar_slot_fast_path(
+            calendar_payload_local,
+            calendar_tag_local,
+            expected_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(calendar_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(expected_payload_local));
+        function.instruction(&Instruction::LocalSet(calendar_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(calendar_tag_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(calendar_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            type_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // The helper reports its own throw through the completion tuple, so the
+        // caller's in-flight statement result has to survive a successful call.
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalSet(saved_result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(saved_result_tag_local));
+
+        function.instruction(&Instruction::LocalGet(calendar_payload_local));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        // Only created-realm standard builtins use a self-backed environment
+        // that the shared helper may interpret as realm metadata. User
+        // functions can have nonzero lexical environments with a different
+        // layout, so pass zero for every non-standard caller.
+        if self
+            .function_id
+            .as_ref()
+            .and_then(|function_id| StandardBuiltinId::from_function_id(function_id))
+            .is_some()
+        {
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+        } else {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(helper_index));
+        self.store_call_results_to(
+            self.result_local,
+            self.result_tag_local,
+            self.completion_local,
+            self.completion_aux_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalSet(calendar_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(calendar_tag_local));
+        function.instruction(&Instruction::LocalGet(saved_result_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(saved_result_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::End);
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(saved_result_tag_local);
+        self.release_temp_local(saved_result_local);
+        self.release_temp_local(expected_payload_local);
+        Ok(())
+    }
+
     /// Leaves an `i32` on the stack: 1 when the ISO year is a leap year.
     pub(crate) fn emit_temporal_iso_year_is_leap_i32(
         &mut self,

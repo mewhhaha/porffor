@@ -570,22 +570,49 @@ result.first === 1 && result.second === 2;
 
     #[test]
     fn async_generator_body_dispatcher_rejects_for_await_iteration() {
-        // A suspension in the body would need a back edge from its resume state
-        // to the loop's entry state, which the linear plan does not have.
-        // Refusing is the correct failure mode until it does.
-        for source in [
-            "async function* stream(source) { for await (const value of source) { print(value); yield value; } }",
+        // A `yield` in the body is supported: its resume states are allocated
+        // inside the loop's own state span, so the loop re-enters on them. A
+        // nested `for await` is not, because its four states nest inside that
+        // same span and the inner loop would be entered by the outer loop's
+        // per-iteration gate rather than by its own.
+        let error = emit_script(
             "async function* stream(source) { for await (const outer of source) { for await (const inner of outer) { print(inner); } } }",
-        ] {
-            let error =
-                emit_script(source).expect_err("for-await body dispatch should remain explicit");
+        )
+        .expect_err("a nested for-await body should remain refused");
 
-            assert!(
-                error
-                    .to_string()
-                    .contains("does not yet support for-await iteration"),
-                "{error}"
-            );
+        assert!(
+            error
+                .to_string()
+                .contains("does not yet support for-await iteration"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn async_generator_for_await_with_a_suspending_body_modules_validate() {
+        for source in [
+            // The headline shape: a non-transparent yield, so the delegation
+            // shortcut does not apply and the generic emitter runs.
+            "async function* stream(source) { for await (const value of source) { print(value); yield value * 2; } }
+             stream([1, 2]).next();",
+            // A statement after the suspension, which only runs on the
+            // invocation that resumes at the body's own state.
+            "async function* stream(source) { for await (const value of source) { yield value; print(value); } }
+             stream([1, 2]).next();",
+            // Two suspensions in one body: three invocations per iteration.
+            "async function* stream(source) { for await (const value of source) { yield value; yield value + 1; } }
+             stream([1, 2]).next();",
+            // The loop sits between other suspensions, so its span starts above
+            // zero and the enclosing dispatcher has to route into it.
+            "async function* stream(source) { yield 0; for await (const value of source) { print(value); yield value; } yield 1; }
+             stream([1, 2]).next();",
+            // `var` takes the storage-without-environment path for the binding.
+            "async function* stream(source) { for await (var value of source) { yield value; print(value); } }
+             stream([1, 2]).next();",
+        ] {
+            let artifact = emit_script(source)
+                .expect("for-await with a suspending body should emit in an async generator");
+            expect_valid_module(&artifact, 1);
         }
     }
 

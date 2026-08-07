@@ -36706,6 +36706,27 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalPlainDatePrototypeWith => {
                 self.emit_temporal_plain_date_with(function)?;
             }
+            StandardBuiltinId::TemporalPlainDatePrototypeAdd => {
+                self.emit_temporal_plain_date_add_or_subtract(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeSubtract => {
+                self.emit_temporal_plain_date_add_or_subtract(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeUntil => {
+                self.emit_temporal_plain_date_until_or_since(false, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeSince => {
+                self.emit_temporal_plain_date_until_or_since(true, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime => {
+                self.emit_temporal_plain_date_to_plain_date_time(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth => {
+                self.emit_temporal_plain_date_to_plain_year_month(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay => {
+                self.emit_temporal_plain_date_to_plain_month_day(function)?;
+            }
             StandardBuiltinId::TemporalPlainDatePrototypeWithCalendar => {
                 self.emit_temporal_plain_date_with_calendar(function)?;
             }
@@ -36713,9 +36734,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_plain_date_equals(function)?;
             }
             StandardBuiltinId::TemporalPlainDatePrototypeToString
-            | StandardBuiltinId::TemporalPlainDatePrototypeToJson
-            | StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString => {
+            | StandardBuiltinId::TemporalPlainDatePrototypeToJson => {
                 self.emit_temporal_plain_date_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString => {
+                self.emit_temporal_plain_date_to_locale_string(function)?;
             }
             StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
                 self.emit_temporal_plain_date_value_of(function)?;
@@ -36760,9 +36783,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_plain_year_month_equals(function)?;
             }
             StandardBuiltinId::TemporalPlainYearMonthPrototypeToString
-            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson
-            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString => {
+            | StandardBuiltinId::TemporalPlainYearMonthPrototypeToJson => {
                 self.emit_temporal_plain_year_month_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString => {
+                self.emit_temporal_plain_year_month_to_locale_string(function)?;
             }
             StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate => {
                 self.emit_temporal_plain_year_month_to_plain_date(function)?;
@@ -36788,9 +36813,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_plain_month_day_equals(function)?;
             }
             StandardBuiltinId::TemporalPlainMonthDayPrototypeToString
-            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson
-            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString => {
+            | StandardBuiltinId::TemporalPlainMonthDayPrototypeToJson => {
                 self.emit_temporal_plain_month_day_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString => {
+                self.emit_temporal_plain_month_day_to_locale_string(function)?;
             }
             StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate => {
                 self.emit_temporal_plain_month_day_to_plain_date(function)?;
@@ -36889,9 +36916,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_plain_time_equals(function)?;
             }
             StandardBuiltinId::TemporalPlainTimePrototypeToString
-            | StandardBuiltinId::TemporalPlainTimePrototypeToJson
-            | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString => {
+            | StandardBuiltinId::TemporalPlainTimePrototypeToJson => {
                 self.emit_temporal_plain_time_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString => {
+                self.emit_temporal_plain_time_to_locale_string(function)?;
             }
             StandardBuiltinId::TemporalPlainTimePrototypeValueOf => {
                 self.emit_temporal_plain_time_value_of(function)?;
@@ -36957,9 +36986,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_plain_date_time_equals(function)?;
             }
             StandardBuiltinId::TemporalPlainDateTimePrototypeToString
-            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson
-            | StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString => {
+            | StandardBuiltinId::TemporalPlainDateTimePrototypeToJson => {
                 self.emit_temporal_plain_date_time_to_string(builtin, function)?;
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString => {
+                self.emit_temporal_plain_date_time_to_locale_string(function)?;
             }
             StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf => {
                 self.emit_temporal_plain_date_time_value_of(function)?;
@@ -37058,6 +37089,12 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts => {
                 self.emit_intl_date_time_format_format_to_parts(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => {
+                self.emit_intl_date_time_format_format_range(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => {
+                self.emit_intl_date_time_format_format_range_to_parts(function)?;
             }
             StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
                 self.emit_intl_date_time_format_bound_format(function)?;

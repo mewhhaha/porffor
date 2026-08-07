@@ -275,6 +275,25 @@ impl<'a> FunctionBuilder<'a> {
                 "valueOf",
                 StandardBuiltinId::TemporalPlainDatePrototypeValueOf,
             ),
+            ("add", StandardBuiltinId::TemporalPlainDatePrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalPlainDatePrototypeSubtract,
+            ),
+            ("until", StandardBuiltinId::TemporalPlainDatePrototypeUntil),
+            ("since", StandardBuiltinId::TemporalPlainDatePrototypeSince),
+            (
+                "toPlainDateTime",
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime,
+            ),
+            (
+                "toPlainYearMonth",
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth,
+            ),
+            (
+                "toPlainMonthDay",
+                StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay,
+            ),
         ] {
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
