@@ -1,4 +1,5 @@
 use super::*;
+use crate::operations::NumericBinaryOperator;
 use porffor_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
 fn expression_is_heap_bigint_literal(expr: &TypedExpr) -> bool {
@@ -935,98 +936,25 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(lhs_payload);
                     return Ok(());
                 }
-                let numeric_only = lhs
-                    .possible_kinds
-                    .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::String))
-                    && rhs
-                        .possible_kinds
-                        .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::String));
                 if matches!(op, ArithmeticBinaryOp::Exp) {
-                    if numeric_only {
-                        self.compile_expr_to_number_payload_nonstring(lhs, function)?;
-                        self.compile_expr_to_number_payload_nonstring(rhs, function)?;
-                        let lhs_local = self.reserve_temp_local();
-                        let rhs_local = self.reserve_temp_local();
-                        let output_local = self.reserve_temp_local();
-                        function.instruction(&Instruction::LocalSet(rhs_local));
-                        function.instruction(&Instruction::LocalSet(lhs_local));
-                        self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
-                        function.instruction(&Instruction::LocalGet(output_local));
-                        self.release_temp_local(output_local);
-                        self.release_temp_local(rhs_local);
-                        self.release_temp_local(lhs_local);
-                    } else {
-                        let lhs_local = self.reserve_temp_local();
-                        let lhs_tag_local = self.reserve_temp_local();
-                        let rhs_local = self.reserve_temp_local();
-                        let rhs_tag_local = self.reserve_temp_local();
-                        let output_local = self.reserve_temp_local();
-                        let primitive_local = self.reserve_temp_local();
-                        let primitive_tag_local = self.reserve_temp_local();
+                    let lhs_local = self.reserve_temp_local();
+                    let rhs_local = self.reserve_temp_local();
+                    let output_local = self.reserve_temp_local();
 
-                        self.compile_expr_to_locals(lhs, lhs_local, lhs_tag_local, function)?;
-                        self.compile_expr_to_locals(rhs, rhs_local, rhs_tag_local, function)?;
+                    self.compile_operand_pair_to_number_locals(
+                        NumericBinaryOperator::Arithmetic(*op),
+                        lhs,
+                        rhs,
+                        lhs_local,
+                        rhs_local,
+                        function,
+                    )?;
+                    self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
+                    function.instruction(&Instruction::LocalGet(output_local));
 
-                        self.emit_tagged_to_primitive_locals_without_throw_propagation(
-                            ToPrimitiveHint::Number,
-                            lhs_local,
-                            lhs_tag_local,
-                            primitive_local,
-                            primitive_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            primitive_local,
-                            primitive_tag_local,
-                            function,
-                        )?;
-                        self.emit_primitive_to_number_payload_without_throw_return(
-                            primitive_tag_local,
-                            primitive_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalSet(lhs_local));
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                        self.emit_tagged_to_primitive_locals_without_throw_propagation(
-                            ToPrimitiveHint::Number,
-                            rhs_local,
-                            rhs_tag_local,
-                            primitive_local,
-                            primitive_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            primitive_local,
-                            primitive_tag_local,
-                            function,
-                        )?;
-                        self.emit_primitive_to_number_payload_without_throw_return(
-                            primitive_tag_local,
-                            primitive_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalSet(rhs_local));
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-
-                        self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
-                        function.instruction(&Instruction::LocalGet(output_local));
-
-                        self.release_temp_local(primitive_tag_local);
-                        self.release_temp_local(primitive_local);
-                        self.release_temp_local(output_local);
-                        self.release_temp_local(rhs_tag_local);
-                        self.release_temp_local(rhs_local);
-                        self.release_temp_local(lhs_tag_local);
-                        self.release_temp_local(lhs_local);
-                    }
+                    self.release_temp_local(output_local);
+                    self.release_temp_local(rhs_local);
+                    self.release_temp_local(lhs_local);
                 } else if matches!(op, ArithmeticBinaryOp::Mod) {
                     // `%` needs both operands twice, so each has to be spilled
                     // to a local. The spill slots must be freshly reserved
@@ -1037,18 +965,14 @@ impl<'a> FunctionBuilder<'a> {
                     // evaluated left operand while the right one is compiled.
                     let lhs_local = self.reserve_temp_local();
                     let rhs_local = self.reserve_temp_local();
-                    if numeric_only {
-                        self.compile_expr_to_number_payload_nonstring(lhs, function)?;
-                    } else {
-                        self.compile_expr_to_number_payload(lhs, function)?;
-                    }
-                    function.instruction(&Instruction::LocalSet(lhs_local));
-                    if numeric_only {
-                        self.compile_expr_to_number_payload_nonstring(rhs, function)?;
-                    } else {
-                        self.compile_expr_to_number_payload(rhs, function)?;
-                    }
-                    function.instruction(&Instruction::LocalSet(rhs_local));
+                    self.compile_operand_pair_to_number_locals(
+                        NumericBinaryOperator::Arithmetic(*op),
+                        lhs,
+                        rhs,
+                        lhs_local,
+                        rhs_local,
+                        function,
+                    )?;
                     function.instruction(&Instruction::LocalGet(lhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
                     function.instruction(&Instruction::LocalGet(lhs_local));
@@ -1065,17 +989,19 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(rhs_local);
                     self.release_temp_local(lhs_local);
                 } else {
-                    if numeric_only {
-                        self.compile_expr_to_number_payload_nonstring(lhs, function)?;
-                    } else {
-                        self.compile_expr_to_number_payload(lhs, function)?;
-                    }
+                    let lhs_local = self.reserve_temp_local();
+                    let rhs_local = self.reserve_temp_local();
+                    self.compile_operand_pair_to_number_locals(
+                        NumericBinaryOperator::Arithmetic(*op),
+                        lhs,
+                        rhs,
+                        lhs_local,
+                        rhs_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(lhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
-                    if numeric_only {
-                        self.compile_expr_to_number_payload_nonstring(rhs, function)?;
-                    } else {
-                        self.compile_expr_to_number_payload(rhs, function)?;
-                    }
+                    function.instruction(&Instruction::LocalGet(rhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
                     match op {
                         ArithmeticBinaryOp::Add => function.instruction(&Instruction::F64Add),
@@ -1086,6 +1012,8 @@ impl<'a> FunctionBuilder<'a> {
                         ArithmeticBinaryOp::Exp => unreachable!(),
                     };
                     function.instruction(&Instruction::I64ReinterpretF64);
+                    self.release_temp_local(rhs_local);
+                    self.release_temp_local(lhs_local);
                 }
             }
             ExprIr::BitwiseNumber { op, lhs, rhs } => {
@@ -1634,12 +1562,20 @@ impl<'a> FunctionBuilder<'a> {
         let lhs_int_local = self.reserve_temp_local();
         let rhs_int_local = self.reserve_temp_local();
 
-        self.compile_expr_to_number_payload(lhs, function)?;
+        self.compile_operand_pair_to_number_locals(
+            NumericBinaryOperator::Bitwise(op),
+            lhs,
+            rhs,
+            lhs_int_local,
+            rhs_int_local,
+            function,
+        )?;
+
+        function.instruction(&Instruction::LocalGet(lhs_int_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncSatF64S);
         function.instruction(&Instruction::LocalSet(lhs_int_local));
-
-        self.compile_expr_to_number_payload(rhs, function)?;
+        function.instruction(&Instruction::LocalGet(rhs_int_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncSatF64S);
         function.instruction(&Instruction::LocalSet(rhs_int_local));

@@ -1197,7 +1197,13 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlLocalePrototypeScriptGetter
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
-            | StandardBuiltinId::IntlLocalePrototypeToString => {
+            | StandardBuiltinId::IntlLocalePrototypeToString
+            | StandardBuiltinId::IntlDateTimeFormatConstructor
+            | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
                 self.intl_object = true;
                 for dependency in [
                     StandardBuiltinId::IntlGetCanonicalLocales,
@@ -1207,6 +1213,12 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::IntlLocalePrototypeRegionGetter,
                     StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
                     StandardBuiltinId::IntlLocalePrototypeToString,
+                    StandardBuiltinId::IntlDateTimeFormatConstructor,
+                    StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
+                    StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
+                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter,
+                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
+                    StandardBuiltinId::IntlDateTimeFormatBoundFormat,
                 ] {
                     self.standard_roots.insert(dependency);
                 }
@@ -2268,6 +2280,7 @@ fn for_init_exposes_global_object(init: &ForInitIr) -> bool {
                 .as_ref()
                 .is_some_and(expr_exposes_global_object)
         }),
+        ForInitIr::Statements(statements) => statements.iter().any(statement_exposes_global_object),
     }
 }
 
@@ -2716,6 +2729,11 @@ fn collect_for_init_global_property_names(init: &ForInitIr, names: &mut BTreeSet
                 if let Some(init) = &declarator.init {
                     collect_expr_global_property_names(init, names);
                 }
+            }
+        }
+        ForInitIr::Statements(statements) => {
+            for statement in statements {
+                collect_statement_global_property_names(statement, names);
             }
         }
     }
@@ -3802,6 +3820,9 @@ pub(crate) fn for_init_references_function(init: &ForInitIr, target: &FunctionId
                 .as_ref()
                 .is_some_and(|init| expr_references_function(init, target))
         }),
+        ForInitIr::Statements(statements) => statements
+            .iter()
+            .any(|statement| statement_references_function(statement, target)),
     }
 }
 
@@ -5404,6 +5425,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
         | StandardBuiltinId::TemporalDurationPrototypeValueOf => 0,
         StandardBuiltinId::IntlGetCanonicalLocales | StandardBuiltinId::IntlLocaleConstructor => 1,
+        // ECMA-402 11.1.1/11.2.2/11.3.4/11.1.5: `Intl.DateTimeFormat` has
+        // length 0, `supportedLocalesOf` and the format functions length 1.
+        StandardBuiltinId::IntlDateTimeFormatConstructor
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => 0,
+        StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+        | StandardBuiltinId::IntlDateTimeFormatBoundFormat => 1,
         StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
@@ -5858,6 +5887,7 @@ pub(crate) fn for_init_uses_calls(init: &ForInitIr) -> bool {
             .iter()
             .filter_map(|declarator| declarator.init.as_ref())
             .any(expr_uses_calls),
+        ForInitIr::Statements(statements) => statements.iter().any(statement_uses_calls),
     }
 }
 
@@ -6043,6 +6073,7 @@ pub(crate) fn for_init_uses_function_table(init: &ForInitIr) -> bool {
             .iter()
             .filter_map(|declarator| declarator.init.as_ref())
             .any(expr_uses_function_table),
+        ForInitIr::Statements(statements) => statements.iter().any(statement_uses_function_table),
     }
 }
 
@@ -6539,6 +6570,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                     ForInitIr::LexicalBlock(bindings) => 2 * bindings.len(),
                     ForInitIr::Var(_) => 0,
                     ForInitIr::Expression(_) => 0,
+                    ForInitIr::Statements(statements) => {
+                        statements.iter().map(count_statement_lexicals).sum()
+                    }
                 })
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
@@ -6555,6 +6589,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                     ForInitIr::Lexical { .. } => 2,
                     ForInitIr::LexicalBlock(bindings) => 2 * bindings.len(),
                     ForInitIr::Var(_) | ForInitIr::Expression(_) => 0,
+                    ForInitIr::Statements(statements) => {
+                        statements.iter().map(count_statement_lexicals).sum()
+                    }
                 })
                 .unwrap_or(0)
                 + before_suspension
@@ -6893,6 +6930,11 @@ pub(crate) fn count_for_init_temp_locals(init: &ForInitIr) -> usize {
             .max()
             .unwrap_or(0),
         ForInitIr::Expression(expr) => count_expr_temp_locals(expr),
+        ForInitIr::Statements(statements) => statements
+            .iter()
+            .map(count_statement_temp_locals)
+            .max()
+            .unwrap_or(0),
     }
 }
 
@@ -7532,6 +7574,26 @@ pub(crate) fn collect_hoisted_vars_block(block: &BlockIr, names: &mut BTreeSet<S
     }
 }
 
+/// A loop head can declare `var`s in every form except `Expression`, so this
+/// walks the init exhaustively. The `Statements` form matters most: a pattern
+/// head (`for (var { x } = o; …)`) lowers to ordinary `StatementIr::Var`
+/// declarators, and missing them here leaves `x` unallocated at emit time.
+pub(crate) fn collect_hoisted_vars_for_init(init: &ForInitIr, names: &mut BTreeSet<String>) {
+    match init {
+        ForInitIr::Var(declarators) => {
+            for declarator in declarators {
+                names.insert(declarator.name.clone());
+            }
+        }
+        ForInitIr::Statements(statements) => {
+            for statement in statements {
+                collect_hoisted_vars_statement(statement, names);
+            }
+        }
+        ForInitIr::Lexical { .. } | ForInitIr::LexicalBlock(_) | ForInitIr::Expression(_) => {}
+    }
+}
+
 pub(crate) fn collect_hoisted_vars_statement(
     statement: &StatementIr,
     names: &mut BTreeSet<String>,
@@ -7574,10 +7636,8 @@ pub(crate) fn collect_hoisted_vars_statement(
             statement: body, ..
         } => collect_hoisted_vars_statement(body, names),
         StatementIr::For { init, body, .. } => {
-            if let Some(ForInitIr::Var(declarators)) = init {
-                for declarator in declarators {
-                    names.insert(declarator.name.clone());
-                }
+            if let Some(init) = init {
+                collect_hoisted_vars_for_init(init, names);
             }
             collect_hoisted_vars_statement(body, names);
         }
@@ -7588,10 +7648,8 @@ pub(crate) fn collect_hoisted_vars_statement(
             after_suspension,
             ..
         } => {
-            if let Some(ForInitIr::Var(declarators)) = init {
-                for declarator in declarators {
-                    names.insert(declarator.name.clone());
-                }
+            if let Some(init) = init {
+                collect_hoisted_vars_for_init(init, names);
             }
             for statement in before_suspension {
                 collect_hoisted_vars_statement(statement, names);

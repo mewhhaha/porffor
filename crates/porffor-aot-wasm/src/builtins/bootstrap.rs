@@ -363,6 +363,11 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::IntlLocaleConstructor => {
                 self.install_intl_locale_constructor_intrinsics(&intrinsic_context, function)?
             }
+            StandardBuiltinId::IntlDateTimeFormatConstructor => self
+                .install_intl_date_time_format_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
             StandardBuiltinId::DateConstructor => {
                 self.install_date_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -847,6 +852,11 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
             | StandardBuiltinId::IntlLocalePrototypeToString
+            | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlDateTimeFormatBoundFormat
             | StandardBuiltinId::TemporalPlainDateFrom
             | StandardBuiltinId::TemporalPlainDateCompare
             | StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
@@ -3885,6 +3895,14 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         let regexp_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
         self.store_i64_const_at_offset(
@@ -4189,6 +4207,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::IntlLocaleConstructor,
                 INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IntlDateTimeFormatConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlDateTimeFormatConstructor,
+                INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

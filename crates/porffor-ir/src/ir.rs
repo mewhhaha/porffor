@@ -282,6 +282,15 @@ impl KindSet {
 
     pub const NULLISH: Self = Self(Self::UNDEFINED_BIT | Self::NULL_BIT);
 
+    /// The kinds ToNumber maps with no ToPrimitive call, no string parse and no
+    /// TypeError. A `String` needs the parse; a `Symbol` or `BigInt` must
+    /// throw; anything on the heap needs ToPrimitive first. Skipping the full
+    /// conversion for a wider set - `PRIMITIVE_ONLY` minus `String`, say -
+    /// silently turns `1n ^ 1` and `Symbol() * 1` into numbers instead of
+    /// TypeErrors.
+    pub const DIRECT_TO_NUMBER: Self =
+        Self(Self::UNDEFINED_BIT | Self::NULL_BIT | Self::BOOLEAN_BIT | Self::NUMBER_BIT);
+
     pub const fn from_kind(kind: ValueKind) -> Self {
         match kind {
             ValueKind::Undefined => Self(Self::UNDEFINED_BIT),
@@ -1690,6 +1699,11 @@ pub enum ForInitIr {
     LexicalBlock(Vec<ForLexicalInitIr>),
     Var(Vec<VarDeclaratorIr>),
     Expression(TypedExpr),
+    /// A loop head that binds a pattern (`for (let [a, b] = x; …)`), lowered to
+    /// the same statements the equivalent standalone declaration lowers to.
+    /// The statements run in the loop's own scope, so the names they bind stay
+    /// visible to the test, update and body.
+    Statements(Vec<StatementIr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2659,6 +2673,11 @@ impl IrSummaryCounts {
                 }
             }
             ForInitIr::Expression(expr) => self.visit_expr(expr),
+            ForInitIr::Statements(statements) => {
+                for statement in statements {
+                    self.visit_statement(statement);
+                }
+            }
         }
     }
 

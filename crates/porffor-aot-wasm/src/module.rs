@@ -163,6 +163,8 @@ pub(crate) const TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX: u32 = 129;
 pub(crate) const TEMPORAL_PLAIN_YEAR_MONTH_CONSTRUCTOR_GLOBAL_INDEX: u32 = 130;
 pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX: u32 = 131;
 pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 132;
+pub(crate) const INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX: u32 = 133;
+pub(crate) const INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 134;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
@@ -721,6 +723,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Temporal.PlainMonthDay",
         index: TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Intl.DateTimeFormat.prototype",
+        index: INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.DateTimeFormat",
+        index: INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -787,6 +797,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
             Some(TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::IntlDateTimeFormatConstructor => {
+            Some(INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX)
+        }
         StandardBuiltinId::RegExpConstructor => Some(REGEXP_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float64ArrayConstructor => Some(FLOAT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float32ArrayConstructor => Some(FLOAT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
@@ -1507,6 +1520,11 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
         | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
         | StandardBuiltinId::IntlLocalePrototypeToString
+        | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
+        | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
+        | StandardBuiltinId::IntlDateTimeFormatBoundFormat
         | StandardBuiltinId::WeakRefPrototypeDeref
         | StandardBuiltinId::FinalizationRegistryPrototypeRegister
         | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => None,
@@ -1835,6 +1853,9 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
             Some(TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX)
         }
         StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX),
+        StandardBuiltinId::IntlDateTimeFormatConstructor => {
+            Some(INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX)
+        }
         _ => None,
     }
 }
@@ -1912,7 +1933,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
         );
     }
 

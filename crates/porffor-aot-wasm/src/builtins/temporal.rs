@@ -794,19 +794,39 @@ impl<'a> FunctionBuilder<'a> {
             ("minute", minute_local, 0, None),
             ("month", month_local, 0, Some(month_present_local)),
         ] {
-            self.emit_temporal_property_bag_integer(
-                argument_payload_local,
-                argument_tag_local,
-                property,
-                property_key_local,
-                value_payload_local,
-                value_tag_local,
-                present_local,
-                output_local,
-                default,
-                "Temporal.ZonedDateTime property bag field must be finite",
-                function,
-            )?;
+            // `day` and `month` are the only two rows of the calendar field
+            // table whose conversion is `ToPositiveIntegerWithTruncation`; the
+            // wall-clock rows accept zero.
+            if matches!(property, "day" | "month") {
+                self.emit_temporal_property_bag_positive_integer(
+                    argument_payload_local,
+                    argument_tag_local,
+                    property,
+                    property_key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    present_local,
+                    output_local,
+                    default,
+                    "Temporal.ZonedDateTime property bag field must be finite",
+                    "Temporal.ZonedDateTime month and day must be positive",
+                    function,
+                )?;
+            } else {
+                self.emit_temporal_property_bag_integer(
+                    argument_payload_local,
+                    argument_tag_local,
+                    property,
+                    property_key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    present_local,
+                    output_local,
+                    default,
+                    "Temporal.ZonedDateTime property bag field must be finite",
+                    function,
+                )?;
+            }
             if let Some(output_present_local) = output_present_local {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::LocalSet(output_present_local));
@@ -1470,6 +1490,130 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `IsPartialTemporalObject` step 2: a *branded* Temporal object is never a
+    /// partial property bag, even though its prototype supplies every field
+    /// name `PrepareCalendarFields` looks for. Without this, `.with(plainDate)`
+    /// happily reads `plainDate.year` / `.month` / `.day` through the getters
+    /// and succeeds where the specification demands a TypeError.
+    ///
+    /// Runs *before* the observable `calendar` / `timeZone` reads, matching the
+    /// step order, and leaves non-objects alone — callers have already rejected
+    /// those.
+    ///
+    /// Instant and Duration are deliberately absent: the specification's slot
+    /// list is `[[InitializedTemporalDate]]`, `[[...DateTime]]`,
+    /// `[[...MonthDay]]`, `[[...Time]]`, `[[...YearMonth]]`,
+    /// `[[...ZonedDateTime]]`.
+    pub(crate) fn emit_temporal_reject_branded_partial_object(
+        &mut self,
+        argument_payload_local: u32,
+        argument_tag_local: u32,
+        error_message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let brand_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(argument_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            argument_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            brand_local,
+            function,
+        );
+        for (index, brand) in [
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            function.instruction(&Instruction::LocalGet(brand_local));
+            function.instruction(&Instruction::I64Const(brand as i64));
+            function.instruction(&Instruction::I64Eq);
+            if index > 0 {
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(brand_local);
+        Ok(())
+    }
+
+    /// `PrepareCalendarFields` with `ToPositiveIntegerWithTruncation`, the
+    /// conversion the field table names for `day` and `month` (and only those).
+    /// Identical to [`Self::emit_temporal_property_bag_integer`] except that a
+    /// *present* field truncating to zero or below is a RangeError raised right
+    /// here — before the next field is read and long before
+    /// `GetTemporalOverflowOption`, which is why `{ day: -1 }` beats a primitive
+    /// `options` argument to the throw in Test262's `with/options-wrong-type.js`
+    /// and why `overflow: "constrain"` cannot rescue `{ month: 0 }`.
+    ///
+    /// An *absent* field takes `default` unvalidated, so callers may keep using
+    /// `0` as the "no value" sentinel.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_temporal_property_bag_positive_integer(
+        &mut self,
+        argument_payload_local: u32,
+        argument_tag_local: u32,
+        property: &str,
+        property_key_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        present_local: u32,
+        output_local: u32,
+        default: i64,
+        not_finite_error_message: &str,
+        not_positive_error_message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_property_bag_integer(
+            argument_payload_local,
+            argument_tag_local,
+            property,
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            present_local,
+            output_local,
+            default,
+            not_finite_error_message,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(output_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            not_positive_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     pub(crate) fn emit_temporal_property_bag_string(
         &mut self,
         value_payload_local: u32,
@@ -2039,6 +2183,12 @@ impl<'a> FunctionBuilder<'a> {
         let case_fold_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
         function.instruction(&Instruction::LocalSet(expected_payload_local));
+        self.emit_temporal_calendar_slot_fast_path(
+            calendar_payload_local,
+            calendar_tag_local,
+            expected_payload_local,
+            function,
+        );
         function.instruction(&Instruction::LocalGet(calendar_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);

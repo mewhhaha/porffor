@@ -539,6 +539,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
+        // `IsPartialTemporalObject` step 2 runs before the two `Get`s below.
+        self.emit_temporal_reject_branded_partial_object(
+            argument_payload_local,
+            argument_tag_local,
+            "Temporal.PlainTime.prototype.with does not accept a Temporal object",
+            function,
+        )?;
+
         // `RejectTemporalLikeObject`: a bag that names a calendar or a time
         // zone is a caller mistake, not a partial time. These are ordinary
         // `Get`s, not `HasOwnProperty` checks — the reads are observable, and

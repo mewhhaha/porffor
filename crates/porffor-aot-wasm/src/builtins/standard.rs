@@ -37044,6 +37044,24 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
+            StandardBuiltinId::IntlDateTimeFormatConstructor => {
+                self.emit_intl_date_time_format_constructor(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf => {
+                self.emit_intl_date_time_format_supported_locales_of(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => {
+                self.emit_intl_date_time_format_resolved_options(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => {
+                self.emit_intl_date_time_format_format_getter(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts => {
+                self.emit_intl_date_time_format_format_to_parts(function)?;
+            }
+            StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
+                self.emit_intl_date_time_format_bound_format(function)?;
+            }
             StandardBuiltinId::IntlLocalePrototypeToString => {
                 self.emit_intl_locale_string_slot(HEAP_INTL_LOCALE_TAG_OFFSET, false, function)?;
             }

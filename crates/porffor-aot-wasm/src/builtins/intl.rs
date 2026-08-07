@@ -1331,7 +1331,7 @@ impl<'a> FunctionBuilder<'a> {
     /// canonicalized: an `Intl.Locale` contributes its `[[Locale]]` slot, a
     /// String contributes itself, any other object is `ToString`-ed, and every
     /// other value is a TypeError.
-    fn emit_intl_locale_argument_to_string_payload(
+    pub(crate) fn emit_intl_locale_argument_to_string_payload(
         &mut self,
         value_payload_local: u32,
         value_tag_local: u32,

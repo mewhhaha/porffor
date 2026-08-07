@@ -561,19 +561,38 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(month_code_payload_local));
                 continue;
             }
-            self.emit_temporal_property_bag_integer(
-                argument_payload_local,
-                argument_tag_local,
-                property,
-                property_key_local,
-                value_payload_local,
-                value_tag_local,
-                present_local,
-                parsed_local,
-                0,
-                "Temporal.PlainDateTime fields must be finite",
-                function,
-            )?;
+            // Only the two calendar rows use `ToPositiveIntegerWithTruncation`;
+            // `hour` .. `nanosecond` legitimately take zero.
+            if matches!(property, "day" | "month") {
+                self.emit_temporal_property_bag_positive_integer(
+                    argument_payload_local,
+                    argument_tag_local,
+                    property,
+                    property_key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    present_local,
+                    parsed_local,
+                    0,
+                    "Temporal.PlainDateTime fields must be finite",
+                    "Temporal.PlainDateTime month and day must be positive",
+                    function,
+                )?;
+            } else {
+                self.emit_temporal_property_bag_integer(
+                    argument_payload_local,
+                    argument_tag_local,
+                    property,
+                    property_key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    present_local,
+                    parsed_local,
+                    0,
+                    "Temporal.PlainDateTime fields must be finite",
+                    function,
+                )?;
+            }
             function.instruction(&Instruction::LocalGet(present_local));
             function.instruction(&Instruction::LocalSet(present_locals[index]));
             function.instruction(&Instruction::LocalGet(present_local));
@@ -1094,6 +1113,14 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+
+        // `IsPartialTemporalObject` step 2 runs before the two `Get`s below.
+        self.emit_temporal_reject_branded_partial_object(
+            argument_payload_local,
+            argument_tag_local,
+            "Temporal.PlainDateTime.prototype.with does not accept a Temporal object",
+            function,
+        )?;
 
         // `RejectTemporalLikeObject`: a bag that names a calendar or a time
         // zone is a caller mistake, not a partial date-time.

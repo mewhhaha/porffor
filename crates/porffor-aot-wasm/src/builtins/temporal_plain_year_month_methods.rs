@@ -74,7 +74,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        self.emit_temporal_property_bag_integer(
+        self.emit_temporal_property_bag_positive_integer(
             argument_payload_local,
             argument_tag_local,
             "month",
@@ -85,6 +85,7 @@ impl<'a> FunctionBuilder<'a> {
             month_local,
             0,
             "Temporal.PlainYearMonth fields must be finite",
+            "Temporal.PlainYearMonth month must be positive",
             function,
         )?;
         function.instruction(&Instruction::LocalGet(present_local));
@@ -1131,6 +1132,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
+        // `IsPartialTemporalObject` step 2 runs before the two `Get`s below.
+        self.emit_temporal_reject_branded_partial_object(
+            argument_payload_local,
+            argument_tag_local,
+            "Temporal.PlainYearMonth.prototype.with does not accept a Temporal object",
+            function,
+        )?;
+
         // `RejectTemporalLikeObject` reads both keys with `Get`, not with a
         // `HasProperty` probe, and Test262's `with/order-of-operations.js`
         // observes the two reads.
@@ -2107,7 +2116,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.emit_temporal_property_bag_integer(
+        self.emit_temporal_property_bag_positive_integer(
             argument_payload_local,
             argument_tag_local,
             "day",
@@ -2118,6 +2127,7 @@ impl<'a> FunctionBuilder<'a> {
             day_local,
             0,
             "Temporal.PlainYearMonth day must be finite",
+            "Temporal.PlainYearMonth day must be positive",
             function,
         )?;
         function.instruction(&Instruction::LocalGet(present_local));

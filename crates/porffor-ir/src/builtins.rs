@@ -219,8 +219,14 @@ use crate::{
     BUILTIN_FUNCTION_PROTOTYPE_TO_STRING_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
     BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID, BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
     BUILTIN_INT16_ARRAY_FUNCTION_ID, BUILTIN_INT32_ARRAY_FUNCTION_ID,
-    BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID,
-    BUILTIN_INTL_LOCALE_FUNCTION_ID, BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID,
+    BUILTIN_INT8_ARRAY_FUNCTION_ID, BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+    BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+    BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID, BUILTIN_INTL_LOCALE_FUNCTION_ID,
+    BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID,
     BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID,
     BUILTIN_INTL_LOCALE_PROTOTYPE_REGION_GETTER_FUNCTION_ID,
     BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID,
@@ -523,13 +529,14 @@ use crate::{
     HOST_ASSERT_THROWS_FUNCTION_ID, HOST_CREATE_HTMLDDA_FUNCTION_ID, HOST_CREATE_REALM_FUNCTION_ID,
     HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID, HOST_GC_FUNCTION_ID, HOST_HTMLDDA_FUNCTION_ID,
     HOST_IS_CONSTRUCTOR_FUNCTION_ID, HOST_PARSE_FLOAT_FUNCTION_ID, HOST_PARSE_INT_FUNCTION_ID,
-    HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_LOCALE_NAME,
-    IS_CONSTRUCTOR_NAME, MAP_NAME, NUMBER_NAME, OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME,
-    PRINT_NAME, PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME,
-    SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
-    SYNTAX_ERROR_NAME, TEMPORAL_INSTANT_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
-    UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME,
-    WEAK_MAP_NAME, WEAK_REF_NAME, WEAK_SET_NAME,
+    HOST_PRINT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
+    INTL_DATE_TIME_FORMAT_NAME, INTL_LOCALE_NAME, IS_CONSTRUCTOR_NAME, MAP_NAME, NUMBER_NAME,
+    OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME, PRINT_NAME, PROMISE_NAME, PROXY_NAME,
+    RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME, SET_NAME, SHARED_ARRAY_BUFFER_NAME,
+    STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TEMPORAL_INSTANT_NAME,
+    TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
+    UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME, WEAK_MAP_NAME, WEAK_REF_NAME,
+    WEAK_SET_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1100,6 +1107,12 @@ pub enum StandardBuiltinId {
     IntlLocalePrototypeRegionGetter,
     IntlLocalePrototypeBaseNameGetter,
     IntlLocalePrototypeToString,
+    IntlDateTimeFormatConstructor,
+    IntlDateTimeFormatSupportedLocalesOf,
+    IntlDateTimeFormatPrototypeResolvedOptions,
+    IntlDateTimeFormatPrototypeFormatGetter,
+    IntlDateTimeFormatPrototypeFormatToParts,
+    IntlDateTimeFormatBoundFormat,
     RegExpConstructor,
     RegExpSpeciesGetter,
     RegExpPrototypeFlagsGetter,
@@ -1651,7 +1664,13 @@ impl StandardBuiltinId {
             | Self::IntlLocalePrototypeScriptGetter
             | Self::IntlLocalePrototypeRegionGetter
             | Self::IntlLocalePrototypeBaseNameGetter
-            | Self::IntlLocalePrototypeToString => None,
+            | Self::IntlLocalePrototypeToString
+            | Self::IntlDateTimeFormatConstructor
+            | Self::IntlDateTimeFormatSupportedLocalesOf
+            | Self::IntlDateTimeFormatPrototypeResolvedOptions
+            | Self::IntlDateTimeFormatPrototypeFormatGetter
+            | Self::IntlDateTimeFormatPrototypeFormatToParts
+            | Self::IntlDateTimeFormatBoundFormat => None,
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
@@ -2817,6 +2836,18 @@ impl StandardBuiltinId {
             Self::IntlLocalePrototypeRegionGetter => "get Intl.Locale.prototype.region",
             Self::IntlLocalePrototypeBaseNameGetter => "get Intl.Locale.prototype.baseName",
             Self::IntlLocalePrototypeToString => "Intl.Locale.prototype.toString",
+            Self::IntlDateTimeFormatConstructor => "Intl.DateTimeFormat",
+            Self::IntlDateTimeFormatSupportedLocalesOf => "Intl.DateTimeFormat.supportedLocalesOf",
+            Self::IntlDateTimeFormatPrototypeResolvedOptions => {
+                "Intl.DateTimeFormat.prototype.resolvedOptions"
+            }
+            Self::IntlDateTimeFormatPrototypeFormatGetter => {
+                "get Intl.DateTimeFormat.prototype.format"
+            }
+            Self::IntlDateTimeFormatPrototypeFormatToParts => {
+                "Intl.DateTimeFormat.prototype.formatToParts"
+            }
+            Self::IntlDateTimeFormatBoundFormat => "Intl.DateTimeFormat Format Function",
             Self::RegExpConstructor => REGEXP_NAME,
             Self::RegExpSpeciesGetter => "get RegExp [Symbol.species]",
             Self::RegExpPrototypeFlagsGetter => "get RegExp.prototype.flags",
@@ -4285,6 +4316,24 @@ impl StandardBuiltinId {
             }
             Self::IntlLocalePrototypeToString => {
                 BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatConstructor => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatSupportedLocalesOf => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatPrototypeResolvedOptions => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatPrototypeFormatGetter => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatPrototypeFormatToParts => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID.to_string()
+            }
+            Self::IntlDateTimeFormatBoundFormat => {
+                BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID.to_string()
             }
             Self::RegExpConstructor => BUILTIN_REGEXP_FUNCTION_ID.to_string(),
             Self::RegExpSpeciesGetter => BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID.to_string(),
@@ -5780,6 +5829,22 @@ impl StandardBuiltinId {
             BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID => {
                 Some(Self::IntlLocalePrototypeToString)
             }
+            BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID => Some(Self::IntlDateTimeFormatConstructor),
+            BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatSupportedLocalesOf)
+            }
+            BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatPrototypeResolvedOptions)
+            }
+            BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatPrototypeFormatGetter)
+            }
+            BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatPrototypeFormatToParts)
+            }
+            BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID => {
+                Some(Self::IntlDateTimeFormatBoundFormat)
+            }
             BUILTIN_REGEXP_FUNCTION_ID => Some(Self::RegExpConstructor),
             BUILTIN_REGEXP_SPECIES_GETTER_FUNCTION_ID => Some(Self::RegExpSpeciesGetter),
             BUILTIN_REGEXP_PROTOTYPE_FLAGS_GETTER_FUNCTION_ID => {
@@ -6674,6 +6739,12 @@ impl StandardBuiltinId {
             Self::IntlLocalePrototypeRegionGetter,
             Self::IntlLocalePrototypeBaseNameGetter,
             Self::IntlLocalePrototypeToString,
+            Self::IntlDateTimeFormatConstructor,
+            Self::IntlDateTimeFormatSupportedLocalesOf,
+            Self::IntlDateTimeFormatPrototypeResolvedOptions,
+            Self::IntlDateTimeFormatPrototypeFormatGetter,
+            Self::IntlDateTimeFormatPrototypeFormatToParts,
+            Self::IntlDateTimeFormatBoundFormat,
             Self::RegExpConstructor,
             Self::RegExpSpeciesGetter,
             Self::RegExpPrototypeFlagsGetter,
@@ -6954,7 +7025,12 @@ impl StandardBuiltinId {
     pub const fn requires_wall_clock(self) -> bool {
         matches!(
             self,
-            Self::DateNow | Self::TemporalNowInstant | Self::TemporalNowZonedDateTimeIso
+            Self::DateNow
+                | Self::TemporalNowInstant
+                | Self::TemporalNowZonedDateTimeIso
+                // `format()` with no argument formats the current instant.
+                | Self::IntlDateTimeFormatBoundFormat
+                | Self::IntlDateTimeFormatPrototypeFormatToParts
         )
     }
 
@@ -6987,6 +7063,7 @@ impl StandardBuiltinId {
                 | Self::TemporalPlainDateTimeConstructor
                 | Self::TemporalDurationConstructor
                 | Self::IntlLocaleConstructor
+                | Self::IntlDateTimeFormatConstructor
                 | Self::RegExpConstructor
                 | Self::Float64ArrayConstructor
                 | Self::Float32ArrayConstructor
@@ -7713,6 +7790,13 @@ impl StandardBuiltinId {
             Self::IntlLocalePrototypeRegionGetter => Some("get region"),
             Self::IntlLocalePrototypeBaseNameGetter => Some("get baseName"),
             Self::IntlLocalePrototypeToString => Some("toString"),
+            Self::IntlDateTimeFormatConstructor => Some(INTL_DATE_TIME_FORMAT_NAME),
+            Self::IntlDateTimeFormatSupportedLocalesOf => Some("supportedLocalesOf"),
+            Self::IntlDateTimeFormatPrototypeResolvedOptions => Some("resolvedOptions"),
+            Self::IntlDateTimeFormatPrototypeFormatGetter => Some("get format"),
+            Self::IntlDateTimeFormatPrototypeFormatToParts => Some("formatToParts"),
+            // ECMA-402 11.1.5: the DateTime Format Function has name "".
+            Self::IntlDateTimeFormatBoundFormat => Some(""),
             Self::Float64ArrayConstructor => Some(FLOAT64_ARRAY_NAME),
             Self::Float32ArrayConstructor => Some(FLOAT32_ARRAY_NAME),
             Self::Int32ArrayConstructor => Some(INT32_ARRAY_NAME),

@@ -1,6 +1,40 @@
 use super::*;
 use porffor_ir::StaticRegExpCompilation;
 
+/// A binary operator that wants both operands as Numbers.
+///
+/// It exists to carry one bit that is easy to get wrong by hand:
+/// `ApplyStringOrNumericBinaryOperator` (13.15.3) applies ToPrimitive to *both*
+/// operands before ToNumeric to *either*, but only for `+` - step 1 is guarded
+/// on the operator. Every other operator runs ToNumeric(lhs) to completion and
+/// only then ToNumeric(rhs). The difference shows up whenever ToNumeric(lhs)
+/// throws and the rhs has a hook: `obj1 + obj2` runs `obj2.valueOf()` before
+/// the Symbol TypeError, `obj1 ^ obj2` does not.
+///
+/// Callers pass the operator they already hold rather than an order flag, so
+/// there is no way to select the wrong order for an operator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NumericBinaryOperator {
+    Arithmetic(ArithmeticBinaryOp),
+    Bitwise(BitwiseBinaryOp),
+}
+
+impl NumericBinaryOperator {
+    fn applies_to_primitive_before_numeric(self) -> bool {
+        match self {
+            Self::Arithmetic(op) => match op {
+                ArithmeticBinaryOp::Add => true,
+                ArithmeticBinaryOp::Sub
+                | ArithmeticBinaryOp::Mul
+                | ArithmeticBinaryOp::Div
+                | ArithmeticBinaryOp::Mod
+                | ArithmeticBinaryOp::Exp => false,
+            },
+            Self::Bitwise(_) => false,
+        }
+    }
+}
+
 fn spec_operation_property_key_operand(key: &TypedExpr) -> PropertyKeyIr {
     match &key.expr {
         ExprIr::String(value) if key.kind == ValueKind::String => {
@@ -2431,6 +2465,124 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(lhs_raw_tag);
         self.release_temp_local(lhs_raw_payload);
+        Ok(())
+    }
+
+    /// Evaluates both operands of a numeric binary operator and only then
+    /// converts each to a Number, in the order `op` prescribes.
+    ///
+    /// This is `compile_operand_pair_to_primitive_locals` for the operators
+    /// that need a Number rather than a primitive (`* / - % ** & | ^ << >>
+    /// >>>`, and `+` once lowering has proved neither side is a string).
+    /// Compiling "coerce the left operand, then evaluate the right one" - the
+    /// naive order produced by a single `compile_expr_to_number_payload` per
+    /// operand - runs an object lhs's valueOf/toString hook before the rhs
+    /// expression is evaluated at all. 13.15.4 evaluates both operands before
+    /// ApplyStringOrNumericBinaryOperator coerces either, which is observable
+    /// whenever both sides have side effects.
+    ///
+    /// The order of the *conversions* is taken from `op` rather than from a
+    /// caller-supplied flag, because the two orders differ and picking the
+    /// wrong one is silently observable - see `NumericBinaryOperator`.
+    ///
+    /// Leaves the Number payloads in `lhs_number_local` and `rhs_number_local`.
+    pub(crate) fn compile_operand_pair_to_number_locals(
+        &mut self,
+        op: NumericBinaryOperator,
+        lhs: &TypedExpr,
+        rhs: &TypedExpr,
+        lhs_number_local: u32,
+        rhs_number_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // Both operands convert with a plain tag switch: no ToPrimitive hook to
+        // order, no string parse, no TypeError. The naive order is then the
+        // spec order and the cheap conversion is faithful.
+        let direct_to_number = lhs.possible_kinds.is_subset_of(KindSet::DIRECT_TO_NUMBER)
+            && rhs.possible_kinds.is_subset_of(KindSet::DIRECT_TO_NUMBER);
+        if direct_to_number {
+            self.compile_expr_to_number_payload_nonstring(lhs, function)?;
+            function.instruction(&Instruction::LocalSet(lhs_number_local));
+            self.compile_expr_to_number_payload_nonstring(rhs, function)?;
+            function.instruction(&Instruction::LocalSet(rhs_number_local));
+            return Ok(());
+        }
+
+        // 13.15.4 steps 1-4: both operand expressions are evaluated before any
+        // coercion runs.
+        let lhs_payload = self.reserve_temp_local();
+        let lhs_tag = self.reserve_temp_local();
+        let rhs_payload = self.reserve_temp_local();
+        let rhs_tag = self.reserve_temp_local();
+        self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
+        self.compile_expr_to_locals(rhs, rhs_payload, rhs_tag, function)?;
+
+        // `emit_value_to_number_payload` IS ToNumeric: it runs ToPrimitive on a
+        // heap operand itself, so the plain order needs no separate step, and
+        // it is outlined into a shared helper - inlining the per-kind composite
+        // twice per operator overruns Cranelift's function size limit on
+        // arithmetic-heavy scripts.
+        if op.applies_to_primitive_before_numeric() {
+            // Only `+` takes 13.15.3 step 1: ToPrimitive on both operands
+            // before ToNumeric on either.
+            let lhs_primitive_payload = self.reserve_temp_local();
+            let lhs_primitive_tag = self.reserve_temp_local();
+            let rhs_primitive_payload = self.reserve_temp_local();
+            let rhs_primitive_tag = self.reserve_temp_local();
+            self.emit_to_primitive_from_raw_locals(
+                ToPrimitiveHint::Number,
+                lhs_payload,
+                lhs_tag,
+                lhs_primitive_payload,
+                lhs_primitive_tag,
+                function,
+            )?;
+            self.emit_to_primitive_from_raw_locals(
+                ToPrimitiveHint::Number,
+                rhs_payload,
+                rhs_tag,
+                rhs_primitive_payload,
+                rhs_primitive_tag,
+                function,
+            )?;
+            self.emit_operand_to_number_local(
+                lhs_primitive_payload,
+                lhs_primitive_tag,
+                lhs_number_local,
+                function,
+            )?;
+            self.emit_operand_to_number_local(
+                rhs_primitive_payload,
+                rhs_primitive_tag,
+                rhs_number_local,
+                function,
+            )?;
+            self.release_temp_local(rhs_primitive_tag);
+            self.release_temp_local(rhs_primitive_payload);
+            self.release_temp_local(lhs_primitive_tag);
+            self.release_temp_local(lhs_primitive_payload);
+        } else {
+            self.emit_operand_to_number_local(lhs_payload, lhs_tag, lhs_number_local, function)?;
+            self.emit_operand_to_number_local(rhs_payload, rhs_tag, rhs_number_local, function)?;
+        }
+
+        self.release_temp_local(rhs_tag);
+        self.release_temp_local(rhs_payload);
+        self.release_temp_local(lhs_tag);
+        self.release_temp_local(lhs_payload);
+        Ok(())
+    }
+
+    /// ToNumeric on one already evaluated operand, into `number_local`.
+    fn emit_operand_to_number_local(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        number_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_value_to_number_payload(tag_local, payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(number_local));
         Ok(())
     }
 

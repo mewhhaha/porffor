@@ -570,14 +570,39 @@ result.first === 1 && result.second === 2;
 
     #[test]
     fn async_generator_body_dispatcher_rejects_for_await_iteration() {
-        let error = emit_script(
+        // A suspension in the body would need a back edge from its resume state
+        // to the loop's entry state, which the linear plan does not have.
+        // Refusing is the correct failure mode until it does.
+        for source in [
             "async function* stream(source) { for await (const value of source) { print(value); yield value; } }",
-        )
-        .expect_err("for-await body dispatch should remain explicit");
+            "async function* stream(source) { for await (const outer of source) { for await (const inner of outer) { print(inner); } } }",
+        ] {
+            let error =
+                emit_script(source).expect_err("for-await body dispatch should remain explicit");
 
-        assert!(error
-            .to_string()
-            .contains("does not yet support for-await iteration"));
+            assert!(
+                error
+                    .to_string()
+                    .contains("does not yet support for-await iteration"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn async_generator_for_await_with_a_suspension_free_body_modules_validate() {
+        for source in [
+            "async function* stream(source) { for await (const value of source) { print(value); } }
+             stream([1, 2]).next();",
+            "async function* stream(source) { for await (const value of source) { if (value) continue; break; } yield 1; }
+             stream([1, 2]).next();",
+            "async function* stream(source) { yield 0; for await (const value of source) { print(value); } yield 1; }
+             stream([1, 2]).next();",
+        ] {
+            let artifact = emit_script(source)
+                .expect("for-await with a suspension-free body should emit in an async generator");
+            expect_valid_module(&artifact, 1);
+        }
     }
 
     #[test]

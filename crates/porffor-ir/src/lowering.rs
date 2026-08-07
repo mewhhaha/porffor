@@ -4880,6 +4880,12 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
+                INTL_DATE_TIME_FORMAT_NAME.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::IntlDateTimeFormatConstructor,
+                )),
+            ),
+            (
                 "Symbol.toStringTag".to_string(),
                 ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
             ),
@@ -6290,6 +6296,32 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlDateTimeFormatConstructor
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlDateTimeFormatBoundFormat => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -11727,6 +11759,14 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         info
                     }
+                    ForInitIr::Statements(statements) => {
+                        statements.iter().fold(None, |info, statement| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_statement_throw_info(statement),
+                            )
+                        })
+                    }
                 });
                 info = self.merge_optional_value_info(
                     info,
@@ -11771,6 +11811,14 @@ impl<'a> ScriptLowerer<'a> {
                                 .and_then(|init| self.infer_expr_throw_info(init)),
                         )
                     }),
+                    ForInitIr::Statements(statements) => {
+                        statements.iter().fold(None, |info, statement| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_statement_throw_info(statement),
+                            )
+                        })
+                    }
                 });
                 info = self.merge_optional_value_info(
                     info,
@@ -12609,6 +12657,14 @@ impl<'a> ScriptLowerer<'a> {
                     for binding in bindings {
                         self.add_suspension_owned_binding(binding.name.clone());
                     }
+                }
+                Some(ForInitIr::Statements(_)) => {
+                    // A pattern head binds names this bookkeeping cannot
+                    // enumerate, and resuming into bindings the suspension does
+                    // not own would read uninitialised storage.
+                    self.unsupported("resumable async loop with a destructuring loop head");
+                    self.pop_scope();
+                    return (StatementIr::Empty, ValueKind::Undefined);
                 }
                 Some(ForInitIr::Var(_)) | Some(ForInitIr::Expression(_)) | None => {}
             }
@@ -13566,6 +13622,14 @@ impl<'a> ScriptLowerer<'a> {
             }
         };
 
+        if list
+            .as_ref()
+            .iter()
+            .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
+        {
+            return self.lower_for_lexical_pattern_init(mode, list.as_ref());
+        }
+
         let mut bindings = Vec::with_capacity(list.as_ref().len());
         for variable in list.as_ref() {
             bindings.push(self.lower_for_lexical_binding(mode, variable)?);
@@ -13581,6 +13645,43 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         Some(ForInitIr::LexicalBlock(bindings))
+    }
+
+    /// `for (let [a, b] = x; …)` - a loop head that binds a pattern.
+    ///
+    /// `ForInitIr::Lexical`/`LexicalBlock` are name/initialiser pairs and
+    /// cannot express a pattern, so the whole declaration is lowered to the
+    /// statements the equivalent standalone `let [a, b] = x;` produces. The
+    /// statements are handed over unwrapped rather than as one
+    /// `StatementIr::LexicalBlock`: the block form opens its own emit scope,
+    /// which would hide the bound names from the loop's test, update and body.
+    fn lower_for_lexical_pattern_init(
+        &mut self,
+        mode: BindingMode,
+        list: &[Variable],
+    ) -> Option<ForInitIr> {
+        let mut statements = Vec::with_capacity(list.len());
+        for variable in list {
+            match variable.binding() {
+                Binding::Identifier(_) => {
+                    let binding = self.lower_for_lexical_binding(mode, variable)?;
+                    statements.push(StatementIr::Lexical {
+                        mode: binding.mode,
+                        name: binding.name,
+                        init: binding.init,
+                    });
+                }
+                Binding::Pattern(pattern) => {
+                    let Some(init) = variable.init() else {
+                        self.unsupported("destructuring binding without initializer");
+                        return None;
+                    };
+                    let mut bindings = self.lower_pattern_lexical_binding(mode, pattern, init)?;
+                    statements.append(&mut bindings);
+                }
+            }
+        }
+        Some(ForInitIr::Statements(statements))
     }
 
     fn lower_for_lexical_binding(
@@ -13803,6 +13904,19 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_var_init(&mut self, declaration: &VarDeclaration) -> Option<ForInitIr> {
+        // `for (var { x } = o; …)`. `VarDeclaratorIr` is a name/initialiser
+        // pair, so a pattern head reuses the statement lowering. The `var`
+        // names are hoisted to the enclosing function either way, so the scope
+        // the statement form opens does not hide them from the loop.
+        if declaration
+            .0
+            .as_ref()
+            .iter()
+            .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
+        {
+            let (statement, _) = self.lower_var_statement(declaration);
+            return Some(ForInitIr::Statements(vec![statement]));
+        }
         Some(ForInitIr::Var(self.lower_var_declarators(declaration)))
     }
 
@@ -26690,6 +26804,20 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter => None,
+            StandardBuiltinId::IntlDateTimeFormatConstructor
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => {
+                Some(ValueInfo::new(ValueKind::Object))
+            }
+            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts => {
+                Some(ValueInfo::new(ValueKind::Array))
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => {
+                Some(ValueInfo::new(ValueKind::Function))
+            }
+            StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
             StandardBuiltinId::TemporalZonedDateTimeConstructor => Some(
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),

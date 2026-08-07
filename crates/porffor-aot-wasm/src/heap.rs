@@ -257,6 +257,7 @@ pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
+pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 160;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -713,6 +714,34 @@ pub(crate) const HEAP_INTL_LOCALE_LANGUAGE_OFFSET: u64 = 8;
 pub(crate) const HEAP_INTL_LOCALE_SCRIPT_OFFSET: u64 = 16;
 pub(crate) const HEAP_INTL_LOCALE_REGION_OFFSET: u64 = 24;
 pub(crate) const HEAP_INTL_LOCALE_BASE_NAME_OFFSET: u64 = 32;
+
+/// `Intl.DateTimeFormat` internal slots (ECMA-402 11.5, Table 8).
+///
+/// The four string slots hold string payloads; every remaining slot holds a
+/// small integer code from [`crate::builtins::intl_datetimeformat`] where 0
+/// always means "the option was absent" (`undefined` in `resolvedOptions`).
+pub(crate) const HEAP_INTL_DTF_LOCALE_OFFSET: u64 = 0;
+pub(crate) const HEAP_INTL_DTF_CALENDAR_OFFSET: u64 = 8;
+pub(crate) const HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET: u64 = 16;
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_OFFSET: u64 = 24;
+pub(crate) const HEAP_INTL_DTF_HOUR_CYCLE_OFFSET: u64 = 32;
+pub(crate) const HEAP_INTL_DTF_WEEKDAY_OFFSET: u64 = 40;
+pub(crate) const HEAP_INTL_DTF_ERA_OFFSET: u64 = 48;
+pub(crate) const HEAP_INTL_DTF_YEAR_OFFSET: u64 = 56;
+pub(crate) const HEAP_INTL_DTF_MONTH_OFFSET: u64 = 64;
+pub(crate) const HEAP_INTL_DTF_DAY_OFFSET: u64 = 72;
+pub(crate) const HEAP_INTL_DTF_DAY_PERIOD_OFFSET: u64 = 80;
+pub(crate) const HEAP_INTL_DTF_HOUR_OFFSET: u64 = 88;
+pub(crate) const HEAP_INTL_DTF_MINUTE_OFFSET: u64 = 96;
+pub(crate) const HEAP_INTL_DTF_SECOND_OFFSET: u64 = 104;
+pub(crate) const HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET: u64 = 112;
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET: u64 = 120;
+pub(crate) const HEAP_INTL_DTF_DATE_STYLE_OFFSET: u64 = 128;
+pub(crate) const HEAP_INTL_DTF_TIME_STYLE_OFFSET: u64 = 136;
+/// Resolved `hour12`: 0 absent, 1 false, 2 true.
+pub(crate) const HEAP_INTL_DTF_HOUR12_OFFSET: u64 = 144;
+/// Memoised `[[BoundFormat]]` function object payload, 0 until first read.
+pub(crate) const HEAP_INTL_DTF_BOUND_FORMAT_OFFSET: u64 = 152;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
@@ -947,6 +976,7 @@ pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_TIME: u64 = 34;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME: u64 = 35;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH: u64 = 36;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY: u64 = 37;
+pub(crate) const OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT: u64 = 38;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -3164,6 +3194,149 @@ pub(crate) const HEAP_INTL_LOCALE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     },
 ];
 
+pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "locale_payload",
+        offset: HEAP_INTL_DTF_LOCALE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "calendar_payload",
+        offset: HEAP_INTL_DTF_CALENDAR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "numbering_system_payload",
+        offset: HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_zone_payload",
+        offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "hour_cycle_code",
+        offset: HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "weekday_code",
+        offset: HEAP_INTL_DTF_WEEKDAY_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "era_code",
+        offset: HEAP_INTL_DTF_ERA_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "year_code",
+        offset: HEAP_INTL_DTF_YEAR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "month_code",
+        offset: HEAP_INTL_DTF_MONTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "day_code",
+        offset: HEAP_INTL_DTF_DAY_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "day_period_code",
+        offset: HEAP_INTL_DTF_DAY_PERIOD_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "hour_code",
+        offset: HEAP_INTL_DTF_HOUR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "minute_code",
+        offset: HEAP_INTL_DTF_MINUTE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "second_code",
+        offset: HEAP_INTL_DTF_SECOND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "fractional_second_digits",
+        offset: HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_zone_name_code",
+        offset: HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "date_style_code",
+        offset: HEAP_INTL_DTF_DATE_STYLE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_style_code",
+        offset: HEAP_INTL_DTF_TIME_STYLE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "hour12_code",
+        offset: HEAP_INTL_DTF_HOUR12_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "bound_format_payload",
+        offset: HEAP_INTL_DTF_BOUND_FORMAT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
 #[allow(dead_code)]
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
@@ -5107,6 +5280,10 @@ mod tests {
         );
         assert_layout(HEAP_INTL_LOCALE_RECORD_LAYOUT, HEAP_INTL_LOCALE_RECORD_SIZE);
         assert_layout(
+            HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT,
+            HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE,
+        );
+        assert_layout(
             HEAP_MAP_ITERATOR_RECORD_LAYOUT,
             HEAP_MAP_ITERATOR_RECORD_SIZE,
         );
@@ -5172,6 +5349,7 @@ mod tests {
             .chain(HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_INTL_LOCALE_RECORD_LAYOUT.iter())
+            .chain(HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT.iter())
             .chain(HEAP_MAP_ITERATOR_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_RECORD_LAYOUT.iter())
             .chain(HEAP_SET_ENTRY_LAYOUT.iter())

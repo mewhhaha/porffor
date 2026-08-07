@@ -10,6 +10,8 @@ mod errors;
 mod finalization_registry;
 mod host;
 mod intl;
+mod intl_datetimeformat;
+pub(crate) use intl_datetimeformat::intl_date_time_format_pool_strings;
 mod iterators;
 mod json;
 mod promise;

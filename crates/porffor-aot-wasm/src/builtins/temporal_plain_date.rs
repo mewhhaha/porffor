@@ -61,7 +61,67 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// `ToTemporalCalendarIdentifier`. `undefined` defaults to `iso8601`; a
+    /// `ToTemporalCalendarIdentifier` step 1: an object that already carries a
+    /// `[[Calendar]]` internal slot resolves to that slot *without* any
+    /// observable property access — no `calendar` / `calendarId` getter runs.
+    /// Every branded Temporal object in this backend stores the canonical
+    /// `iso8601` payload (the coercion below rewrites the payload before the
+    /// slot is ever filled), so the slot read is that constant.
+    ///
+    /// Rewrites `calendar_*_local` in place to a `String`-tagged `iso8601` when
+    /// the fast path applies, and leaves them untouched otherwise.
+    pub(crate) fn emit_temporal_calendar_slot_fast_path(
+        &mut self,
+        calendar_payload_local: u32,
+        calendar_tag_local: u32,
+        iso_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let brand_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(calendar_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            calendar_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            brand_local,
+            function,
+        );
+        // `[[InitializedTemporalDate]]`, `[[...DateTime]]`, `[[...MonthDay]]`,
+        // `[[...YearMonth]]` and `[[...ZonedDateTime]]` are exactly the five
+        // brands the specification lists as carrying `[[Calendar]]`. Instant,
+        // Duration and PlainTime carry none and must keep falling through to
+        // the TypeError below.
+        for (index, brand) in [
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            function.instruction(&Instruction::LocalGet(brand_local));
+            function.instruction(&Instruction::I64Const(brand as i64));
+            function.instruction(&Instruction::I64Eq);
+            if index > 0 {
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(iso_payload_local));
+        function.instruction(&Instruction::LocalSet(calendar_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(calendar_tag_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(brand_local);
+    }
+
+    /// `ToTemporalCalendarIdentifier`. `undefined` defaults to `iso8601`; an
+    /// object with a `[[Calendar]]` slot resolves to that slot; any other
     /// non-string throws a TypeError; anything but a case-insensitive `iso8601`
     /// throws a RangeError, because this backend ships no other calendar.
     pub(crate) fn emit_temporal_plain_date_calendar(
@@ -74,6 +134,12 @@ impl<'a> FunctionBuilder<'a> {
         let case_fold_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
         function.instruction(&Instruction::LocalSet(expected_payload_local));
+        self.emit_temporal_calendar_slot_fast_path(
+            calendar_payload_local,
+            calendar_tag_local,
+            expected_payload_local,
+            function,
+        );
         function.instruction(&Instruction::LocalGet(calendar_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);

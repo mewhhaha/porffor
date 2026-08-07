@@ -6,9 +6,9 @@ use icu_normalizer::{
 };
 use icu_properties::{props, CodePointSetData};
 use porffor_ir::{
-    OptionalChainOperationIr, RegExpProgram, StaticRegExpCompilation, TemplateObjectIr,
-    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT,
-    REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpProgram, StaticRegExpCompilation,
+    TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
+    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
     REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
     REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
     REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
@@ -1595,6 +1595,9 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
+        for value in crate::builtins::intl_date_time_format_pool_strings() {
+            pool.intern_string(&value);
+        }
         for index in 0..=31 {
             pool.intern_string(&index.to_string());
         }
@@ -1770,6 +1773,7 @@ impl StringPool {
                 "Invalid Temporal.PlainDate calendarName option",
                 "Temporal.PlainDate.prototype.with requires an object",
                 "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",
+                "Temporal.PlainDate.prototype.with does not accept a Temporal object",
                 "Temporal.PlainDate.prototype.with requires at least one date field",
                 "Temporal.PlainDate string must not use the UTC designator",
                 "Invalid Temporal.PlainDate calendar annotation",
@@ -1834,6 +1838,7 @@ impl StringPool {
                 "Temporal.PlainMonthDay.prototype.toPlainDate requires a year",
                 "Temporal.PlainMonthDay.prototype.toPlainDate requires an object",
                 "Temporal.PlainMonthDay.prototype.with does not accept calendar or timeZone",
+                "Temporal.PlainMonthDay.prototype.with does not accept a Temporal object",
                 "Temporal.PlainMonthDay.prototype.with requires an object",
                 "Temporal.PlainMonthDay.prototype.with requires at least one field",
                 "Temporal.PlainYearMonth",
@@ -1859,6 +1864,7 @@ impl StringPool {
                 "Temporal.PlainYearMonth.prototype.toPlainDate requires a day",
                 "Temporal.PlainYearMonth.prototype.toPlainDate requires an object",
                 "Temporal.PlainYearMonth.prototype.with does not accept calendar or timeZone",
+                "Temporal.PlainYearMonth.prototype.with does not accept a Temporal object",
                 "Temporal.PlainYearMonth.prototype.with requires an object",
                 "Temporal.PlainYearMonth.prototype.with requires at least one field",
                 "[!u-ca=",
@@ -1942,6 +1948,7 @@ impl StringPool {
                 "Ambiguous Temporal.PlainTime string requires the T designator",
                 "Temporal.PlainTime.prototype.with requires an object",
                 "Temporal.PlainTime.prototype.with does not accept calendar or timeZone",
+                "Temporal.PlainTime.prototype.with does not accept a Temporal object",
                 "Temporal.PlainTime.prototype.round requires a roundTo argument",
                 "Temporal.PlainTime.prototype.round requires smallestUnit",
                 "Temporal.PlainTime does not support implicit conversion; use compare() or equals()",
@@ -2059,6 +2066,7 @@ impl StringPool {
                 "Temporal.PlainDateTime options must be an object or undefined",
                 "Temporal.PlainDateTime.prototype.with requires an object",
                 "Temporal.PlainDateTime.prototype.with does not accept calendar or timeZone",
+                "Temporal.PlainDateTime.prototype.with does not accept a Temporal object",
                 "Temporal.PlainDateTime.prototype.with requires at least one date or time field",
                 "Temporal.PlainDateTime.prototype.round requires a roundTo argument",
                 "Temporal.PlainDateTime.prototype.round requires smallestUnit",
@@ -2714,6 +2722,11 @@ impl StringPool {
             }
             ForInitIr::Var(declarators) => self.collect_var_declarators(declarators),
             ForInitIr::Expression(expr) => self.collect_expr(expr),
+            ForInitIr::Statements(statements) => {
+                for statement in statements {
+                    self.collect_statement(statement);
+                }
+            }
         }
     }
 
@@ -3011,66 +3024,7 @@ impl StringPool {
                 }
                 self.collect_expr(value);
                 pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
-                fn collect_static_keys(
-                    collector: &mut StringPool,
-                    pattern: &ArrayDestructuringPatternIr,
-                ) {
-                    for element in &pattern.elements {
-                        let target = match element {
-                            ArrayDestructuringElementIr::Elision => continue,
-                            ArrayDestructuringElementIr::Target { target, .. }
-                            | ArrayDestructuringElementIr::Rest { target } => target,
-                        };
-                        match target {
-                            DestructuringTargetIr::AssignmentProperty {
-                                key: DestructuringPropertyKeyIr::Static(key),
-                                ..
-                            } => collector.intern_string(key),
-                            DestructuringTargetIr::NestedArray(pattern) => {
-                                collect_static_keys(collector, pattern)
-                            }
-                            DestructuringTargetIr::NestedObject(pattern) => {
-                                for property in &pattern.properties {
-                                    if let DestructuringPropertyKeyIr::Static(key) = &property.key {
-                                        collector.intern_string(key);
-                                    }
-                                    collect_target_static_keys(collector, &property.target);
-                                }
-                                if let Some(rest) = &pattern.rest {
-                                    collect_target_static_keys(collector, rest);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                fn collect_target_static_keys(
-                    collector: &mut StringPool,
-                    target: &DestructuringTargetIr,
-                ) {
-                    match target {
-                        DestructuringTargetIr::AssignmentProperty {
-                            key: DestructuringPropertyKeyIr::Static(key),
-                            ..
-                        } => collector.intern_string(key),
-                        DestructuringTargetIr::NestedArray(pattern) => {
-                            collect_static_keys(collector, pattern)
-                        }
-                        DestructuringTargetIr::NestedObject(pattern) => {
-                            for property in &pattern.properties {
-                                if let DestructuringPropertyKeyIr::Static(key) = &property.key {
-                                    collector.intern_string(key);
-                                }
-                                collect_target_static_keys(collector, &property.target);
-                            }
-                            if let Some(rest) = &pattern.rest {
-                                collect_target_static_keys(collector, rest);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                collect_static_keys(self, pattern);
+                self.collect_array_destructuring_pattern_strings(pattern);
             }
             ExprIr::ObjectDestructure { value, pattern } => {
                 self.uses_heap = true;
@@ -3088,51 +3042,7 @@ impl StringPool {
                 }
                 self.collect_expr(value);
                 pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
-
-                fn collect_target_static_keys(
-                    collector: &mut StringPool,
-                    target: &DestructuringTargetIr,
-                ) {
-                    match target {
-                        DestructuringTargetIr::AssignmentProperty {
-                            key: DestructuringPropertyKeyIr::Static(key),
-                            ..
-                        } => collector.intern_string(key),
-                        DestructuringTargetIr::NestedArray(pattern) => {
-                            for element in &pattern.elements {
-                                match element {
-                                    ArrayDestructuringElementIr::Elision => {}
-                                    ArrayDestructuringElementIr::Target { target, .. }
-                                    | ArrayDestructuringElementIr::Rest { target } => {
-                                        collect_target_static_keys(collector, target);
-                                    }
-                                }
-                            }
-                        }
-                        DestructuringTargetIr::NestedObject(pattern) => {
-                            for property in &pattern.properties {
-                                if let DestructuringPropertyKeyIr::Static(key) = &property.key {
-                                    collector.intern_string(key);
-                                }
-                                collect_target_static_keys(collector, &property.target);
-                            }
-                            if let Some(rest) = &pattern.rest {
-                                collect_target_static_keys(collector, rest);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                for property in &pattern.properties {
-                    if let DestructuringPropertyKeyIr::Static(key) = &property.key {
-                        self.intern_string(key);
-                    }
-                    collect_target_static_keys(self, &property.target);
-                }
-                if let Some(rest) = &pattern.rest {
-                    collect_target_static_keys(self, rest);
-                }
+                self.collect_object_destructuring_pattern_strings(pattern);
             }
             ExprIr::Conditional {
                 condition,
@@ -3455,6 +3365,77 @@ impl StringPool {
                     self.collect_json_static_value(value);
                 }
             }
+        }
+    }
+
+    /// Interns every string a destructuring target can turn into a runtime
+    /// property key.
+    ///
+    /// Two of those strings are easy to forget because they are not written as
+    /// keys in the source: a `Binding` name is mirrored onto the script global
+    /// object by `mirror_binding_to_global_object`, and an
+    /// `AssignmentIdentifier` name is written through
+    /// `emit_global_property_write` when the target resolves to a global. Both
+    /// call `StringPool::payload`, which panics when the name is not pooled.
+    ///
+    /// The match is deliberately exhaustive with no wildcard arm: a new
+    /// `DestructuringTargetIr` variant must fail to compile here rather than
+    /// reach codegen with an un-interned name.
+    fn collect_destructuring_target_strings(&mut self, target: &DestructuringTargetIr) {
+        match target {
+            DestructuringTargetIr::Binding { mode: _, name }
+            | DestructuringTargetIr::AssignmentIdentifier { name, .. } => {
+                self.intern_string(name);
+            }
+            DestructuringTargetIr::AssignmentProperty { target: _, key } => {
+                self.collect_destructuring_property_key_strings(key);
+            }
+            // Private elements are addressed by brand token, not by a pooled
+            // string; the class definition interns their keys.
+            DestructuringTargetIr::AssignmentPrivate { .. } => {}
+            DestructuringTargetIr::NestedArray(pattern) => {
+                self.collect_array_destructuring_pattern_strings(pattern);
+            }
+            DestructuringTargetIr::NestedObject(pattern) => {
+                self.collect_object_destructuring_pattern_strings(pattern);
+            }
+        }
+    }
+
+    fn collect_destructuring_property_key_strings(&mut self, key: &DestructuringPropertyKeyIr) {
+        match key {
+            DestructuringPropertyKeyIr::Static(key) => self.intern_string(key),
+            // Computed keys are stringified at runtime; `visit_expressions`
+            // already walked the key expression.
+            DestructuringPropertyKeyIr::Computed(_) => {}
+        }
+    }
+
+    fn collect_array_destructuring_pattern_strings(
+        &mut self,
+        pattern: &ArrayDestructuringPatternIr,
+    ) {
+        for element in &pattern.elements {
+            match element {
+                ArrayDestructuringElementIr::Elision => {}
+                ArrayDestructuringElementIr::Target { target, default: _ }
+                | ArrayDestructuringElementIr::Rest { target } => {
+                    self.collect_destructuring_target_strings(target);
+                }
+            }
+        }
+    }
+
+    fn collect_object_destructuring_pattern_strings(
+        &mut self,
+        pattern: &ObjectDestructuringPatternIr,
+    ) {
+        for property in &pattern.properties {
+            self.collect_destructuring_property_key_strings(&property.key);
+            self.collect_destructuring_target_strings(&property.target);
+        }
+        if let Some(rest) = &pattern.rest {
+            self.collect_destructuring_target_strings(rest);
         }
     }
 

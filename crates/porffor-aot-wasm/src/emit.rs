@@ -377,6 +377,18 @@ fn async_generator_contains_suspension(
                     async_generator_contains_suspension(else_branch, suspension)
                 })
         }
+        // A `for await` loop is itself a suspension: it awaits `next()` once per
+        // iteration and awaits the iterator close on exit. Only recursing into
+        // the body would report a nested for-await as suspension-free and let it
+        // through a guard that exists precisely to keep second suspensions out.
+        StatementIr::ForOfArray {
+            async_plan: Some(_),
+            ..
+        }
+        | StatementIr::ForOfIterator {
+            async_plan: Some(_),
+            ..
+        } => matches!(suspension, AsyncGeneratorSuspension::Await),
         StatementIr::While { body, .. }
         | StatementIr::DoWhile { body, .. }
         | StatementIr::For { body, .. }
@@ -538,14 +550,32 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             async_plan: Some(_),
             ..
         } if async_generator_for_await_is_transparent_yield(name, body) => None,
+        // A for-await loop owns four states of its own (`entry`,
+        // `value_resume`, `close_resume`, `exit`) and re-enters at whichever of
+        // them the activation carries. That replay is sound as long as the loop
+        // is the only thing suspending: a suspension in the body would need a
+        // back edge from its resume state to the loop's entry state, which the
+        // linear state chain does not have, and resuming at a body state would
+        // fail the loop's entry test and skip the loop entirely. So a
+        // suspension-free body compiles like any ordinary loop body, and a
+        // suspending one is still refused rather than miscompiled.
         StatementIr::ForOfArray {
+            body,
             async_plan: Some(_),
             ..
         }
         | StatementIr::ForOfIterator {
+            body,
             async_plan: Some(_),
             ..
-        } => Some("for-await iteration"),
+        } => {
+            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Await)
+                || async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
+            {
+                return Some("for-await iteration with a suspension in the loop body");
+            }
+            None
+        }
         StatementIr::If {
             then_branch,
             else_branch,

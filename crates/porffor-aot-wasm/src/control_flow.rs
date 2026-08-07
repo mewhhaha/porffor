@@ -5124,6 +5124,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_expr_payload(expr, function)?;
                 function.instruction(&Instruction::Drop);
             }
+            ForInitIr::Statements(statements) => {
+                // Compiled directly in the loop's scope - `compile_for` has
+                // already pushed it - so a pattern head's bindings stay visible
+                // to the test, update and body.
+                for statement in statements {
+                    self.compile_statement(statement, function)?;
+                }
+            }
         }
         Ok(())
     }
@@ -6060,6 +6068,29 @@ impl<'a> FunctionBuilder<'a> {
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
             EmitError::unsupported("for-await-of requires the async function call ABI")
         })?;
+        // The loop's entry test admits three states and then re-dispatches on
+        // which one it saw, so two of them holding the same number silently
+        // routes a `next()` resume into the iterator-close path (or vice versa).
+        // Refuse instead: a wrong answer here is unobservable at compile time.
+        let states = [
+            async_plan.entry_state,
+            async_plan.value_resume_state,
+            async_plan.close_resume_state,
+            async_plan.exit_state,
+        ];
+        if states
+            .iter()
+            .enumerate()
+            .any(|(index, state)| states[index + 1..].contains(state))
+        {
+            return Err(EmitError::unsupported(format!(
+                "for-await-of resume plan reuses a state (entry {}, value {}, close {}, exit {})",
+                async_plan.entry_state,
+                async_plan.value_resume_state,
+                async_plan.close_resume_state,
+                async_plan.exit_state,
+            )));
+        }
         let (
             resume_state_offset,
             resume_payload_offset,

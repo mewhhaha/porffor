@@ -309,6 +309,11 @@ mod tests {
                                 );
                             }
                             ForInitIr::Expression(_) => {}
+                            ForInitIr::Statements(statements) => {
+                                for statement in statements {
+                                    collect(statement, names);
+                                }
+                            }
                         }
                     }
                     collect(body, names);
@@ -334,6 +339,11 @@ mod tests {
                                 );
                             }
                             ForInitIr::Expression(_) => {}
+                            ForInitIr::Statements(statements) => {
+                                for statement in statements {
+                                    collect(statement, names);
+                                }
+                            }
                         }
                     }
                     for statement in before_suspension
@@ -6672,7 +6682,7 @@ target[Symbol.iterator];"#,
             function.resumable_plan,
             Some(ResumablePlanIr {
                 entry_state: 0,
-                state_count: 7,
+                state_count: 8,
                 suspension_points: vec![
                     ResumableSuspensionPointIr {
                         kind: ResumableSuspensionKindIr::Await,
@@ -6694,15 +6704,21 @@ target[Symbol.iterator];"#,
                         suspend_state: 3,
                         resume_state: 4,
                     },
+                    // State 5 is reserved so the iterator-close await suspends
+                    // somewhere nothing else resumes into. Chaining it onto 4
+                    // aliased `close_resume_state` with the body yield's resume
+                    // state, and — for a body with no suspension at all — with
+                    // `value_resume_state`, which made a `next()` resume replay
+                    // the close path.
                     ResumableSuspensionPointIr {
                         kind: ResumableSuspensionKindIr::ForAwaitClose,
-                        suspend_state: 4,
-                        resume_state: 5,
+                        suspend_state: 5,
+                        resume_state: 6,
                     },
                     ResumableSuspensionPointIr {
                         kind: ResumableSuspensionKindIr::Await,
-                        suspend_state: 5,
-                        resume_state: 6,
+                        suspend_state: 6,
+                        resume_state: 7,
                     },
                 ],
             })
@@ -6720,8 +6736,8 @@ target[Symbol.iterator];"#,
             async_plan: Some(async_plan),
             ..
         }, StatementIr::AsyncAwait {
-            suspend_state: 5,
-            resume_state: 6,
+            suspend_state: 6,
+            resume_state: 7,
             ..
         }] = function.body.statements.as_slice()
         else {
@@ -6732,8 +6748,8 @@ target[Symbol.iterator];"#,
         };
         assert_eq!(async_plan.entry_state, 2);
         assert_eq!(async_plan.value_resume_state, 3);
-        assert_eq!(async_plan.close_resume_state, 4);
-        assert_eq!(async_plan.exit_state, 5);
+        assert_eq!(async_plan.close_resume_state, 5);
+        assert_eq!(async_plan.exit_state, 6);
         assert!(matches!(
             body.as_ref(),
             StatementIr::Block(block)
@@ -6746,6 +6762,46 @@ target[Symbol.iterator];"#,
                     }]
                 )
         ));
+    }
+
+    #[test]
+    fn allocates_disjoint_for_await_states_when_the_body_never_suspends() {
+        // The four states a for-await loop re-enters on must be pairwise
+        // distinct; the backend's entry test admits three of them and then
+        // re-dispatches on which one it saw, so an alias silently routes a
+        // `next()` resume into the iterator-close path.
+        let program = lower_script(
+            "async function* stream(source) {
+                 for await (const value of source) { sink(value); }
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "stream")
+            .expect("async generator declaration should be collected");
+
+        let [StatementIr::ForOfIterator {
+            async_plan: Some(async_plan),
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "async-generator body should be a single for-await: {:?}",
+                function.body.statements
+            );
+        };
+        let states = [
+            async_plan.entry_state,
+            async_plan.value_resume_state,
+            async_plan.close_resume_state,
+            async_plan.exit_state,
+        ];
+        assert_eq!(states, [0, 1, 2, 3], "{async_plan:?}");
     }
 
     #[test]

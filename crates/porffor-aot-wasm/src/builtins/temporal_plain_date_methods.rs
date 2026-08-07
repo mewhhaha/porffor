@@ -186,7 +186,7 @@ impl<'a> FunctionBuilder<'a> {
             ("day", day_local, day_present_local),
             ("month", month_local, month_present_local),
         ] {
-            self.emit_temporal_property_bag_integer(
+            self.emit_temporal_property_bag_positive_integer(
                 argument_payload_local,
                 argument_tag_local,
                 property,
@@ -197,6 +197,7 @@ impl<'a> FunctionBuilder<'a> {
                 output_local,
                 0,
                 "Temporal.PlainDate fields must be finite",
+                "Temporal.PlainDate month and day must be positive",
                 function,
             )?;
             function.instruction(&Instruction::LocalGet(present_local));
@@ -931,6 +932,14 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+
+        // `IsPartialTemporalObject` step 2 runs before the two `Get`s below.
+        self.emit_temporal_reject_branded_partial_object(
+            argument_payload_local,
+            argument_tag_local,
+            "Temporal.PlainDate.prototype.with does not accept a Temporal object",
+            function,
+        )?;
 
         // `RejectTemporalLikeObject`: a bag that names a calendar or a time
         // zone is a caller mistake, not a partial date.

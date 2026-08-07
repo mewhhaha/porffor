@@ -376,6 +376,11 @@ fn statement_contains_this_before_super(
                             }
                         }
                     }
+                    ForInitIr::Statements(statements) => {
+                        for statement in statements {
+                            statement_contains_this_before_super(statement, state);
+                        }
+                    }
                 }
             }
             if let Some(test) = test {
@@ -410,6 +415,11 @@ fn statement_contains_this_before_super(
                             if let Some(init) = &decl.init {
                                 expr_contains_this_before_super(init, state);
                             }
+                        }
+                    }
+                    ForInitIr::Statements(statements) => {
+                        for statement in statements {
+                            statement_contains_this_before_super(statement, state);
                         }
                     }
                 }

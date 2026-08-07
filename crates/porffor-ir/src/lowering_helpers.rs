@@ -423,6 +423,12 @@ impl ResumableStateAllocator {
         });
     }
 
+    /// Burn one state without recording a suspension point, so the next
+    /// `suspend` starts from a state nothing else resumes into.
+    fn reserve(&mut self) {
+        self.current_state += 1;
+    }
+
     fn finish(self) -> ResumablePlanIr {
         ResumablePlanIr {
             entry_state: 0,
@@ -475,6 +481,17 @@ impl<'ast> Visitor<'ast> for AsyncGeneratorSuspensionCollector {
         }
         let _ = for_of.body().visit_with(self);
         if for_of.r#await() {
+            // The iterator-close await must suspend in a state of its own. The
+            // allocator otherwise chains, so `ForAwaitClose.suspend_state` would
+            // land on whatever the previous point resumed into — for a body with
+            // no suspension that is `ForAwaitNext.resume_state`, i.e. the state
+            // the loop resumes in after awaiting `next()`. The backend derives
+            // `value_resume_state` and `close_resume_state` from exactly those
+            // two fields, so the collision made a `next()` resume replay the
+            // close path instead. Reserving one state keeps the four states of a
+            // for-await loop distinct, matching the plain-async layout
+            // (`entry`, `entry+1`, `entry+2`, `entry+3`).
+            self.states.reserve();
             self.states
                 .suspend(ResumableSuspensionKindIr::ForAwaitClose);
         }

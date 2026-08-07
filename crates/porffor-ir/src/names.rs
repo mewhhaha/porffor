@@ -183,6 +183,7 @@ pub const TEMPORAL_ZONED_DATE_TIME_NAME: &str = "ZonedDateTime";
 pub const TEMPORAL_DURATION_NAME: &str = "Duration";
 pub const INTL_NAME: &str = "Intl";
 pub const INTL_LOCALE_NAME: &str = "Locale";
+pub const INTL_DATE_TIME_FORMAT_NAME: &str = "DateTimeFormat";
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";
 pub const ATOMICS_NAME: &str = "Atomics";
@@ -1004,6 +1005,17 @@ pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID:
 pub const BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID: &str =
     "$builtin.Intl.getCanonicalLocales";
 pub const BUILTIN_INTL_LOCALE_FUNCTION_ID: &str = "$builtin.Intl.Locale";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.DateTimeFormat";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.supportedLocalesOf";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.prototype.resolvedOptions";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.prototype.format.get";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.prototype.formatToParts";
+pub const BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID: &str =
+    "$builtin.Intl.DateTimeFormat.boundFormat";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID: &str =
     "$builtin.Intl.Locale.prototype.language.get";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID: &str =
