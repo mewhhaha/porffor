@@ -3600,7 +3600,10 @@ report;
                 _ => {}
             }
         }
-        assert!(imported_function_count > 0, "module should import functions");
+        assert!(
+            imported_function_count > 0,
+            "module should import functions"
+        );
         let largest = bodies
             .iter()
             .copied()
@@ -3664,6 +3667,7 @@ report;
             "segmentation fault",
             "trapped",
             "timeout exceeded",
+            "wasm `unreachable`",
         ];
 
         let engine = engine();

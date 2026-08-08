@@ -27,7 +27,28 @@
 //! Not implemented, and deliberately: resolving a `gregory` property bag from
 //! `{ era, eraYear }` instead of `{ year }`. That is a `CalendarResolveFields`
 //! feature, not an identifier feature, and every test for it is under
-//! `intl402/Temporal`.
+//! `intl402/Temporal`. See [`TemporalCalendarId::Gregory`] for the five
+//! currently-passing files that gap knowingly costs.
+//!
+//! # What the enum does *not* protect
+//!
+//! Be precise about the invariant, because it is easy to over-read. Exhaustive
+//! matches over [`TemporalCalendarId`] exist in `canonical`, `spellings` and
+//! [`FunctionBuilder::emit_temporal_calendar_era_field`] — and nowhere else.
+//! Every arithmetic and field emitter above (`monthCode`, `daysInMonth`,
+//! `daysInYear`, `monthsInYear`, `inLeapYear`, `dayOfWeek`, `weekOfYear`,
+//! `yearOfWeek`) takes the ISO path with no calendar dispatch at all, and
+//! `emit_temporal_calendar_is_default_i32` asks `== DEFAULT` rather than an
+//! exhaustive question. That is *correct* for these two calendars, because
+//! `gregory` really is the proleptic Gregorian calendar ISO 8601 computes.
+//!
+//! It is not correct for a third. Adding `TemporalCalendarId::Japanese`
+//! compiles the moment `canonical`, `spellings` and the era field have arms,
+//! and every one of those getters then returns a confidently wrong ISO answer.
+//! A lane adding a calendar with different arithmetic must first give the enum
+//! something the numeric-field emitters are forced to consume — a
+//! `const fn arithmetic(self) -> …` whose exhaustive match they read — rather
+//! than trusting this file's existing matches to stop it.
 
 use super::super::*;
 
@@ -148,20 +169,26 @@ impl Era {
         }
     }
 
-    /// The year-0 boundary, written down exactly once: ISO year 1 is `ce` 1,
-    /// ISO year 0 is `bce` 1, ISO year -1 is `bce` 2. Both `era` and `eraYear`
-    /// derive their branch from this call, so they cannot disagree about which
-    /// side year 0 falls on.
+    /// Both eras, ordered by the sign of the ISO year that selects them:
+    /// positive first.
+    ///
+    /// The ordering is what the type is for. `era` and `eraYear` are two
+    /// accessors emitted under one `isoYear > 0` test, and each needs two arms.
+    /// Choosing those arms per accessor is what would let `era` answer `ce` on
+    /// the branch where `eraYear` counts backwards;
+    /// [`FunctionBuilder::emit_temporal_gregorian_era_field`] instead
+    /// destructures this one array for both and keys the arithmetic on the
+    /// `Era` value rather than on branch position, so the pair cannot disagree
+    /// about which side of year 0 it is on. The boundary is: ISO year 1 is
+    /// `ce` 1, ISO year 0 is `bce` 1, ISO year -1 is `bce` 2.
+    ///
+    /// It is also the set the string pool derives the era codes from, so an
+    /// era added here cannot be missing from the pool.
     ///
     /// `Intl.DateTimeFormat` encodes the same boundary independently (see the
     /// `display_year` computation in `builtins/intl_datetimeformat.rs`); the
     /// integration note records that duplication.
-    pub(crate) const fn of_positive_iso_year(iso_year_is_positive: bool) -> Self {
-        match iso_year_is_positive {
-            true => Self::Ce,
-            false => Self::Bce,
-        }
-    }
+    pub(crate) const ALL: [Self; 2] = [Self::Ce, Self::Bce];
 }
 
 /// The five branded Temporal types the specification gives a `[[Calendar]]`
@@ -562,50 +589,79 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Proleptic Gregorian `era` / `eraYear` into the result pair.
     ///
-    /// Both branches read the sign of the ISO year once and pick their answer
-    /// from [`Era::of_positive_iso_year`], so the `era` an accessor reports and
-    /// the `eraYear` beside it always agree about year 0 being `bce` 1.
+    /// One `isoYear > 0` test, and both of its arms are filled from
+    /// [`Era::ALL`] in its declared order. Neither accessor decides for itself
+    /// which branch is `ce`: `emit_temporal_gregorian_era_arm` is handed the
+    /// [`Era`] and derives *both* the era code and the era-year arithmetic from
+    /// it, so the `era` an accessor reports and the `eraYear` beside it cannot
+    /// disagree about year 0 being `bce` 1 — and a third era would fail to
+    /// build there rather than silently reuse the `bce` formula.
     fn emit_temporal_gregorian_era_field(
         &mut self,
         iso_year_local: u32,
         field: TemporalEraField,
         function: &mut Function,
     ) {
+        let [positive_year_era, non_positive_year_era] = Era::ALL;
         function.instruction(&Instruction::LocalGet(iso_year_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        self.emit_temporal_gregorian_era_arm(iso_year_local, positive_year_era, field, function);
+        function.instruction(&Instruction::Else);
+        self.emit_temporal_gregorian_era_arm(
+            iso_year_local,
+            non_positive_year_era,
+            field,
+            function,
+        );
+        function.instruction(&Instruction::End);
         match field {
             TemporalEraField::Era => {
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::I64Const(
-                    self.strings.payload(Era::of_positive_iso_year(true).code()),
-                ));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::I64Const(
-                    self.strings
-                        .payload(Era::of_positive_iso_year(false).code()),
-                ));
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
             TemporalEraField::EraYear => {
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::LocalGet(iso_year_local));
-                function.instruction(&Instruction::Else);
-                // Proleptic year 0 is 1 bce, so the era year counts backwards
-                // from 1: `1 - isoYear`.
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalGet(iso_year_local));
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::F64ConvertI64S);
                 function.instruction(&Instruction::I64ReinterpretF64);
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
+        }
+    }
+
+    /// One arm of [`Self::emit_temporal_gregorian_era_field`]: leaves either the
+    /// era's interned code or its era-year on the stack as an `i64`.
+    ///
+    /// The era-year arithmetic is keyed on the [`Era`], not on which branch
+    /// this is, which is what makes swapping the two arms swap both answers
+    /// together instead of producing `ce` counting backwards.
+    fn emit_temporal_gregorian_era_arm(
+        &self,
+        iso_year_local: u32,
+        era: Era,
+        field: TemporalEraField,
+        function: &mut Function,
+    ) {
+        match field {
+            TemporalEraField::Era => {
+                function.instruction(&Instruction::I64Const(self.strings.payload(era.code())));
+            }
+            TemporalEraField::EraYear => match era {
+                // `ce` 1 is ISO year 1, and it counts up with it.
+                Era::Ce => {
+                    function.instruction(&Instruction::LocalGet(iso_year_local));
+                }
+                // Proleptic year 0 is 1 bce, so the era year counts backwards
+                // from 1: `1 - isoYear`.
+                Era::Bce => {
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalGet(iso_year_local));
+                    function.instruction(&Instruction::I64Sub);
+                }
+            },
         }
     }
 

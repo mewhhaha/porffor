@@ -5525,7 +5525,15 @@ impl<'a> FunctionBuilder<'a> {
             );
             for kind in DtfBrandedKind::all() {
                 self.emit_dtf_if_code_eq(brand_local, kind.brand() as i64, function);
-                self.emit_dtf_set_const(side_kind_local, kind.code(), function);
+                // `side_kind_local` holds a `DtfValueKind` code, not a
+                // `DtfBrandedKind` one — the widening is spelled out so the
+                // local's domain stays the same on both the branded and the
+                // legacy path above.
+                self.emit_dtf_set_const(
+                    side_kind_local,
+                    DtfValueKind::Branded(kind).code(),
+                    function,
+                );
                 function.instruction(&Instruction::End);
             }
             function.instruction(&Instruction::End);
@@ -5565,7 +5573,11 @@ impl<'a> FunctionBuilder<'a> {
         // Step 4: a `Temporal.ZonedDateTime` carries its own zone, which cannot
         // be reconciled with the formatter's, so `HandleDateTimeValue` refuses
         // it — with the same message the single-date path uses.
-        self.emit_dtf_if_code_eq(kind_local, DtfBrandedKind::ZonedDateTime.code(), function);
+        self.emit_dtf_if_code_eq(
+            kind_local,
+            DtfValueKind::Branded(DtfBrandedKind::ZonedDateTime).code(),
+            function,
+        );
         self.emit_throw_current_function_realm_type_error(
             INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED,
             self.result_local,

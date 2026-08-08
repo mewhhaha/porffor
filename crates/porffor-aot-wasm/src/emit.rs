@@ -856,8 +856,8 @@ fn emit_script_with_forced_builtins(
     // not by chaining `+ 1` off the previous one. A `+ 1` chain keeps compiling
     // — and keeps pointing one function too low — when a helper is inserted
     // ahead of these six, while the enum's own arithmetic shifts with the list.
-    let object_append_data_property_function_index = heap_alloc_function_index
-        .map(|base| RuntimeHelperId::ObjectAppendDataProperty.index(base));
+    let object_append_data_property_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::ObjectAppendDataProperty.index(base));
     let object_append_accessor_property_function_index = heap_alloc_function_index
         .map(|base| RuntimeHelperId::ObjectAppendAccessorProperty.index(base));
     let function_object_alloc_function_index =
@@ -1681,10 +1681,8 @@ fn emit_script_with_forced_builtins(
     // `RuntimeHelperId::ALL`. Before this they were four hand-maintained lists
     // of the same 33 entries, and the `debug_dump` copy had already drifted
     // (`27` against a counted 32 + 1).
-    let helper_emission = RuntimeHelperEmission::NONE.with(
-        RuntimeHelperFact::UsesJsonStringify,
-        uses_json_stringify,
-    );
+    let helper_emission =
+        RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify);
     let mut functions = FunctionSection::new();
     functions.function(0);
     for _ in 0..callable_function_count {

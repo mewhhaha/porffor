@@ -193,11 +193,22 @@ fn run_wasm_backend_succeeds_for_temporal_instant_statics_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     // The expected rendering is spelled out here rather than recomputed in the
     // fixture, so a wrong ISO string cannot match itself.
+    //
+    // Asserted in two halves on purpose. The seven comparison results are
+    // `Temporal.Instant.compare` itself; the eight rendered strings also depend
+    // on machinery it does not own — the leap-second clamp (the seventh
+    // comparison reads `2016-12-31T23:59:60Z`), the hour-only UTC offset the
+    // ISO parser must accept, the two-limb heap-BigInt millisecond quotient,
+    // and the six-digit-year branch at both epoch extremes. One combined
+    // `contains` would report a break in any of those as a failure of
+    // `compare`.
+    assert!(
+        stdout.contains("temporal-instant-statics:lt|gt|eq|gt|eq|gt|eq|"),
+        "{stdout}"
+    );
     assert!(
         stdout.contains(
-            "temporal-instant-statics:\
-             lt|gt|eq|gt|eq|gt|eq|\
-             1970-01-01T00:00:00Z|\
+            "1970-01-01T00:00:00Z|\
              1976-11-18T14:23:30.123Z|\
              1963-02-13T09:36:29.124Z|\
              1976-11-18T14:23:30.123456789Z|\

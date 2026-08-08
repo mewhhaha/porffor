@@ -2184,10 +2184,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncF64S);
         function.instruction(&Instruction::LocalSet(milliseconds_local));
+        // No range check follows, and that is not an omission: `TimeClip` has
+        // already bounded the time value to ±8.64e15 ms, whose nanosecond
+        // widening is exactly the `IsValidEpochNanoseconds` limit.
         self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
             milliseconds_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
+            UnvalidatedEpochNanoseconds {
+                payload_local: nanoseconds_payload_local,
+                tag_local: nanoseconds_tag_local,
+            },
             function,
         )?;
 

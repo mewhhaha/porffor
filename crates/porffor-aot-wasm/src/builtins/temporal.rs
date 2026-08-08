@@ -6319,54 +6319,56 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(output_payload_local));
+        // `FormatFractionalSeconds` with `auto` precision: render the fraction
+        // as nine digits and strip **every** trailing zero, not just whole
+        // groups of three. The 3/6/9 cascade this replaces printed
+        // `new Temporal.Instant(30_123_400_000n)` as `…:30.123400Z`, because
+        // 123,400,000 is divisible by 1,000 but not by 1,000,000 — so it took
+        // the six-digit arm — where the spec asks for `…:30.1234Z`
+        // (`Instant/prototype/toJSON/basic.js` case 4).
+        //
+        // `emit_date_append_padded_decimal` takes a Rust-level width, so the
+        // choice is a cascade over the nine possible widths rather than a
+        // runtime loop: the first `width` whose divisor divides the fraction
+        // exactly is the one with no trailing zero left. `fraction_local` is
+        // known non-zero here (the enclosing `If` handles zero by emitting no
+        // fraction at all), so the `width == 9` fallthrough is reached only by
+        // a fraction with a significant nanosecond digit.
+        const FRACTION_DIGITS: u32 = 9;
+        for width in 1..FRACTION_DIGITS {
+            let divisor = 10_i64.pow(FRACTION_DIGITS - width);
+            function.instruction(&Instruction::LocalGet(fraction_local));
+            function.instruction(&Instruction::I64Const(divisor));
+            function.instruction(&Instruction::I64RemU);
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(fraction_local));
+            function.instruction(&Instruction::I64Const(divisor));
+            function.instruction(&Instruction::I64DivU);
+            function.instruction(&Instruction::F64ConvertI64U);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(piece_payload_local));
+            self.emit_date_append_padded_decimal(
+                output_payload_local,
+                piece_payload_local,
+                width,
+                function,
+            )?;
+            function.instruction(&Instruction::Else);
+        }
         function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(piece_payload_local));
         self.emit_date_append_padded_decimal(
             output_payload_local,
             piece_payload_local,
-            3,
+            FRACTION_DIGITS,
             function,
         )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            piece_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            piece_payload_local,
-            9,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        for _ in 1..FRACTION_DIGITS {
+            function.instruction(&Instruction::End);
+        }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(self.strings.payload("Z")));
         function.instruction(&Instruction::LocalSet(piece_payload_local));

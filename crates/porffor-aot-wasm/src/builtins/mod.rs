@@ -23,8 +23,15 @@ mod temporal;
 mod temporal_duration;
 mod temporal_duration_methods;
 mod temporal_instant;
+/// The unvalidated epoch-nanosecond local pair, re-exported for `date.rs`:
+/// `Date.prototype.toTemporalInstant` shares the millisecond widening.
+pub(crate) use temporal_instant::UnvalidatedEpochNanoseconds;
 mod temporal_options;
 mod temporal_plain_date;
+/// The calendar and era tables, re-exported for `data.rs`: the string pool
+/// derives the interned calendar spellings and era codes from them rather than
+/// listing the same strings a second time.
+pub(crate) use temporal_plain_date::{Era, TemporalCalendarId};
 mod temporal_plain_date_methods;
 mod temporal_plain_date_time;
 mod temporal_plain_date_time_methods;

@@ -1433,24 +1433,6 @@ impl StringPool {
             "M12",
             "toInstant",
             "UTC",
-            // Every `TemporalCalendarId` spelling and canonical form, plus the
-            // two `Era` codes, interned unconditionally.
-            //
-            // They cannot live behind the `Temporal.PlainDate` gate below: the
-            // shared calendar helpers (`compile_temporal_calendar_identifier_helper`
-            // and `compile_temporal_calendar_iso_date_probe_helper`) are
-            // compiled from `uses_temporal_calendar` in `emit.rs`, whose
-            // predicate also fires for a program that touches only
-            // `Temporal.ZonedDateTime` — and that program does not satisfy the
-            // gate. A spelling missing from the pool is the "string must exist
-            // in pool" compiler panic fixed in e04bdc061, not a wrong answer,
-            // so this stays unconditional next to `iso8601` even though it
-            // costs every program the bytes.
-            "iso8601",
-            "gregory",
-            "gregorian",
-            "ce",
-            "bce",
             "Temporal.ZonedDateTime constructor requires new",
             "Temporal.ZonedDateTime time zone must be a string",
             "Invalid Temporal.ZonedDateTime time zone",
@@ -1613,6 +1595,30 @@ impl StringPool {
             "&quot;",
         ] {
             pool.intern_string(value);
+        }
+        // Every `TemporalCalendarId` spelling and canonical form, plus every
+        // `Era` code, derived from the tables the emitters read rather than
+        // listed again. Listing them was a standing drift risk in both
+        // directions: a calendar spelling added to `TemporalCalendarId` and
+        // forgotten here is the `string must exist in pool` compiler panic
+        // fixed in e04bdc061, and `"gregorian"` was already interned twice
+        // because it is also an `INTL_DTF_ACCEPTED_CALENDARS` row.
+        //
+        // Unconditional, and it cannot move behind the `Temporal.PlainDate`
+        // gate below: the shared calendar helpers
+        // (`compile_temporal_calendar_identifier_helper` and
+        // `compile_temporal_calendar_iso_date_probe_helper`) are compiled from
+        // `uses_temporal_calendar` in `emit.rs`, whose predicate also fires for
+        // a program touching only `Temporal.ZonedDateTime` — and that program
+        // does not satisfy the gate.
+        for calendar in TemporalCalendarId::ALL {
+            pool.intern_string(calendar.canonical());
+            for spelling in calendar.spellings() {
+                pool.intern_string(spelling);
+            }
+        }
+        for era in Era::ALL {
+            pool.intern_string(era.code());
         }
         for value in crate::builtins::intl_date_time_format_pool_strings() {
             pool.intern_string(&value);

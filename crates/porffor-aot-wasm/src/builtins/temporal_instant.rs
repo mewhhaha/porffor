@@ -8,12 +8,14 @@
 //! layout, the range check and the allocation all live in
 //! `builtins/temporal.rs` and are reused unchanged from here.
 //!
-//! The one new idea is [`EpochNanoseconds`]: a pair of locals that
-//! `IsValidEpochNanoseconds` has already accepted. Its fields are private to
-//! this module and its only constructor is
-//! [`FunctionBuilder::emit_temporal_instant_validated_epoch`], so an allocation
-//! path in this file cannot skip the range check — the type it needs simply
-//! cannot be produced any other way.
+//! The one new idea is the [`UnvalidatedEpochNanoseconds`] ->
+//! [`EpochNanoseconds`] pair. The first is a named-field `(payload, tag)` local
+//! pair, so the two same-typed locals cannot be swapped in silence at a call
+//! site; the second is that pair after `IsValidEpochNanoseconds` accepted it.
+//! `EpochNanoseconds`'s field is private to this module and its only
+//! constructor is [`FunctionBuilder::emit_temporal_instant_validated_epoch`],
+//! so an allocation path in this file cannot skip the range check — the type it
+//! needs simply cannot be produced any other way.
 
 use super::super::*;
 
@@ -22,8 +24,9 @@ use super::super::*;
 /// TypeError the surrounding coercions raise. `fromEpochMilliseconds/
 /// non-integer.js` pins `undefined`, `±Infinity`, `NaN`, `1.3` and `-0.5`.
 ///
-/// This literal must also exist in the `data.rs` string pool; see
-/// `target/lane-notes/temporal-instant-statics-integration.md`.
+/// Interned unconditionally in the `data.rs` string pool: `StringPool::payload`
+/// panics for a message that is not there, so a missing row is a compiler
+/// panic for every program that roots `Temporal.Instant`, not a wrong answer.
 pub(crate) const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str =
     "Temporal.Instant.fromEpochMilliseconds requires an integral Number";
 
@@ -32,23 +35,37 @@ pub(crate) const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str 
 /// TypeError, which only holds once this property shadows the ordinary
 /// `OrdinaryToPrimitive` fallthrough to `toString`.
 ///
-/// This literal must also exist in the `data.rs` string pool; see
-/// `target/lane-notes/temporal-instant-statics-integration.md`.
+/// Interned unconditionally in the `data.rs` string pool, for the same reason
+/// as the message above.
 pub(crate) const TEMPORAL_INSTANT_VALUE_OF_MESSAGE: &str =
     "Temporal.Instant does not support implicit conversion; use compare() or equals()";
 
-/// A `(payload, tag)` local pair holding epoch nanoseconds that
-/// `emit_temporal_instant_validate_range` has already accepted.
+/// A `(payload, tag)` local pair holding epoch nanoseconds that nothing has
+/// range-checked yet.
 ///
-/// The fields are module-private and the only constructor is
-/// `emit_temporal_instant_validated_epoch`, so `IsValidEpochNanoseconds` is
-/// validated exactly once per allocation site and "I forgot to range-check"
+/// Named fields rather than two positional `u32` parameters. The two locals are
+/// the same type and both spelled `..._local`, so a positional pair let a call
+/// site swap them in silence — and a swapped tag is not a loud failure: it makes
+/// `emit_temporal_instant_validate_range` miss its `tag == HEAP_BIGINT_VALUE_TAG`
+/// test, take the else branch, and skip validation altogether, quietly accepting
+/// an out-of-range epoch. Spelled at a struct literal, the swap has to be
+/// written down.
+#[derive(Clone, Copy)]
+pub(crate) struct UnvalidatedEpochNanoseconds {
+    pub(crate) payload_local: u32,
+    pub(crate) tag_local: u32,
+}
+
+/// The same pair, after `emit_temporal_instant_validate_range` has accepted it.
+///
+/// The wrapped field is module-private and the only constructor is
+/// [`FunctionBuilder::emit_temporal_instant_validated_epoch`], so an allocation
+/// path in this file cannot skip the range check — the type it needs simply
+/// cannot be produced any other way. `IsValidEpochNanoseconds` is therefore
+/// checked exactly once per allocation site, and "I forgot to range-check"
 /// stops being expressible rather than being left for a test to notice.
 #[derive(Clone, Copy)]
-struct EpochNanoseconds {
-    payload_local: u32,
-    tag_local: u32,
-}
+struct EpochNanoseconds(UnvalidatedEpochNanoseconds);
 
 impl<'a> FunctionBuilder<'a> {
     /// The only way to build an [`EpochNanoseconds`].
@@ -58,19 +75,11 @@ impl<'a> FunctionBuilder<'a> {
     /// this hands back is only observed on the in-range path.
     fn emit_temporal_instant_validated_epoch(
         &mut self,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
+        epoch: UnvalidatedEpochNanoseconds,
         function: &mut Function,
     ) -> Result<EpochNanoseconds, EmitError> {
-        self.emit_temporal_instant_validate_range(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
-        Ok(EpochNanoseconds {
-            payload_local: nanoseconds_payload_local,
-            tag_local: nanoseconds_tag_local,
-        })
+        self.emit_temporal_instant_validate_range(epoch.payload_local, epoch.tag_local, function)?;
+        Ok(EpochNanoseconds(epoch))
     }
 
     /// `CreateTemporalInstant(epochNanoseconds)` with the *intrinsic*
@@ -92,8 +101,8 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_instant(
-            epoch.payload_local,
-            epoch.tag_local,
+            epoch.0.payload_local,
+            epoch.0.tag_local,
             prototype_payload_local,
             function,
         )?;
@@ -116,10 +125,15 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
         &mut self,
         milliseconds_local: u32,
-        nanoseconds_payload_local: u32,
-        nanoseconds_tag_local: u32,
+        destination: UnvalidatedEpochNanoseconds,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<UnvalidatedEpochNanoseconds, EmitError> {
+        // Handed back so a caller chains `produce -> validate` on one value
+        // instead of naming the same two locals again at the validator.
+        let UnvalidatedEpochNanoseconds {
+            payload_local: nanoseconds_payload_local,
+            tag_local: nanoseconds_tag_local,
+        } = destination;
         let magnitude_local = self.reserve_temp_local();
         let negative_local = self.reserve_temp_local();
         let low_word_local = self.reserve_temp_local();
@@ -263,7 +277,7 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.release_temp_local(local);
         }
-        Ok(())
+        Ok(destination)
     }
 
     /// Temporal proposal 8.2.4 `Temporal.Instant.compare`.
@@ -350,32 +364,18 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
 
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(comparison_local));
-        self.emit_bigint_relational_i32(
-            RelationalBinaryOp::LessThan,
+        // One call into `bigint_arithmetic_helper`, not two. The helper's own
+        // answer is already the `-1`/`0`/`1` this returns; asking
+        // `emit_bigint_relational_i32` for `<` and then for `>` would pay for
+        // it twice and give the three-way domain two producers.
+        self.emit_bigint_compare_i64(
             left_epoch_payload_local,
             left_epoch_tag_local,
             right_epoch_payload_local,
             right_epoch_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::LocalSet(comparison_local));
-        function.instruction(&Instruction::End);
-        self.emit_bigint_relational_i32(
-            RelationalBinaryOp::GreaterThan,
-            left_epoch_payload_local,
-            left_epoch_tag_local,
-            right_epoch_payload_local,
-            right_epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(comparison_local));
-        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(comparison_local));
         function.instruction(&Instruction::F64ConvertI64S);
@@ -433,8 +433,10 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion_if_throw(function);
         let epoch = self.emit_temporal_instant_validated_epoch(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
+            UnvalidatedEpochNanoseconds {
+                payload_local: nanoseconds_payload_local,
+                tag_local: nanoseconds_tag_local,
+            },
             function,
         )?;
         self.emit_alloc_validated_temporal_instant(epoch, function)?;
@@ -514,17 +516,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncSatF64S);
         function.instruction(&Instruction::LocalSet(milliseconds_local));
-        self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
+        let widened = self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
             milliseconds_local,
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
+            UnvalidatedEpochNanoseconds {
+                payload_local: nanoseconds_payload_local,
+                tag_local: nanoseconds_tag_local,
+            },
             function,
         )?;
-        let epoch = self.emit_temporal_instant_validated_epoch(
-            nanoseconds_payload_local,
-            nanoseconds_tag_local,
-            function,
-        )?;
+        let epoch = self.emit_temporal_instant_validated_epoch(widened, function)?;
         self.emit_alloc_validated_temporal_instant(epoch, function)?;
 
         for local in [

@@ -10,6 +10,10 @@
 //! either question: bodies were pushed straight into a bare
 //! [`CodeSection`](wasm_encoder::CodeSection) as anonymous `Function` values.
 //!
+//! (The `[origin:unknown]` prefix is a separate thing — a `porffor-test262`
+//! `FailureOrigin`, classified from the detail text — and nothing here changes
+//! it. Naming the function is the whole claim.)
+//!
 //! This module closes that gap by construction rather than by convention:
 //!
 //! * [`EmittedFunction`] is the only thing [`ModuleCode::push`] accepts, and it

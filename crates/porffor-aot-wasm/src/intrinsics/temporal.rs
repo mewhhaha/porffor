@@ -7,6 +7,29 @@
 use super::super::*;
 use super::IntrinsicInstall;
 
+/// The property key a `Temporal.Instant` member is installed under, derived
+/// from the one place its name is already stated.
+///
+/// `native_function_name()` is what `Function.prototype.name` reports, so for a
+/// plain method it *is* the key. An accessor's name carries the spec's
+/// `get `/`set ` prefix (`get epochMilliseconds`), which the key does not, so
+/// the prefix is stripped rather than the key being written out a second time —
+/// a literal beside the id is a second spelling of a closed fact, and a typo in
+/// it installs a correctly-named function under the wrong key with nothing in
+/// the compiler noticing.
+fn temporal_instant_property_key(builtin: StandardBuiltinId) -> Result<&'static str, EmitError> {
+    let name = builtin.native_function_name().ok_or_else(|| {
+        EmitError::unsupported(format!(
+            "unsupported in porffor wasm-aot first slice: builtin `{}` has no native function name",
+            builtin.debug_name()
+        ))
+    })?;
+    Ok(name
+        .strip_prefix("get ")
+        .or_else(|| name.strip_prefix("set "))
+        .unwrap_or(name))
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn install_temporal_instant_constructor_intrinsics(
         &mut self,
@@ -32,18 +55,19 @@ impl<'a> FunctionBuilder<'a> {
         // Property installation order is observable through `Object.keys`, so
         // the statics go on in specification order and every one of them is
         // installed before the prototype is touched.
-        for (name, builtin) in [
-            ("from", StandardBuiltinId::TemporalInstantFrom),
-            (
-                "fromEpochMilliseconds",
-                StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
-            ),
-            (
-                "fromEpochNanoseconds",
-                StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
-            ),
-            ("compare", StandardBuiltinId::TemporalInstantCompare),
+        //
+        // The property key is *derived* from `native_function_name()`, not
+        // written beside the id. They are two spellings of one closed fact —
+        // `.name` already comes from `native_function_name()` — so a literal
+        // here could install `Temporal.Instant.prototype.toJson` under a
+        // correctly-named function with nothing in the compiler noticing.
+        for builtin in [
+            StandardBuiltinId::TemporalInstantFrom,
+            StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
+            StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
+            StandardBuiltinId::TemporalInstantCompare,
         ] {
+            let name = temporal_instant_property_key(builtin)?;
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
@@ -54,16 +78,11 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::GlobalGet(prototype_global_index));
         function.instruction(&Instruction::LocalSet(prototype_object_local));
-        for (name, builtin) in [
-            (
-                "epochMilliseconds",
-                StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
-            ),
-            (
-                "epochNanoseconds",
-                StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
-            ),
+        for builtin in [
+            StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
+            StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
         ] {
+            let name = temporal_instant_property_key(builtin)?;
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
@@ -86,45 +105,17 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        let to_string_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantPrototypeToString.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.prototype.toString`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "toString",
-            to_string_meta,
-            function,
-        )?;
-        let equals_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantPrototypeEquals.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.prototype.equals`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "equals",
-            equals_meta,
-            function,
-        )?;
         // `toJSON` and `toString` share an emitter but never a function object,
         // so each gets its own meta here; installing them from one meta would
         // make `Temporal.Instant.prototype.toJSON === ...toString` true, which
         // `toJSON/prop-desc.js` and `toJSON/name.js` observe.
-        for (name, builtin) in [
-            ("toJSON", StandardBuiltinId::TemporalInstantPrototypeToJson),
-            (
-                "valueOf",
-                StandardBuiltinId::TemporalInstantPrototypeValueOf,
-            ),
+        for builtin in [
+            StandardBuiltinId::TemporalInstantPrototypeToString,
+            StandardBuiltinId::TemporalInstantPrototypeEquals,
+            StandardBuiltinId::TemporalInstantPrototypeToJson,
+            StandardBuiltinId::TemporalInstantPrototypeValueOf,
         ] {
+            let name = temporal_instant_property_key(builtin)?;
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
