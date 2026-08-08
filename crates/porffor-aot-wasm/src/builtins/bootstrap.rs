@@ -1016,7 +1016,12 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEquals
             | StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantCompare
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
             | StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson
+            | StandardBuiltinId::TemporalInstantPrototypeValueOf
             | StandardBuiltinId::TemporalZonedDateTimeFrom
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
@@ -1619,22 +1624,49 @@ impl<'a> FunctionBuilder<'a> {
             get_canonical_locales_meta,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(constructor_local));
+        // One list, `INTL_NAMESPACE_CONSTRUCTORS`, decides both what the IR
+        // shape claims `Intl` has (`ScriptLowerer::intl_object_value_info`) and
+        // what actually gets installed here. They used to be two
+        // hand-maintained lists and they drifted: `DateTimeFormat` was declared
+        // and never installed, so constant-folded member access hid the gap —
+        // `new Intl.DateTimeFormat()` worked while
+        // `Object.getOwnPropertyDescriptor(Intl, "DateTimeFormat")`,
+        // `Object.keys(Intl)`, `Intl["DateTimeFormat"]` and destructuring all
+        // saw nothing. That is `intl402/DateTimeFormat/prop-desc.js`'s
+        // "Expected descriptor to exist".
+        //
+        // Installation order is `Object.getOwnPropertyNames(Intl)` order, so it
+        // is the slice's order and must not be sorted here.
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        self.emit_object_append_local_data_property_with_flags(
-            object_local,
-            "Locale",
-            constructor_local,
-            constructor_tag_local,
-            true,
-            false,
-            true,
-            function,
-        )?;
+        for (name, builtin) in INTL_NAMESPACE_CONSTRUCTORS {
+            if !self
+                .runtime_bootstrap_plan
+                .should_initialize_standard_builtin(*builtin)
+            {
+                continue;
+            }
+            let global_index =
+                standard_builtin_constructor_global_index(*builtin).ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: \
+                         missing Intl constructor global `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            function.instruction(&Instruction::GlobalGet(global_index));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                name,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),

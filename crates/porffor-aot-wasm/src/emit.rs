@@ -12,10 +12,15 @@ use crate::objects::{
 use porffor_ir::{
     FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind,
 };
+// `CodeSection` is deliberately absent from this list. Every code-section entry
+// now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
+// without an identity and records the body's measured size; keeping the raw
+// section unnameable here is what makes "emit a body without attributing it"
+// a compile error rather than a review finding. See `emitted_function.rs`.
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection,
-    Function, FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction,
-    MemorySection, MemoryType, Module, RefType, TableSection, TableType, TypeSection, ValType,
+    ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, Function,
+    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemorySection,
+    MemoryType, Module, RefType, TableSection, TableType, TypeSection, ValType,
 };
 
 use super::*;
@@ -847,16 +852,20 @@ fn emit_script_with_forced_builtins(
         + compiled_host_builtins.len();
     let heap_alloc_function_index =
         uses_heap.then_some(imported_function_count + 1 + callable_function_count as u32);
-    let object_append_data_property_function_index =
-        heap_alloc_function_index.map(|heap_alloc_function_index| heap_alloc_function_index + 1);
-    let object_append_accessor_property_function_index = object_append_data_property_function_index
-        .map(|append_function_index| append_function_index + 1);
-    let function_object_alloc_function_index = object_append_accessor_property_function_index
-        .map(|append_function_index| append_function_index + 1);
-    let plain_object_alloc_function_index = function_object_alloc_function_index
-        .map(|function_object_alloc_function_index| function_object_alloc_function_index + 1);
-    let array_alloc_function_index = plain_object_alloc_function_index
-        .map(|plain_object_alloc_function_index| plain_object_alloc_function_index + 1);
+    // Derived through `RuntimeHelperId::index` like every other helper index,
+    // not by chaining `+ 1` off the previous one. A `+ 1` chain keeps compiling
+    // — and keeps pointing one function too low — when a helper is inserted
+    // ahead of these six, while the enum's own arithmetic shifts with the list.
+    let object_append_data_property_function_index = heap_alloc_function_index
+        .map(|base| RuntimeHelperId::ObjectAppendDataProperty.index(base));
+    let object_append_accessor_property_function_index = heap_alloc_function_index
+        .map(|base| RuntimeHelperId::ObjectAppendAccessorProperty.index(base));
+    let function_object_alloc_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::FunctionObjectAlloc.index(base));
+    let plain_object_alloc_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::PlainObjectAlloc.index(base));
+    let array_alloc_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::ArrayAlloc.index(base));
     let mut main_builder = FunctionBuilder::new_main(
         script,
         &string_pool,
@@ -871,7 +880,9 @@ fn emit_script_with_forced_builtins(
         array_alloc_function_index,
     );
     let main_function = main_builder.compile()?;
-    let mut compiled_functions = Vec::with_capacity(callable_function_count);
+    // Every element is an `EmittedFunction`: a body that already knows which
+    // source-level function it belongs to and how many bytes it encodes to.
+    let mut compiled_functions: Vec<EmittedFunction> = Vec::with_capacity(callable_function_count);
     for function in &script.functions {
         let mut builder = FunctionBuilder::new_function(
             function,
@@ -887,7 +898,13 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::Script {
+                id: function.id.clone(),
+                name: function.name.clone(),
+            },
+            builder.compile()?,
+        ));
     }
     for builtin in &emitted_standard_builtins {
         let mut builder = FunctionBuilder::new_standard_builtin(
@@ -904,7 +921,10 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile_builtin()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::StandardBuiltin(*builtin),
+            builder.compile_builtin()?,
+        ));
     }
     if has_shared_stub {
         let stub_builtin = stubbed_standard_builtins
@@ -925,7 +945,10 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile_builtin()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::StandardBuiltinStub(stub_builtin),
+            builder.compile_builtin()?,
+        ));
     }
     for builtin in &compiled_host_builtins {
         let mut builder = FunctionBuilder::new_host_builtin(
@@ -940,7 +963,10 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile_builtin()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::HostBuiltin(*builtin),
+            builder.compile_builtin()?,
+        ));
     }
 
     // Shared object-read / object-write runtime helpers. These carry the large
@@ -1412,6 +1438,179 @@ fn emit_script_with_forced_builtins(
         })
         .transpose()?;
 
+    // Compiled helper bodies, keyed by identity rather than by position. The
+    // code section below is generated by walking `RuntimeHelperId::ALL` and
+    // draining this map, so emission order comes from the enum's declaration
+    // order alone and a helper whose body was compiled but never emitted (or
+    // vice versa) is a panic here instead of a silently shifted function index
+    // at every call site.
+    let mut helper_bodies: BTreeMap<RuntimeHelperId, Function> = BTreeMap::new();
+    if uses_heap {
+        let heap_alloc_index =
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled");
+        let append_data_index = object_append_data_property_function_index
+            .expect("object append helper index must exist when heap is enabled");
+        helper_bodies.insert(
+            RuntimeHelperId::HeapAlloc,
+            emit_heap_alloc_helper_function(),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectAppendDataProperty,
+            emit_object_append_data_property_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectAppendAccessorProperty,
+            emit_object_append_accessor_property_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::FunctionObjectAlloc,
+            emit_function_object_alloc_helper_function(heap_alloc_index, append_data_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::PlainObjectAlloc,
+            emit_plain_object_alloc_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ArrayAlloc,
+            emit_array_alloc_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectRead,
+            object_read_helper_function
+                .expect("object-read helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectWrite,
+            object_write_helper_function
+                .expect("object-write helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectDefineData,
+            object_define_data_helper_function
+                .expect("object-define-data helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ProxyCall,
+            proxy_call_helper_function.expect("proxy-call helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ProxyConstruct,
+            proxy_construct_helper_function
+                .expect("proxy-construct helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::StringEquality,
+            string_equality_helper_function
+                .expect("string-equality helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::NumberToString,
+            number_to_string_helper_function
+                .expect("number-to-string helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::StringToNumber,
+            string_to_number_helper_function
+                .expect("string-to-number helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToString,
+            value_to_string_helper_function
+                .expect("value-to-string helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToNumber,
+            value_to_number_helper_function
+                .expect("value-to-number helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToNumeric,
+            value_to_numeric_helper_function
+                .expect("value-to-numeric helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectGetPrototypeOf,
+            object_get_prototype_of_helper_function
+                .expect("get-prototype-of helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectIsExtensible,
+            object_is_extensible_helper_function
+                .expect("is-extensible helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectReadProxy,
+            object_read_proxy_helper_function
+                .expect("object-read-proxy helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::RegExpMatcher,
+            regexp_matcher_helper_function
+                .expect("regexp matcher helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::FunctionCall,
+            function_call_helper_function
+                .expect("function-call helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::DynamicPropertyRead,
+            dynamic_property_read_helper_function
+                .expect("dynamic property-read helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySetDataOnReceiver,
+            ordinary_set_data_on_receiver_helper_function
+                .expect("ordinary receiver-set helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback,
+            ordinary_set_data_on_receiver_with_fallback_helper_function
+                .expect("ordinary receiver-set fallback helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ArrayWrite,
+            array_write_helper_function
+                .expect("array-write helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySet,
+            ordinary_set_helper_function
+                .expect("ordinary-set helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySetWithoutReceiverFallback,
+            ordinary_set_without_receiver_fallback_helper_function
+                .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::DecimalToBinary64,
+            decimal_to_binary64_helper_function
+                .expect("decimal converter helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::BigIntArithmetic,
+            bigint_arithmetic_helper_function
+                .expect("BigInt arithmetic helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::TemporalCalendarIsoDateProbe,
+            temporal_calendar_iso_date_probe_helper_function
+                .expect("temporal calendar date-probe helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::TemporalCalendarIdentifier,
+            temporal_calendar_identifier_helper_function
+                .expect("temporal calendar identifier helper must exist when heap is enabled"),
+        );
+        if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
+            helper_bodies.insert(
+                RuntimeHelperId::JsonStringifyValue,
+                json_stringify_value_helper_function,
+            );
+        }
+    }
+
     let mut types = TypeSection::new();
     types.ty().function([], [ValType::I64]);
     if uses_function_table {
@@ -1477,71 +1676,24 @@ fn emit_script_with_forced_builtins(
 
     let main_wasm_index = imported_function_count;
 
+    // The function section, the code section, the helper-index accessors and
+    // the `debug_dump` helper count are all generated from one traversal of
+    // `RuntimeHelperId::ALL`. Before this they were four hand-maintained lists
+    // of the same 33 entries, and the `debug_dump` copy had already drifted
+    // (`27` against a counted 32 + 1).
+    let helper_emission = RuntimeHelperEmission {
+        uses_json_stringify,
+    };
     let mut functions = FunctionSection::new();
     functions.function(0);
     for _ in 0..callable_function_count {
         functions.function(JS_FUNCTION_TYPE_INDEX);
     }
     if uses_heap {
-        functions.function(HEAP_ALLOC_TYPE_INDEX);
-        functions.function(OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX);
-        functions.function(OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX);
-        functions.function(FUNCTION_OBJECT_ALLOC_TYPE_INDEX);
-        functions.function(PLAIN_OBJECT_ALLOC_TYPE_INDEX);
-        functions.function(ARRAY_ALLOC_TYPE_INDEX);
-        // object-read + object-write runtime helpers share the JS function type.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // object-define-data helper: seven i64 params, no results.
-        functions.function(OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX);
-        // proxy call + construct dispatch helpers share the JS function type.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // string-payload-equality helper (also the JS function type).
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // number-to-string + string-to-number conversion helpers.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dynamic ToString (value-to-string) helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dynamic ToNumber (value-to-number) helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dynamic ToNumeric (value-to-numeric) helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // proxy-aware [[GetPrototypeOf]] + [[IsExtensible]] helpers.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // proxy-aware [[Get]] helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // sequence-only RegExp matcher helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // plain function-call dispatcher helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // runtime-kind dynamic property-read helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // receiver-side OrdinarySet data-property helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // receiver-side OrdinarySet helper with generic write fallback.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dense/sparse Array element-write helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // OrdinarySet helper with an explicit receiver.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // OrdinarySet helper without generic receiver write fallback.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Exact decimal source text to binary64 conversion helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Arbitrary-precision BigInt arithmetic helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Temporal ParseTemporalCalendarString ISO-date probe helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Temporal ToTemporalCalendarIdentifier string-resolution helper.
-        // Both carry stub bodies unless a calendar-bearing Temporal builtin is
-        // compiled, so their fixed offsets never shift.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // JSON.stringify value helper (only when JSON.stringify is compiled).
-        if uses_json_stringify {
-            functions.function(JS_FUNCTION_TYPE_INDEX);
+        for helper in RuntimeHelperId::ALL {
+            if helper.is_emitted(helper_emission) {
+                functions.function(helper.type_index());
+            }
         }
     }
 
@@ -1665,166 +1817,49 @@ fn emit_script_with_forced_builtins(
         );
     }
 
-    let mut code = CodeSection::new();
-    code.function(&main_function);
-    for function in &compiled_functions {
-        code.function(function);
+    let mut code = ModuleCode::new(imported_function_count);
+    code.push(EmittedFunction::new(FunctionIdentity::Main, main_function));
+    for function in compiled_functions {
+        code.push(function);
     }
     if uses_heap {
-        code.function(&emit_heap_alloc_helper_function());
-        code.function(&emit_object_append_data_property_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_object_append_accessor_property_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_function_object_alloc_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-            object_append_data_property_function_index
-                .expect("object append helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_plain_object_alloc_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_array_alloc_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(
-            object_read_helper_function
-                .as_ref()
-                .expect("object-read helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_write_helper_function
-                .as_ref()
-                .expect("object-write helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_define_data_helper_function
-                .as_ref()
-                .expect("object-define-data helper must exist when heap is enabled"),
-        );
-        code.function(
-            proxy_call_helper_function
-                .as_ref()
-                .expect("proxy-call helper must exist when heap is enabled"),
-        );
-        code.function(
-            proxy_construct_helper_function
-                .as_ref()
-                .expect("proxy-construct helper must exist when heap is enabled"),
-        );
-        code.function(
-            string_equality_helper_function
-                .as_ref()
-                .expect("string-equality helper must exist when heap is enabled"),
-        );
-        code.function(
-            number_to_string_helper_function
-                .as_ref()
-                .expect("number-to-string helper must exist when heap is enabled"),
-        );
-        code.function(
-            string_to_number_helper_function
-                .as_ref()
-                .expect("string-to-number helper must exist when heap is enabled"),
-        );
-        code.function(
-            value_to_string_helper_function
-                .as_ref()
-                .expect("value-to-string helper must exist when heap is enabled"),
-        );
-        code.function(
-            value_to_number_helper_function
-                .as_ref()
-                .expect("value-to-number helper must exist when heap is enabled"),
-        );
-        code.function(
-            value_to_numeric_helper_function
-                .as_ref()
-                .expect("value-to-numeric helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_get_prototype_of_helper_function
-                .as_ref()
-                .expect("get-prototype-of helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_is_extensible_helper_function
-                .as_ref()
-                .expect("is-extensible helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_read_proxy_helper_function
-                .as_ref()
-                .expect("object-read-proxy helper must exist when heap is enabled"),
-        );
-        code.function(
-            regexp_matcher_helper_function
-                .as_ref()
-                .expect("regexp matcher helper must exist when heap is enabled"),
-        );
-        code.function(
-            function_call_helper_function
-                .as_ref()
-                .expect("function-call helper must exist when heap is enabled"),
-        );
-        code.function(
-            dynamic_property_read_helper_function
-                .as_ref()
-                .expect("dynamic property-read helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_data_on_receiver_helper_function
-                .as_ref()
-                .expect("ordinary receiver-set helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_data_on_receiver_with_fallback_helper_function
-                .as_ref()
-                .expect("ordinary receiver-set fallback helper must exist when heap is enabled"),
-        );
-        code.function(
-            array_write_helper_function
-                .as_ref()
-                .expect("array-write helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_helper_function
-                .as_ref()
-                .expect("ordinary-set helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_without_receiver_fallback_helper_function
-                .as_ref()
-                .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
-        );
-        code.function(
-            decimal_to_binary64_helper_function
-                .as_ref()
-                .expect("decimal converter helper must exist when heap is enabled"),
-        );
-        code.function(
-            bigint_arithmetic_helper_function
-                .as_ref()
-                .expect("BigInt arithmetic helper must exist when heap is enabled"),
-        );
-        code.function(
-            temporal_calendar_iso_date_probe_helper_function
-                .as_ref()
-                .expect("temporal calendar date-probe helper must exist when heap is enabled"),
-        );
-        code.function(
-            temporal_calendar_identifier_helper_function
-                .as_ref()
-                .expect("temporal calendar identifier helper must exist when heap is enabled"),
-        );
-        if let Some(json_stringify_value_helper_function) =
-            json_stringify_value_helper_function.as_ref()
-        {
-            code.function(json_stringify_value_helper_function);
+        for helper in RuntimeHelperId::ALL {
+            if !helper.is_emitted(helper_emission) {
+                continue;
+            }
+            let body = helper_bodies.remove(&helper).unwrap_or_else(|| {
+                panic!(
+                    "runtime helper `{}` is emitted in this module but has no compiled body",
+                    helper.debug_name()
+                )
+            });
+            code.push(EmittedFunction::new(
+                FunctionIdentity::RuntimeHelper(helper),
+                body,
+            ));
         }
     }
+    assert!(
+        helper_bodies.is_empty(),
+        "compiled runtime helper bodies were never emitted: {:?}",
+        helper_bodies.keys().collect::<Vec<_>>()
+    );
+    let (code, function_table) = code.finish();
+    // The function section and the code section must describe the same number
+    // of functions, or wasmtime rejects the module as malformed. This compares
+    // the code section's own record count against `FunctionSection`'s own
+    // counter — two independently maintained accumulators, one incremented by
+    // `FunctionSection::function` above and one by `ModuleCode::push` below it.
+    //
+    // Recomputing the expectation from `callable_function_count` and a second
+    // `RuntimeHelperId::ALL.filter(is_emitted)` walk would *not* be a check:
+    // both sides would derive from the same two variables and the assertion
+    // could never fire on any input.
+    assert_eq!(
+        u32::try_from(function_table.records().len()).expect("emitted function count fits u32"),
+        functions.len(),
+        "code section entries must match the function section declarations"
+    );
 
     let mut module = Module::new();
     module.section(&types);
@@ -1928,13 +1963,13 @@ fn emit_script_with_forced_builtins(
         format!("static result kind: {}", script.result_kind().as_str()),
         format!("locals: {}", main_builder.emitted_local_count()),
         format!("internal functions: {}", callable_function_count),
+        // Derived from the same table the bodies were pushed into, so it
+        // cannot go stale the way the previous hand-written `27` did: the
+        // counted truth was already 32 unconditional helpers plus one
+        // conditional one.
         format!(
             "runtime helper functions: {}",
-            if uses_heap {
-                27 + usize::from(uses_json_stringify)
-            } else {
-                0
-            }
+            function_table.runtime_helper_count()
         ),
         format!(
             "standard builtin bodies: {} real, {} shared-stubbed",
@@ -1975,6 +2010,49 @@ fn emit_script_with_forced_builtins(
         format!("export global: {THROW_ERROR_NAME_EXPORT}"),
         format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
     ];
+
+    // Emitted-size attribution. `tests/emit_golden.rs` records `debug_dump` per
+    // fixture, so these two lines make the largest emitted body a tracked
+    // artifact across all 527 CLI fixtures at no extra cost — and a
+    // `Code for function is too large` failure now has a named suspect instead
+    // of `[origin:unknown]`.
+    // Both lines use the `key=value` shape `ModuleFunctionTable::report_lines`
+    // uses, with `name=` **last**. Emitted names contain spaces
+    // (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`,
+    // `get #private`), so a positional layout cannot be parsed back: putting the
+    // free-form name last is what makes it unambiguous without quoting, and
+    // `tests/emit_golden.rs` parses exactly these keys.
+    match function_table.largest() {
+        Some(largest) => debug_dump.push(format!(
+            "largest emitted function: index={} bytes={} locals={} kind={} name={}",
+            largest.wasm_index,
+            largest.body_bytes.bytes(),
+            largest.declared_locals.count(),
+            largest.identity.category(),
+            largest.identity.wasm_name(),
+        )),
+        None => debug_dump.push("largest emitted function: none".to_string()),
+    }
+    // Reported separately because it is often a different function, and it is
+    // the one that predicts Cranelift's virtual-register exhaustion.
+    match function_table.most_locals() {
+        Some(most_locals) => debug_dump.push(format!(
+            "most locals in an emitted function: index={} bytes={} locals={} kind={} name={}",
+            most_locals.wasm_index,
+            most_locals.body_bytes.bytes(),
+            most_locals.declared_locals.count(),
+            most_locals.identity.category(),
+            most_locals.identity.wasm_name(),
+        )),
+        None => debug_dump.push("most locals in an emitted function: none".to_string()),
+    }
+    debug_dump.push(format!(
+        "emitted code bytes: {}",
+        function_table.total_body_bytes()
+    ));
+    if emit_size_report_requested() {
+        debug_dump.extend(function_table.report_lines(usize::MAX));
+    }
     if uses_host_print {
         debug_dump.push(format!(
             "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRINT_LINE_UTF8}"
@@ -2084,6 +2162,30 @@ fn emit_script_with_forced_builtins(
         module.section(&code);
         debug_dump.push("memory: none".to_string());
         debug_dump.push("data segments: 0".to_string());
+    }
+
+    // The Wasm custom `name` section, built from the same identity table that
+    // measured every body. Wasmtime composes its per-function symbol as
+    // `wasm[0]::function[N]::<clean_symbol(name)>` from exactly this section
+    // (wasmtime/src/compile.rs), so a native-compilation failure that used to
+    // read `[origin:unknown] ... Code for function is too large` can now name
+    // the function it is about. Custom sections are ignored by validation and
+    // do not participate in `largest_wasm_code_body_size`, so this does not
+    // move the engine's size-optimized routing threshold.
+    module.section(&function_table.name_section());
+    debug_dump.push(format!(
+        "name section: {} named functions",
+        function_table.records().len()
+    ));
+
+    // Report-only by default: a budget below the largest body Cranelift accepts
+    // today would turn green tests red, and that maximum has not been measured
+    // across the fixture corpus yet. Opt in with
+    // `PORFFOR_EMIT_FUNCTION_BODY_BUDGET_BYTES` to have the compiler fail in
+    // milliseconds with a named function instead of waiting ~37 s for Cranelift
+    // to fail anonymously.
+    if let Some(budget) = FunctionBodyBudget::from_env() {
+        function_table.check_budget(budget)?;
     }
 
     // Builtins codegen proved reachable (materialized or direct-called) while
@@ -2453,155 +2555,181 @@ impl<'a> FunctionBuilder<'a> {
     /// Wasm function index of the shared object-read runtime helper. It is
     /// emitted immediately after the six heap/object allocation helpers.
     pub(crate) fn object_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 6)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectRead.index(base))
     }
 
     /// Wasm function index of the shared object-write runtime helper.
     pub(crate) fn object_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 7)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectWrite.index(base))
     }
 
     /// Wasm function index of the shared object-define-data runtime helper.
     pub(crate) fn object_define_data_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 8)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectDefineData.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware call-dispatch helper.
     pub(crate) fn proxy_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 9)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ProxyCall.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware construct-dispatch helper.
     pub(crate) fn proxy_construct_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 10)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ProxyConstruct.index(base))
     }
 
     /// Wasm function index of the shared string-equality helper.
     pub(crate) fn string_equality_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 11)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::StringEquality.index(base))
     }
 
     /// Wasm function index of the shared number-to-string helper.
     pub(crate) fn number_to_string_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 12)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::NumberToString.index(base))
     }
 
     /// Wasm function index of the shared string-to-number helper.
     pub(crate) fn string_to_number_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 13)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::StringToNumber.index(base))
     }
 
     /// Wasm function index of the shared dynamic ToString (value-to-string)
     /// helper.
     pub(crate) fn value_to_string_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 14)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToString.index(base))
     }
 
     /// Wasm function index of the shared dynamic ToNumber (value-to-number)
     /// helper. Unconditional (like value-to-string) so its fixed offset never
     /// shifts.
     pub(crate) fn value_to_number_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 15)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToNumber.index(base))
     }
 
     /// Wasm function index of the shared dynamic ToNumeric helper.
     pub(crate) fn value_to_numeric_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 16)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToNumeric.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[GetPrototypeOf]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_get_prototype_of_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 17)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectGetPrototypeOf.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[IsExtensible]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_is_extensible_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 18)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectIsExtensible.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[Get]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_read_proxy_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 19)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectReadProxy.index(base))
     }
 
     /// Wasm function index of the sequence-only RegExp matcher helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn regexp_matcher_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 20)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::RegExpMatcher.index(base))
     }
 
     /// Wasm function index of the shared plain function-call dispatcher.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn function_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 21)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::FunctionCall.index(base))
     }
 
     /// Wasm function index of the runtime-kind dynamic property-read helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn dynamic_property_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 22)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::DynamicPropertyRead.index(base))
     }
 
     /// Wasm function index of the receiver-side OrdinarySet data-property
     /// helper. Unconditional (emitted whenever heap is used) so its fixed
     /// offset never shifts.
     pub(crate) fn ordinary_set_data_on_receiver_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 23)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySetDataOnReceiver.index(base))
     }
 
     pub(crate) fn ordinary_set_data_on_receiver_with_fallback_helper_function_index(
         &self,
     ) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 24)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback.index(base))
     }
 
     /// Wasm function index of the shared dense/sparse Array element-write helper.
     pub(crate) fn array_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 25)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ArrayWrite.index(base))
     }
 
     /// Wasm function index of the shared OrdinarySet helper with an explicit receiver.
     pub(crate) fn ordinary_set_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 26)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySet.index(base))
     }
 
     pub(crate) fn ordinary_set_without_receiver_fallback_helper_function_index(
         &self,
     ) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 27)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySetWithoutReceiverFallback.index(base))
     }
 
     /// Wasm function index of the exact decimal source-text to binary64 helper.
     pub(crate) fn decimal_to_binary64_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 28)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::DecimalToBinary64.index(base))
     }
 
     /// Wasm function index of the shared arbitrary-precision BigInt arithmetic
     /// helper.
     pub(crate) fn bigint_arithmetic_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 29)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::BigIntArithmetic.index(base))
     }
 
     /// Wasm function index of the Temporal ISO-date calendar-probe helper.
     /// Always emitted (stubbed when no calendar-bearing Temporal builtin is
     /// compiled) so its fixed offset never shifts.
     pub(crate) fn temporal_calendar_iso_date_probe_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 30)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::TemporalCalendarIsoDateProbe.index(base))
     }
 
     /// Wasm function index of the shared `ToTemporalCalendarIdentifier`
     /// string-resolution helper. Always emitted (stubbed when unused).
     pub(crate) fn temporal_calendar_identifier_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 31)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::TemporalCalendarIdentifier.index(base))
     }
 
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
@@ -2609,7 +2737,8 @@ impl<'a> FunctionBuilder<'a> {
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 32)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::JsonStringifyValue.index(base))
     }
 
     pub(crate) fn local_count(&self) -> usize {
@@ -2652,6 +2781,15 @@ impl<'a> FunctionBuilder<'a> {
         assert_eq!(local, expected);
     }
 
+    /// Rewrites the body's local declaration down to the locals actually used.
+    ///
+    /// This is the single funnel every compiled body passes through, but it is
+    /// deliberately *not* where attribution happens: six of its call sites live
+    /// in `bigint.rs`, `builtins/{temporal,json,decimal,regexp}.rs`, and the six
+    /// heap/alloc helpers never reach it at all. Attribution instead lives at
+    /// the one point every code-section element does pass through —
+    /// [`EmittedFunction::new`], which measures the finished body and is the
+    /// only thing [`ModuleCode::push`] accepts. See `emitted_function.rs`.
     pub(crate) fn finish_function(&self, function: Function) -> Function {
         let planned_local_count = self.local_count() as u32;
         let emitted_local_count = self.emitted_local_count();

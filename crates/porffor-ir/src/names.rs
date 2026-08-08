@@ -1,3 +1,5 @@
+use crate::StandardBuiltinId;
+
 pub(crate) const SCRIPT_OWNER_ID: &str = "$script";
 pub(crate) const MAX_STATIC_ARRAY_SHAPE_INDEX: usize = 1_000_000;
 pub(crate) const MAX_ARRAY_INDEX: f64 = 4_294_967_294.0;
@@ -184,6 +186,30 @@ pub const TEMPORAL_DURATION_NAME: &str = "Duration";
 pub const INTL_NAME: &str = "Intl";
 pub const INTL_LOCALE_NAME: &str = "Locale";
 pub const INTL_DATE_TIME_FORMAT_NAME: &str = "DateTimeFormat";
+
+/// The `Intl` namespace object's constructor-valued members, in **installation
+/// order** — `Object.getOwnPropertyNames(Intl)` reports this order, so it is
+/// observable and both the IR shape and the emitter must walk it.
+///
+/// This slice is the single declaration of "what is on `Intl`". Before it
+/// existed, `ScriptLowerer::intl_object_value_info` and
+/// `FunctionBuilder::init_intl_object` were two hand-maintained lists of the
+/// same set, and they had already drifted: `DateTimeFormat` was in the shape and
+/// not in the installer, so constant-folded `new Intl.DateTimeFormat()` worked
+/// while `Object.getOwnPropertyDescriptor(Intl, "DateTimeFormat")` saw nothing.
+/// That is `intl402/DateTimeFormat/prop-desc.js`.
+///
+/// `getCanonicalLocales` and `Symbol.toStringTag` are deliberately not here:
+/// they are not constructor globals, so they have no
+/// `standard_builtin_constructor_global_index` to load and are installed
+/// directly by their own code on both sides.
+pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
+    (
+        INTL_DATE_TIME_FORMAT_NAME,
+        StandardBuiltinId::IntlDateTimeFormatConstructor,
+    ),
+    (INTL_LOCALE_NAME, StandardBuiltinId::IntlLocaleConstructor),
+];
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";
 pub const ATOMICS_NAME: &str = "Atomics";
@@ -967,6 +993,11 @@ pub const BUILTIN_TEMPORAL_DURATION_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
     "$builtin.Temporal.Duration.prototype.valueOf";
 pub const BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID: &str = "$builtin.Temporal.Instant";
 pub const BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID: &str = "$builtin.Temporal.Instant.from";
+pub const BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID: &str = "$builtin.Temporal.Instant.compare";
+pub const BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.fromEpochMilliseconds";
+pub const BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.fromEpochNanoseconds";
 pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID: &str =
     "$builtin.Temporal.Instant.prototype.epochMilliseconds.get";
 pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID: &str =
@@ -975,6 +1006,10 @@ pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
     "$builtin.Temporal.Instant.prototype.equals";
 pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
     "$builtin.Temporal.Instant.prototype.toString";
+pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.prototype.toJSON";
+pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
+    "$builtin.Temporal.Instant.prototype.valueOf";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID: &str = "$builtin.Temporal.ZonedDateTime";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.from";

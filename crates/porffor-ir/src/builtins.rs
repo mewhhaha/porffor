@@ -387,12 +387,16 @@ use crate::{
     BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_STRING_RAW_FUNCTION_ID, BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID,
     BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
-    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID,
-    BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID,
+    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID, BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID,
     BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID,
@@ -1090,10 +1094,15 @@ pub enum StandardBuiltinId {
     TemporalNowZonedDateTimeIso,
     TemporalInstantConstructor,
     TemporalInstantFrom,
+    TemporalInstantCompare,
+    TemporalInstantFromEpochMilliseconds,
+    TemporalInstantFromEpochNanoseconds,
     TemporalInstantPrototypeEpochMillisecondsGetter,
     TemporalInstantPrototypeEpochNanosecondsGetter,
     TemporalInstantPrototypeEquals,
     TemporalInstantPrototypeToString,
+    TemporalInstantPrototypeToJson,
+    TemporalInstantPrototypeValueOf,
     TemporalZonedDateTimeConstructor,
     TemporalZonedDateTimeFrom,
     TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
@@ -1657,10 +1666,15 @@ impl StandardBuiltinId {
             | Self::TemporalNowZonedDateTimeIso
             | Self::TemporalInstantConstructor
             | Self::TemporalInstantFrom
+            | Self::TemporalInstantCompare
+            | Self::TemporalInstantFromEpochMilliseconds
+            | Self::TemporalInstantFromEpochNanoseconds
             | Self::TemporalInstantPrototypeEpochMillisecondsGetter
             | Self::TemporalInstantPrototypeEpochNanosecondsGetter
             | Self::TemporalInstantPrototypeEquals
             | Self::TemporalInstantPrototypeToString
+            | Self::TemporalInstantPrototypeToJson
+            | Self::TemporalInstantPrototypeValueOf
             | Self::TemporalZonedDateTimeConstructor
             | Self::TemporalZonedDateTimeFrom
             | Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
@@ -2803,6 +2817,9 @@ impl StandardBuiltinId {
             Self::TemporalNowZonedDateTimeIso => "Temporal.Now.zonedDateTimeISO",
             Self::TemporalInstantConstructor => "Temporal.Instant",
             Self::TemporalInstantFrom => "Temporal.Instant.from",
+            Self::TemporalInstantCompare => "Temporal.Instant.compare",
+            Self::TemporalInstantFromEpochMilliseconds => "Temporal.Instant.fromEpochMilliseconds",
+            Self::TemporalInstantFromEpochNanoseconds => "Temporal.Instant.fromEpochNanoseconds",
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 "get Temporal.Instant.prototype.epochMilliseconds"
             }
@@ -2811,6 +2828,8 @@ impl StandardBuiltinId {
             }
             Self::TemporalInstantPrototypeEquals => "Temporal.Instant.prototype.equals",
             Self::TemporalInstantPrototypeToString => "Temporal.Instant.prototype.toString",
+            Self::TemporalInstantPrototypeToJson => "Temporal.Instant.prototype.toJSON",
+            Self::TemporalInstantPrototypeValueOf => "Temporal.Instant.prototype.valueOf",
             Self::TemporalZonedDateTimeConstructor => "Temporal.ZonedDateTime",
             Self::TemporalZonedDateTimeFrom => "Temporal.ZonedDateTime.from",
             Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
@@ -4282,6 +4301,15 @@ impl StandardBuiltinId {
             }
             Self::TemporalInstantConstructor => BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID.to_string(),
             Self::TemporalInstantFrom => BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID.to_string(),
+            Self::TemporalInstantCompare => {
+                BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantFromEpochMilliseconds => {
+                BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantFromEpochNanoseconds => {
+                BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID.to_string()
+            }
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID.to_string()
             }
@@ -4293,6 +4321,12 @@ impl StandardBuiltinId {
             }
             Self::TemporalInstantPrototypeToString => {
                 BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeToJson => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeValueOf => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
             }
             Self::TemporalZonedDateTimeConstructor => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID.to_string()
@@ -5831,6 +5865,13 @@ impl StandardBuiltinId {
             }
             BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID => Some(Self::TemporalInstantConstructor),
             BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID => Some(Self::TemporalInstantFrom),
+            BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID => Some(Self::TemporalInstantCompare),
+            BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID => {
+                Some(Self::TemporalInstantFromEpochMilliseconds)
+            }
+            BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID => {
+                Some(Self::TemporalInstantFromEpochNanoseconds)
+            }
             BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID => {
                 Some(Self::TemporalInstantPrototypeEpochMillisecondsGetter)
             }
@@ -5842,6 +5883,12 @@ impl StandardBuiltinId {
             }
             BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID => {
                 Some(Self::TemporalInstantPrototypeToString)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeToJson)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeValueOf)
             }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimeConstructor)
@@ -6814,10 +6861,15 @@ impl StandardBuiltinId {
             Self::TemporalNowZonedDateTimeIso,
             Self::TemporalInstantConstructor,
             Self::TemporalInstantFrom,
+            Self::TemporalInstantCompare,
+            Self::TemporalInstantFromEpochMilliseconds,
+            Self::TemporalInstantFromEpochNanoseconds,
             Self::TemporalInstantPrototypeEpochMillisecondsGetter,
             Self::TemporalInstantPrototypeEpochNanosecondsGetter,
             Self::TemporalInstantPrototypeEquals,
             Self::TemporalInstantPrototypeToString,
+            Self::TemporalInstantPrototypeToJson,
+            Self::TemporalInstantPrototypeValueOf,
             Self::TemporalZonedDateTimeConstructor,
             Self::TemporalZonedDateTimeFrom,
             Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
@@ -7844,10 +7896,15 @@ impl StandardBuiltinId {
             Self::TemporalNowZonedDateTimeIso => Some("zonedDateTimeISO"),
             Self::TemporalInstantConstructor => Some(TEMPORAL_INSTANT_NAME),
             Self::TemporalInstantFrom => Some("from"),
+            Self::TemporalInstantCompare => Some("compare"),
+            Self::TemporalInstantFromEpochMilliseconds => Some("fromEpochMilliseconds"),
+            Self::TemporalInstantFromEpochNanoseconds => Some("fromEpochNanoseconds"),
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => Some("get epochMilliseconds"),
             Self::TemporalInstantPrototypeEpochNanosecondsGetter => Some("get epochNanoseconds"),
             Self::TemporalInstantPrototypeEquals => Some("equals"),
             Self::TemporalInstantPrototypeToString => Some("toString"),
+            Self::TemporalInstantPrototypeToJson => Some("toJSON"),
+            Self::TemporalInstantPrototypeValueOf => Some("valueOf"),
             Self::TemporalZonedDateTimeConstructor => Some("ZonedDateTime"),
             Self::TemporalZonedDateTimeFrom => Some("from"),
             Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {

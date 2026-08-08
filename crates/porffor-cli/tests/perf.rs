@@ -33,7 +33,8 @@ fn chunk_cases() -> Vec<String> {
     // `benchmarks/wasm-aot-20.txt` is machine-local (gitignored via `*.txt`), so
     // it must be read at run time: `include_str!` made every fresh clone fail
     // `cargo check --all-targets` even though this test is `#[ignore]`d.
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/wasm-aot-20.txt");
+    let manifest =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/wasm-aot-20.txt");
     let contents = std::fs::read_to_string(&manifest).unwrap_or_else(|err| {
         panic!(
             "benchmark manifest {} is required to run this benchmark: {err}",

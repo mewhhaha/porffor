@@ -98,6 +98,29 @@ fn capture(source_text: &str) -> (String, Option<String>) {
     }
 }
 
+/// Pulls the `largest emitted function:` line out of a backend `debug_dump` and
+/// splits it into `(bytes, name)`.
+///
+/// The line is emitted unconditionally by `emit()` and has the shape
+/// `largest emitted function: <name> (<kind>) <n> bytes at index <i>`. Parsing
+/// it here rather than threading a second return value out of `emit()` keeps the
+/// public artifact surface unchanged: the dump is the contract this test already
+/// depends on.
+fn largest_function(debug_dump: &str) -> Option<(u64, String)> {
+    const PREFIX: &str = "largest emitted function: ";
+    let line = debug_dump
+        .lines()
+        .find_map(|line| line.strip_prefix(PREFIX))?;
+    let fields = line.split(' ').collect::<Vec<_>>();
+    let name = (*fields.first()?).to_string();
+    let bytes_position = fields.iter().position(|field| *field == "bytes")?;
+    let bytes = fields
+        .get(bytes_position.checked_sub(1)?)?
+        .parse::<u64>()
+        .ok()?;
+    Some((bytes, name))
+}
+
 #[test]
 fn capture_emit_golden() {
     let Some(output_root) = std::env::var_os(OUTPUT_DIR_ENV) else {
@@ -158,13 +181,18 @@ fn capture_emit_golden() {
                                 });
 
                                 let (summary, debug_dump) = capture(&source_text);
+                                let largest = debug_dump.as_deref().and_then(largest_function);
                                 if let Some(dump) = debug_dump {
                                     fs::write(dumps.join(format!("{name}.dump")), dump)
                                         .unwrap_or_else(|err| {
                                             panic!("failed to write dump for {name}: {err}")
                                         });
                                 }
-                                (index, format!("{name} {summary}\n"))
+                                (
+                                    index,
+                                    format!("{name} {summary}\n"),
+                                    largest.map(|largest| (largest.0, largest.1, name.clone())),
+                                )
                             })
                             .collect::<Vec<_>>()
                     })
@@ -182,11 +210,31 @@ fn capture_emit_golden() {
             .collect::<Vec<_>>();
         // Restore fixture order so the manifest is byte-comparable across runs
         // regardless of how work happened to be distributed.
-        lines.sort_by_key(|(index, _)| *index);
+        lines.sort_by_key(|(index, _, _)| *index);
         lines
     });
 
-    let manifest = lines.into_iter().map(|(_, line)| line).collect::<String>();
+    // Cross-fixture size ranking. The per-fixture dump already carries the
+    // largest emitted function, but the question a `Code for function is too
+    // large` failure actually asks is "which function is biggest anywhere", and
+    // answering it should not require grepping 527 dumps by hand.
+    let mut largest_functions = lines
+        .iter()
+        .filter_map(|(_, _, largest)| largest.clone())
+        .collect::<Vec<_>>();
+    largest_functions.sort_by(|left, right| right.0.cmp(&left.0).then(left.2.cmp(&right.2)));
+    let largest_report = largest_functions
+        .iter()
+        .map(|(bytes, function, fixture)| format!("{bytes} {fixture} {function}\n"))
+        .collect::<String>();
+    let largest_path = output_root.join("largest-functions.txt");
+    fs::write(&largest_path, &largest_report)
+        .unwrap_or_else(|err| panic!("failed to write {}: {err}", largest_path.display()));
+
+    let manifest = lines
+        .into_iter()
+        .map(|(_, line, _)| line)
+        .collect::<String>();
 
     let manifest_path = output_root.join("manifest.txt");
     fs::write(&manifest_path, &manifest)

@@ -36664,6 +36664,15 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalInstantFrom => {
                 self.emit_temporal_instant_from(function)?;
             }
+            StandardBuiltinId::TemporalInstantCompare => {
+                self.emit_temporal_instant_compare(function)?;
+            }
+            StandardBuiltinId::TemporalInstantFromEpochMilliseconds => {
+                self.emit_temporal_instant_from_epoch_milliseconds(function)?;
+            }
+            StandardBuiltinId::TemporalInstantFromEpochNanoseconds => {
+                self.emit_temporal_instant_from_epoch_nanoseconds(function)?;
+            }
             StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 self.emit_temporal_instant_epoch_milliseconds(function)?;
             }
@@ -36673,8 +36682,18 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalInstantPrototypeEquals => {
                 self.emit_temporal_instant_equals(function)?;
             }
-            StandardBuiltinId::TemporalInstantPrototypeToString => {
+            // `toJSON` is `TemporalInstantToString(instant, AUTO)` — the same
+            // body, but a distinct function object: `toJSON/prop-desc.js` and
+            // `toJSON/name.js` observe that it is not `toString`. Because the
+            // emitter reads no arguments, `toJSON/basic.js`'s throwing Proxy
+            // options bag ("should not get properties off argument") passes
+            // without any extra guard.
+            StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 self.emit_temporal_instant_to_string(function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeValueOf => {
+                self.emit_temporal_instant_value_of(function)?;
             }
             StandardBuiltinId::TemporalPlainDateConstructor => {
                 self.emit_temporal_plain_date_constructor(function)?;

@@ -1500,7 +1500,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalInstantFrom
+        | StandardBuiltinId::TemporalInstantCompare
+        | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+        | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
         | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToJson
+        | StandardBuiltinId::TemporalInstantPrototypeValueOf
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
@@ -1904,6 +1909,30 @@ impl EmitError {
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+        }
+    }
+
+    /// A function body exceeded the configured per-function budget.
+    ///
+    /// The constructor takes the [`FunctionIdentity`] rather than a name or a
+    /// bare size, so this diagnostic cannot be produced without knowing which
+    /// function it is about — precisely what the `[origin:unknown] ... Code for
+    /// function is too large` failure lacks. The budget arrives as a
+    /// [`FunctionBodyBudget`], validated once at construction, so there is no
+    /// bare `u32` threshold to mis-thread.
+    pub(crate) fn function_too_large(
+        identity: &FunctionIdentity,
+        body_bytes: FunctionBodySize,
+        budget: FunctionBodyBudget,
+    ) -> Self {
+        Self {
+            message: format!(
+                "emitted function body exceeds the configured budget: {} ({}) is {} against a budget of {}",
+                identity.wasm_name(),
+                identity.category(),
+                body_bytes,
+                budget
+            ),
         }
     }
 }

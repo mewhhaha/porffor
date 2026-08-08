@@ -175,6 +175,43 @@ fn run_wasm_backend_succeeds_for_date_to_temporal_instant_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_temporal_instant_statics_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_instant_statics.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    // The expected rendering is spelled out here rather than recomputed in the
+    // fixture, so a wrong ISO string cannot match itself.
+    assert!(
+        stdout.contains(
+            "temporal-instant-statics:\
+             lt|gt|eq|gt|eq|gt|eq|\
+             1970-01-01T00:00:00Z|\
+             1976-11-18T14:23:30.123Z|\
+             1963-02-13T09:36:29.124Z|\
+             1976-11-18T14:23:30.123456789Z|\
+             1969-07-24T16:50:35.000000001Z|\
+             1970-01-01T00:00:30.123456Z|\
+             +275760-09-13T00:00:00Z|\
+             -271821-04-20T00:00:00Z"
+        ),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_date_to_json_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")

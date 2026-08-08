@@ -10,8 +10,13 @@
 //! `emit_temporal_civil_from_days`, the inverse of `emit_temporal_days_from_civil`,
 //! which date arithmetic needs to turn an epoch-day count back into a civil
 //! date.
+//!
+//! The calendar is likewise `temporal_plain_date.rs`'s: `era`/`eraYear` are the
+//! shared `emit_temporal_calendar_era_field`, so a `gregory` `PlainDateTime`
+//! and a `gregory` `PlainDate` cannot disagree about the year-0 boundary.
 
 use super::super::*;
+use super::temporal_plain_date::TemporalEraField;
 
 /// The first epoch day a `PlainDateTime` may name. Equal to
 /// `TEMPORAL_PLAIN_DATE_MINIMUM_EPOCH_DAY`: `PlainDate` may hold the whole day,
@@ -568,13 +573,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
-            // The ISO 8601 calendar has no eras, so both slots are `undefined`.
-            StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter
-            | StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter => {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraGetter => {
+                self.emit_temporal_calendar_era_field(
+                    calendar_payload_local,
+                    field_locals[0],
+                    TemporalEraField::Era,
+                    function,
+                );
+            }
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter => {
+                self.emit_temporal_calendar_era_field(
+                    calendar_payload_local,
+                    field_locals[0],
+                    TemporalEraField::EraYear,
+                    function,
+                );
             }
             StandardBuiltinId::TemporalPlainDateTimePrototypeInLeapYearGetter => {
                 self.emit_temporal_iso_year_is_leap_i32(field_locals[0], function);

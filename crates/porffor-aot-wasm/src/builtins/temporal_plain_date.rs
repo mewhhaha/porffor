@@ -5,11 +5,184 @@
 //! `RejectISODate` bounds every field, so nothing here needs the BigInt
 //! machinery the epoch-nanosecond types carry.
 //!
-//! Only the ISO 8601 calendar exists in this backend (see
-//! `emit_temporal_plain_date_calendar`), so `era`/`eraYear` are always
-//! `undefined` and `monthsInYear` is always 12.
+//! Two calendars exist in this backend, [`TemporalCalendarId::Iso8601`] and
+//! [`TemporalCalendarId::Gregory`], and they share every piece of arithmetic:
+//! `gregory` *is* the proleptic Gregorian calendar, which is what the ISO 8601
+//! calendar computes, so `monthCode`, `day`, `daysInMonth`, `daysInYear`,
+//! `monthsInYear`, `inLeapYear`, `dayOfWeek`, `dayOfYear`, `weekOfYear` and
+//! `yearOfWeek` are bit-identical for the two and need no calendar dispatch at
+//! all. They differ in exactly three observable ways, and each has one owner
+//! here:
+//!
+//! * `era`/`eraYear` — [`FunctionBuilder::emit_temporal_calendar_era_field`].
+//!   ISO 8601 has no eras; `gregory` has `ce`/`bce`.
+//! * `calendarName: "auto"` prints `[u-ca=gregory]` and suppresses
+//!   `[u-ca=iso8601]` —
+//!   [`FunctionBuilder::emit_temporal_calendar_is_default_i32`], which also
+//!   decides `TemporalYearMonthToString`'s reference day and
+//!   `TemporalMonthDayToString`'s reference year.
+//! * `until`/`since` refuse a calendar mismatch —
+//!   [`FunctionBuilder::emit_temporal_require_same_calendar`].
+//!
+//! Not implemented, and deliberately: resolving a `gregory` property bag from
+//! `{ era, eraYear }` instead of `{ year }`. That is a `CalendarResolveFields`
+//! feature, not an identifier feature, and every test for it is under
+//! `intl402/Temporal`.
 
 use super::super::*;
+
+/// Every calendar identifier this backend answers to.
+///
+/// A closed enum rather than a `&str` compared at each site. `CanonicalizeCalendar`,
+/// `era`, `eraYear`, `FormatCalendarAnnotation` and `CalendarEquals` each have
+/// to decide something per calendar; an exhaustive `match` over this enum is
+/// what turns "you added `japanese` and forgot `eraYear`" into a compile error.
+/// There is deliberately **no** `_` arm anywhere this enum is matched — a
+/// catch-all here is a silent wrong answer, not a missing feature.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalCalendarId {
+    /// The proposal's default. No eras, and `calendarName: "auto"` suppresses
+    /// its annotation.
+    Iso8601,
+    /// Proleptic Gregorian. Identical arithmetic to [`Self::Iso8601`]; it adds
+    /// the `ce`/`bce` era pair and is always annotated under `auto`.
+    Gregory,
+}
+
+impl TemporalCalendarId {
+    /// Every calendar, in the order `CanonicalizeCalendar` tests them. Order is
+    /// not observable — the spellings are disjoint — but keeping the default
+    /// first keeps the common case's compare first.
+    pub(crate) const ALL: [Self; 2] = [Self::Iso8601, Self::Gregory];
+
+    /// `ToTemporalCalendarIdentifier(undefined)`.
+    pub(crate) const DEFAULT: Self = Self::Iso8601;
+
+    /// The single spelling every `[[Calendar]]` slot stores and every
+    /// `calendarId` reports. Canonicalisation happens once, in
+    /// [`FunctionBuilder::emit_temporal_canonicalize_calendar`], so no code
+    /// downstream of a slot has to case-fold or alias again.
+    ///
+    /// Must agree with `INTL_DTF_ACCEPTED_CALENDARS` in
+    /// `builtins/intl_datetimeformat.rs`; the integration note for this batch
+    /// carries the `const` assertion that pins the two together.
+    pub(crate) const fn canonical(self) -> &'static str {
+        match self {
+            Self::Iso8601 => "iso8601",
+            Self::Gregory => "gregory",
+        }
+    }
+
+    /// Every spelling `CanonicalizeCalendar` accepts, matched
+    /// ASCII-case-insensitively. The canonical spelling is always one of them.
+    pub(crate) const fn spellings(self) -> &'static [&'static str] {
+        match self {
+            Self::Iso8601 => &["iso8601"],
+            // `gregorian` is the Unicode CLDR alias of `gregory`; CLDR's
+            // alias table is normative for `CanonicalizeCalendar`, so both
+            // spellings must resolve to the one canonical `gregory`.
+            Self::Gregory => &["gregory", "gregorian"],
+        }
+    }
+}
+
+/// Which half of the `era`/`eraYear` accessor pair an emitter is producing.
+///
+/// One emitter serves both, so the pair cannot disagree about where the year-0
+/// boundary falls; this names which answer the caller wants out of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalEraField {
+    Era,
+    EraYear,
+}
+
+/// The two eras of the proleptic Gregorian calendar.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Era {
+    Ce,
+    Bce,
+}
+
+impl Era {
+    /// The identifier `era` reports. Lowercase, per the CLDR era codes the
+    /// proposal adopted (`"ce"`/`"bce"`, not `"AD"`/`"BC"`).
+    pub(crate) const fn code(self) -> &'static str {
+        match self {
+            Self::Ce => "ce",
+            Self::Bce => "bce",
+        }
+    }
+
+    /// The year-0 boundary, written down exactly once: ISO year 1 is `ce` 1,
+    /// ISO year 0 is `bce` 1, ISO year -1 is `bce` 2. Both `era` and `eraYear`
+    /// derive their branch from this call, so they cannot disagree about which
+    /// side year 0 falls on.
+    ///
+    /// `Intl.DateTimeFormat` encodes the same boundary independently (see the
+    /// `display_year` computation in `builtins/intl_datetimeformat.rs`); the
+    /// integration note records that duplication.
+    pub(crate) const fn of_positive_iso_year(iso_year_is_positive: bool) -> Self {
+        match iso_year_is_positive {
+            true => Self::Ce,
+            false => Self::Bce,
+        }
+    }
+}
+
+/// The five branded Temporal types the specification gives a `[[Calendar]]`
+/// internal slot, each paired with where that slot lives in its boxed record.
+///
+/// The pairing is the point. `emit_temporal_calendar_slot_fast_path` used to
+/// take a substitute payload and write it back for every brand, so it answered
+/// `iso8601` for everything; that was correct only while `iso8601` was the sole
+/// calendar, and it would have kept compiling — and kept answering `iso8601` —
+/// after `gregory` landed. Reading the real slot needs a per-brand offset, and
+/// a brand with no offset now fails to build.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalCalendarCarrier {
+    PlainDate,
+    PlainDateTime,
+    PlainMonthDay,
+    PlainYearMonth,
+    ZonedDateTime,
+}
+
+impl TemporalCalendarCarrier {
+    /// `Temporal.Instant`, `Temporal.Duration` and `Temporal.PlainTime` are
+    /// deliberately absent: they carry no `[[Calendar]]`, so a value of those
+    /// brands must fall through to the caller's TypeError.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::PlainDate,
+        Self::PlainDateTime,
+        Self::PlainMonthDay,
+        Self::PlainYearMonth,
+        Self::ZonedDateTime,
+    ];
+
+    pub(crate) const fn brand(self) -> u64 {
+        match self {
+            Self::PlainDate => OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
+            Self::PlainDateTime => OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
+            Self::PlainMonthDay => OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
+            Self::PlainYearMonth => OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
+            Self::ZonedDateTime => OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
+        }
+    }
+
+    /// Byte offset of the interned calendar payload inside the boxed record.
+    pub(crate) const fn calendar_payload_offset(self) -> u64 {
+        match self {
+            // `PlainMonthDay` and `PlainYearMonth` are stored in the
+            // `PlainDate` record shape under a different brand, so all three
+            // share one offset.
+            Self::PlainDate | Self::PlainMonthDay | Self::PlainYearMonth => {
+                HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET
+            }
+            Self::PlainDateTime => HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+            Self::ZonedDateTime => HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+        }
+    }
+}
 
 /// `ISODateToEpochDays` bounds from `ISODateWithinLimits`: noon on the day must
 /// stay inside `nsMinInstant - nsPerDay` .. `nsMaxInstant + nsPerDay`, which
@@ -62,89 +235,117 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `ToTemporalCalendarIdentifier` step 1: an object that already carries a
-    /// `[[Calendar]]` internal slot resolves to that slot *without* any
+    /// `[[Calendar]]` internal slot resolves to *that slot*, without any
     /// observable property access — no `calendar` / `calendarId` getter runs.
-    /// Every branded Temporal object in this backend stores the canonical
-    /// `iso8601` payload (the coercion below rewrites the payload before the
-    /// slot is ever filled), so the slot read is that constant.
     ///
-    /// Rewrites `calendar_*_local` in place to a `String`-tagged `iso8601` when
+    /// It reads the object's own slot and takes no substitute payload on
+    /// purpose. The previous shape accepted an `iso8601` payload and wrote it
+    /// back for every matched brand; that was right only while `iso8601` was
+    /// the only calendar, and it would have kept compiling — and kept
+    /// answering `iso8601` for a `gregory` receiver — once a second calendar
+    /// existed. Dropping the parameter is what turns "a caller assumed
+    /// `iso8601`" into a build error instead of a wrong `calendarId`.
+    ///
+    /// Rewrites `calendar_*_local` in place to the `String`-tagged slot when
     /// the fast path applies, and leaves them untouched otherwise.
     pub(crate) fn emit_temporal_calendar_slot_fast_path(
         &mut self,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
-        iso_payload_local: u32,
         function: &mut Function,
     ) {
+        let object_payload_local = self.reserve_temp_local();
         let brand_local = self.reserve_temp_local();
+        let record_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(calendar_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // The receiver pointer has to survive the brand walk: the caller's
+        // `calendar_payload_local` is both the object coming in and the slot
+        // payload going out, so the first matching brand would otherwise
+        // clobber the pointer the remaining brands still read.
+        function.instruction(&Instruction::LocalGet(calendar_payload_local));
+        function.instruction(&Instruction::LocalSet(object_payload_local));
         self.load_i64_to_local_from_offset(
-            calendar_payload_local,
+            object_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
             brand_local,
             function,
         );
-        // `[[InitializedTemporalDate]]`, `[[...DateTime]]`, `[[...MonthDay]]`,
-        // `[[...YearMonth]]` and `[[...ZonedDateTime]]` are exactly the five
-        // brands the specification lists as carrying `[[Calendar]]`. Instant,
-        // Duration and PlainTime carry none and must keep falling through to
-        // the TypeError below.
-        for (index, brand) in [
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
-            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        // Exactly one brand can match, so these are independent `if`s rather
+        // than a chain; a value carrying none of them leaves the locals alone
+        // and falls through to the caller's TypeError.
+        for carrier in TemporalCalendarCarrier::ALL {
             function.instruction(&Instruction::LocalGet(brand_local));
-            function.instruction(&Instruction::I64Const(brand as i64));
+            function.instruction(&Instruction::I64Const(carrier.brand() as i64));
             function.instruction(&Instruction::I64Eq);
-            if index > 0 {
-                function.instruction(&Instruction::I32Or);
-            }
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.load_i64_to_local_from_offset(
+                object_payload_local,
+                HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+                record_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                record_local,
+                carrier.calendar_payload_offset(),
+                calendar_payload_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+            function.instruction(&Instruction::LocalSet(calendar_tag_local));
+            function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(iso_payload_local));
-        function.instruction(&Instruction::LocalSet(calendar_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(calendar_tag_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        self.release_temp_local(record_local);
         self.release_temp_local(brand_local);
+        self.release_temp_local(object_payload_local);
     }
 
-    /// `ToTemporalCalendarIdentifier`. `undefined` defaults to `iso8601`; an
-    /// object with a `[[Calendar]]` slot resolves to that slot; any other
-    /// non-string throws a TypeError; anything but a case-insensitive `iso8601`
-    /// throws a RangeError, because this backend ships no other calendar.
-    pub(crate) fn emit_temporal_plain_date_calendar(
+    /// `CanonicalizeCalendar`, shared by every constructor that takes a
+    /// calendar argument.
+    ///
+    /// `undefined` defaults to [`TemporalCalendarId::DEFAULT`]; an object with
+    /// a `[[Calendar]]` slot resolves to that slot; any other non-string is a
+    /// TypeError; a string that is no spelling of any [`TemporalCalendarId`] is
+    /// a RangeError. The RangeError must stay *after* the TypeError and must
+    /// keep firing for `""`, `"notacal"`, `"11111111"`, `"1111-11-11"` and
+    /// `"1997-12-04[u-ca=iso8601]"` — the five rows of
+    /// `PlainDate/calendar-invalid-iso-string.js` and its seven siblings. This
+    /// operation is *not* `ParseTemporalCalendarString`: an ISO date string is
+    /// rejected here and accepted by
+    /// [`Self::emit_temporal_to_temporal_calendar_identifier`].
+    ///
+    /// Exactly one place canonicalises, so every `[[Calendar]]` slot in the
+    /// heap holds a pooled [`TemporalCalendarId::canonical`] payload and no
+    /// reader downstream has to case-fold or resolve an alias again.
+    pub(crate) fn emit_temporal_canonicalize_calendar(
         &mut self,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
+        type_error_message: &str,
+        range_error_message: &str,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let expected_payload_local = self.reserve_temp_local();
+        let canonical_payload_local = self.reserve_temp_local();
+        let matched_local = self.reserve_temp_local();
         let case_fold_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-        function.instruction(&Instruction::LocalSet(expected_payload_local));
+
         self.emit_temporal_calendar_slot_fast_path(
             calendar_payload_local,
             calendar_tag_local,
-            expected_payload_local,
             function,
         );
         function.instruction(&Instruction::LocalGet(calendar_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(expected_payload_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload(TemporalCalendarId::DEFAULT.canonical()),
+        ));
         function.instruction(&Instruction::LocalSet(calendar_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(calendar_tag_local));
@@ -154,37 +355,223 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
-            "Temporal.PlainDate calendar must be a string",
+            type_error_message,
             self.result_local,
             self.result_tag_local,
             function,
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(matched_local));
+        for calendar in TemporalCalendarId::ALL {
+            let canonical_payload = self.strings.payload(calendar.canonical());
+            for &spelling in calendar.spellings() {
+                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                function.instruction(&Instruction::LocalSet(expected_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(case_fold_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    calendar_payload_local,
+                    expected_payload_local,
+                    Some(case_fold_local),
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(canonical_payload));
+                function.instruction(&Instruction::LocalSet(canonical_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(matched_local));
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            range_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(canonical_payload_local));
+        function.instruction(&Instruction::LocalSet(calendar_payload_local));
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(case_fold_local);
+        self.release_temp_local(matched_local);
+        self.release_temp_local(canonical_payload_local);
+        self.release_temp_local(expected_payload_local);
+        Ok(())
+    }
+
+    /// `CanonicalizeCalendar` with the `Temporal.PlainDate` family's messages.
+    /// Used by the `PlainDate`, `PlainDateTime`, `PlainYearMonth` and
+    /// `PlainMonthDay` constructors, which all report the same two.
+    pub(crate) fn emit_temporal_plain_date_calendar(
+        &mut self,
+        calendar_payload_local: u32,
+        calendar_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_canonicalize_calendar(
             calendar_payload_local,
-            expected_payload_local,
-            Some(case_fold_local),
+            calendar_tag_local,
+            "Temporal.PlainDate calendar must be a string",
+            "Invalid Temporal.PlainDate calendar",
+            function,
+        )
+    }
+
+    /// Leaves an `i32` on the stack: 1 when the calendar payload is
+    /// [`TemporalCalendarId::DEFAULT`].
+    ///
+    /// `FormatCalendarAnnotation` step 2, `TemporalYearMonthToString` step 4
+    /// and `TemporalMonthDayToString` step 2 all ask exactly this question, so
+    /// they all ask it here.
+    pub(crate) fn emit_temporal_calendar_is_default_i32(
+        &mut self,
+        calendar_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let default_payload_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload(TemporalCalendarId::DEFAULT.canonical()),
+        ));
+        function.instruction(&Instruction::LocalSet(default_payload_local));
+        self.emit_string_payload_equality_i32(
+            calendar_payload_local,
+            default_payload_local,
+            function,
+        );
+        self.release_temp_local(default_payload_local);
+    }
+
+    /// `CalendarEquals` as the difference operations use it: `until` and
+    /// `since` throw a RangeError when the two receivers name different
+    /// calendars, before any option is read.
+    ///
+    /// With one calendar this could never fire; with two it is the difference
+    /// between `PlainDateTime/prototype/{until,since}/different-calendars-throws.js`
+    /// passing because the feature works and passing because
+    /// `new Temporal.PlainDateTime(..., "gregory")` threw first.
+    pub(crate) fn emit_temporal_require_same_calendar(
+        &mut self,
+        calendar_payload_local: u32,
+        other_calendar_payload_local: u32,
+        message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_string_payload_equality_i32(
+            calendar_payload_local,
+            other_calendar_payload_local,
             function,
         );
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.PlainDate calendar",
+            message,
             self.result_local,
             self.result_tag_local,
             function,
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(expected_payload_local));
-        function.instruction(&Instruction::LocalSet(calendar_payload_local));
-        function.instruction(&Instruction::End);
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_payload_local);
         Ok(())
+    }
+
+    /// `era` and `eraYear` for any calendar, from one emitter.
+    ///
+    /// The dispatch is an exhaustive `match` over [`TemporalCalendarId`] with
+    /// no catch-all, so a calendar added to that enum has to state here what
+    /// its eras are before this compiles. The default answer is `undefined`,
+    /// which is what a calendar with no eras reports.
+    pub(crate) fn emit_temporal_calendar_era_field(
+        &mut self,
+        calendar_payload_local: u32,
+        iso_year_local: u32,
+        field: TemporalEraField,
+        function: &mut Function,
+    ) {
+        let expected_payload_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        for calendar in TemporalCalendarId::ALL {
+            match calendar {
+                // The ISO 8601 calendar has no eras, so both slots stay
+                // `undefined` rather than borrowing a fabricated `ce`/`bce`.
+                TemporalCalendarId::Iso8601 => {}
+                TemporalCalendarId::Gregory => {
+                    function.instruction(&Instruction::I64Const(
+                        self.strings.payload(calendar.canonical()),
+                    ));
+                    function.instruction(&Instruction::LocalSet(expected_payload_local));
+                    self.emit_string_payload_equality_i32(
+                        calendar_payload_local,
+                        expected_payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_temporal_gregorian_era_field(iso_year_local, field, function);
+                    function.instruction(&Instruction::End);
+                }
+            }
+        }
+        self.release_temp_local(expected_payload_local);
+    }
+
+    /// Proleptic Gregorian `era` / `eraYear` into the result pair.
+    ///
+    /// Both branches read the sign of the ISO year once and pick their answer
+    /// from [`Era::of_positive_iso_year`], so the `era` an accessor reports and
+    /// the `eraYear` beside it always agree about year 0 being `bce` 1.
+    fn emit_temporal_gregorian_era_field(
+        &mut self,
+        iso_year_local: u32,
+        field: TemporalEraField,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(iso_year_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GtS);
+        match field {
+            TemporalEraField::Era => {
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(Era::of_positive_iso_year(true).code()),
+                ));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(
+                    self.strings
+                        .payload(Era::of_positive_iso_year(false).code()),
+                ));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            TemporalEraField::EraYear => {
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::LocalGet(iso_year_local));
+                function.instruction(&Instruction::Else);
+                // Proleptic year 0 is 1 bce, so the era year counts backwards
+                // from 1: `1 - isoYear`.
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalGet(iso_year_local));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::F64ConvertI64S);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+        }
     }
 
     /// `ToTemporalCalendarIdentifier` — the property-bag / `withCalendar` form,
@@ -224,12 +611,14 @@ impl<'a> FunctionBuilder<'a> {
         let expected_payload_local = self.reserve_temp_local();
         let saved_result_local = self.reserve_temp_local();
         let saved_result_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload(TemporalCalendarId::DEFAULT.canonical()),
+        ));
         function.instruction(&Instruction::LocalSet(expected_payload_local));
         self.emit_temporal_calendar_slot_fast_path(
             calendar_payload_local,
             calendar_tag_local,
-            expected_payload_local,
             function,
         );
         function.instruction(&Instruction::LocalGet(calendar_tag_local));
@@ -734,14 +1123,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
-            // The ISO 8601 calendar has no eras, so both slots are `undefined`
-            // rather than a fabricated "ce"/"bce" pair.
-            StandardBuiltinId::TemporalPlainDatePrototypeEraGetter
-            | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            StandardBuiltinId::TemporalPlainDatePrototypeEraGetter => {
+                self.emit_temporal_calendar_era_field(
+                    calendar_payload_local,
+                    year_local,
+                    TemporalEraField::Era,
+                    function,
+                );
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => {
+                self.emit_temporal_calendar_era_field(
+                    calendar_payload_local,
+                    year_local,
+                    TemporalEraField::EraYear,
+                    function,
+                );
             }
             StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter => {
                 self.emit_temporal_iso_year_is_leap_i32(year_local, function);

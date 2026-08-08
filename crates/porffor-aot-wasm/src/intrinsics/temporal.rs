@@ -29,15 +29,29 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
-        let from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantFrom.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.from`",
-                )
+        // Property installation order is observable through `Object.keys`, so
+        // the statics go on in specification order and every one of them is
+        // installed before the prototype is touched.
+        for (name, builtin) in [
+            ("from", StandardBuiltinId::TemporalInstantFrom),
+            (
+                "fromEpochMilliseconds",
+                StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
+            ),
+            (
+                "fromEpochNanoseconds",
+                StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
+            ),
+            ("compare", StandardBuiltinId::TemporalInstantCompare),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
             })?;
-        self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+            self.emit_object_define_function_data(object_local, name, meta, function)?;
+        }
         function.instruction(&Instruction::GlobalGet(prototype_global_index));
         function.instruction(&Instruction::LocalSet(prototype_object_local));
         for (name, builtin) in [
@@ -100,6 +114,25 @@ impl<'a> FunctionBuilder<'a> {
             equals_meta,
             function,
         )?;
+        // `toJSON` and `toString` share an emitter but never a function object,
+        // so each gets its own meta here; installing them from one meta would
+        // make `Temporal.Instant.prototype.toJSON === ...toString` true, which
+        // `toJSON/prop-desc.js` and `toJSON/name.js` observe.
+        for (name, builtin) in [
+            ("toJSON", StandardBuiltinId::TemporalInstantPrototypeToJson),
+            (
+                "valueOf",
+                StandardBuiltinId::TemporalInstantPrototypeValueOf,
+            ),
+        ] {
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
+        }
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),

@@ -1,5 +1,6 @@
 use super::super::*;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
+use super::temporal_plain_date::TemporalCalendarId;
 
 /// The three options `Temporal.ZonedDateTime.from` reads, in read order.
 ///
@@ -2203,61 +2204,17 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        let expected_payload_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-        function.instruction(&Instruction::LocalSet(expected_payload_local));
-        self.emit_temporal_calendar_slot_fast_path(
+        // Same operation as the four date types' constructors, so it is the
+        // same emitter; only the two error messages differ. Duplicating the
+        // body here is how `gregory` could have been accepted by
+        // `new Temporal.PlainDate` and rejected by `new Temporal.ZonedDateTime`.
+        self.emit_temporal_canonicalize_calendar(
             calendar_payload_local,
             calendar_tag_local,
-            expected_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(calendar_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(expected_payload_local));
-        function.instruction(&Instruction::LocalSet(calendar_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(calendar_tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(calendar_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
             "Temporal.ZonedDateTime calendar must be a string",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            calendar_payload_local,
-            expected_payload_local,
-            Some(case_fold_local),
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
             "Invalid Temporal.ZonedDateTime calendar",
-            self.result_local,
-            self.result_tag_local,
             function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(expected_payload_local));
-        function.instruction(&Instruction::LocalSet(calendar_payload_local));
-        function.instruction(&Instruction::End);
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_payload_local);
-        Ok(())
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4295,6 +4252,14 @@ impl<'a> FunctionBuilder<'a> {
     /// pair, which is exactly the split Test262 asks for:
     /// `[u-ca=iso8601][u-ca=discord]` succeeds with the second ignored, while
     /// `[u-ca=iso8601][!u-ca=iso8601]` throws. Do not "fix" that asymmetry.
+    ///
+    /// The annotation value goes through the same
+    /// [`TemporalCalendarId`] table as `CanonicalizeCalendar`, so
+    /// `Temporal.PlainDate.from("2000-05-02[u-ca=gregory]").calendarId` is
+    /// `"gregory"` and the round trip through `toString` is closed. An
+    /// annotation naming no known calendar stays a RangeError, which is what
+    /// `withCalendar/calendar-invalid-iso-string.js` pins with
+    /// `"1997-12-04[u-ca=notacal]"`.
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_iso_calendar_annotation(
         &mut self,
@@ -4307,7 +4272,10 @@ impl<'a> FunctionBuilder<'a> {
         error_message: &str,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload(TemporalCalendarId::DEFAULT.canonical()),
+        ));
         function.instruction(&Instruction::LocalSet(calendar_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(calendar_tag_local));
@@ -4318,6 +4286,7 @@ impl<'a> FunctionBuilder<'a> {
         let calendar_annotation_payload_local = self.reserve_temp_local();
         let expected_calendar_payload_local = self.reserve_temp_local();
         let case_fold_local = self.reserve_temp_local();
+        let matched_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(calendar_end_local));
         function.instruction(&Instruction::LocalGet(calendar_start_local));
         function.instruction(&Instruction::I64Sub);
@@ -4329,17 +4298,31 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(calendar_annotation_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-        function.instruction(&Instruction::LocalSet(expected_calendar_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            calendar_annotation_payload_local,
-            expected_calendar_payload_local,
-            Some(case_fold_local),
-            function,
-        );
-        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(matched_local));
+        for calendar in TemporalCalendarId::ALL {
+            let canonical_payload = self.strings.payload(calendar.canonical());
+            for &spelling in calendar.spellings() {
+                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                function.instruction(&Instruction::LocalSet(expected_calendar_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(case_fold_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    calendar_annotation_payload_local,
+                    expected_calendar_payload_local,
+                    Some(case_fold_local),
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(canonical_payload));
+                function.instruction(&Instruction::LocalSet(calendar_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(matched_local));
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
             error_message,
@@ -4349,6 +4332,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        self.release_temp_local(matched_local);
         self.release_temp_local(case_fold_local);
         self.release_temp_local(expected_calendar_payload_local);
         self.release_temp_local(calendar_annotation_payload_local);
@@ -6796,10 +6780,12 @@ impl<'a> FunctionBuilder<'a> {
     ///   that tie in favor of the ISO parse (`withCalendar/calendar-time-string.js`).
     /// * The bare `AnnotationValue` compare is hoisted *above* the time attempt
     ///   so the time parser's own RangeError can fall out as the final answer
-    ///   without a fourth helper to catch it. That reordering is invisible only
-    ///   because `CanonicalizeCalendar` accepts nothing but `iso8601` here, and
-    ///   `"iso8601"` is not a valid ISO date or time string. Adding a second
-    ///   calendar would make the hoist wrong.
+    ///   without a fourth helper to catch it. The hoist is sound exactly while
+    ///   no [`TemporalCalendarId::spellings`] entry is also a legal ISO date or
+    ///   time string; `"iso8601"`, `"gregory"` and `"gregorian"` all satisfy
+    ///   that (they are not `HHMMSS`, not `YYYYMMDD`, and contain letters an
+    ///   ISO date cannot). A calendar spelled out of digits would break it, and
+    ///   would have to move the compare below the time attempt.
     ///
     /// Known deviation: `emit_temporal_parse_plain_time_string` has no calendar
     /// out-parameter and never reaches `emit_temporal_iso_calendar_annotation`,
@@ -6830,7 +6816,7 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
 
-        let iso_payload_local = self.reserve_temp_local();
+        let expected_payload_local = self.reserve_temp_local();
         let resolved_local = self.reserve_temp_local();
         let probe_payload_local = self.reserve_temp_local();
         let probe_tag_local = self.reserve_temp_local();
@@ -6841,9 +6827,17 @@ impl<'a> FunctionBuilder<'a> {
         let minute_local = self.reserve_temp_local();
         let second_local = self.reserve_temp_local();
         let nanosecond_local = self.reserve_temp_local();
+        // The canonical identifier this helper answers with. It starts at the
+        // default and is overwritten by whichever arm resolves, so a `gregory`
+        // annotation and a bare `"gregory"` both come back as `gregory` rather
+        // than as the default the arms used to hard-code.
+        let result_payload_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-        function.instruction(&Instruction::LocalSet(iso_payload_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .payload(TemporalCalendarId::DEFAULT.canonical()),
+        ));
+        function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(resolved_local));
 
@@ -6873,28 +6867,42 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
+            // The probe already ran `CanonicalizeCalendar` on whatever
+            // `[u-ca=...]` the string carried, so its answer is the answer.
+            function.instruction(&Instruction::LocalGet(probe_payload_local));
+            function.instruction(&Instruction::LocalSet(result_payload_local));
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::LocalSet(resolved_local));
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
         }
 
-        // `CanonicalizeCalendar` on a bare `AnnotationValue`.
+        // `CanonicalizeCalendar` on a bare `AnnotationValue`, over the same
+        // spelling table the constructors use.
         function.instruction(&Instruction::LocalGet(resolved_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            0,
-            iso_payload_local,
-            Some(case_fold_local),
-            &mut function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(resolved_local));
-        function.instruction(&Instruction::End);
+        for calendar in TemporalCalendarId::ALL {
+            let canonical_payload = self.strings.payload(calendar.canonical());
+            for &spelling in calendar.spellings() {
+                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                function.instruction(&Instruction::LocalSet(expected_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(case_fold_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    0,
+                    expected_payload_local,
+                    Some(case_fold_local),
+                    &mut function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(canonical_payload));
+                function.instruction(&Instruction::LocalSet(result_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(resolved_local));
+                function.instruction(&Instruction::End);
+            }
+        }
         function.instruction(&Instruction::End);
 
         // Last attempt: a bare `TemporalTimeString`. Its RangeError is the
@@ -6912,12 +6920,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(iso_payload_local));
+        function.instruction(&Instruction::LocalGet(result_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
         for local in [
+            result_payload_local,
             nanosecond_local,
             second_local,
             minute_local,
@@ -6928,7 +6937,7 @@ impl<'a> FunctionBuilder<'a> {
             probe_tag_local,
             probe_payload_local,
             resolved_local,
-            iso_payload_local,
+            expected_payload_local,
         ] {
             self.release_temp_local(local);
         }

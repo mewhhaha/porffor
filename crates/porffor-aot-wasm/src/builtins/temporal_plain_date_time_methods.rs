@@ -2093,6 +2093,15 @@ impl<'a> FunctionBuilder<'a> {
             other_calendar_payload_local,
             function,
         )?;
+        // `DifferenceTemporalPlainDateTime` step 2: `CalendarEquals` runs
+        // between `ToTemporalDateTime` and `GetOptionsObject`, which is what
+        // `since/different-calendars-throws.js` and its `until` twin pin.
+        self.emit_temporal_require_same_calendar(
+            calendar_payload_local,
+            other_calendar_payload_local,
+            "Temporal.PlainDateTime until and since require the same calendar",
+            function,
+        )?;
 
         // `GetDifferenceSettings` reads largestUnit, then the two rounding
         // options, then smallestUnit - the order is observable.
@@ -2708,48 +2717,15 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalSet(output_payload_local));
 
-        // `FormatCalendarAnnotation`: `auto` suppresses the annotation for the
-        // ISO calendar, which is the only calendar this backend has.
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("[u-ca=")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
+        // `FormatCalendarAnnotation`, shared with the three date-only types so
+        // the `auto` suppression rule is decided in one place.
+        self.emit_temporal_append_calendar_annotation(
+            show_calendar_local,
+            calendar_payload_local,
             output_payload_local,
             piece_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(calendar_payload_local));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("]")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(output_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));

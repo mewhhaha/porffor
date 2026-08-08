@@ -1031,13 +1031,14 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        // `TemporalMonthDayToString` step 2: the reference year is printed
+        // under exactly the condition that prints the calendar annotation, so
+        // `--01-05[u-ca=gregory]` is never emitted without its `1972-`.
+        self.emit_temporal_show_calendar_annotation_i32(
+            show_calendar_local,
+            calendar_payload_local,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_pad_iso_year(
             year_local,

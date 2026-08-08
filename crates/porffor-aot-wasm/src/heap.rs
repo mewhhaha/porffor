@@ -257,7 +257,7 @@ pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
-pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 168;
+pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 184;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -746,6 +746,27 @@ pub(crate) const HEAP_INTL_DTF_BOUND_FORMAT_OFFSET: u64 = 152;
 /// bag named no date/time component and no dateStyle/timeStyle, so the
 /// Temporal `toLocaleString` path may substitute the type's own defaults.
 pub(crate) const HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET: u64 = 160;
+/// The resolved time zone's offset from UTC, in whole signed minutes.
+///
+/// This is the *other half* of [`HEAP_INTL_DTF_TIME_ZONE_OFFSET`]: that slot
+/// holds the identifier `resolvedOptions().timeZone` reports, this one holds
+/// the shift `PartitionDateTimePattern` applies to an exact time value before
+/// breaking it into components. `"UTC"`, `"Etc/GMT+7"` and `"-07:00"` are three
+/// identifiers, two offsets and one formatted output for two of them, so
+/// neither slot can be derived from the other and both are stored.
+///
+/// A raw signed `i64` holding a value in `-1439..=1439` — the `TzOffsetMinutes`
+/// range of `crate::builtins::intl_datetimeformat` — never an f64 bit pattern.
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET: u64 = 168;
+/// The localized GMT name (`"GMT-07:00"`) of a **non-zero** offset zone, or `0`
+/// when the offset is zero and CLDR `en`'s real UTC names apply instead.
+///
+/// Pre-rendered by the constructor rather than built inside the format walk.
+/// That walk is emitted once per `format`, `formatToParts`, `formatRange` and
+/// `formatRangeToParts` body and is already the largest thing this crate emits;
+/// the string concatenations this slot replaces would have been paid for four
+/// times over, in the one function whose size budget is known to be tight.
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET: u64 = 176;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
@@ -3224,6 +3245,22 @@ pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot] = &
         record: "intl-date-time-format-record",
         name: "time_zone_payload",
         offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    // Sits beside the identifier it belongs to rather than at the end of the
+    // record, because the two are written and read as one value.
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_zone_offset_minutes",
+        offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_zone_gmt_name_payload",
+        offset: HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
         width: 8,
         pointer: true,
     },

@@ -1433,7 +1433,24 @@ impl StringPool {
             "M12",
             "toInstant",
             "UTC",
+            // Every `TemporalCalendarId` spelling and canonical form, plus the
+            // two `Era` codes, interned unconditionally.
+            //
+            // They cannot live behind the `Temporal.PlainDate` gate below: the
+            // shared calendar helpers (`compile_temporal_calendar_identifier_helper`
+            // and `compile_temporal_calendar_iso_date_probe_helper`) are
+            // compiled from `uses_temporal_calendar` in `emit.rs`, whose
+            // predicate also fires for a program that touches only
+            // `Temporal.ZonedDateTime` — and that program does not satisfy the
+            // gate. A spelling missing from the pool is the "string must exist
+            // in pool" compiler panic fixed in e04bdc061, not a wrong answer,
+            // so this stays unconditional next to `iso8601` even though it
+            // costs every program the bytes.
             "iso8601",
+            "gregory",
+            "gregorian",
+            "ce",
+            "bce",
             "Temporal.ZonedDateTime constructor requires new",
             "Temporal.ZonedDateTime time zone must be a string",
             "Invalid Temporal.ZonedDateTime time zone",
@@ -1445,6 +1462,8 @@ impl StringPool {
             "Temporal.ZonedDateTime receiver does not have [[InitializedTemporalZonedDateTime]]",
             "Temporal.Instant receiver does not have [[InitializedTemporalInstant]]",
             "Temporal.Instant epoch nanoseconds are outside the supported range",
+            "Temporal.Instant.fromEpochMilliseconds requires an integral Number",
+            "Temporal.Instant does not support implicit conversion; use compare() or equals()",
             "RegExp.escape input must be a string",
             "RegExp.prototype.compile receiver is not a direct RegExp instance",
             "RegExp.prototype.compile flags must be undefined when pattern is RegExp",
@@ -1773,6 +1792,14 @@ impl StringPool {
                 // `until`/`since` reject an out-of-range smallestUnit or
                 // largestUnit with this one message for both options.
                 "Invalid Temporal.PlainDate unit option",
+                // `CalendarEquals` in `DifferenceTemporal*`. One message per
+                // family; all three are emitted only from a builtin whose
+                // `debug_name` satisfies this gate
+                // (`Temporal.PlainDate.prototype.until`,
+                // `Temporal.PlainDateTime.prototype.since`, and so on).
+                "Temporal.PlainDate until and since require the same calendar",
+                "Temporal.PlainDateTime until and since require the same calendar",
+                "Temporal.PlainYearMonth until and since require the same calendar",
                 "Invalid Temporal.PlainDate calendarName option",
                 "Temporal.PlainDate.prototype.with requires an object",
                 "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",

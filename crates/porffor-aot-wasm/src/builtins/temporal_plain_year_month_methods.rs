@@ -1502,6 +1502,14 @@ impl<'a> FunctionBuilder<'a> {
             other_calendar_payload_local,
             function,
         )?;
+        // `DifferenceTemporalPlainYearMonth` step 2: `CalendarEquals` runs
+        // between `ToTemporalYearMonth` and `GetOptionsObject`.
+        self.emit_temporal_require_same_calendar(
+            calendar_payload_local,
+            other_calendar_payload_local,
+            "Temporal.PlainYearMonth until and since require the same calendar",
+            function,
+        )?;
 
         // `GetDifferenceSettings` reads largestUnit, then the two rounding
         // options, then smallestUnit - the order is observable.
@@ -1893,13 +1901,14 @@ impl<'a> FunctionBuilder<'a> {
             number_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        // `TemporalYearMonthToString` step 4: the reference day is printed
+        // under exactly the condition that prints the calendar annotation, so
+        // `2026-01[u-ca=gregory]` is never emitted without its `-01`.
+        self.emit_temporal_show_calendar_annotation_i32(
+            show_calendar_local,
+            calendar_payload_local,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_append_separated_two_digits(
             day_local,
@@ -2044,8 +2053,42 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// `FormatCalendarAnnotation`. `auto` suppresses the annotation for the ISO
-    /// calendar, which is the only calendar this backend has.
+    /// Leaves an `i32` on the stack: 1 when the calendar has to appear in the
+    /// output.
+    ///
+    /// `FormatCalendarAnnotation` steps 1-2: `never` never prints,
+    /// `always`/`critical` always print, and `auto` prints exactly when the
+    /// calendar is not `iso8601`. `TemporalYearMonthToString` step 4 (the
+    /// reference day) and `TemporalMonthDayToString` step 2 (the reference
+    /// year) are gated on the *same* condition, which is why this is one
+    /// emitter and not three copies of an `or` that could drift.
+    ///
+    /// Before a second calendar existed the `auto` half was unreachable and the
+    /// three sites each spelled out only the `always || critical` part.
+    pub(crate) fn emit_temporal_show_calendar_annotation_i32(
+        &mut self,
+        show_calendar_local: u32,
+        calendar_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(show_calendar_local));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(show_calendar_local));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(show_calendar_local));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Auto.code()));
+        function.instruction(&Instruction::I64Eq);
+        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Or);
+    }
+
+    /// `FormatCalendarAnnotation`. `auto` suppresses the annotation for
+    /// `iso8601` and prints it for every other calendar.
     pub(crate) fn emit_temporal_append_calendar_annotation(
         &mut self,
         show_calendar_local: u32,
@@ -2054,13 +2097,11 @@ impl<'a> FunctionBuilder<'a> {
         piece_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        self.emit_temporal_show_calendar_annotation_i32(
+            show_calendar_local,
+            calendar_payload_local,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(show_calendar_local));
         function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));

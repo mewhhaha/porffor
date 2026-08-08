@@ -1257,48 +1257,17 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // `FormatCalendarAnnotation`: `auto` suppresses the annotation for the
-        // ISO calendar, which is the only calendar this backend has.
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("[u-ca=")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
+        // `FormatCalendarAnnotation`. Shared with `Temporal.PlainYearMonth`
+        // and `Temporal.PlainMonthDay` so the `auto` suppression rule — print
+        // the annotation for every calendar except `iso8601` — is decided in
+        // one place for all three.
+        self.emit_temporal_append_calendar_annotation(
+            show_calendar_local,
+            calendar_payload_local,
             output_payload_local,
             piece_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(calendar_payload_local));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("]")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(output_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1899,6 +1868,16 @@ impl<'a> FunctionBuilder<'a> {
             other_month_local,
             other_day_local,
             other_calendar_payload_local,
+            function,
+        )?;
+        // `DifferenceTemporalPlainDate` step 2: `CalendarEquals` runs
+        // immediately after `ToTemporalDate` and before `GetOptionsObject`, so
+        // a calendar mismatch is a RangeError even when the options bag would
+        // also have thrown.
+        self.emit_temporal_require_same_calendar(
+            calendar_payload_local,
+            other_calendar_payload_local,
+            "Temporal.PlainDate until and since require the same calendar",
             function,
         )?;
 

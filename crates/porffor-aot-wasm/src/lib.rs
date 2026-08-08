@@ -21,7 +21,7 @@ use porffor_ir::{
     BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
     DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
     FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
-    INT32_ARRAY_NAME, INT8_ARRAY_NAME, IS_CONSTRUCTOR_NAME, JSON_NAME,
+    INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME,
     JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME,
     LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME,
     PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
@@ -41,6 +41,7 @@ mod builtins;
 mod control_flow;
 mod data;
 mod emit;
+mod emitted_function;
 mod environments;
 mod expressions;
 mod functions;
@@ -53,6 +54,7 @@ mod objects;
 mod operations;
 mod planning;
 mod runtime_abi;
+mod runtime_helpers;
 use abi::*;
 use bigint::BigIntHelperOp;
 use builtins::*;
@@ -62,12 +64,17 @@ pub(crate) use emit::{
     BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder, IteratorCloseOnThrowLocals,
     LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
 };
+pub(crate) use emitted_function::{
+    emit_size_report_requested, EmittedFunction, FunctionBodyBudget, FunctionBodySize,
+    FunctionIdentity, ModuleCode,
+};
 use heap::*;
 use intrinsics::*;
 use module::*;
 use modules::module_unit_guard_count;
 use planning::*;
 pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
+pub(crate) use runtime_helpers::{RuntimeHelperEmission, RuntimeHelperId};
 
 fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
     match shape {
@@ -136,6 +143,120 @@ mod tests {
         let artifact = emit_script("this;").expect("full bootstrap script should emit");
 
         expect_valid_module(&artifact, 0);
+    }
+
+    /// Reads the Wasm `name` section back out of an emitted module.
+    ///
+    /// Wasmtime builds its per-function symbol as
+    /// `wasm[0]::function[N]::<clean_symbol(name)>` from exactly this section,
+    /// so a module that emits it turns an anonymous native-compilation failure
+    /// into a named one.
+    fn function_names(artifact: &WasmArtifact) -> BTreeMap<u32, String> {
+        let mut names = BTreeMap::new();
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::CustomSection(section) = payload.expect("module should parse") else {
+                continue;
+            };
+            let wasmparser::KnownCustom::Name(subsections) = section.as_known() else {
+                continue;
+            };
+            for subsection in subsections {
+                if let wasmparser::Name::Function(map) =
+                    subsection.expect("name subsection should parse")
+                {
+                    for naming in map {
+                        let naming = naming.expect("function naming should parse");
+                        names.insert(naming.index, naming.name.to_string());
+                    }
+                }
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn emitted_modules_name_every_function() {
+        let artifact = emit_script("function outer() { return 1; } outer();")
+            .expect("named function script should emit");
+        expect_valid_module(&artifact, 1);
+
+        let names = function_names(&artifact);
+        assert!(
+            names.values().any(|name| name == "porffor::main"),
+            "main must be named in the name section"
+        );
+        assert!(
+            names.values().any(|name| name.starts_with("js::outer")),
+            "user functions must be named: {names:?}"
+        );
+        assert!(
+            names.values().any(|name| name == "helper::heap_alloc"),
+            "runtime helpers must be named: {names:?}"
+        );
+        assert!(
+            names.values().any(|name| name.starts_with("builtin::")),
+            "compiled builtins must be named: {names:?}"
+        );
+
+        // Every code-section entry is named, because every entry goes through
+        // `ModuleCode::push(EmittedFunction)` and an `EmittedFunction` cannot be
+        // built without an identity.
+        let mut code_entries = 0usize;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            if let Payload::CodeSectionEntry(_) = payload.expect("module should parse") {
+                code_entries += 1;
+            }
+        }
+        assert_eq!(names.len(), code_entries);
+    }
+
+    #[test]
+    fn debug_dump_attributes_the_largest_emitted_function() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+        let largest = artifact
+            .debug_dump
+            .lines()
+            .find(|line| line.starts_with("largest emitted function: "))
+            .expect("debug_dump should attribute the largest emitted body");
+        // The `none` fallback line carries no size, so the presence of the
+        // measured shape is what proves a body was actually attributed.
+        assert!(largest.contains(" bytes at index "), "{largest}");
+        assert!(largest.contains(" locals"), "{largest}");
+        assert!(
+            artifact
+                .debug_dump
+                .lines()
+                .any(|line| line.starts_with("emitted code bytes: ")),
+            "{}",
+            artifact.debug_dump
+        );
+    }
+
+    #[test]
+    fn runtime_helper_count_is_derived_not_asserted() {
+        // 32 unconditional helpers, plus `JSON.stringify`'s value helper only
+        // when `JSON.stringify` is compiled. The hand-written `27` this
+        // replaces had drifted by five.
+        let plain = emit_script("this;").expect("script should emit");
+        assert!(
+            plain
+                .debug_dump
+                .lines()
+                .any(|line| line == "runtime helper functions: 32"),
+            "{}",
+            plain.debug_dump
+        );
+
+        let with_json =
+            emit_script("JSON.stringify({});").expect("JSON.stringify script should emit");
+        assert!(
+            with_json
+                .debug_dump
+                .lines()
+                .any(|line| line == "runtime helper functions: 33"),
+            "{}",
+            with_json.debug_dump
+        );
     }
 
     #[test]

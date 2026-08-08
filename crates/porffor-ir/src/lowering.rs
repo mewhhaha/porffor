@@ -1566,6 +1566,24 @@ impl<'a> ScriptLowerer<'a> {
                 false,
             )),
         );
+        // `toJSON` shares `toString`'s emitter but never its function object:
+        // `Object.getOwnPropertyDescriptor(Temporal.Instant.prototype, "toJSON")
+        // .value === Temporal.Instant.prototype.toString` must be false, and
+        // `toJSON.name` must be `"toJSON"`.
+        properties.insert(
+            "toJSON".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalInstantPrototypeToJson.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "valueOf".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalInstantPrototypeValueOf.function_id(),
+                false,
+            )),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -4021,6 +4039,27 @@ impl<'a> ScriptLowerer<'a> {
                             false,
                         )),
                     );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalInstantCompare.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "fromEpochMilliseconds".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalInstantFromEpochMilliseconds.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "fromEpochNanoseconds".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalInstantFromEpochNanoseconds.function_id(),
+                            false,
+                        )),
+                    );
                 }
                 StandardBuiltinId::TemporalPlainDateConstructor => {
                     object.properties.insert(
@@ -4913,8 +4952,14 @@ impl<'a> ScriptLowerer<'a> {
         }))))
     }
 
+    /// The `Intl` namespace shape.
+    ///
+    /// The constructor-valued members come from `INTL_NAMESPACE_CONSTRUCTORS`,
+    /// which `FunctionBuilder::init_intl_object` also walks, so the shape and
+    /// the installer cannot disagree about what `Intl` has. They used to be two
+    /// hand-maintained lists and they drifted — see the slice's own comment.
     fn intl_object_value_info() -> ValueInfo {
-        let properties = BTreeMap::from([
+        let mut properties = BTreeMap::from([
             (
                 "getCanonicalLocales".to_string(),
                 ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
@@ -4923,22 +4968,16 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
-                INTL_LOCALE_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::IntlLocaleConstructor,
-                )),
-            ),
-            (
-                INTL_DATE_TIME_FORMAT_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::IntlDateTimeFormatConstructor,
-                )),
-            ),
-            (
                 "Symbol.toStringTag".to_string(),
                 ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
             ),
         ]);
+        for (name, builtin) in INTL_NAMESPACE_CONSTRUCTORS {
+            properties.insert(
+                (*name).to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(*builtin)),
+            );
+        }
         Self::value_info_from_shape(Some(Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -6290,11 +6329,19 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_instant_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalInstantFrom => (
+            StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_instant_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalInstantCompare => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => (
                 ValueKind::Number,
@@ -6314,9 +6361,20 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TemporalInstantPrototypeToString => (
+            StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `valueOf` always throws, so the only completion that reaches a
+            // caller is a throw; the normal-completion kind is unreachable and
+            // is spelled `Undefined` the same way
+            // `TemporalDurationPrototypeValueOf` spells it.
+            StandardBuiltinId::TemporalInstantPrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -26906,9 +26964,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantConstructor => Some(Self::value_info_from_shape(
                 Some(Self::temporal_instant_instance_shape()),
             )),
-            StandardBuiltinId::TemporalInstantFrom => Some(Self::value_info_from_shape(Some(
-                Self::temporal_instant_instance_shape(),
-            ))),
+            StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => Some(
+                Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalInstantCompare => Some(ValueInfo::new(ValueKind::Number)),
             StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
@@ -26918,8 +26979,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeEquals => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            StandardBuiltinId::TemporalInstantPrototypeToString => {
+            StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalInstantPrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
             }
             StandardBuiltinId::IntlGetCanonicalLocales => Some(ValueInfo::new(ValueKind::Array)),
             StandardBuiltinId::IntlLocaleConstructor => Some(Self::value_info_from_shape(Some(

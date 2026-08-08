@@ -22,6 +22,7 @@ mod string;
 mod temporal;
 mod temporal_duration;
 mod temporal_duration_methods;
+mod temporal_instant;
 mod temporal_options;
 mod temporal_plain_date;
 mod temporal_plain_date_methods;

@@ -5,14 +5,34 @@
 //! validation — and `resolvedOptions` (11.4.4), `supportedLocalesOf` (11.2.2),
 //! `format` (11.4.3) and `formatToParts` (11.4.5) over a **single locale**,
 //! `en-US`, a single calendar, `gregory`, a single numbering system, `latn`,
-//! and a single time zone, `UTC`.
+//! and the **fixed-offset** time zones.
 //!
 //! Locale negotiation therefore always resolves to `"en-US"`: `ResolveLocale`
 //! with `AvailableLocales = « "en-US" »` falls back to the default locale for
 //! every request. That is a real answer for `en`/`en-US` and an honest
 //! fallback elsewhere, which is what an implementation with no CLDR data can
-//! say. Non-`UTC` time zones and non-`gregory` calendars are **rejected**
-//! (`RangeError`) rather than accepted and mis-formatted.
+//! say. Non-`gregory` calendars are **rejected** (`RangeError`) rather than
+//! accepted and mis-formatted.
+//!
+//! # Time zones: every offset, no zone database
+//!
+//! `AvailableNamedTimeZoneIdentifiers()` here is [`INTL_DTF_NAMED_ZONES`] — the
+//! UTC aliases and the whole `Etc/GMT±N` family — together with the `UTCOffset`
+//! identifiers `IsTimeZoneOffsetString` accepts. Those are exactly the zones
+//! whose offset is a constant, so they need no transition data: `Etc/GMT+7` and
+//! `-07:00` shift the epoch by the same fixed −420 minutes forever. A
+//! geographic identifier such as `America/Vancouver` is still a `RangeError`,
+//! because answering it needs the IANA transition table this backend does not
+//! carry, and picking one offset for it would be a wrong answer rather than a
+//! missing one.
+//!
+//! An accepted zone is a [`DtfCanonicalTimeZone`]: the identifier
+//! `resolvedOptions().timeZone` reports **and** the offset the formatter
+//! applies, produced together and stored together. The identifier is the
+//! table's, not the caller's spelling — that is
+//! `GetAvailableNamedTimeZoneIdentifier` returning `record.[[Identifier]]`, and
+//! it is the one rule that makes `"utc"` report `"UTC"` while `"Etc/GMT"`
+//! reports `"Etc/GMT"`.
 //!
 //! # The table is the single source of truth
 //!
@@ -28,7 +48,7 @@
 //!
 //! `format` and `formatToParts` are required to agree — `reduce(parts) ===
 //! format(x)` is itself a Test262 assertion. Both are emitted from
-//! [`FunctionBuilder::emit_intl_dtf_build_format`] with a
+//! [`FunctionBuilder::emit_intl_dtf_build_format_with_kind`] with a
 //! [`DtfFormatMode`] discriminator, so the field order, the literals and the
 //! numeral rendering come from one body of Rust and cannot drift apart.
 //!
@@ -36,12 +56,21 @@
 //! again, given a [`DtfFormatTimes`] with two time values. The walk is not
 //! duplicated for the second side: it runs inside a wasm `loop` that iterates
 //! once or twice, so the emitted function grows by a component copy instead of
-//! by a second copy of fifty-odd string-literal selects. What the range path
-//! does *not* have is CLDR interval-pattern eliding: `Jan 3 – 5, 2019` comes
-//! out as two complete sides joined by the fallback separator, which is what
-//! `intervalFormatFallback` prescribes when no interval skeleton matches.
+//! by a second copy of fifty-odd string-literal selects.
+//!
+//! Both ends of a range go through the same `HandleDateTimeValue` (11.5.11) the
+//! single-date path uses, and [`DtfFormatTimes`] carries **one**
+//! [`DtfValueKind`] local for both of them — `SameTemporalType` has already run
+//! by the time it is built, so "the two ends were masked under different
+//! Temporal field sets" is not a state this code can be in.
+//!
+//! What the range path does *not* have is CLDR interval-pattern eliding:
+//! `Jan 3 – 5, 2019` comes out as two complete sides joined by the fallback
+//! separator, which is what `intervalFormatFallback` prescribes when no
+//! interval skeleton matches.
 
 use super::super::*;
+use super::temporal_plain_date::TemporalCalendarId;
 
 /// Where a component's code lives and what spellings map to it.
 ///
@@ -115,14 +144,9 @@ pub(crate) const INTL_DTF_COMPONENT_OPTIONS: &[IntlDtfOption] = &[
     IntlDtfOption {
         property: "timeZoneName",
         slot_offset: HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET,
-        codes: &[
-            ("short", 1),
-            ("long", 2),
-            ("shortOffset", 3),
-            ("longOffset", 4),
-            ("shortGeneric", 5),
-            ("longGeneric", 6),
-        ],
+        // Shared with [`TimeZoneNameStyle::code`]: the constructor's accepted
+        // spellings and the renderer's understood codes are one list.
+        codes: INTL_DTF_TIME_ZONE_NAME_CODES,
     },
 ];
 
@@ -152,7 +176,7 @@ pub(crate) const INTL_DTF_TIME_STYLE_OPTION: IntlDtfOption = IntlDtfOption {
 /// Every component slot the field walk can render, in Table 7 order with
 /// `fractionalSecondDigits` at its numeric position.
 ///
-/// [`FunctionBuilder::emit_intl_dtf_build_format`] keeps exactly one effective
+/// [`FunctionBuilder::emit_intl_dtf_build_format_with_kind`] keeps exactly one effective
 /// local per entry and the Temporal field mask clears by slot, so a component
 /// can never be masked under one name and rendered under another.
 const INTL_DTF_FORMAT_COMPONENT_SLOTS: [u64; 11] = [
@@ -203,11 +227,395 @@ const INTL_DTF_ACCEPTED_CALENDARS: &[(&str, &str)] = &[
     ("iso8601", "iso8601"),
 ];
 
+/// `Intl` and `Temporal` must not be able to disagree about a calendar
+/// identifier. `INTL_DTF_ACCEPTED_CALENDARS` above and
+/// `TemporalCalendarId::spellings`/`canonical` in
+/// `builtins/temporal_plain_date.rs` are two independent statements of the same
+/// table; this pins them together at compile time, so
+/// `new Temporal.PlainDate(2000, 5, 2, "gregorian").calendarId` and
+/// `new Intl.DateTimeFormat("en", { calendar: "gregorian" })
+///     .resolvedOptions().calendar` cannot answer differently.
+///
+/// The assertion is deliberately one-directional: `Intl` may accept a spelling
+/// `Temporal` does not (a locale extension is not a `[[Calendar]]` slot), but
+/// every spelling `Temporal` accepts must resolve to the same canonical form on
+/// both sides.
+const _: () = {
+    let mut calendar_index = 0;
+    while calendar_index < TemporalCalendarId::ALL.len() {
+        let calendar = TemporalCalendarId::ALL[calendar_index];
+        let canonical = calendar.canonical();
+        let spellings = calendar.spellings();
+        let mut spelling_index = 0;
+        while spelling_index < spellings.len() {
+            let spelling = spellings[spelling_index];
+            let mut row_index = 0;
+            let mut found = false;
+            while row_index < INTL_DTF_ACCEPTED_CALENDARS.len() {
+                let (accepted, resolved) = INTL_DTF_ACCEPTED_CALENDARS[row_index];
+                if const_str_eq(accepted, spelling) {
+                    assert!(
+                        const_str_eq(resolved, canonical),
+                        "Intl and Temporal disagree about a calendar's canonical form"
+                    );
+                    found = true;
+                }
+                row_index += 1;
+            }
+            assert!(
+                found,
+                "Intl.DateTimeFormat does not accept a calendar Temporal accepts"
+            );
+            spelling_index += 1;
+        }
+        calendar_index += 1;
+    }
+};
+
+/// `str` has no `const` equality, so compare the bytes.
+const fn const_str_eq(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
 /// The `-u-nu` types this implementation answers to.
 const INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS: &[(&str, &str)] = &[(
     INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
     INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
 )];
+
+/// An offset from UTC in whole signed minutes.
+///
+/// The only constructor range-checks, so "the parser forgot to bound the hour"
+/// is a construction-site error rather than a wrong-but-plausible formatted
+/// time. The bound is the ES `UTCOffset` grammar's, not the IANA world's:
+/// `Hour ::: 0 DecimalDigit | 1 DecimalDigit | 20 | 21 | 22 | 23` and
+/// `MinuteSecond ::: [0-5] DecimalDigit`, so `±23:59` is representable and
+/// `intl402/DateTimeFormat/prototype/resolvedOptions/offset-timezone-basic.js`
+/// really does require `-22:23` to be accepted. Anything narrower — `-14:00`,
+/// the widest offset any real zone has ever used — would reject conforming
+/// input.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TzOffsetMinutes(i16);
+
+impl TzOffsetMinutes {
+    /// `23 * 60 + 59`, the largest magnitude the grammar can spell.
+    const MAX: i16 = 23 * 60 + 59;
+    const MIN: i16 = -Self::MAX;
+
+    /// The only way to make one. `None` is "outside the `UTCOffset` grammar",
+    /// which every caller must turn into a `RangeError` or a compile failure.
+    const fn new(minutes: i16) -> Option<Self> {
+        match minutes {
+            Self::MIN..=Self::MAX => Some(Self(minutes)),
+            _ => None,
+        }
+    }
+
+    /// A whole number of hours, for the `Etc/GMT±N` rows and for UTC itself.
+    /// Panics at compile time on an out-of-range row rather than shipping one.
+    const fn from_hours(hours: i16) -> Self {
+        match Self::new(hours * 60) {
+            Some(offset) => offset,
+            None => panic!("an Etc/GMT row is outside the UTCOffset range"),
+        }
+    }
+
+    /// Built through the same constructor as every other row, so there is no
+    /// path to a `TzOffsetMinutes` that skipped the range check.
+    const UTC: Self = Self::from_hours(0);
+
+    const fn minutes(self) -> i16 {
+        self.0
+    }
+
+    /// The largest `Hour` and `MinuteSecond` the emitted parser may accept.
+    ///
+    /// Derived from [`Self::MAX`] rather than written out again, so the wasm
+    /// the parser emits and the Rust the table is built through are bounded by
+    /// one number. Widening the newtype without widening the parser (or the
+    /// reverse) is not expressible.
+    const fn max_hour() -> i64 {
+        (Self::MAX / 60) as i64
+    }
+
+    const fn max_minute() -> i64 {
+        (Self::MAX % 60) as i64
+    }
+}
+
+/// One row of `AvailableNamedTimeZoneIdentifiers()`.
+///
+/// `identifier` is what `resolvedOptions().timeZone` reports for **every**
+/// ASCII-case-insensitive spelling that matches it, which is what
+/// `GetAvailableNamedTimeZoneIdentifier` means by returning
+/// `record.[[Identifier]]`.
+#[derive(Clone, Copy)]
+pub(crate) struct IntlDtfNamedZone {
+    pub(crate) identifier: &'static str,
+    pub(crate) offset: TzOffsetMinutes,
+}
+
+impl IntlDtfNamedZone {
+    const fn utc_alias(identifier: &'static str) -> Self {
+        Self {
+            identifier,
+            offset: TzOffsetMinutes::UTC,
+        }
+    }
+
+    /// An `Etc/GMT±N` row. POSIX inverts the sign: `Etc/GMT+7` is seven hours
+    /// *west* of Greenwich, i.e. offset −07:00, which is exactly what
+    /// `prototype/format/offset-timezone-gmt-same.js` pins by asserting
+    /// `'-07:00'` and `'Etc/GMT+7'` format identically.
+    const fn etc_gmt(identifier: &'static str, posix_hours: i16) -> Self {
+        Self {
+            identifier,
+            offset: TzOffsetMinutes::from_hours(-posix_hours),
+        }
+    }
+}
+
+/// `AvailableNamedTimeZoneIdentifiers()` for a backend with no transition data:
+/// every IANA Zone or Link name whose offset is a constant.
+///
+/// The eighteen zero-offset rows are the UTC aliases of `etcetera`/`backward`;
+/// the rest are the `Etc/GMT+1`..`Etc/GMT+12` and `Etc/GMT-1`..`Etc/GMT-14`
+/// families. Nothing here is canonicalised away: `timezone-utc.js` wants
+/// `"utc"` to report `"UTC"` and `canonicalize-utc-timezone.js` wants
+/// `"Etc/GMT"` to report `"Etc/GMT"`, and returning the row's own identifier
+/// satisfies both without a second table.
+pub(crate) const INTL_DTF_NAMED_ZONES: &[IntlDtfNamedZone] = &[
+    IntlDtfNamedZone::utc_alias(INTL_DTF_RESOLVED_TIME_ZONE),
+    IntlDtfNamedZone::utc_alias("GMT"),
+    IntlDtfNamedZone::utc_alias("Etc/UTC"),
+    IntlDtfNamedZone::utc_alias("Etc/GMT"),
+    IntlDtfNamedZone::utc_alias("Etc/Universal"),
+    IntlDtfNamedZone::utc_alias("Etc/Zulu"),
+    IntlDtfNamedZone::utc_alias("Etc/Greenwich"),
+    IntlDtfNamedZone::utc_alias("Etc/UCT"),
+    IntlDtfNamedZone::utc_alias("UCT"),
+    IntlDtfNamedZone::utc_alias("Universal"),
+    IntlDtfNamedZone::utc_alias("Zulu"),
+    IntlDtfNamedZone::utc_alias("Greenwich"),
+    IntlDtfNamedZone::utc_alias("GMT+0"),
+    IntlDtfNamedZone::utc_alias("GMT-0"),
+    IntlDtfNamedZone::utc_alias("GMT0"),
+    IntlDtfNamedZone::utc_alias("Etc/GMT+0"),
+    IntlDtfNamedZone::utc_alias("Etc/GMT-0"),
+    IntlDtfNamedZone::utc_alias("Etc/GMT0"),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+1", 1),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+2", 2),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+3", 3),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+4", 4),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+5", 5),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+6", 6),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+7", 7),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+8", 8),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+9", 9),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+10", 10),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+11", 11),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT+12", 12),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-1", -1),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-2", -2),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-3", -3),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-4", -4),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-5", -5),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-6", -6),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-7", -7),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-8", -8),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-9", -9),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-10", -10),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-11", -11),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-12", -12),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-13", -13),
+    IntlDtfNamedZone::etc_gmt("Etc/GMT-14", -14),
+];
+
+const fn intl_dtf_ascii_lower_byte(byte: u8) -> u8 {
+    if byte >= b'A' && byte <= b'Z' {
+        byte + 32
+    } else {
+        byte
+    }
+}
+
+const fn intl_dtf_str_eq(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+const fn intl_dtf_ascii_eq_ignore_case(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if intl_dtf_ascii_lower_byte(left[index]) != intl_dtf_ascii_lower_byte(right[index]) {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// The lookup is ASCII-case-insensitive, so two rows differing only in case
+/// would make the winner depend on table order. Rejected at compile time.
+const _: () = {
+    let mut i = 0;
+    while i < INTL_DTF_NAMED_ZONES.len() {
+        let mut j = i + 1;
+        while j < INTL_DTF_NAMED_ZONES.len() {
+            assert!(
+                !intl_dtf_ascii_eq_ignore_case(
+                    INTL_DTF_NAMED_ZONES[i].identifier,
+                    INTL_DTF_NAMED_ZONES[j].identifier,
+                ),
+                "two INTL_DTF_NAMED_ZONES rows share an ASCII-case-insensitive identifier",
+            );
+            j += 1;
+        }
+        i += 1;
+    }
+};
+
+/// The six `timeZoneName` widths, as a closed set.
+///
+/// [`TimeZoneNameStyle::utc_name`] has no fallback arm, so a style cannot be
+/// added without deciding what it prints for the UTC family — which is the half
+/// CLDR `en` has real names for and the half Test262 reads back.
+///
+/// For a **non-zero** offset all six styles deliberately share one answer, the
+/// localized GMT format `GMT±HH:MM`, pre-rendered into
+/// [`HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET`]. CLDR `en` would elide the
+/// leading zero and a whole `:00` for the three narrow styles — `GMT+5` rather
+/// than `GMT+05:00` — and that elision is not implemented, on purpose: no
+/// Test262 case in the corpus observes a `timeZoneName` under a non-zero
+/// offset, and rendering two widths inside the format walk costs six string
+/// concatenations in the one function whose size budget is known to be tight.
+/// The answer it does give is a correct GMT offset, not a plausible-looking
+/// wrong name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TimeZoneNameStyle {
+    Short,
+    Long,
+    ShortOffset,
+    LongOffset,
+    ShortGeneric,
+    LongGeneric,
+}
+
+impl TimeZoneNameStyle {
+    /// Table order, which is also [`INTL_DTF_COMPONENT_OPTIONS`]'s
+    /// `timeZoneName` order.
+    const ALL: [Self; 6] = [
+        Self::Short,
+        Self::Long,
+        Self::ShortOffset,
+        Self::LongOffset,
+        Self::ShortGeneric,
+        Self::LongGeneric,
+    ];
+
+    /// The spelling `resolvedOptions` reports, which is also the key the option
+    /// table matches on.
+    const fn spelling(self) -> &'static str {
+        match self {
+            Self::Short => "short",
+            Self::Long => "long",
+            Self::ShortOffset => "shortOffset",
+            Self::LongOffset => "longOffset",
+            Self::ShortGeneric => "shortGeneric",
+            Self::LongGeneric => "longGeneric",
+        }
+    }
+
+    /// What CLDR `en` prints for the UTC zone family, byte for byte.
+    ///
+    /// These are literals rather than `GMT+00:00` renderings because `en` has
+    /// real names for offset zero and `constructor-options-timeZoneName-valid.js`
+    /// plus `format/temporal-plaindate-formatting-timezonename.js` observe them.
+    const fn utc_name(self) -> &'static str {
+        match self {
+            Self::Short => "UTC",
+            Self::Long => "Coordinated Universal Time",
+            Self::ShortOffset => "GMT",
+            Self::LongOffset => "GMT+00:00",
+            Self::ShortGeneric => "UTC",
+            Self::LongGeneric => "UTC",
+        }
+    }
+
+    /// The runtime code stored in [`HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET`],
+    /// looked up in the one table the constructor and `resolvedOptions` share
+    /// so the enum cannot drift from the codes on the heap.
+    const fn code(self) -> i64 {
+        let codes = INTL_DTF_TIME_ZONE_NAME_CODES;
+        let mut index = 0;
+        while index < codes.len() {
+            if intl_dtf_str_eq(codes[index].0, self.spelling()) {
+                return codes[index].1;
+            }
+            index += 1;
+        }
+        panic!("a TimeZoneNameStyle has no code in INTL_DTF_TIME_ZONE_NAME_CODES")
+    }
+}
+
+/// The `(spelling, code)` list shared by [`INTL_DTF_COMPONENT_OPTIONS`]'s
+/// `timeZoneName` row and [`TimeZoneNameStyle::code`]. One list, so the
+/// renderer cannot answer to a code the constructor never writes.
+const INTL_DTF_TIME_ZONE_NAME_CODES: &[(&str, i64)] = &[
+    ("short", 1),
+    ("long", 2),
+    ("shortOffset", 3),
+    ("longOffset", 4),
+    ("shortGeneric", 5),
+    ("longGeneric", 6),
+];
+
+/// Every code in the table belongs to a style and every style has a code:
+/// neither list can grow without the other.
+const _: () = {
+    assert!(
+        INTL_DTF_TIME_ZONE_NAME_CODES.len() == TimeZoneNameStyle::ALL.len(),
+        "INTL_DTF_TIME_ZONE_NAME_CODES and TimeZoneNameStyle::ALL disagree",
+    );
+    let mut index = 0;
+    while index < TimeZoneNameStyle::ALL.len() {
+        // `code()` panics at compile time when a style is missing from the
+        // list, so calling it for every style is the other half of the check.
+        assert!(TimeZoneNameStyle::ALL[index].code() > 0);
+        index += 1;
+    }
+};
+
+/// `FormatOffsetTimeZoneIdentifier` and the offset renderer both need the sign
+/// as a literal; naming them keeps the pool derivation honest.
+const INTL_DTF_OFFSET_SIGNS: [&str; 2] = ["+", "-"];
+const INTL_DTF_GMT_PREFIX: &str = "GMT";
 
 /// A Temporal type `Intl.DateTimeFormat` knows how to render, and the two
 /// field sets ECMA-402 11.5.11 `HandleDateTimeValue` gives it.
@@ -239,6 +647,28 @@ pub(crate) struct IntlDtfTemporalKind {
     /// `format` function never sees it because a style and a Temporal receiver
     /// only ever meet through `toLocaleString`.
     pub(crate) rejected_style: Option<(&'static str, u64)>,
+    /// `[[IsPlain]]` from 11.5.11, i.e. whether the epoch value this type
+    /// reduces to is an instant that the resolved zone shifts, or wall-clock
+    /// fields that it must leave alone. A mandatory field, so a new Temporal
+    /// brand cannot be added without answering the question.
+    pub(crate) basis: DtfTimeBasis,
+}
+
+/// Whether a time value is an exact point on the timeline or already local.
+///
+/// This is `[[IsPlain]]` from ECMA-402 11.5.11 promoted to a type. It decides
+/// the single place the resolved time zone's offset is added, and getting it
+/// wrong is invisible under `UTC`: at `+13:00` a `Temporal.PlainDate`, anchored
+/// at noon, would slide a whole day.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DtfTimeBasis {
+    /// A legacy `Number`/`Date` time value or a `Temporal.Instant`: an exact
+    /// instant, so the components are read in the resolved zone's local time.
+    Exact,
+    /// A `Temporal.Plain*` value: the epoch milliseconds it was reduced to
+    /// already *are* its wall-clock fields, and adding an offset would move
+    /// them.
+    Plain,
 }
 
 /// The `allowed` set shared by the instant-like types: an exact point on the
@@ -268,6 +698,17 @@ const INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED: &str =
 const INTL_DTF_EMPTY_TEMPORAL_FORMAT: &str =
     "The requested format has no fields in common with this Temporal type";
 
+/// Neither a `UTCOffset` identifier nor a row of [`INTL_DTF_NAMED_ZONES`].
+const INTL_DTF_UNSUPPORTED_TIME_ZONE_MESSAGE: &str = "Unsupported timeZone option";
+
+/// `PartitionDateTimeRangePattern` step 5: `SameTemporalType(x, y)` is false.
+///
+/// A legacy `Number` counts as its own "type" for this purpose, so mixing a
+/// `Date` with any Temporal object lands here too — which is exactly what
+/// `formatRange/fails-on-distinct-temporal-types.js` asserts.
+const INTL_DTF_RANGE_DIFFERENT_TYPES_MESSAGE: &str =
+    "Intl.DateTimeFormat.prototype.formatRange startDate and endDate must be the same type";
+
 /// Table 6 of ECMA-402 11.5.11, one row per branded type. The `format`
 /// function walks it to dispatch on the receiver's brand and
 /// `toLocaleString` indexes it by type, so the two paths cannot resolve a
@@ -286,6 +727,7 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
         ],
         defaults: &INTL_DTF_DEFAULT_DATE,
         rejected_style: Some(("timeStyle", HEAP_INTL_DTF_TIME_STYLE_OFFSET)),
+        basis: DtfTimeBasis::Plain,
     },
     IntlDtfTemporalKind {
         code: 2,
@@ -301,6 +743,7 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
             (HEAP_INTL_DTF_MONTH_OFFSET, 2),
         ],
         rejected_style: Some(("timeStyle", HEAP_INTL_DTF_TIME_STYLE_OFFSET)),
+        basis: DtfTimeBasis::Plain,
     },
     IntlDtfTemporalKind {
         code: 3,
@@ -312,6 +755,7 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
             (HEAP_INTL_DTF_DAY_OFFSET, 2),
         ],
         rejected_style: Some(("timeStyle", HEAP_INTL_DTF_TIME_STYLE_OFFSET)),
+        basis: DtfTimeBasis::Plain,
     },
     IntlDtfTemporalKind {
         code: 4,
@@ -326,6 +770,7 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
         ],
         defaults: &INTL_DTF_DEFAULT_TIME,
         rejected_style: Some(("dateStyle", HEAP_INTL_DTF_DATE_STYLE_OFFSET)),
+        basis: DtfTimeBasis::Plain,
     },
     IntlDtfTemporalKind {
         code: 5,
@@ -352,6 +797,7 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
             (HEAP_INTL_DTF_SECOND_OFFSET, 2),
         ],
         rejected_style: None,
+        basis: DtfTimeBasis::Plain,
     },
     IntlDtfTemporalKind {
         code: 6,
@@ -367,8 +813,45 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
             (HEAP_INTL_DTF_SECOND_OFFSET, 2),
         ],
         rejected_style: None,
+        // The one Temporal type that is a point on the timeline rather than a
+        // wall clock, so the resolved zone genuinely applies to it.
+        basis: DtfTimeBasis::Exact,
     },
 ];
+
+/// The `kind_local` code for `Temporal.ZonedDateTime`.
+///
+/// It is not an [`INTL_DTF_TEMPORAL_KINDS`] row because there is no field set
+/// to give it: `HandleDateTimeValue` refuses the type outright. It still needs
+/// a code, because `SameTemporalType` has to be able to say that two
+/// `ZonedDateTime`s *are* the same type before the refusal fires.
+const INTL_DTF_ZONED_DATE_TIME_KIND_CODE: i64 = 7;
+
+/// Code 0 is the legacy path and [`INTL_DTF_ZONED_DATE_TIME_KIND_CODE`] is
+/// nobody's row; a table edit that collides with either would silently make two
+/// types compare equal under `SameTemporalType`.
+const _: () = {
+    let mut index = 0;
+    while index < INTL_DTF_TEMPORAL_KINDS.len() {
+        assert!(
+            INTL_DTF_TEMPORAL_KINDS[index].code != 0,
+            "code 0 is reserved for the legacy Number/Date path",
+        );
+        assert!(
+            INTL_DTF_TEMPORAL_KINDS[index].code != INTL_DTF_ZONED_DATE_TIME_KIND_CODE,
+            "a Temporal row collides with the Temporal.ZonedDateTime kind code",
+        );
+        let mut other = index + 1;
+        while other < INTL_DTF_TEMPORAL_KINDS.len() {
+            assert!(
+                INTL_DTF_TEMPORAL_KINDS[index].code != INTL_DTF_TEMPORAL_KINDS[other].code,
+                "two INTL_DTF_TEMPORAL_KINDS rows share a code",
+            );
+            other += 1;
+        }
+        index += 1;
+    }
+};
 
 /// `NoonTimeRecord()`: the time of day a date-only Temporal value is anchored
 /// at. Noon rather than midnight is what keeps the two ends of the Temporal
@@ -376,6 +859,9 @@ pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
 /// millisecond span instead of falling off it by half a day.
 const INTL_DTF_TEMPORAL_NOON_MILLISECONDS: f64 = 43_200_000.0;
 const INTL_DTF_MILLISECONDS_PER_DAY: f64 = 86_400_000.0;
+/// The unit [`HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET`] is stored in,
+/// scaled to the millisecond time values everything else here uses.
+const INTL_DTF_MILLISECONDS_PER_MINUTE: f64 = 60_000.0;
 
 /// The one locale this implementation has data for. `ResolveLocale` returns it
 /// for every request, so `resolvedOptions().locale` is always this string.
@@ -417,7 +903,7 @@ const INTL_DTF_WEEKDAYS_LONG: [&str; 7] = [
 const INTL_DTF_WEEKDAYS_SHORT: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const INTL_DTF_WEEKDAYS_NARROW: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
 
-/// Which artefact [`FunctionBuilder::emit_intl_dtf_build_format`] produces.
+/// Which artefact [`FunctionBuilder::emit_intl_dtf_build_format_with_kind`] produces.
 ///
 /// Both arms run the same field walk; only the accumulator differs. Keeping
 /// them one function is what makes `reduce(formatToParts(x)) === format(x)`
@@ -471,13 +957,123 @@ struct DtfFormatSink {
     source: DtfSourceAttribution,
 }
 
-/// The time value(s) one `emit_intl_dtf_build_format` call formats.
+/// The time value(s) one `emit_intl_dtf_build_format_with_kind` call formats.
 ///
 /// `second: None` is `format`/`formatToParts`: one date, no loop, no `source`.
 /// `second: Some(_)` is `formatRange`/`formatRangeToParts`.
+///
+/// `kind` is deliberately **one** field for both sides. `SameTemporalType`
+/// (11.5.9 step 5) has already run by the time a range builds this, so two
+/// different kinds is not a state the formatter can be handed; making it one
+/// field is what turns "did anybody check that?" into "there is nowhere to put
+/// the second answer".
 pub(crate) struct DtfFormatTimes {
+    /// `x`.
     pub(crate) first: u32,
+    /// `y`, for the two range entry points only.
     pub(crate) second: Option<u32>,
+    /// The local holding the shared [`DtfValueKind::code`].
+    pub(crate) kind: u32,
+}
+
+/// What one `format`/`formatRange` argument turned out to be, after
+/// `ToDateTimeFormattable` (11.4.6 step 4) and the brand dispatch.
+///
+/// The emitted code stores [`DtfValueKind::code`] in a local; this enum is the
+/// Rust-level domain the dispatch is *generated* from, so a brand can neither
+/// be dispatched to a code no row owns nor to a row with no brand.
+#[derive(Clone, Copy)]
+pub(crate) enum DtfValueKind {
+    /// Not a Temporal object: `ToNumber` ran and `TimeClip` applies.
+    Legacy,
+    /// One of [`INTL_DTF_TEMPORAL_KINDS`].
+    Temporal(&'static IntlDtfTemporalKind),
+    /// `Temporal.ZonedDateTime`, which `HandleDateTimeValue` refuses — but only
+    /// after `SameTemporalType` has had its say.
+    ZonedDateTime,
+}
+
+impl DtfValueKind {
+    /// Every kind the range dispatch has to recognise, in the order it tests
+    /// them. [`Self::Legacy`] is absent because it is the *absence* of a brand
+    /// match, not a brand of its own.
+    fn branded() -> impl Iterator<Item = Self> {
+        INTL_DTF_TEMPORAL_KINDS
+            .iter()
+            .map(Self::Temporal)
+            .chain(std::iter::once(Self::ZonedDateTime))
+    }
+
+    /// The `OBJECT_INTERNAL_BRAND_*` this kind dispatches on.
+    const fn brand(self) -> Option<u64> {
+        match self {
+            Self::Legacy => None,
+            Self::Temporal(kind) => Some(kind.brand),
+            Self::ZonedDateTime => Some(OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME),
+        }
+    }
+
+    const fn code(self) -> i64 {
+        match self {
+            Self::Legacy => 0,
+            Self::Temporal(kind) => kind.code,
+            Self::ZonedDateTime => INTL_DTF_ZONED_DATE_TIME_KIND_CODE,
+        }
+    }
+}
+
+/// The two halves of a resolved time zone, as the locals holding them.
+///
+/// Produced in exactly one place —
+/// [`FunctionBuilder::emit_intl_dtf_time_zone_option`] — and written to the
+/// record in exactly one place, [`Self::store`]. Before this pairing the record
+/// held a bare identifier payload with no offset beside it, so a new acceptance
+/// path could store an identifier and leave the formatter reading a stale
+/// offset; now the type has nowhere to put half an answer.
+#[derive(Clone, Copy)]
+pub(crate) struct DtfCanonicalTimeZone {
+    /// The string payload `resolvedOptions().timeZone` reports.
+    identifier_local: u32,
+    /// The signed whole minutes `PartitionDateTimePattern` adds to an exact
+    /// time value. A raw `i64`, not an f64 bit pattern.
+    offset_minutes_local: u32,
+    /// The pre-rendered localized GMT name for a non-zero offset, or 0.
+    gmt_name_local: u32,
+}
+
+impl DtfCanonicalTimeZone {
+    /// Reserves the triple. Reserved together so they can be released
+    /// together, which is what keeps the temp-local stack LIFO.
+    fn reserve(builder: &mut FunctionBuilder<'_>) -> Self {
+        Self {
+            identifier_local: builder.reserve_temp_local(),
+            offset_minutes_local: builder.reserve_temp_local(),
+            gmt_name_local: builder.reserve_temp_local(),
+        }
+    }
+
+    /// The only writer of the three record slots. `resolvedOptions` reads the
+    /// identifier, the component walk reads the offset and the `timeZoneName`
+    /// field reads the name; none can be written without the others having
+    /// been written first.
+    fn store(self, builder: &FunctionBuilder<'_>, record_local: u32, function: &mut Function) {
+        for (offset, local) in [
+            (HEAP_INTL_DTF_TIME_ZONE_OFFSET, self.identifier_local),
+            (
+                HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+                self.offset_minutes_local,
+            ),
+            (HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET, self.gmt_name_local),
+        ] {
+            builder.store_i64_local_at_offset(record_local, offset, local, function);
+        }
+    }
+
+    fn release(self, builder: &mut FunctionBuilder<'_>) {
+        builder.release_temp_local(self.gmt_name_local);
+        builder.release_temp_local(self.offset_minutes_local);
+        builder.release_temp_local(self.identifier_local);
+    }
 }
 
 /// The broken-down components of one side of a format.
@@ -1063,17 +1659,27 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// `Get(options, "timeZone")` plus `IsValidTimeZoneName`.
+    /// `Get(options, "timeZone")` followed by `CreateDateTimeFormat` steps
+    /// 30-31.
     ///
-    /// Only `UTC` has data, so every spelling that canonicalises to `UTC` is
-    /// accepted case-insensitively and everything else — including offset
-    /// strings, which would need a real zone database to be meaningful — is a
-    /// `RangeError` rather than a silent substitution.
+    /// Spec order, and the order below: the `UTCOffset` grammar first, then
+    /// `GetAvailableNamedTimeZoneIdentifier`, then `RangeError`. The two spec
+    /// branches raise the *same* error for a string this implementation cannot
+    /// answer — step 30's "does not parse as `UTCOffset[~SubMinutePrecision]`"
+    /// and step 31's "no such identifier" are both `RangeError` — so trying the
+    /// parser, falling through to the table, and throwing once at the end is
+    /// observationally identical to writing the branches out separately.
+    /// `'+15:59:00'` is a well-formed *sub-minute* offset string and still a
+    /// `RangeError` here, which is exactly what step 30.a.ii asks for.
+    ///
+    /// An accepted zone yields **both** halves of [`DtfCanonicalTimeZone`]: an
+    /// identifier with no offset beside it is not a value this function can
+    /// return.
     fn emit_intl_dtf_time_zone_option(
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
-        dest_local: u32,
+        zone: DtfCanonicalTimeZone,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
@@ -1082,8 +1688,16 @@ impl<'a> FunctionBuilder<'a> {
         let lowered_local = self.reserve_temp_local();
         let expected_local = self.reserve_temp_local();
         let ok_local = self.reserve_temp_local();
+        let parsed_local = self.reserve_temp_local();
+        let minutes_local = self.reserve_temp_local();
+        let gmt_scratch_local = self.reserve_temp_local();
 
-        self.emit_dtf_set_string(dest_local, INTL_DTF_RESOLVED_TIME_ZONE, function);
+        // `SystemTimeZoneIdentifier()` is `"UTC"` for this backend: there is no
+        // host zone to read, and a wrong guess would silently shift every
+        // default-zone format.
+        self.emit_dtf_set_string(zone.identifier_local, INTL_DTF_RESOLVED_TIME_ZONE, function);
+        self.emit_dtf_set_const(zone.offset_minutes_local, 0, function);
+        self.emit_dtf_set_const(zone.gmt_name_local, 0, function);
         self.emit_dtf_set_string(key_local, "timeZone", function);
         self.emit_object_read(
             options_payload_local,
@@ -1103,27 +1717,50 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_string_payload(value_payload_local, value_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(value_payload_local));
         self.emit_return_current_completion_if_throw(function);
+
+        // Step 30: IsTimeZoneOffsetString / ParseTimeZoneOffsetString.
+        self.emit_intl_dtf_parse_utc_offset(
+            value_payload_local,
+            minutes_local,
+            parsed_local,
+            function,
+        );
+        self.emit_dtf_if_nonzero(parsed_local, function);
+        function.instruction(&Instruction::LocalGet(minutes_local));
+        function.instruction(&Instruction::LocalSet(zone.offset_minutes_local));
+        self.emit_intl_dtf_format_offset_identifier(
+            minutes_local,
+            zone.identifier_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+
+        // Step 31: GetAvailableNamedTimeZoneIdentifier, ASCII-case-insensitive,
+        // answering with the table's spelling rather than the caller's.
         self.emit_intl_dtf_ascii_lowercase(value_payload_local, lowered_local, function)?;
         self.emit_dtf_set_const(ok_local, 0, function);
-        for spelling in [
-            "utc",
-            "etc/utc",
-            "etc/gmt",
-            "etc/universal",
-            "etc/zulu",
-            "gmt",
-        ] {
-            self.emit_dtf_set_string(expected_local, spelling, function);
+        for row in INTL_DTF_NAMED_ZONES {
+            self.emit_dtf_set_string(
+                expected_local,
+                &row.identifier.to_ascii_lowercase(),
+                function,
+            );
             self.emit_string_payload_equality_i32(lowered_local, expected_local, function);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_dtf_set_const(ok_local, 1, function);
+            self.emit_dtf_set_string(zone.identifier_local, row.identifier, function);
+            self.emit_dtf_set_const(
+                zone.offset_minutes_local,
+                row.offset.minutes() as i64,
+                function,
+            );
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::LocalGet(ok_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            "Unsupported timeZone option",
+            INTL_DTF_UNSUPPORTED_TIME_ZONE_MESSAGE,
             self.result_local,
             self.result_tag_local,
             function,
@@ -1131,8 +1768,30 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        // The `timeZoneName` field's answer for a non-zero offset, rendered
+        // once here instead of four times inside the format walk. Offset zero
+        // leaves it at 0, which is the sentinel for "use CLDR `en`'s real UTC
+        // names" — the branch every currently-green `timeZoneName` test takes.
+        function.instruction(&Instruction::LocalGet(zone.offset_minutes_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_string(zone.gmt_name_local, INTL_DTF_GMT_PREFIX, function);
+        self.emit_intl_dtf_format_offset_identifier(
+            zone.offset_minutes_local,
+            gmt_scratch_local,
+            function,
+        )?;
+        self.emit_concat_string_payloads_local(zone.gmt_name_local, gmt_scratch_local, function)?;
+        function.instruction(&Instruction::LocalSet(zone.gmt_name_local));
+        function.instruction(&Instruction::End);
 
         for local in [
+            gmt_scratch_local,
+            minutes_local,
+            parsed_local,
             ok_local,
             expected_local,
             lowered_local,
@@ -1140,6 +1799,256 @@ impl<'a> FunctionBuilder<'a> {
             value_payload_local,
             key_local,
         ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
+    /// `UTCOffset[~SubMinutePrecision]` (ECMA-262 21.4.1.34.1) and nothing else.
+    ///
+    /// `ok_local` becomes 1 exactly when the whole string is
+    /// `ASCIISign Hour (TimeSeparator? MinuteSecond)?`, and `minutes_local`
+    /// then holds the signed offset in whole minutes. Only three byte lengths
+    /// are legal — 3 (`+HH`), 5 (`+HHMM`) and 6 (`+HH:MM`) — so the eight-byte
+    /// sub-minute form `+HH:MM:SS` is refused by the length test before a byte
+    /// is examined. That is why `'+15:59:00'` throws.
+    ///
+    /// Byte 0 must be ASCII `'+'` (0x2B) or `'-'` (0x2D). U+2212 MINUS SIGN is
+    /// three WTF-8 bytes beginning 0xE2, so it can never reach the sign test
+    /// and `offset-timezone-no-unicode-minus-sign.js` needs no special case.
+    ///
+    /// `Hour` is `0 DecimalDigit | 1 DecimalDigit | 20 | 21 | 22 | 23`, which
+    /// for two decimal digits is precisely `hour <= 23`; `MinuteSecond` is
+    /// `[0-5] DecimalDigit`, precisely `minute <= 59`.
+    fn emit_intl_dtf_parse_utc_offset(
+        &mut self,
+        payload_local: u32,
+        minutes_local: u32,
+        ok_local: u32,
+        function: &mut Function,
+    ) {
+        let offset_local = self.reserve_temp_local();
+        let length_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let sign_local = self.reserve_temp_local();
+        let hour_local = self.reserve_temp_local();
+        let minute_local = self.reserve_temp_local();
+        let minute_start_local = self.reserve_temp_local();
+
+        self.emit_unpack_string_payload(payload_local, offset_local, length_local, function);
+        self.emit_dtf_set_const(ok_local, 0, function);
+        self.emit_dtf_set_const(minutes_local, 0, function);
+        self.emit_dtf_set_const(hour_local, 0, function);
+        self.emit_dtf_set_const(minute_local, 0, function);
+        self.emit_dtf_set_const(minute_start_local, 0, function);
+
+        // Every rejection is a `Br(0)` out of this block, so the accepting tail
+        // is the only path that reaches `ok = 1`.
+        function.instruction(&Instruction::Block(BlockType::Empty));
+
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Const(6));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(0));
+
+        self.emit_dtf_set_const(index_local, 0, function);
+        self.emit_load_string_byte(offset_local, index_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const('+' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const('-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(0));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const('-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(sign_local, -1, function);
+        function.instruction(&Instruction::Else);
+        self.emit_dtf_set_const(sign_local, 1, function);
+        function.instruction(&Instruction::End);
+
+        for digit_index in [1_i64, 2] {
+            self.emit_dtf_set_const(index_local, digit_index, function);
+            self.emit_load_string_byte(offset_local, index_local, byte_local, function);
+            self.emit_intl_dtf_reject_unless_ascii_digit(byte_local, 0, function);
+            function.instruction(&Instruction::LocalGet(hour_local));
+            function.instruction(&Instruction::I64Const(10));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const('0' as i64));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(hour_local));
+        }
+        function.instruction(&Instruction::LocalGet(hour_local));
+        function.instruction(&Instruction::I64Const(TzOffsetMinutes::max_hour()));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::BrIf(0));
+
+        // Where the two minute digits begin: 3 for `+HHMM`, 4 for `+HH:MM`, and
+        // 0 for `+HH`, which has none. A six-byte string whose byte 3 is not
+        // `':'` — `'-10.50'`, `'+13234'` — leaves it 0 and is rejected below.
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Const(5));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(minute_start_local, 3, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Const(6));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(index_local, 3, function);
+        self.emit_load_string_byte(offset_local, index_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(':' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(minute_start_local, 4, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(minute_start_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::BrIf(0));
+
+        self.emit_dtf_if_nonzero(minute_start_local, function);
+        for digit_index in [0_i64, 1] {
+            function.instruction(&Instruction::LocalGet(minute_start_local));
+            function.instruction(&Instruction::I64Const(digit_index));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(index_local));
+            self.emit_load_string_byte(offset_local, index_local, byte_local, function);
+            self.emit_intl_dtf_reject_unless_ascii_digit(byte_local, 1, function);
+            function.instruction(&Instruction::LocalGet(minute_local));
+            function.instruction(&Instruction::I64Const(10));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const('0' as i64));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(minute_local));
+        }
+        function.instruction(&Instruction::LocalGet(minute_local));
+        function.instruction(&Instruction::I64Const(TzOffsetMinutes::max_minute()));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(hour_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(minute_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(minutes_local));
+        self.emit_dtf_set_const(ok_local, 1, function);
+        function.instruction(&Instruction::End);
+
+        for local in [
+            minute_start_local,
+            minute_local,
+            hour_local,
+            sign_local,
+            byte_local,
+            index_local,
+            length_local,
+            offset_local,
+        ] {
+            self.release_temp_local(local);
+        }
+    }
+
+    /// `br_if depth` unless the byte is `[0-9]`, for the offset parser's
+    /// four digit positions.
+    fn emit_intl_dtf_reject_unless_ascii_digit(
+        &self,
+        byte_local: u32,
+        depth: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const('0' as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const('9' as i64));
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(depth));
+    }
+
+    /// `FormatOffsetTimeZoneIdentifier(offsetMinutes)`: `±HH:MM`, both fields
+    /// always present, and `'+'` for zero.
+    ///
+    /// `'-00'` and `'-00:00'` therefore both report `"+00:00"`, which is what
+    /// `resolvedOptions/offset-timezone-change.js` pins, and `'+03'` reports
+    /// `"+03:00"` rather than echoing the three-byte request back.
+    fn emit_intl_dtf_format_offset_identifier(
+        &mut self,
+        minutes_local: u32,
+        dest_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let magnitude_local = self.reserve_temp_local();
+        let piece_local = self.reserve_temp_local();
+        let field_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(minutes_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_string(dest_local, INTL_DTF_OFFSET_SIGNS[1], function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(minutes_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(magnitude_local));
+        function.instruction(&Instruction::Else);
+        self.emit_dtf_set_string(dest_local, INTL_DTF_OFFSET_SIGNS[0], function);
+        function.instruction(&Instruction::LocalGet(minutes_local));
+        function.instruction(&Instruction::LocalSet(magnitude_local));
+        function.instruction(&Instruction::End);
+
+        for (index, separator) in [(0_usize, None), (1, Some(":"))] {
+            if let Some(separator) = separator {
+                self.emit_dtf_set_string(piece_local, separator, function);
+                self.emit_concat_string_payloads_local(dest_local, piece_local, function)?;
+                function.instruction(&Instruction::LocalSet(dest_local));
+            }
+            function.instruction(&Instruction::LocalGet(magnitude_local));
+            function.instruction(&Instruction::I64Const(60));
+            if index == 0 {
+                function.instruction(&Instruction::I64DivU);
+            } else {
+                function.instruction(&Instruction::I64RemU);
+            }
+            function.instruction(&Instruction::F64ConvertI64S);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(field_local));
+            self.emit_dtf_number_string(field_local, 2, piece_local, function)?;
+            self.emit_concat_string_payloads_local(dest_local, piece_local, function)?;
+            function.instruction(&Instruction::LocalSet(dest_local));
+        }
+
+        for local in [field_local, piece_local, magnitude_local] {
             self.release_temp_local(local);
         }
         Ok(())
@@ -1233,7 +2142,7 @@ impl<'a> FunctionBuilder<'a> {
         let scratch_suffix_local = self.reserve_temp_local();
         let hour12_local = self.reserve_temp_local();
         let hour_cycle_local = self.reserve_temp_local();
-        let time_zone_local = self.reserve_temp_local();
+        let time_zone = DtfCanonicalTimeZone::reserve(self);
         let calendar_local = self.reserve_temp_local();
         let explicit_local = self.reserve_temp_local();
         // 1 once a component from `INTL_DTF_NEED_DEFAULTS_COMPONENTS` was
@@ -1377,11 +2286,11 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::End);
 
-        // Step 29: timeZone.
+        // Steps 29-31: timeZone, as an identifier and an offset together.
         self.emit_intl_dtf_time_zone_option(
             options_payload_local,
             options_tag_local,
-            time_zone_local,
+            time_zone,
             function,
         )?;
 
@@ -1525,12 +2434,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_INTL_DTF_TIME_ZONE_OFFSET,
-            time_zone_local,
-            function,
-        );
+        time_zone.store(self, record_local, function);
         self.store_i64_local_at_offset(
             record_local,
             HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
@@ -1608,7 +2512,11 @@ impl<'a> FunctionBuilder<'a> {
             defaults_cleared_local,
             explicit_local,
             calendar_local,
-            time_zone_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        time_zone.release(self);
+        for local in [
             hour_cycle_local,
             hour12_local,
             scratch_suffix_local,
@@ -2800,12 +3708,40 @@ impl<'a> FunctionBuilder<'a> {
     /// The date components of one side, exactly as
     /// `PartitionDateTimePattern` needs them: `MakeDay`-style fields, the
     /// weekday index rebased so 0 is Sunday, and the era year.
+    ///
+    /// # The one place a time zone exists
+    ///
+    /// `offset_minutes_local` is added here and nowhere else in the crate. The
+    /// caller has already collapsed 11.5.11's `[[IsPlain]]` into it — zero for
+    /// a `Temporal.Plain*` value whose epoch milliseconds already *are* its
+    /// wall clock, the resolved zone's offset for an instant — so this function
+    /// has one rule and no cases, and a second application of the offset would
+    /// have to be written somewhere visibly wrong.
     fn emit_dtf_components_from_time(
         &mut self,
         time_local: u32,
+        offset_minutes_local: u32,
         comps: DtfComponentLocals,
         function: &mut Function,
     ) {
+        // `LocalTime(t) = t + offset`, in the f64-bit-pattern convention every
+        // `Date` helper here uses. The offset local is a raw signed integer, so
+        // it is converted rather than reinterpreted.
+        let time_local = {
+            let local_time_local = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(time_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::LocalGet(offset_minutes_local));
+            function.instruction(&Instruction::F64ConvertI64S);
+            function.instruction(&Instruction::F64Const(Ieee64::from(
+                INTL_DTF_MILLISECONDS_PER_MINUTE,
+            )));
+            function.instruction(&Instruction::F64Mul);
+            function.instruction(&Instruction::F64Add);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(local_time_local));
+            local_time_local
+        };
         self.emit_date_components_from_time(
             time_local,
             comps.year,
@@ -2845,6 +3781,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(comps.display_year));
         function.instruction(&Instruction::End);
+
+        self.release_temp_local(time_local);
     }
 
     /// `PartitionDateTimeRangePattern` steps 7-12: are the two sides
@@ -2971,12 +3909,15 @@ impl<'a> FunctionBuilder<'a> {
 
 impl<'a> FunctionBuilder<'a> {
     /// `PartitionDateTimePattern` (ECMA-402 11.5.6) for `en-US`/`gregory`/
-    /// `latn`/`UTC`, in the one shape `format` and `formatToParts` share, and
-    /// — with a second time value — `PartitionDateTimeRangePattern` (11.5.9),
-    /// which `formatRange` and `formatRangeToParts` share.
+    /// `latn` and the record's resolved zone, in the one shape `format` and
+    /// `formatToParts` share, and — with a second time value —
+    /// `PartitionDateTimeRangePattern` (11.5.9), which `formatRange` and
+    /// `formatRangeToParts` share.
     ///
-    /// Each time is a finite time value in milliseconds; the caller has
-    /// already run `ToNumber` and `TimeClip`.
+    /// Each time is a time value in milliseconds **UTC**: the caller has run
+    /// `ToDateTimeFormattable` and, on the legacy path only, `TimeClip`. The
+    /// resolved zone's offset is applied here rather than by the caller, once,
+    /// in [`Self::emit_dtf_components_from_time`].
     ///
     /// # Why the range path is a wasm loop and not a second copy
     ///
@@ -2988,42 +3929,23 @@ impl<'a> FunctionBuilder<'a> {
     /// or twice grows the body by a copy of the component set instead, and the
     /// single-date callers still emit no loop at all.
     ///
-    /// Callers that can never be handed a Temporal value — the range path,
-    /// whose `HandleDateTimeValue` is not written yet — go through this
-    /// wrapper, which pins the kind to the legacy code.
-    pub(crate) fn emit_intl_dtf_build_format(
-        &mut self,
-        record_local: u32,
-        times: DtfFormatTimes,
-        mode: DtfFormatMode,
-        out_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let kind_local = self.reserve_temp_local();
-        self.emit_dtf_set_const(kind_local, 0, function);
-        let result = self.emit_intl_dtf_build_format_with_kind(
-            record_local,
-            times,
-            kind_local,
-            mode,
-            out_local,
-            function,
-        );
-        self.release_temp_local(kind_local);
-        result
-    }
-
-    /// The body itself. `kind_local` holds an [`IntlDtfTemporalKind::code`], or
-    /// zero for the legacy Number/Date path.
+    /// There is deliberately **no** wrapper that pins the kind to the legacy
+    /// code. Every entry point — including both range entry points — runs
+    /// `HandleDateTimeValue` and hands the answer in, so "this caller cannot
+    /// see a Temporal value" is not something any caller may assert on its own
+    /// behalf any more.
+    ///
+    /// `times.kind` holds a [`DtfValueKind::code`]: zero for the legacy
+    /// Number/Date path, otherwise an [`IntlDtfTemporalKind::code`].
     pub(crate) fn emit_intl_dtf_build_format_with_kind(
         &mut self,
         record_local: u32,
         times: DtfFormatTimes,
-        kind_local: u32,
         mode: DtfFormatMode,
         out_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let kind_local = times.kind;
         let e_weekday = self.reserve_temp_local();
         let e_era = self.reserve_temp_local();
         let e_year = self.reserve_temp_local();
@@ -3036,6 +3958,14 @@ impl<'a> FunctionBuilder<'a> {
         let e_fractional = self.reserve_temp_local();
         let e_time_zone_name = self.reserve_temp_local();
         let hour_cycle_local = self.reserve_temp_local();
+        // The resolved zone's offset as stored...
+        let zone_offset_local = self.reserve_temp_local();
+        // ...the offset actually added to the time value, which is that one for
+        // an exact instant and zero for a `Temporal.Plain*` wall clock...
+        let applied_offset_local = self.reserve_temp_local();
+        // ...and the pre-rendered `timeZoneName` for a non-zero offset, 0 for
+        // the UTC family.
+        let zone_gmt_name_local = self.reserve_temp_local();
         let join_at_local = self.reserve_temp_local();
         let style_local = self.reserve_temp_local();
 
@@ -3118,10 +4048,37 @@ impl<'a> FunctionBuilder<'a> {
             (HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET, e_fractional),
             (HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET, e_time_zone_name),
             (HEAP_INTL_DTF_HOUR_CYCLE_OFFSET, hour_cycle_local),
+            (
+                HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+                zone_offset_local,
+            ),
+            (HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET, zone_gmt_name_local),
         ] {
             self.load_i64_to_local_from_offset(record_local, offset, local, function);
         }
         self.emit_dtf_set_const(join_at_local, 0, function);
+
+        // ECMA-402 11.5.11 `[[IsPlain]]`, resolved once for the whole body.
+        //
+        // The legacy `Number`/`Date` path is `kind == 0` and is an exact
+        // instant, so the loaded offset is the starting answer and only the
+        // plain Temporal rows overwrite it. The `match` is exhaustive on
+        // purpose: a Temporal row added without a `basis` — or with a basis
+        // this code has not been taught — will not compile, and that is the
+        // whole point, because the mistake is invisible under `UTC` and shifts
+        // a `PlainDate` by a day at `+13:00`.
+        function.instruction(&Instruction::LocalGet(zone_offset_local));
+        function.instruction(&Instruction::LocalSet(applied_offset_local));
+        for kind in INTL_DTF_TEMPORAL_KINDS {
+            match kind.basis {
+                DtfTimeBasis::Exact => {}
+                DtfTimeBasis::Plain => {
+                    self.emit_dtf_if_code_eq(kind_local, kind.code, function);
+                    self.emit_dtf_set_const(applied_offset_local, 0, function);
+                    function.instruction(&Instruction::End);
+                }
+            }
+        }
 
         // `dateStyle` expands to the `en-US` date skeleton for that width.
         self.load_i64_to_local_from_offset(
@@ -3259,10 +4216,27 @@ impl<'a> FunctionBuilder<'a> {
 
         // --- date components ------------------------------------------------
         match range {
-            None => self.emit_dtf_components_from_time(times.first, current, function),
+            None => {
+                self.emit_dtf_components_from_time(
+                    times.first,
+                    applied_offset_local,
+                    current,
+                    function,
+                );
+            }
             Some(range) => {
-                self.emit_dtf_components_from_time(times.first, range.start, function);
-                self.emit_dtf_components_from_time(range.second_time, range.end, function);
+                self.emit_dtf_components_from_time(
+                    times.first,
+                    applied_offset_local,
+                    range.start,
+                    function,
+                );
+                self.emit_dtf_components_from_time(
+                    range.second_time,
+                    applied_offset_local,
+                    range.end,
+                    function,
+                );
                 self.emit_dtf_practical_equality(
                     [
                         e_era,
@@ -3654,18 +4628,12 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_pending(&sink, ", ", function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        for (code, name) in [
-            (1_i64, "UTC"),
-            (2, "Coordinated Universal Time"),
-            (3, "GMT"),
-            (4, "GMT+00:00"),
-            (5, "UTC"),
-            (6, "UTC"),
-        ] {
-            self.emit_dtf_if_code_eq(e_time_zone_name, code, function);
-            self.emit_dtf_set_string(value_local, name, function);
-            function.instruction(&Instruction::End);
-        }
+        self.emit_dtf_time_zone_name_value(
+            e_time_zone_name,
+            zone_gmt_name_local,
+            value_local,
+            function,
+        );
         self.emit_dtf_push(&sink, "timeZoneName", value_local, function)?;
         function.instruction(&Instruction::End);
 
@@ -3734,6 +4702,9 @@ impl<'a> FunctionBuilder<'a> {
             year_local,
             style_local,
             join_at_local,
+            zone_gmt_name_local,
+            applied_offset_local,
+            zone_offset_local,
             hour_cycle_local,
             e_time_zone_name,
             e_fractional,
@@ -3909,6 +4880,47 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    /// The `timeZoneName` field, derived from the resolved zone's offset rather
+    /// than assumed to be UTC.
+    ///
+    /// Offset zero keeps CLDR `en`'s real names for the UTC family byte for
+    /// byte — [`TimeZoneNameStyle::utc_name`] — because
+    /// `constructor-options-timeZoneName-valid.js` and
+    /// `format/temporal-plaindate-formatting-timezonename.js` read them back.
+    ///
+    /// Any other offset uses the localized GMT name the constructor already
+    /// rendered into [`HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET`], which doubles
+    /// as the discriminator: a zero payload *is* "the offset was zero". This
+    /// body is emitted once per `format`, `formatToParts`, `formatRange` and
+    /// `formatRangeToParts`, so building the name here would have cost ten
+    /// inline string concatenations four times over in the one function whose
+    /// size budget is known to be tight.
+    ///
+    /// No Test262 case in the current corpus observes a `timeZoneName` under a
+    /// non-zero offset, so this is insurance rather than points — but the
+    /// alternative, leaving the constant table in place, would print
+    /// `"Coordinated Universal Time"` for `timeZone: "+03:00"`, and a
+    /// plausible-looking wrong answer is worse than a missing one.
+    fn emit_dtf_time_zone_name_value(
+        &mut self,
+        style_code_local: u32,
+        gmt_name_local: u32,
+        dest_local: u32,
+        function: &mut Function,
+    ) {
+        // A non-zero offset has a pre-rendered name and every style shares it.
+        self.emit_dtf_if_nonzero(gmt_name_local, function);
+        function.instruction(&Instruction::LocalGet(gmt_name_local));
+        function.instruction(&Instruction::LocalSet(dest_local));
+        function.instruction(&Instruction::Else);
+        for style in TimeZoneNameStyle::ALL {
+            self.emit_dtf_if_code_eq(style_code_local, style.code(), function);
+            self.emit_dtf_set_string(dest_local, style.utc_name(), function);
+            function.instruction(&Instruction::End);
+        }
         function.instruction(&Instruction::End);
     }
 }
@@ -4285,8 +5297,8 @@ impl<'a> FunctionBuilder<'a> {
             DtfFormatTimes {
                 first: time_local,
                 second: None,
+                kind: kind_local,
             },
-            kind_local,
             DtfFormatMode::String,
             out_local,
             function,
@@ -4329,8 +5341,8 @@ impl<'a> FunctionBuilder<'a> {
             DtfFormatTimes {
                 first: time_local,
                 second: None,
+                kind: kind_local,
             },
-            kind_local,
             DtfFormatMode::Parts,
             out_local,
             function,
@@ -4346,24 +5358,43 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// ECMA-402 11.4.6 steps 3-6 followed by 11.5.9 steps 1-4.
+    /// ECMA-402 11.4.6 steps 3-5 followed by 11.5.9 steps 2-6, in that order.
     ///
-    /// This is deliberately *not*
-    /// [`Self::emit_intl_dtf_handle_date_time_value`]: the
-    /// range entry points have no "now" default. `undefined` is a `TypeError`,
-    /// and both arguments are tested for it before `ToNumber` runs on either,
-    /// so `formatRange(poison, undefined)` never reaches the poisoned
-    /// `valueOf`.
-    fn emit_intl_dtf_range_argument_times(
+    /// This is the range half of `HandleDateTimeValue` (11.5.11), and the order
+    /// is the whole point of the function:
+    ///
+    /// 1. Either argument `undefined` is a `TypeError`, decided before any
+    ///    coercion — so `formatRange(poison, undefined)` never reaches the
+    ///    poisoned `valueOf`. The range entry points have no "now" default,
+    ///    which is the one way they differ from
+    ///    [`Self::emit_intl_dtf_handle_date_time_value`].
+    /// 2. `ToDateTimeFormattable` on argument 0, **then** on argument 1. A
+    ///    branded Temporal object is kept as-is and reports its
+    ///    [`DtfValueKind`]; anything else goes through `ToNumber`.
+    /// 3. *Only now* `SameTemporalType`. Running it earlier is exactly the bug
+    ///    `to-datetime-formattable-with-different-arg-kinds.js` measures: it
+    ///    counts `valueOf` calls and requires one per argument that is not a
+    ///    Temporal object, even though the call is about to throw.
+    /// 4. Two `Temporal.ZonedDateTime`s are the *same* type, so the refusal
+    ///    that `HandleDateTimeValue` owes them comes after step 3, not before.
+    /// 5. `TimeClip` and the non-finite `RangeError` apply to the legacy path
+    ///    only. `Temporal.PlainDate` reaches four years beyond the `Date` range
+    ///    in each direction and must still render.
+    fn emit_intl_dtf_range_argument_values(
         &mut self,
         x_local: u32,
         y_local: u32,
+        kind_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let x_payload_local = self.reserve_temp_local();
         let x_tag_local = self.reserve_temp_local();
         let y_payload_local = self.reserve_temp_local();
         let y_tag_local = self.reserve_temp_local();
+        let x_kind_local = self.reserve_temp_local();
+        let y_kind_local = self.reserve_temp_local();
+        let brand_local = self.reserve_temp_local();
+        let record_local = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(0, x_payload_local, x_tag_local, function);
         self.emit_builtin_arg_to_locals(1, y_payload_local, y_tag_local, function);
@@ -4384,22 +5415,12 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        // A `Temporal.ZonedDateTime` carries its own zone, which cannot be
-        // reconciled with the formatter's, so 11.5.11 HandleDateTimeValue
-        // refuses it with a TypeError. `format` routes through
-        // `emit_intl_dtf_handle_date_time_value` and gets this right; the range
-        // entry points reach `ToNumber` directly, which would turn the refusal
-        // into a RangeError from `TimeClip`. Reject it here for the same reason
-        // and with the same message.
-        //
-        // The other Temporal brands are deliberately NOT handled: range
-        // formatting of Temporal values is not implemented, and falling through
-        // to `ToNumber` keeps that an honest failure rather than a wrong answer.
-        let brand_local = self.reserve_temp_local();
-        for (tag_local, payload_local) in [
-            (x_tag_local, x_payload_local),
-            (y_tag_local, y_payload_local),
+        // Step 2: `ToDateTimeFormattable` per argument, argument 0 first.
+        for (tag_local, payload_local, side_kind_local) in [
+            (x_tag_local, x_payload_local, x_kind_local),
+            (y_tag_local, y_payload_local, y_kind_local),
         ] {
+            self.emit_dtf_set_const(side_kind_local, DtfValueKind::Legacy.code(), function);
             function.instruction(&Instruction::LocalGet(tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::I64Eq);
@@ -4410,35 +5431,66 @@ impl<'a> FunctionBuilder<'a> {
                 brand_local,
                 function,
             );
-            self.emit_dtf_if_code_eq(
-                brand_local,
-                OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME as i64,
-                function,
-            );
-            self.emit_throw_current_function_realm_type_error(
-                INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
+            for kind in DtfValueKind::branded() {
+                let brand = kind
+                    .brand()
+                    .expect("DtfValueKind::branded yields only branded kinds");
+                self.emit_dtf_if_code_eq(brand_local, brand as i64, function);
+                self.emit_dtf_set_const(side_kind_local, kind.code(), function);
+                function.instruction(&Instruction::End);
+            }
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        self.release_temp_local(brand_local);
-
-        // Both `ToNumber` calls, in argument order, before either `TimeClip`.
-        for (tag_local, payload_local) in [
-            (x_tag_local, x_payload_local),
-            (y_tag_local, y_payload_local),
-        ] {
+            // `IsTemporalObject(value)` is false, so `ToNumber` runs — and it
+            // runs here, inside the per-argument loop, which is what keeps the
+            // observable `valueOf` order argument-0-then-argument-1.
+            function.instruction(&Instruction::LocalGet(side_kind_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_value_to_number_payload(tag_local, payload_local, function)?;
             function.instruction(&Instruction::LocalSet(payload_local));
             self.emit_return_current_completion_if_throw(function);
+            function.instruction(&Instruction::End);
         }
 
-        // 11.5.9 steps 1-4. `x > y` is *not* an error: that requirement was
+        // Step 3: `SameTemporalType(x, y)`. Two legacy values are both kind 0
+        // and therefore equal, so the whole condition is just "the kinds
+        // differ" — a legacy value next to any Temporal one included, which is
+        // what `fails-on-distinct-temporal-types.js` asserts.
+        function.instruction(&Instruction::LocalGet(x_kind_local));
+        function.instruction(&Instruction::LocalGet(y_kind_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            INTL_DTF_RANGE_DIFFERENT_TYPES_MESSAGE,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // The two sides now provably agree, so one local carries both.
+        function.instruction(&Instruction::LocalGet(x_kind_local));
+        function.instruction(&Instruction::LocalSet(kind_local));
+
+        // Step 4: a `Temporal.ZonedDateTime` carries its own zone, which cannot
+        // be reconciled with the formatter's, so `HandleDateTimeValue` refuses
+        // it — with the same message the single-date path uses.
+        self.emit_dtf_if_code_eq(kind_local, DtfValueKind::ZonedDateTime.code(), function);
+        self.emit_throw_current_function_realm_type_error(
+            INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // Step 5, legacy half. `x > y` is *not* an error: that requirement was
         // removed in 2021 and the range simply formats in the order given.
+        function.instruction(&Instruction::LocalGet(kind_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         for (payload_local, time_local) in [(x_payload_local, x_local), (y_payload_local, y_local)]
         {
             self.emit_date_time_clip(payload_local, time_local, function);
@@ -4457,8 +5509,41 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
         }
+        function.instruction(&Instruction::End);
 
-        for local in [y_tag_local, y_payload_local, x_tag_local, x_payload_local] {
+        // Step 5, Temporal half: the same reduction the single-date path uses,
+        // and no `TimeClip`.
+        for kind in INTL_DTF_TEMPORAL_KINDS {
+            self.emit_dtf_if_code_eq(kind_local, kind.code, function);
+            for (payload_local, time_local) in
+                [(x_payload_local, x_local), (y_payload_local, y_local)]
+            {
+                self.load_i64_to_local_from_offset(
+                    payload_local,
+                    HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+                    record_local,
+                    function,
+                );
+                self.emit_intl_dtf_temporal_epoch_milliseconds(
+                    kind.brand,
+                    record_local,
+                    time_local,
+                    function,
+                )?;
+            }
+            function.instruction(&Instruction::End);
+        }
+
+        for local in [
+            record_local,
+            brand_local,
+            y_kind_local,
+            x_kind_local,
+            y_tag_local,
+            y_payload_local,
+            x_tag_local,
+            x_payload_local,
+        ] {
             self.release_temp_local(local);
         }
         Ok(())
@@ -4470,6 +5555,10 @@ impl<'a> FunctionBuilder<'a> {
     /// The brand check runs first, which is what `formatRange.call({})` with
     /// no arguments at all requires — a `TypeError` for the receiver, not for
     /// the missing dates.
+    ///
+    /// The single `kind_local` handed to the formatter is the one
+    /// `SameTemporalType` has already agreed on, so both ends of the range are
+    /// masked with the same Temporal field set by construction.
     fn emit_intl_dtf_format_range(
         &mut self,
         method: &str,
@@ -4479,15 +5568,17 @@ impl<'a> FunctionBuilder<'a> {
         let record_local = self.reserve_temp_local();
         let x_local = self.reserve_temp_local();
         let y_local = self.reserve_temp_local();
+        let kind_local = self.reserve_temp_local();
         let out_local = self.reserve_temp_local();
 
         self.emit_intl_dtf_record_from_receiver(record_local, method, function)?;
-        self.emit_intl_dtf_range_argument_times(x_local, y_local, function)?;
-        self.emit_intl_dtf_build_format(
+        self.emit_intl_dtf_range_argument_values(x_local, y_local, kind_local, function)?;
+        self.emit_intl_dtf_build_format_with_kind(
             record_local,
             DtfFormatTimes {
                 first: x_local,
                 second: Some(y_local),
+                kind: kind_local,
             },
             mode,
             out_local,
@@ -4502,7 +5593,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(result_tag));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
-        for local in [out_local, y_local, x_local, record_local] {
+        for local in [out_local, kind_local, y_local, x_local, record_local] {
             self.release_temp_local(local);
         }
         Ok(())
@@ -4544,7 +5635,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Going through the cached bound format function also means the field
     /// walk is emitted **once** per module rather than once per Temporal type;
-    /// inlining [`Self::emit_intl_dtf_build_format`] into seven more bodies is
+    /// inlining [`Self::emit_intl_dtf_build_format_with_kind`] into seven more bodies is
     /// the obvious implementation and the one that trips the per-function size
     /// limit.
     ///
@@ -4728,15 +5819,7 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
         INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
         INTL_DTF_RESOLVED_TIME_ZONE,
         "en",
-        "utc",
-        "etc/utc",
-        "etc/gmt",
-        "etc/universal",
-        "etc/zulu",
-        "gmt",
-        "Coordinated Universal Time",
-        "GMT",
-        "GMT+00:00",
+        INTL_DTF_GMT_PREFIX,
         "AM",
         "PM",
         "A",
@@ -4802,7 +5885,23 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
         values.push(format!("Invalid {property} option"));
         values.push(format!("Unsupported {property} option"));
     }
-    values.push("Unsupported timeZone option".to_string());
+    values.push(INTL_DTF_UNSUPPORTED_TIME_ZONE_MESSAGE.to_string());
+    // Every named zone contributes two literals: the identifier the record
+    // stores and reports, and the ASCII-lowercased form the lookup compares
+    // against. Derived from the table, so a row added there can never reference
+    // a string the data section is missing.
+    for row in INTL_DTF_NAMED_ZONES {
+        values.push(row.identifier.to_string());
+        values.push(row.identifier.to_ascii_lowercase());
+    }
+    // The `timeZoneName` renderer: the six zero-offset literals plus the pieces
+    // the localized GMT format is concatenated from.
+    for style in TimeZoneNameStyle::ALL {
+        values.push(style.utc_name().to_string());
+    }
+    for sign in INTL_DTF_OFFSET_SIGNS {
+        values.push(sign.to_string());
+    }
     for method in [
         "Intl.DateTimeFormat.prototype.resolvedOptions",
         "get Intl.DateTimeFormat.prototype.format",
@@ -4826,6 +5925,7 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
         "Date value is not finite",
         "Invalid language tag",
         INTL_DTF_RANGE_UNDEFINED_MESSAGE,
+        INTL_DTF_RANGE_DIFFERENT_TYPES_MESSAGE,
         INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED,
         INTL_DTF_EMPTY_TEMPORAL_FORMAT,
     ] {

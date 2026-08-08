@@ -49,6 +49,11 @@ const WASM_MODULE_MEMORY_CACHE_ENTRIES: usize = 64;
 /// This is a performance heuristic only; the normal compiler retains its
 /// authoritative `CodeTooLarge` fallback below the cutoff.
 const SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES: usize = 1024 * 1024;
+/// Cranelift's `CodegenError::CodeTooLarge` display text, verbatim
+/// (`cranelift-codegen/src/result.rs`). Both the size-optimized retry and the
+/// per-function attribution key on it, and a single constant keeps the two from
+/// drifting apart.
+const WASM_CODE_TOO_LARGE_MESSAGE: &str = "Code for function is too large";
 /// Large AOT functions can have multi-megabyte native stack frames even
 /// without deep JavaScript recursion. Keep half of the 64MiB worker stack
 /// available to Wasmtime while leaving the other half for host calls.
@@ -572,6 +577,129 @@ fn plan_wasm_native_compilation(bytes: &[u8]) -> WasmNativeCompilationPlan {
     }
 }
 
+/// One code-section body, as the attribution below ranks it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WasmCodeBodyFacts {
+    /// Index in the Wasm function index space, i.e. after the imports.
+    function_index: u32,
+    body_bytes: usize,
+    /// `None` when the local declaration could not be decoded, which is
+    /// reported as `?` rather than as a plausible number.
+    declared_locals: Option<u64>,
+}
+
+impl core::fmt::Display for WasmCodeBodyFacts {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "wasm[0]::function[{}] ({} bytes, ",
+            self.function_index, self.body_bytes
+        )?;
+        match self.declared_locals {
+            Some(locals) => write!(f, "{locals} locals)"),
+            None => write!(f, "? locals)"),
+        }
+    }
+}
+
+/// Total declared locals of one body, or `None` when the declaration does not
+/// decode.
+fn wasm_body_declared_locals(body: &wasmparser::FunctionBody<'_>) -> Option<u64> {
+    let mut reader = body.get_locals_reader().ok()?;
+    let mut total: u64 = 0;
+    for _ in 0..reader.get_count() {
+        let (count, _value_type) = reader.read().ok()?;
+        total = total.checked_add(u64::from(count))?;
+    }
+    Some(total)
+}
+
+/// Attributes a `Code for function is too large` failure to the emitted
+/// function bodies most likely to be responsible, **by Wasm function index**.
+///
+/// Cranelift's `CodegenError::CodeTooLarge` — raised when `VRegAllocator::alloc`
+/// exhausts the 2,097,151 virtual registers `VReg::MAX_BITS = 21` allows — says
+/// nothing about *which* function ran out. The module carries two candidate
+/// answers and this reports both, because they are frequently different
+/// functions:
+///
+/// * the largest code-section body, and
+/// * the body declaring the most locals.
+///
+/// The second is the better predictor: the Cranelift Wasm frontend materialises
+/// a value per live local at every control-flow join, so virtual-register
+/// pressure tracks `locals × blocks` rather than encoded size. Reporting only
+/// the byte-largest body names a shared builtin that is byte-identical in
+/// hundreds of modules Cranelift compiles fine, which is a plausible-looking
+/// wrong answer. Both are hints, and they are labelled as the two rankings they
+/// are.
+///
+/// **Deliberately index-only: no symbol names appear here.** This string is
+/// appended to the failure detail that `porffor-test262` classifies with, and
+/// both `classify_failure_origin` and `classify_failure_outcome` match
+/// case-insensitive substrings over the *whole* detail. A symbol such as
+/// `builtin::Intl.DateTimeFormat.prototype.format` would match `intl` and file
+/// a Cranelift backend defect under `FailureOrigin::IcuIntl`; `builtin::JSON.parse`
+/// would match `parse` and give `BoaParser`; `builtin_stub::…` would match
+/// `stub` and demote the outcome from `Bug` to `NotImplemented`. The
+/// index-to-symbol mapping lives in the module's `name` section — which is what
+/// wasmtime itself symbolises `wasm[0]::function[N]::<name>` from — and in the
+/// backend `debug_dump` size report (`PORFFOR_EMIT_SIZE_REPORT`).
+/// `attribution_is_inert_for_the_test262_failure_classifiers` guards this.
+///
+/// Returns `None` for a module that fails to parse or carries no code section —
+/// in that case the caller reports the original error unchanged.
+fn describe_largest_wasm_code_body(bytes: &[u8]) -> Option<String> {
+    let mut imported_function_count: u32 = 0;
+    let mut code_entry_ordinal: u32 = 0;
+    let mut largest: Option<WasmCodeBodyFacts> = None;
+    let mut most_locals: Option<WasmCodeBodyFacts> = None;
+
+    for payload in WasmParser::new(0).parse_all(bytes) {
+        match payload.ok()? {
+            WasmPayload::ImportSection(reader) => {
+                // `into_imports` rather than iterating the section directly:
+                // one `Imports` entry can carry a whole compact-encoding group
+                // (many names under one module, or many names under one type),
+                // so counting section entries would undercount the imported
+                // functions and shift every function index reported below.
+                for import in reader.into_imports() {
+                    let import = import.ok()?;
+                    if matches!(
+                        import.ty,
+                        wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                    ) {
+                        imported_function_count += 1;
+                    }
+                }
+            }
+            WasmPayload::CodeSectionEntry(body) => {
+                let facts = WasmCodeBodyFacts {
+                    function_index: imported_function_count + code_entry_ordinal,
+                    body_bytes: body.range().len(),
+                    declared_locals: wasm_body_declared_locals(&body),
+                };
+                code_entry_ordinal += 1;
+                if largest.is_none_or(|current| facts.body_bytes > current.body_bytes) {
+                    largest = Some(facts);
+                }
+                if most_locals.is_none_or(|current| {
+                    facts.declared_locals.unwrap_or(0) > current.declared_locals.unwrap_or(0)
+                }) {
+                    most_locals = Some(facts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let largest = largest?;
+    let most_locals = most_locals?;
+    Some(format!(
+        "largest emitted function: {largest}; most locals: {most_locals}"
+    ))
+}
+
 fn largest_wasm_code_body_size(bytes: &[u8]) -> Option<usize> {
     let mut largest_code_body_bytes = 0;
     for payload in WasmParser::new(0).parse_all(bytes) {
@@ -599,7 +727,22 @@ fn compile_wasm_module(
 ) -> Result<WasmtimeModule, EngineError> {
     compilation_pool()?
         .install(|| WasmtimeModule::new(engine, bytes))
-        .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err:#}")))
+        .map_err(|err| {
+            let message = format!("wasmtime module validation failed: {err:#}");
+            // Cranelift's per-function limits are the one failure class whose
+            // message names neither the function nor its size. Attach the
+            // attribution the `name` section makes available, so the failure
+            // detail recorded by the Test262 runner identifies the function
+            // instead of reading `[origin:unknown]`. The retry in
+            // `run_with_wasm_aot_inner` matches on the `Code for function is
+            // too large` substring, which this only ever appends to.
+            if message.contains(WASM_CODE_TOO_LARGE_MESSAGE) {
+                if let Some(attribution) = describe_largest_wasm_code_body(bytes) {
+                    return EngineError::new(format!("{message}; {attribution}"));
+                }
+            }
+            EngineError::new(message)
+        })
 }
 
 fn memory_cached_wasm_module(
@@ -2017,7 +2160,7 @@ impl Engine {
             Err(error)
                 if native_compilation_plan.mode == WasmNativeCompilationMode::Fast
                     && agent_execution.is_none()
-                    && error.to_string().contains("Code for function is too large") =>
+                    && error.to_string().contains(WASM_CODE_TOO_LARGE_MESSAGE) =>
             {
                 if trace_wasm {
                     eprintln!(
@@ -3408,6 +3551,131 @@ report;
                 .with_host_hooks(Box::new(CapturingHostHooks { lines }))
                 .build(),
         )
+    }
+
+    /// Recomputes the two rankings independently of
+    /// `describe_largest_wasm_code_body` and asserts the reported indices and
+    /// figures are the ones the module actually has.
+    ///
+    /// Asserting only that the text *contains* `wasm[0]::function[` would pass
+    /// for any index the walk happened to produce, including one shifted by the
+    /// imported-function count — and a shifted index points at the wrong
+    /// function, which is the whole failure mode this attribution exists to
+    /// avoid.
+    #[test]
+    fn largest_wasm_code_body_is_attributed_by_index() {
+        let engine = engine();
+        let unit = engine
+            .compile_script("var x = 1 + 1;", CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+
+        let mut imported_function_count = 0u32;
+        let mut bodies: Vec<WasmCodeBodyFacts> = Vec::new();
+        for payload in WasmParser::new(0).parse_all(&artifact.bytes) {
+            match payload.expect("emitted module should parse") {
+                WasmPayload::ImportSection(reader) => {
+                    for import in reader.into_imports() {
+                        let import = import.expect("import should parse");
+                        if matches!(
+                            import.ty,
+                            wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                        ) {
+                            imported_function_count += 1;
+                        }
+                    }
+                }
+                WasmPayload::CodeSectionEntry(body) => {
+                    bodies.push(WasmCodeBodyFacts {
+                        function_index: imported_function_count
+                            + u32::try_from(bodies.len()).expect("code entry count fits u32"),
+                        body_bytes: body.range().len(),
+                        declared_locals: wasm_body_declared_locals(&body),
+                    });
+                }
+                _ => {}
+            }
+        }
+        assert!(imported_function_count > 0, "module should import functions");
+        let largest = bodies
+            .iter()
+            .copied()
+            .max_by_key(|facts| facts.body_bytes)
+            .expect("an emitted module always has a code section");
+        let most_locals = bodies
+            .iter()
+            .copied()
+            .max_by_key(|facts| facts.declared_locals.unwrap_or(0))
+            .expect("an emitted module always has a code section");
+        assert!(
+            most_locals.declared_locals.is_some_and(|locals| locals > 0),
+            "the backend declares locals; a `?` here means the decode broke"
+        );
+
+        let description = describe_largest_wasm_code_body(&artifact.bytes)
+            .expect("an emitted module always has a code section");
+        assert_eq!(
+            description,
+            format!("largest emitted function: {largest}; most locals: {most_locals}"),
+        );
+    }
+
+    /// The attribution is appended to the failure detail that `porffor-test262`
+    /// classifies with, and both `classify_failure_origin` and
+    /// `classify_failure_outcome` (`crates/porffor-test262/src/lib.rs`) match
+    /// case-insensitive substrings over the whole detail. Re-introducing a
+    /// symbol name here would silently re-file Cranelift backend defects as
+    /// `IcuIntl`/`BoaParser`/`NotImplemented` records, so the keyword list those
+    /// two functions use is duplicated here as a tripwire.
+    #[test]
+    fn attribution_is_inert_for_the_test262_failure_classifiers() {
+        const CLASSIFIER_KEYWORDS: &[&str] = &[
+            "local harness",
+            "worker panic",
+            "icu_",
+            "hijri",
+            "intl",
+            "datetimeformat",
+            "numberformat",
+            "durationformat",
+            "relativetimeformat",
+            "spec-exec",
+            "syntaxerror",
+            "syntax error",
+            "parse",
+            "referenceerror",
+            "typeerror",
+            "rangeerror",
+            "urierror",
+            "runtime",
+            "index out of bounds",
+            "must be declarative environment",
+            "not implemented",
+            "unsupported",
+            "not supported",
+            "stub",
+            "panic",
+            "panicked",
+            "crash",
+            "segmentation fault",
+            "trapped",
+            "timeout exceeded",
+        ];
+
+        let engine = engine();
+        let unit = engine
+            .compile_script("var x = 1 + 1;", CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+        let description = describe_largest_wasm_code_body(&artifact.bytes)
+            .expect("an emitted module always has a code section")
+            .to_ascii_lowercase();
+        for keyword in CLASSIFIER_KEYWORDS {
+            assert!(
+                !description.contains(keyword),
+                "attribution contains classifier keyword {keyword:?}: {description}"
+            );
+        }
     }
 
     #[test]

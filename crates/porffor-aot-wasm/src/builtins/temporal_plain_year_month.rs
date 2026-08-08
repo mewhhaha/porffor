@@ -8,11 +8,15 @@
 //! duplicated. Only the brand, the range check (`ISOYearMonthWithinLimits`
 //! instead of `ISODateWithinLimits`) and the field set differ.
 //!
-//! Only the ISO 8601 calendar exists in this backend, so `era`/`eraYear` are
-//! always `undefined`, `monthsInYear` is always 12, and the reference day is
-//! always 1.
+//! `monthsInYear` is always 12 and the reference day defaults to 1 for both of
+//! this backend's calendars, because `gregory` is the same proleptic Gregorian
+//! arithmetic as `iso8601`. `era`/`eraYear` are the one field pair that differs
+//! and they go through `emit_temporal_calendar_era_field`; the reference day is
+//! printed by `toString` exactly when the calendar is not `iso8601`, which is
+//! `emit_temporal_calendar_is_default_i32`.
 
 use super::super::*;
+use super::temporal_plain_date::TemporalEraField;
 
 /// The two Temporal types stored in the `Temporal.PlainDate` record shape.
 ///
@@ -486,12 +490,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
-            StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter
-            | StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter => {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeEraGetter => {
+                self.emit_temporal_calendar_era_field(
+                    calendar_payload_local,
+                    year_local,
+                    TemporalEraField::Era,
+                    function,
+                );
+            }
+            StandardBuiltinId::TemporalPlainYearMonthPrototypeEraYearGetter => {
+                self.emit_temporal_calendar_era_field(
+                    calendar_payload_local,
+                    year_local,
+                    TemporalEraField::EraYear,
+                    function,
+                );
             }
             StandardBuiltinId::TemporalPlainYearMonthPrototypeInLeapYearGetter => {
                 self.emit_temporal_iso_year_is_leap_i32(year_local, function);

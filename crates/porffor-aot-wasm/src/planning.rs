@@ -1660,25 +1660,36 @@ impl RuntimeBootstrapPlan {
                     self.standard_roots.insert(dependency);
                 }
             }
+            // The whole `Temporal.Instant` family installs together: the
+            // prototype is built once, so rooting one member without the rest
+            // would leave the object half-populated.
             StandardBuiltinId::TemporalInstantConstructor
             | StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantCompare
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEquals
-            | StandardBuiltinId::TemporalInstantPrototypeToString => {
+            | StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson
+            | StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 self.temporal_object = true;
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantConstructor);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantFrom);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeEquals);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeToString);
+                for dependency in [
+                    StandardBuiltinId::TemporalInstantConstructor,
+                    StandardBuiltinId::TemporalInstantFrom,
+                    StandardBuiltinId::TemporalInstantCompare,
+                    StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
+                    StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
+                    StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
+                    StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
+                    StandardBuiltinId::TemporalInstantPrototypeEquals,
+                    StandardBuiltinId::TemporalInstantPrototypeToString,
+                    StandardBuiltinId::TemporalInstantPrototypeToJson,
+                    StandardBuiltinId::TemporalInstantPrototypeValueOf,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
             }
             StandardBuiltinId::TemporalZonedDateTimeConstructor
             | StandardBuiltinId::TemporalZonedDateTimeFrom
@@ -5394,6 +5405,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::BooleanConstructor
         | StandardBuiltinId::TemporalInstantConstructor
         | StandardBuiltinId::TemporalInstantFrom
+        | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+        | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
@@ -5461,6 +5474,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
         | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf => 0,
         StandardBuiltinId::TemporalZonedDateTimeConstructor => 2,
+        StandardBuiltinId::TemporalInstantCompare => 2,
         StandardBuiltinId::TemporalPlainDateCompare => 2,
         StandardBuiltinId::TemporalPlainTimeCompare => 2,
         StandardBuiltinId::TemporalPlainDateTimeCompare => 2,
@@ -5599,7 +5613,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
-        | StandardBuiltinId::TemporalInstantPrototypeToString => 0,
+        | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToJson
+        | StandardBuiltinId::TemporalInstantPrototypeValueOf => 0,
         StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
