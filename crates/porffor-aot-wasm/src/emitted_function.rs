@@ -566,7 +566,13 @@ mod tests {
         let mut function = Function::new([(7, ValType::I64), (3, ValType::I32)]);
         function.instruction(&Instruction::End);
         let emitted = EmittedFunction::new(FunctionIdentity::Main, function);
-        assert_eq!(emitted.declared_locals.count(), 10);
+        assert_eq!(
+            emitted
+                .declared_locals
+                .expect("an i64/i32 declaration must decode")
+                .count(),
+            10
+        );
     }
 
     #[test]
@@ -574,7 +580,24 @@ mod tests {
         let mut function = Function::new([]);
         function.instruction(&Instruction::End);
         let emitted = EmittedFunction::new(FunctionIdentity::Main, function);
-        assert_eq!(emitted.declared_locals.count(), 0);
+        assert_eq!(
+            emitted
+                .declared_locals
+                .expect("an empty declaration must decode")
+                .count(),
+            0
+        );
+    }
+
+    /// The `None` answer must be reachable, or `format_declared_locals`'s
+    /// `unknown` arm is dead and `decode`'s validation set is decoration.
+    #[test]
+    fn an_undecodable_value_type_declines_to_guess() {
+        // One group of one local whose value type is `(ref null $0)` (`0x63`),
+        // a two-byte encoding this decoder deliberately refuses to step over.
+        let raw_body = [0x01u8, 0x01, 0x63, 0x00, 0x0b];
+        assert_eq!(FunctionLocalCount::decode(&raw_body), None);
+        assert_eq!(format_declared_locals(None), "unknown");
     }
 
     #[test]

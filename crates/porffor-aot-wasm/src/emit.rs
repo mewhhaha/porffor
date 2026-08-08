@@ -1681,9 +1681,10 @@ fn emit_script_with_forced_builtins(
     // `RuntimeHelperId::ALL`. Before this they were four hand-maintained lists
     // of the same 33 entries, and the `debug_dump` copy had already drifted
     // (`27` against a counted 32 + 1).
-    let helper_emission = RuntimeHelperEmission {
+    let helper_emission = RuntimeHelperEmission::NONE.with(
+        RuntimeHelperFact::UsesJsonStringify,
         uses_json_stringify,
-    };
+    );
     let mut functions = FunctionSection::new();
     functions.function(0);
     for _ in 0..callable_function_count {
@@ -2013,9 +2014,14 @@ fn emit_script_with_forced_builtins(
 
     // Emitted-size attribution. `tests/emit_golden.rs` records `debug_dump` per
     // fixture, so these two lines make the largest emitted body a tracked
-    // artifact across all 527 CLI fixtures at no extra cost — and a
-    // `Code for function is too large` failure now has a named suspect instead
-    // of `[origin:unknown]`.
+    // artifact across all 527 CLI fixtures at no extra cost, and give a
+    // `Code for function is too large` failure a named suspect.
+    //
+    // (The `[origin:unknown]` prefix such a failure also carries is a
+    // `porffor-test262` `FailureOrigin` taxonomy value, not a function name;
+    // nothing here changes it, and the engine-side attribution is deliberately
+    // index-only so that it cannot change it either.)
+    //
     // Both lines use the `key=value` shape `ModuleFunctionTable::report_lines`
     // uses, with `name=` **last**. Emitted names contain spaces
     // (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`,
@@ -2027,7 +2033,7 @@ fn emit_script_with_forced_builtins(
             "largest emitted function: index={} bytes={} locals={} kind={} name={}",
             largest.wasm_index,
             largest.body_bytes.bytes(),
-            largest.declared_locals.count(),
+            format_declared_locals(largest.declared_locals),
             largest.identity.category(),
             largest.identity.wasm_name(),
         )),
@@ -2040,7 +2046,7 @@ fn emit_script_with_forced_builtins(
             "most locals in an emitted function: index={} bytes={} locals={} kind={} name={}",
             most_locals.wasm_index,
             most_locals.body_bytes.bytes(),
-            most_locals.declared_locals.count(),
+            format_declared_locals(most_locals.declared_locals),
             most_locals.identity.category(),
             most_locals.identity.wasm_name(),
         )),

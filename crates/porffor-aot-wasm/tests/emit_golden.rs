@@ -102,23 +102,42 @@ fn capture(source_text: &str) -> (String, Option<String>) {
 /// splits it into `(bytes, name)`.
 ///
 /// The line is emitted unconditionally by `emit()` and has the shape
-/// `largest emitted function: <name> (<kind>) <n> bytes at index <i>`. Parsing
-/// it here rather than threading a second return value out of `emit()` keeps the
-/// public artifact surface unchanged: the dump is the contract this test already
-/// depends on.
+/// `largest emitted function: index=<i> bytes=<n> locals=<l> kind=<k> name=<name>`.
+/// Parsing it here rather than threading a second return value out of `emit()`
+/// keeps the public artifact surface unchanged: the dump is the contract this
+/// test already depends on.
+///
+/// The `key=value` shape, with `name=` last, is what makes this parseable at
+/// all. Emitted function names contain spaces — `get Object.prototype.__proto__`,
+/// `Array Iterator.prototype.next`, `Array.fromAsync Fulfilled Function`,
+/// `get #private` — so a positional split would record `get`, `Array` and
+/// `Iterator` as the names of unrelated functions. Reading the name as
+/// "everything after `name=`" cannot truncate it.
 fn largest_function(debug_dump: &str) -> Option<(u64, String)> {
     const PREFIX: &str = "largest emitted function: ";
+    const NAME_KEY: &str = " name=";
     let line = debug_dump
         .lines()
         .find_map(|line| line.strip_prefix(PREFIX))?;
-    let fields = line.split(' ').collect::<Vec<_>>();
-    let name = (*fields.first()?).to_string();
-    let bytes_position = fields.iter().position(|field| *field == "bytes")?;
-    let bytes = fields
-        .get(bytes_position.checked_sub(1)?)?
+    let name = line[line.find(NAME_KEY)? + NAME_KEY.len()..].to_string();
+    let bytes = line
+        .split(' ')
+        .find_map(|field| field.strip_prefix("bytes="))?
         .parse::<u64>()
         .ok()?;
     Some((bytes, name))
+}
+
+#[test]
+fn largest_function_reads_names_containing_spaces() {
+    let dump = "emitted code bytes: 9\n\
+        largest emitted function: index=812 bytes=4321 locals=97 kind=builtin \
+        name=builtin::get Object.prototype.__proto__\n";
+    assert_eq!(
+        largest_function(dump),
+        Some((4321, "builtin::get Object.prototype.__proto__".to_string()))
+    );
+    assert_eq!(largest_function("largest emitted function: none\n"), None);
 }
 
 #[test]

@@ -46,6 +46,41 @@ pub(crate) enum TemporalCalendarId {
     Iso8601,
     /// Proleptic Gregorian. Identical arithmetic to [`Self::Iso8601`]; it adds
     /// the `ce`/`bce` era pair and is always annotated under `auto`.
+    ///
+    /// # Known gap: `CalendarResolveFields` does not read `era`/`eraYear`
+    ///
+    /// The `era`/`eraYear` *accessors* are implemented (see
+    /// [`FunctionBuilder::emit_temporal_gregorian_era_field`]), but nothing on
+    /// the property-bag `from()` paths reads them back: the shared field
+    /// resolvers take a `year`/`year_present` pair and know nothing about eras.
+    /// So `{ era, eraYear }` is silently ignored as a year source, and the
+    /// spec's `era`-half of `CalendarResolveFields` — unknown era is a
+    /// `RangeError`, exactly one of the pair present is a `TypeError`, an
+    /// `eraYear` disagreeing with an explicit `year` is a `RangeError` — is
+    /// absent.
+    ///
+    /// Accepting `gregory` therefore knowingly turns five `intl402/Temporal`
+    /// files from vacuous passes (they threw `RangeError` only because the
+    /// identifier itself was rejected) into real failures:
+    ///
+    /// * `PlainDate/from/calendar-invalid-era-with-era-year.js`
+    /// * `PlainDateTime/from/calendar-invalid-era-with-era-year.js`
+    /// * `ZonedDateTime/from/calendar-invalid-era-with-era-year.js`
+    ///   — all three now reach "fields require year" and give `TypeError`
+    ///   where `RangeError` is asserted.
+    /// * `PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js`
+    ///   — `PlainMonthDay` deliberately neither range-checks nor stores a
+    ///   supplied `year` (see `emit_temporal_month_day_resolve_fields`), so all
+    ///   four `gregory` rows now succeed instead of throwing.
+    /// * `PlainMonthDay/from/fields-overspecified.js`
+    ///   — its `eraYear`/`year` disagreement case is simply a valid bag here.
+    ///
+    /// This is an accepted, recorded regression, not an oversight: the fix is
+    /// the `era` half of `CalendarResolveFields` plus a `PlainMonthDay` year
+    /// range check, which is its own lane. Do not "fix" it by making an
+    /// unsupported `era` throw — that would be a right answer for a wrong
+    /// reason, and would reject the conforming `{ era: "ce", eraYear: 2024 }`
+    /// bag along with the malformed ones.
     Gregory,
 }
 

@@ -11,8 +11,9 @@
 //! with `AvailableLocales = « "en-US" »` falls back to the default locale for
 //! every request. That is a real answer for `en`/`en-US` and an honest
 //! fallback elsewhere, which is what an implementation with no CLDR data can
-//! say. Non-`gregory` calendars are **rejected** (`RangeError`) rather than
-//! accepted and mis-formatted.
+//! say. Calendars other than `gregory`/`gregorian` and `iso8601` — which shares
+//! the proleptic Gregorian arithmetic and differs only in having no eras — are
+//! **rejected** (`RangeError`) rather than accepted and mis-formatted.
 //!
 //! # Time zones: every offset, no zone database
 //!
@@ -310,8 +311,22 @@ const INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS: &[(&str, &str)] = &[(
 pub(crate) struct TzOffsetMinutes(i16);
 
 impl TzOffsetMinutes {
-    /// `23 * 60 + 59`, the largest magnitude the grammar can spell.
-    const MAX: i16 = 23 * 60 + 59;
+    /// The largest `Hour` the `UTCOffset` grammar can spell:
+    /// `Hour ::: 0 DecimalDigit | 1 DecimalDigit | 20 | 21 | 22 | 23`.
+    ///
+    /// A *grammar* fact, and the emitted parser's bound reads it directly.
+    /// Deriving it from [`Self::MAX`] instead (`MAX / 60`) would only reproduce
+    /// the grammar by coincidence: rounding `MAX` up to `24 * 60`, the obvious
+    /// edit for anyone who believed `±24:00` should be spellable, would leave
+    /// `MAX % 60 == 0` and the emitted parser would silently start rejecting
+    /// `+03:30` and every other offset with non-zero minutes.
+    const MAX_HOUR: i64 = 23;
+    /// `MinuteSecond ::: [0-5] DecimalDigit`. Also a grammar fact.
+    const MAX_MINUTE: i64 = 59;
+
+    /// The largest magnitude the grammar can spell, derived from the two
+    /// grammar constants above so the range and the parser cannot disagree.
+    const MAX: i16 = (Self::MAX_HOUR * 60 + Self::MAX_MINUTE) as i16;
     const MIN: i16 = -Self::MAX;
 
     /// The only way to make one. `None` is "outside the `UTCOffset` grammar",
@@ -342,16 +357,16 @@ impl TzOffsetMinutes {
 
     /// The largest `Hour` and `MinuteSecond` the emitted parser may accept.
     ///
-    /// Derived from [`Self::MAX`] rather than written out again, so the wasm
+    /// The same two grammar constants [`Self::MAX`] is built from, so the wasm
     /// the parser emits and the Rust the table is built through are bounded by
-    /// one number. Widening the newtype without widening the parser (or the
-    /// reverse) is not expressible.
+    /// one pair of numbers. Widening the newtype without widening the parser
+    /// (or the reverse) is not expressible.
     const fn max_hour() -> i64 {
-        (Self::MAX / 60) as i64
+        Self::MAX_HOUR
     }
 
     const fn max_minute() -> i64 {
-        (Self::MAX % 60) as i64
+        Self::MAX_MINUTE
     }
 }
 
@@ -504,11 +519,15 @@ const _: () = {
 /// The six `timeZoneName` widths, as a closed set.
 ///
 /// [`TimeZoneNameStyle::utc_name`] has no fallback arm, so a style cannot be
-/// added without deciding what it prints for the UTC family — which is the half
-/// CLDR `en` has real names for and the half Test262 reads back.
+/// added without deciding what it prints for the named UTC family — which is
+/// the half CLDR `en` has real names for and the half Test262 reads back. It
+/// covers exactly the zero-offset rows of [`INTL_DTF_NAMED_ZONES`], not every
+/// zone whose offset happens to be zero: `'+00:00'` is an offset identifier and
+/// takes the GMT form below.
 ///
-/// For a **non-zero** offset all six styles deliberately share one answer, the
-/// localized GMT format `GMT±HH:MM`, pre-rendered into
+/// For every other zone all six styles deliberately share one answer, the
+/// localized GMT format `GMT±HH:MM` (or the bare `GMT` that CLDR `en`'s
+/// `gmtZeroFormat` gives a zero-offset offset zone), pre-rendered into
 /// [`HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET`]. CLDR `en` would elide the
 /// leading zero and a whole `:00` for the three narrow styles — `GMT+5` rather
 /// than `GMT+05:00` — and that elision is not implemented, on purpose: no
@@ -689,10 +708,12 @@ const INTL_DTF_DEFAULT_TIME: [(u64, i64); 3] = [
     (HEAP_INTL_DTF_SECOND_OFFSET, 2),
 ];
 
-/// `Temporal.ZonedDateTime` is the one branded value `format` must refuse: it
-/// carries its own time zone, which cannot be reconciled with the formatter's.
+/// `Temporal.ZonedDateTime` is the one branded value the formatting entry
+/// points must refuse: it carries its own time zone, which cannot be reconciled
+/// with the formatter's. Raised from `format`/`formatToParts` and from
+/// `formatRange`/`formatRangeToParts` alike, so the message names none of them.
 const INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED: &str =
-    "Intl.DateTimeFormat.prototype.format does not support Temporal.ZonedDateTime";
+    "Intl.DateTimeFormat does not support Temporal.ZonedDateTime";
 
 /// `AdjustDateTimeStyleFormat` left nothing to print.
 const INTL_DTF_EMPTY_TEMPORAL_FORMAT: &str =
@@ -976,6 +997,52 @@ pub(crate) struct DtfFormatTimes {
     pub(crate) kind: u32,
 }
 
+/// A `format`/`formatRange` argument that carried an
+/// `OBJECT_INTERNAL_BRAND_TEMPORAL_*` slot.
+///
+/// Split out from [`DtfValueKind`] so that [`Self::brand`] is *infallible*.
+/// With one enum covering both the branded and the unbranded case, the brand
+/// dispatch had to `.expect()` its way out of an `Option<u64>` that the
+/// iterator it walked already guaranteed was `Some` — and a future brandless
+/// variant would then have compiled and panicked during emission instead of
+/// failing `cargo check`, which is the whole point of spelling the domain as an
+/// enum.
+#[derive(Clone, Copy)]
+pub(crate) enum DtfBrandedKind {
+    /// One of [`INTL_DTF_TEMPORAL_KINDS`].
+    Temporal(&'static IntlDtfTemporalKind),
+    /// `Temporal.ZonedDateTime`, which `HandleDateTimeValue` refuses — but only
+    /// after `SameTemporalType` has had its say.
+    ZonedDateTime,
+}
+
+impl DtfBrandedKind {
+    /// Every branded kind the dispatch has to recognise, in the order it tests
+    /// them.
+    fn all() -> impl Iterator<Item = Self> {
+        INTL_DTF_TEMPORAL_KINDS
+            .iter()
+            .map(Self::Temporal)
+            .chain(std::iter::once(Self::ZonedDateTime))
+    }
+
+    /// The `OBJECT_INTERNAL_BRAND_*` this kind dispatches on. Total, by
+    /// construction.
+    const fn brand(self) -> u64 {
+        match self {
+            Self::Temporal(kind) => kind.brand,
+            Self::ZonedDateTime => OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME,
+        }
+    }
+
+    const fn code(self) -> i64 {
+        match self {
+            Self::Temporal(kind) => kind.code,
+            Self::ZonedDateTime => INTL_DTF_ZONED_DATE_TIME_KIND_CODE,
+        }
+    }
+}
+
 /// What one `format`/`formatRange` argument turned out to be, after
 /// `ToDateTimeFormattable` (11.4.6 step 4) and the brand dispatch.
 ///
@@ -984,40 +1051,18 @@ pub(crate) struct DtfFormatTimes {
 /// be dispatched to a code no row owns nor to a row with no brand.
 #[derive(Clone, Copy)]
 pub(crate) enum DtfValueKind {
-    /// Not a Temporal object: `ToNumber` ran and `TimeClip` applies.
+    /// Not a Temporal object: `ToNumber` ran and `TimeClip` applies. The
+    /// *absence* of a brand match, not a brand of its own, which is why it is
+    /// not a [`DtfBrandedKind`].
     Legacy,
-    /// One of [`INTL_DTF_TEMPORAL_KINDS`].
-    Temporal(&'static IntlDtfTemporalKind),
-    /// `Temporal.ZonedDateTime`, which `HandleDateTimeValue` refuses — but only
-    /// after `SameTemporalType` has had its say.
-    ZonedDateTime,
+    Branded(DtfBrandedKind),
 }
 
 impl DtfValueKind {
-    /// Every kind the range dispatch has to recognise, in the order it tests
-    /// them. [`Self::Legacy`] is absent because it is the *absence* of a brand
-    /// match, not a brand of its own.
-    fn branded() -> impl Iterator<Item = Self> {
-        INTL_DTF_TEMPORAL_KINDS
-            .iter()
-            .map(Self::Temporal)
-            .chain(std::iter::once(Self::ZonedDateTime))
-    }
-
-    /// The `OBJECT_INTERNAL_BRAND_*` this kind dispatches on.
-    const fn brand(self) -> Option<u64> {
-        match self {
-            Self::Legacy => None,
-            Self::Temporal(kind) => Some(kind.brand),
-            Self::ZonedDateTime => Some(OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME),
-        }
-    }
-
     const fn code(self) -> i64 {
         match self {
             Self::Legacy => 0,
-            Self::Temporal(kind) => kind.code,
-            Self::ZonedDateTime => INTL_DTF_ZONED_DATE_TIME_KIND_CODE,
+            Self::Branded(kind) => kind.code(),
         }
     }
 }
@@ -1030,14 +1075,23 @@ impl DtfValueKind {
 /// held a bare identifier payload with no offset beside it, so a new acceptance
 /// path could store an identifier and leave the formatter reading a stale
 /// offset; now the type has nowhere to put half an answer.
-#[derive(Clone, Copy)]
+///
+/// This is the *reserved* half: three locals that exist but have not been
+/// written. It deliberately has no `store` and is deliberately not `Copy`. The
+/// record slots can only be written through a [`DtfResolvedTimeZone`], and
+/// [`FunctionBuilder::emit_intl_dtf_time_zone_option`] is the only thing that
+/// produces one — it consumes this. Dropping that call therefore fails
+/// `cargo check` instead of silently storing three zero-initialised slots, i.e.
+/// an identifier payload of 0 beside an offset of 0. The move checker, not a
+/// comment, is what makes "produced only by the option reader" true.
 pub(crate) struct DtfCanonicalTimeZone {
     /// The string payload `resolvedOptions().timeZone` reports.
     identifier_local: u32,
     /// The signed whole minutes `PartitionDateTimePattern` adds to an exact
     /// time value. A raw `i64`, not an f64 bit pattern.
     offset_minutes_local: u32,
-    /// The pre-rendered localized GMT name for a non-zero offset, or 0.
+    /// The pre-rendered localized GMT name for any zone outside the named UTC
+    /// family, or 0 for a member of it.
     gmt_name_local: u32,
 }
 
@@ -1051,28 +1105,37 @@ impl DtfCanonicalTimeZone {
             gmt_name_local: builder.reserve_temp_local(),
         }
     }
+}
 
+/// A [`DtfCanonicalTimeZone`] whose three locals have all been written by
+/// [`FunctionBuilder::emit_intl_dtf_time_zone_option`].
+pub(crate) struct DtfResolvedTimeZone(DtfCanonicalTimeZone);
+
+impl DtfResolvedTimeZone {
     /// The only writer of the three record slots. `resolvedOptions` reads the
     /// identifier, the component walk reads the offset and the `timeZoneName`
     /// field reads the name; none can be written without the others having
     /// been written first.
-    fn store(self, builder: &FunctionBuilder<'_>, record_local: u32, function: &mut Function) {
+    fn store(&self, builder: &FunctionBuilder<'_>, record_local: u32, function: &mut Function) {
         for (offset, local) in [
-            (HEAP_INTL_DTF_TIME_ZONE_OFFSET, self.identifier_local),
+            (HEAP_INTL_DTF_TIME_ZONE_OFFSET, self.0.identifier_local),
             (
                 HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
-                self.offset_minutes_local,
+                self.0.offset_minutes_local,
             ),
-            (HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET, self.gmt_name_local),
+            (
+                HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
+                self.0.gmt_name_local,
+            ),
         ] {
             builder.store_i64_local_at_offset(record_local, offset, local, function);
         }
     }
 
     fn release(self, builder: &mut FunctionBuilder<'_>) {
-        builder.release_temp_local(self.gmt_name_local);
-        builder.release_temp_local(self.offset_minutes_local);
-        builder.release_temp_local(self.identifier_local);
+        builder.release_temp_local(self.0.gmt_name_local);
+        builder.release_temp_local(self.0.offset_minutes_local);
+        builder.release_temp_local(self.0.identifier_local);
     }
 }
 
@@ -1672,16 +1735,18 @@ impl<'a> FunctionBuilder<'a> {
     /// `'+15:59:00'` is a well-formed *sub-minute* offset string and still a
     /// `RangeError` here, which is exactly what step 30.a.ii asks for.
     ///
-    /// An accepted zone yields **both** halves of [`DtfCanonicalTimeZone`]: an
-    /// identifier with no offset beside it is not a value this function can
-    /// return.
+    /// An accepted zone yields **all three** parts of a
+    /// [`DtfResolvedTimeZone`]: an identifier with no offset beside it is not a
+    /// value this function can return. It consumes the reserved
+    /// [`DtfCanonicalTimeZone`] and is the only producer of the resolved form,
+    /// so a caller cannot store a zone this never wrote.
     fn emit_intl_dtf_time_zone_option(
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
         zone: DtfCanonicalTimeZone,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<DtfResolvedTimeZone, EmitError> {
         let key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
@@ -1698,6 +1763,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_set_string(zone.identifier_local, INTL_DTF_RESOLVED_TIME_ZONE, function);
         self.emit_dtf_set_const(zone.offset_minutes_local, 0, function);
         self.emit_dtf_set_const(zone.gmt_name_local, 0, function);
+        // Explicitly cleared, not left to Wasm's zero-initialisation: temporary
+        // locals are pooled and reused, so a stale non-zero value here would
+        // make an absent `timeZone` option look like an accepted `UTCOffset`
+        // string to the GMT-name selection at the end of this function.
+        self.emit_dtf_set_const(parsed_local, 0, function);
         self.emit_dtf_set_string(key_local, "timeZone", function);
         self.emit_object_read(
             options_payload_local,
@@ -1770,10 +1840,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        // The `timeZoneName` field's answer for a non-zero offset, rendered
-        // once here instead of four times inside the format walk. Offset zero
-        // leaves it at 0, which is the sentinel for "use CLDR `en`'s real UTC
-        // names" — the branch every currently-green `timeZoneName` test takes.
+        // The `timeZoneName` field's localized GMT answer, rendered once here
+        // instead of four times inside the format walk. A zero payload is the
+        // sentinel for "use CLDR `en`'s real names for the UTC-named zone
+        // family" — `UTC`, `Etc/GMT`, `Zulu`, `Greenwich` and the rest of
+        // `INTL_DTF_NAMED_ZONES`' zero-offset rows.
+        //
+        // The discriminator is deliberately **not** "the offset is zero". An
+        // *offset* identifier reports the localized GMT format whatever its
+        // value, so `timeZone: '+00:00'` is `GMT`, not
+        // `Coordinated Universal Time`: `IsTimeZoneOffsetString` accepted it, so
+        // it is not the named UTC zone and has no CLDR name of its own.
+        // `parsed_local` is exactly "step 30 accepted this as `UTCOffset`", and
+        // it is still zero when the option was absent (the default zone is the
+        // named `UTC`, which keeps the CLDR names).
         function.instruction(&Instruction::LocalGet(zone.offset_minutes_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -1786,6 +1866,12 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_concat_string_payloads_local(zone.gmt_name_local, gmt_scratch_local, function)?;
         function.instruction(&Instruction::LocalSet(zone.gmt_name_local));
+        function.instruction(&Instruction::Else);
+        // A zero-offset *offset* zone. CLDR `en`'s `gmtZeroFormat` is the bare
+        // `GMT`, for every width — not `GMT+00:00`.
+        self.emit_dtf_if_nonzero(parsed_local, function);
+        self.emit_dtf_set_string(zone.gmt_name_local, INTL_DTF_GMT_PREFIX, function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         for local in [
@@ -1801,7 +1887,7 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.release_temp_local(local);
         }
-        Ok(())
+        Ok(DtfResolvedTimeZone(zone))
     }
 
     /// `UTCOffset[~SubMinutePrecision]` (ECMA-262 21.4.1.34.1) and nothing else.
@@ -2286,8 +2372,10 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::End);
 
-        // Steps 29-31: timeZone, as an identifier and an offset together.
-        self.emit_intl_dtf_time_zone_option(
+        // Steps 29-31: timeZone, as an identifier and an offset together. The
+        // reserved triple is consumed here and comes back resolved; there is no
+        // other way to obtain a value `store` will accept.
+        let time_zone = self.emit_intl_dtf_time_zone_option(
             options_payload_local,
             options_tag_local,
             time_zone,
@@ -4886,21 +4974,25 @@ impl<'a> FunctionBuilder<'a> {
     /// The `timeZoneName` field, derived from the resolved zone's offset rather
     /// than assumed to be UTC.
     ///
-    /// Offset zero keeps CLDR `en`'s real names for the UTC family byte for
+    /// The **UTC-named zone family** keeps CLDR `en`'s real names byte for
     /// byte — [`TimeZoneNameStyle::utc_name`] — because
     /// `constructor-options-timeZoneName-valid.js` and
     /// `format/temporal-plaindate-formatting-timezonename.js` read them back.
     ///
-    /// Any other offset uses the localized GMT name the constructor already
+    /// Every other zone uses the localized GMT name the constructor already
     /// rendered into [`HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET`], which doubles
-    /// as the discriminator: a zero payload *is* "the offset was zero". This
-    /// body is emitted once per `format`, `formatToParts`, `formatRange` and
-    /// `formatRangeToParts`, so building the name here would have cost ten
-    /// inline string concatenations four times over in the one function whose
-    /// size budget is known to be tight.
+    /// as the discriminator: a zero payload *is* "this zone is a named member
+    /// of the UTC family". Note that this is **not** the same question as "is
+    /// the offset zero" — an offset identifier such as `'+00:00'` has offset
+    /// zero and still gets the GMT name, because it is not the named `UTC`
+    /// zone. `emit_intl_dtf_time_zone_option` is where that distinction is
+    /// made. This body is emitted once per `format`, `formatToParts`,
+    /// `formatRange` and `formatRangeToParts`, so building the name here would
+    /// have cost ten inline string concatenations four times over in the one
+    /// function whose size budget is known to be tight.
     ///
     /// No Test262 case in the current corpus observes a `timeZoneName` under a
-    /// non-zero offset, so this is insurance rather than points — but the
+    /// non-UTC zone, so this is insurance rather than points — but the
     /// alternative, leaving the constant table in place, would print
     /// `"Coordinated Universal Time"` for `timeZone: "+03:00"`, and a
     /// plausible-looking wrong answer is worse than a missing one.
@@ -5431,11 +5523,8 @@ impl<'a> FunctionBuilder<'a> {
                 brand_local,
                 function,
             );
-            for kind in DtfValueKind::branded() {
-                let brand = kind
-                    .brand()
-                    .expect("DtfValueKind::branded yields only branded kinds");
-                self.emit_dtf_if_code_eq(brand_local, brand as i64, function);
+            for kind in DtfBrandedKind::all() {
+                self.emit_dtf_if_code_eq(brand_local, kind.brand() as i64, function);
                 self.emit_dtf_set_const(side_kind_local, kind.code(), function);
                 function.instruction(&Instruction::End);
             }
@@ -5476,7 +5565,7 @@ impl<'a> FunctionBuilder<'a> {
         // Step 4: a `Temporal.ZonedDateTime` carries its own zone, which cannot
         // be reconciled with the formatter's, so `HandleDateTimeValue` refuses
         // it — with the same message the single-date path uses.
-        self.emit_dtf_if_code_eq(kind_local, DtfValueKind::ZonedDateTime.code(), function);
+        self.emit_dtf_if_code_eq(kind_local, DtfBrandedKind::ZonedDateTime.code(), function);
         self.emit_throw_current_function_realm_type_error(
             INTL_DTF_ZONED_DATE_TIME_UNSUPPORTED,
             self.result_local,

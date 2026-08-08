@@ -730,10 +730,14 @@ fn compile_wasm_module(
         .map_err(|err| {
             let message = format!("wasmtime module validation failed: {err:#}");
             // Cranelift's per-function limits are the one failure class whose
-            // message names neither the function nor its size. Attach the
-            // attribution the `name` section makes available, so the failure
-            // detail recorded by the Test262 runner identifies the function
-            // instead of reading `[origin:unknown]`. The retry in
+            // message names neither the function nor its size. Attach the two
+            // index rankings, so the failure detail recorded by the Test262
+            // runner points at a specific code-section body.
+            //
+            // This says nothing about the `[origin:…]` prefix that detail also
+            // carries: that is a `porffor-test262` `FailureOrigin` value, and
+            // the attribution is index-only precisely so it cannot perturb it
+            // (see `describe_largest_wasm_code_body`). The retry in
             // `run_with_wasm_aot_inner` matches on the `Code for function is
             // too large` substring, which this only ever appends to.
             if message.contains(WASM_CODE_TOO_LARGE_MESSAGE) {

@@ -21,6 +21,22 @@ use crate::module::{
     OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX, PLAIN_OBJECT_ALLOC_TYPE_INDEX,
 };
 
+/// One fact a module can carry about itself that some *conditional* runtime
+/// helper's emission depends on.
+///
+/// Closed set, and the only way to put a fact into a [`RuntimeHelperEmission`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub(crate) enum RuntimeHelperFact {
+    UsesJsonStringify = 0,
+}
+
+impl RuntimeHelperFact {
+    const fn bit(self) -> u32 {
+        1u32 << (self as u32)
+    }
+}
+
 /// The facts a module knows about itself that decide whether a *conditional*
 /// runtime helper is emitted at all.
 ///
@@ -28,18 +44,38 @@ use crate::module::{
 /// condition of every helper is stated in exactly one place, next to its type
 /// index, rather than being spread over an `if` in the function section and a
 /// matching `if let Some(..)` in the code section.
+///
+/// A *set* of [`RuntimeHelperFact`]s rather than a struct of `bool` fields,
+/// because [`Self::NONE`] has to mean "no fact holds" by construction. As a
+/// struct literal it was a hand-written list that whoever added the second
+/// conditional helper would also have had to remember to extend with `false`;
+/// writing `true` there instead compiles, makes [`RuntimeHelperId::is_conditional`]
+/// answer `false` for a genuinely conditional helper, and silently defeats
+/// [`RuntimeHelperId::conditional_helpers_are_last`] — handing out shifted
+/// function indices with both `const` assertions still green. The empty set
+/// cannot be written wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeHelperEmission {
-    pub(crate) uses_json_stringify: bool,
-}
+pub(crate) struct RuntimeHelperEmission(u32);
 
 impl RuntimeHelperEmission {
     /// The emission context in which every conditional helper is absent. Used
     /// by [`RuntimeHelperId::is_conditional`] so "conditional" is derived from
     /// `is_emitted` instead of being a second, separately-maintained match.
-    pub(crate) const NONE: Self = Self {
-        uses_json_stringify: false,
-    };
+    pub(crate) const NONE: Self = Self(0);
+
+    /// Adds `fact` to the set when `holds`. The only constructor beyond
+    /// [`Self::NONE`], so every emission context is built up from the empty one.
+    pub(crate) const fn with(self, fact: RuntimeHelperFact, holds: bool) -> Self {
+        if holds {
+            Self(self.0 | fact.bit())
+        } else {
+            self
+        }
+    }
+
+    pub(crate) const fn holds(self, fact: RuntimeHelperFact) -> bool {
+        self.0 & fact.bit() != 0
+    }
 }
 
 /// Every shared runtime helper, in the order its body is written into the code
@@ -224,7 +260,7 @@ impl RuntimeHelperId {
             | Self::BigIntArithmetic
             | Self::TemporalCalendarIsoDateProbe
             | Self::TemporalCalendarIdentifier => true,
-            Self::JsonStringifyValue => emission.uses_json_stringify,
+            Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
 
@@ -369,12 +405,26 @@ mod tests {
         let with_json = RuntimeHelperId::ALL
             .iter()
             .filter(|helper| {
-                helper.is_emitted(RuntimeHelperEmission {
-                    uses_json_stringify: true,
-                })
+                helper.is_emitted(
+                    RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, true),
+                )
             })
             .count();
         assert_eq!(without_json, 32);
         assert_eq!(with_json, 33);
+    }
+
+    /// `NONE` is the input `is_conditional` is defined against, so "no fact
+    /// holds in it" is what makes a conditional helper detectable at all.
+    #[test]
+    fn the_empty_emission_context_holds_no_fact() {
+        for fact in [RuntimeHelperFact::UsesJsonStringify] {
+            assert!(!RuntimeHelperEmission::NONE.holds(fact), "{fact:?}");
+            assert!(RuntimeHelperEmission::NONE.with(fact, true).holds(fact));
+            assert_eq!(
+                RuntimeHelperEmission::NONE.with(fact, false),
+                RuntimeHelperEmission::NONE
+            );
+        }
     }
 }

@@ -65,8 +65,8 @@ pub(crate) use emit::{
     LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
 };
 pub(crate) use emitted_function::{
-    emit_size_report_requested, EmittedFunction, FunctionBodyBudget, FunctionBodySize,
-    FunctionIdentity, ModuleCode,
+    emit_size_report_requested, format_declared_locals, EmittedFunction, FunctionBodyBudget,
+    FunctionBodySize, FunctionIdentity, ModuleCode,
 };
 use heap::*;
 use intrinsics::*;
@@ -74,7 +74,7 @@ use module::*;
 use modules::module_unit_guard_count;
 use planning::*;
 pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
-pub(crate) use runtime_helpers::{RuntimeHelperEmission, RuntimeHelperId};
+pub(crate) use runtime_helpers::{RuntimeHelperEmission, RuntimeHelperFact, RuntimeHelperId};
 
 fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
     match shape {
@@ -174,6 +174,29 @@ mod tests {
         names
     }
 
+    /// Number of *function* imports, which is the index the first code-section
+    /// body occupies. Read back from the encoded module rather than from the
+    /// emitter's own variable, so it is an independent witness of the base the
+    /// name section indices must start from.
+    fn imported_function_count(artifact: &WasmArtifact) -> u32 {
+        let mut count = 0u32;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::ImportSection(reader) = payload.expect("module should parse") else {
+                continue;
+            };
+            for import in reader.into_imports() {
+                let import = import.expect("import should parse");
+                if matches!(
+                    import.ty,
+                    wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                ) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     #[test]
     fn emitted_modules_name_every_function() {
         let artifact = emit_script("function outer() { return 1; } outer();")
@@ -181,9 +204,24 @@ mod tests {
         expect_valid_module(&artifact, 1);
 
         let names = function_names(&artifact);
-        assert!(
-            names.values().any(|name| name == "porffor::main"),
-            "main must be named in the name section"
+        // The index *base* is the load-bearing half. `names.len() == code_entries`
+        // and every prefix check below stay green if `ModuleCode::new` were given
+        // `0` instead of the imported function count — every name would then be
+        // off by that count and wasmtime's `wasm[0]::function[N]` label, the
+        // entire point of the section, would point at the wrong function. `main`
+        // is the first body pushed, so it must sit at exactly the first
+        // non-imported index.
+        let first_body_index = imported_function_count(&artifact);
+        assert!(first_body_index > 0, "the module must import functions");
+        assert_eq!(
+            names.keys().next(),
+            Some(&first_body_index),
+            "name section must start at the first non-imported function index: {names:?}"
+        );
+        assert_eq!(
+            names.get(&first_body_index).map(String::as_str),
+            Some("porffor::main"),
+            "main is pushed first, so it must own the first non-imported index: {names:?}"
         );
         assert!(
             names.values().any(|name| name.starts_with("js::outer")),
@@ -218,10 +256,20 @@ mod tests {
             .lines()
             .find(|line| line.starts_with("largest emitted function: "))
             .expect("debug_dump should attribute the largest emitted body");
-        // The `none` fallback line carries no size, so the presence of the
-        // measured shape is what proves a body was actually attributed.
-        assert!(largest.contains(" bytes at index "), "{largest}");
-        assert!(largest.contains(" locals"), "{largest}");
+        // The `none` fallback line carries no keys, so the presence of the
+        // measured `key=value` shape is what proves a body was attributed. These
+        // are exactly the keys `tests/emit_golden.rs::largest_function` parses.
+        for key in ["index=", "bytes=", "locals=", "kind=", "name="] {
+            assert!(largest.contains(key), "{largest}");
+        }
+        let most_locals = artifact
+            .debug_dump
+            .lines()
+            .find(|line| line.starts_with("most locals in an emitted function: "))
+            .expect("debug_dump should report the most-locals body separately");
+        for key in ["index=", "bytes=", "locals=", "kind=", "name="] {
+            assert!(most_locals.contains(key), "{most_locals}");
+        }
         assert!(
             artifact
                 .debug_dump
