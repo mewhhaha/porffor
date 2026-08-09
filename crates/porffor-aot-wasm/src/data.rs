@@ -1900,8 +1900,20 @@ impl StringPool {
                 "Temporal.PlainMonthDay fields require day",
                 "Temporal.PlainMonthDay fields require month or monthCode",
                 "Temporal.PlainMonthDay is not a valid ISO date",
+                // `ToTemporalMonthDay` step (k): a non-ISO calendar bounds the
+                // *parsed* date by `ISODateWithinLimits`, so this is thrown by
+                // the shared `emit_temporal_iso_date_within_limits` rather than
+                // by a `Temporal.PlainDate` emitter, and it needs its own row.
+                "Temporal.PlainMonthDay is outside the supported date range",
                 "Temporal.PlainMonthDay month and day must be positive",
                 "Temporal.PlainMonthDay month and monthCode must agree",
+                // `ToTemporalMonthDay` step (g). `emit_throw_*_range_error`
+                // resolves its message through `StringPool::payload`, which
+                // panics rather than interning, so an emitter made reachable
+                // without a row here is a compiler panic on every program that
+                // touches `Temporal.PlainMonthDay.from` or `.prototype.equals`,
+                // not a test failure.
+                "Temporal.PlainMonthDay month-day string with a non-ISO calendar requires a year",
                 "Temporal.PlainMonthDay month must be an integer",
                 "Temporal.PlainMonthDay options must be an object or undefined",
                 "Temporal.PlainMonthDay receiver does not have [[InitializedTemporalMonthDay]]",
