@@ -95,9 +95,13 @@ fn run_wasm_backend_succeeds_for_heap_memory_growth_fixture() {
     assert!(stdout.contains("number(66"));
 }
 
+/// Declared `ignored` in `tests/known-failures.tsv`, owner T05.
+///
+/// `pub(crate)` so `known_failures.rs` can assert at compile time that this
+/// function still exists under this name.
 #[test]
 #[ignore = "T05 allocation stress; run explicitly with --ignored"]
-fn run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture() {
+pub(crate) fn run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")

@@ -528,8 +528,26 @@ fn run_wasm_backend_succeeds_for_atomics_notify_core_fixture() {
     assert!(stdout.contains("number(890"));
 }
 
+/// Declared a hang in `tests/known-failures.tsv`, owner T17.
+///
+/// The name still says "succeeds" because that is what it is supposed to do,
+/// and the day it does, libtest reports "test did not panic as expected" and
+/// this suite goes red — which is the signal to delete the ledger row, the
+/// attribute and this comment together.
+///
+/// The lead worth chasing: every *untimed* wait in the fixture must return
+/// `"not-equal"` immediately. `i32[0]` is set to `1` before
+/// `Atomics.wait(i32, 0, 0)`, and `assertGoodIndexes` stores `37` at
+/// `indexes[i]` before waiting on that same index. Blocking therefore
+/// implicates the index-coercion path — `0 / -1`, `"-0"`, `view.length - 1`,
+/// `{ valueOf: false, toString() { return "0" } }` — resolving to a different
+/// element than `Atomics.store` wrote.
+///
+/// `pub(crate)` so `known_failures.rs` can assert at compile time that this
+/// function still exists under this name.
 #[test]
-fn run_wasm_backend_succeeds_for_atomics_wait_core_fixture() {
+#[should_panic(expected = "porf run exceeded")]
+pub(crate) fn run_wasm_backend_succeeds_for_atomics_wait_core_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")

@@ -1,0 +1,68 @@
+# Known non-green outcomes in the `porffor-cli` test targets.
+#
+# This file is TRACKED and LOAD-BEARING. `tests/cli/known_failures.rs` pulls it
+# in with `include_str!`, so deleting it, renaming it, or letting a `.gitignore`
+# rule swallow it is a compile error at `cargo check --all-targets` rather than
+# a silent regression.
+#
+# HAZARD, and the reason this file is `.tsv`: `.gitignore` line 3 is a bare
+# `*.txt`. An earlier revision of this ledger was written as
+# `known-failures.txt`, `git add -A` dropped it without a word, and the
+# references in `README.md` and `docs/rust-rewrite/batch-workflow.md` outlived
+# the file they pointed at for three batches. Before adding ANY tracked data
+# file, run `git check-ignore -v <path>` and require exit status 1. `.tsv` is
+# also this repository's existing convention for hand-maintained tables -- see
+# `test262/backlog/ownership-map.tsv` and
+# `test262/backlog/shortcut-allowlist.tsv`.
+#
+# A row here is a DECLARATION, not a skip. AGENTS.md bans permanent skip lists
+# and silent expected failures, so every row carries an owner task and a reason,
+# and the outcome is enforced by libtest itself rather than by anyone
+# remembering to compare against a list:
+#
+#   fail / hang -> the named test carries `should_panic` with a NON-EMPTY
+#                  `expected` substring. The suite goes RED if the test starts
+#                  passing ("test did not panic as expected") and RED if it
+#                  fails for a different reason (message mismatch). Both delta
+#                  directions, no end-of-run machinery.
+#   ignored     -> the named test carries an `ignore` attribute with a reason.
+#                  `known_failures::every_ignored_test_is_declared` rejects any
+#                  ignore attribute in these targets that has no row here, and
+#                  any row here whose test is no longer ignored.
+#   unfilled    -> a placeholder for a failure set nobody has measured yet. The
+#                  test column must be exactly `UNFILLED`, and the expiry header
+#                  below stops it from becoming permanent.
+#
+# The expiry header is compared against `CURRENT_BATCH` in
+# `tests/cli/known_failures.rs`. When `CURRENT_BATCH` reaches the batch named
+# there, any surviving `unfilled` row fails `ledger_is_well_formed`. Extending
+# the deadline is possible but shows up as a diff on this line.
+#
+# unfilled-allowed-until: batch-4
+#
+# Columns, tab-separated, sorted ascending by (target, test) and unique on that
+# pair. Every column must be non-empty and carry no leading or trailing space.
+#
+#   target      cargo test target: async_generator | cli | perf. Closed set;
+#               adding `tests/<name>.rs` without extending `TestTarget` fails
+#               the hygiene tests.
+#   test        libtest name WITHIN that target. `cli` is the target name, not a
+#               module, so its names are rooted at `tests/cli/main.rs` and carry
+#               no `cli::` prefix -- `binary_data::run_...`, not
+#               `cli::binary_data::run_...`, which as a libtest filter matches
+#               nothing at all.
+#   state       fail | hang | ignored | unfilled. Closed set, parsed into an
+#               enum; anything else is a hard parse error.
+#   owner_task  T<NN>, backed by a real `tasks/<NN>-*.md`. Checked.
+#   reason      Why this outcome is expected. No tabs.
+#   evidence    A path, or a path plus a symbol. Deliberately NOT a line number:
+#               line numbers rot silently and this ledger already lost one file
+#               to a silent rot.
+#
+# target	test	state	owner_task	reason	evidence
+cli	UNFILLED	unfilled	T03	No rung-1c run has ever completed on this tree, so the failing set is unknown; the batch-2 attempt died inside cargo build before libtest ever started. The runner stage fills this in from its own run and deletes this row.	target/watched/b2-cli.log
+cli	binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture	hang	T17	Atomics.wait blocks the process instead of returning. Every untimed wait in the fixture must return "not-equal" immediately: i32[0] is set to 1 before Atomics.wait(i32, 0, 0), and assertGoodIndexes stores 37 at indexes[i] before waiting on that same index. Blocking therefore implicates the index-coercion path (0 / -1, "-0", view.length - 1, {valueOf: false, toString() { return "0" }}) resolving to a different element than Atomics.store wrote. tests/cli/main.rs bounds the child at 120s and converts the hang into an ordinary libtest failure, which is what lets the suite terminate without --skip.	crates/porffor-cli/tests/fixtures/wasm_atomics_wait_core.js
+cli	heap::run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture	ignored	T05	Allocation stress across the heap page boundary; excluded from the default run by cost, not by defect. Run explicitly with --ignored. T05 owns making it cheap enough to run by default.	crates/porffor-cli/tests/cli/heap.rs run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture
+perf	cold_exact_after_cache_prune_is_under_five_seconds	ignored	T25	Wall-clock acceptance benchmark that intentionally fails until the runtime/program split lands. Before this ledger it was an expected failure with a reason but no owner, no expiry and no record anywhere -- exactly the shape AGENTS.md rules out. It stays ignored: it is a timing acceptance gate, not a correctness test.	crates/porffor-cli/tests/perf.rs cold_exact_after_cache_prune_is_under_five_seconds
+perf	warm_exact_wasmtime_aot_is_sub_second	ignored	T25	Wall-clock acceptance benchmark; a shared or loaded machine makes the measurement meaningless rather than failing it honestly. Run with --ignored on an idle box.	crates/porffor-cli/tests/perf.rs warm_exact_wasmtime_aot_is_sub_second
+perf	warmed_twenty_case_chunk_is_under_five_seconds	ignored	T25	Wall-clock acceptance benchmark, and it hard-panics unless benchmarks/wasm-aot-20.txt exists. That manifest is machine-local because .gitignore line 3 is a bare *.txt -- the same rule that ate the previous known-failures file. Run with --ignored on an idle box that has the manifest.	crates/porffor-cli/tests/perf.rs warmed_twenty_case_chunk_is_under_five_seconds

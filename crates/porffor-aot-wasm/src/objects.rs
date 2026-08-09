@@ -4045,14 +4045,18 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::I32Or);
-                    function.instruction(&Instruction::If(BlockType::Empty));
+                    // Not an array index: an ordinary named lookup on the Array
+                    // exotic object, walking its prototype chain.
+                    //
+                    // There is deliberately no tag test here. This arm used to be
+                    // guarded by `target_tag == Object || target_tag == Function`
+                    // with an `Else` that called this same function with the same
+                    // nine arguments, so the condition selected nothing and the
+                    // read was emitted twice at every site (measured: 73,606 code
+                    // bytes per `a[stringExpr]` site, see the b3 lane note). The
+                    // arm is also statically unreachable as written — `target.kind`
+                    // is `ValueKind::Array` in this match arm, so `target_tag_local`
+                    // is never the `Object` or `Function` tag.
                     self.emit_object_read_with_key_tag(
                         target_local,
                         target_tag_local,
@@ -4064,19 +4068,6 @@ impl<'a> FunctionBuilder<'a> {
                         tag_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_object_read_with_key_tag(
-                        target_local,
-                        target_tag_local,
-                        target_local,
-                        target_tag_local,
-                        key_local,
-                        Some(key_tag_local),
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     self.release_temp_local(array_index_local);
                     self.release_temp_local(key_tag_local);

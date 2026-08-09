@@ -1,0 +1,1188 @@
+//! The tracked ledger of expected non-green outcomes, and the hygiene tests
+//! that keep it honest.
+//!
+//! # Why this module exists
+//!
+//! Rung 1c (the whole CLI suite) was documented for three batches as "compare
+//! against `crates/porffor-cli/tests/known-failures.txt`". That file never
+//! existed: `.gitignore` line 3 is a bare `*.txt`, so `git add -A` dropped it
+//! silently while two documents went on citing it. Nobody noticed, because
+//! nobody ever got the suite to terminate -- one test hangs forever, so the
+//! documented invocation carried a `--skip` and the run was never a gate.
+//!
+//! This module replaces "a document tells you what to expect" with three
+//! mechanisms, each placed at the cheapest rung that can hold it:
+//!
+//! 1. **File existence -> compile time.** [`LEDGER`] is an `include_str!`.
+//!    Delete, rename or re-gitignore `tests/known-failures.tsv` and
+//!    `cargo check --all-targets` fails. The exact defect above becomes
+//!    unreintroducible.
+//! 2. **Test existence -> compile time.** One `const _` line per `cli`-target
+//!    row, below. Renaming or deleting a listed test is then an E0425/E0603,
+//!    not a ledger quietly pointing at nothing. [`ledger_is_well_formed`]
+//!    checks the other direction: a row with no matching line, or a line with
+//!    no row, fails.
+//! 3. **Outcome -> libtest.** Every `fail`/`hang` row's test carries a
+//!    `should_panic` attribute with a non-empty `expected` substring. That
+//!    gives all three delta directions for free, with no end-of-run machinery:
+//!    an expected failure with the expected message passes; a now-passing test
+//!    fails with "test did not panic as expected"; a test that fails for a
+//!    *different* reason fails on message mismatch. Rung 1c's exit code alone
+//!    is then the gate.
+//!
+//! # Why `should_panic` is acceptable here and only here
+//!
+//! AGENTS.md bans permanent skip lists and silent expected failures, and a
+//! `should_panic` attribute on its own is exactly such a silent expected
+//! failure. It is acceptable in this crate *because* the ledger makes it
+//! non-silent (owner task, reason, evidence) and non-permanent (the
+//! `unfilled-allowed-until` expiry, and a row whose test starts passing turns
+//! the suite red). Remove the ledger and keep the attributes and this crate has
+//! built the thing AGENTS.md bans. The **bare** form is rejected outright: it
+//! passes on any panic at all, which converts a genuine new defect into a green
+//! test.
+//!
+//! # Today's inventory, counted rather than estimated
+//!
+//! At the commit this module was written:
+//!
+//! - 593 `#[test]` attributes across `tests/cli/*.rs`; 8 of them behind
+//!   `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so 585 compile
+//!   under default features and 584 execute (one is ignored).
+//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 597 total.
+//! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
+//! - 0 `should_panic` attributes before this change, 1 after it.
+//!
+//! Reproduce with:
+//!
+//! ```sh
+//! grep -h '#\[test\]' crates/porffor-cli/tests/cli/*.rs crates/porffor-cli/tests/*.rs | wc -l
+//! grep -rn '#\[ignore' crates/porffor-cli/tests/
+//! ```
+
+use std::collections::BTreeSet;
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+/// The ledger, pulled in at compile time. See enforcement level 1 above.
+const LEDGER: &str = include_str!("../known-failures.tsv");
+
+/// The batch this checkout belongs to.
+///
+/// Bumped by hand at the start of a batch. That single edit is what turns the
+/// `unfilled-allowed-until` header into a real expiry rather than a comment: an
+/// `unfilled` row that outlives its deadline fails [`ledger_is_well_formed`].
+const CURRENT_BATCH: u32 = 3;
+
+/// Header line carrying the `unfilled` expiry, e.g.
+/// `# unfilled-allowed-until: batch-4`.
+const UNFILLED_HEADER_PREFIX: &str = "# unfilled-allowed-until: batch-";
+
+/// The only test name an `unfilled` row may carry. Keeping the sentinel out of
+/// the real name space stops a placeholder from shadowing a real test.
+const UNFILLED_SENTINEL: &str = "UNFILLED";
+
+/// Number of tab-separated columns in a ledger data row.
+const LEDGER_COLUMNS: usize = 6;
+
+/// Column names, in order, for diagnostics.
+const LEDGER_COLUMN_NAMES: [&str; LEDGER_COLUMNS] = [
+    "target",
+    "test",
+    "state",
+    "owner_task",
+    "reason",
+    "evidence",
+];
+
+/// Attribute spellings the source scanner recognises.
+///
+/// These are ordinary string constants rather than attributes, so the lines
+/// they sit on do not begin with `#[` and the scanner does not mistake this
+/// file's own constants for declarations.
+const TEST_ATTRIBUTE: &str = "#[test]";
+const SHOULD_PANIC_PREFIX: &str = "#[should_panic";
+const IGNORE_PREFIX: &str = "#[ignore";
+
+/// Prefix of the enforcement-level-2 lines further down this file.
+const CONST_ASSERT_PREFIX: &str = "const _: fn() = crate::";
+
+/// Floor on the number of test declarations the source scan must find.
+///
+/// An anti-vacuity guard, not a budget. The scan reads sources from
+/// `CARGO_MANIFEST_DIR` at run time; if that ever resolved somewhere
+/// unexpected it would find nothing and every hygiene check below would pass
+/// for the worst possible reason. Today's count is 597 across the three
+/// targets. This bound fails when the count *shrinks*, which is the direction
+/// that means the scan broke; a growing suite must never require an edit here.
+const MINIMUM_SCANNED_TESTS: usize = 500;
+
+/// The four states a ledger row can be in.
+///
+/// Closed domain. [`FromStr`] rejects everything else and every consumer
+/// matches exhaustively -- no `_` arm, per AGENTS.md and
+/// `docs/rust-rewrite/contracts/closed-name-domains.md`. Spelling this column
+/// as `&str` is precisely the mistake those contracts exist to prevent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum State {
+    /// The test runs and fails. It must carry a `should_panic` attribute with a
+    /// non-empty `expected` substring.
+    Fail,
+    /// The test runs and never returns. It must carry a `should_panic`
+    /// attribute with a non-empty `expected` substring, and `main.rs` routes it
+    /// through the guarded subprocess path so the hang becomes a bounded
+    /// failure instead of a spinning suite.
+    Hang,
+    /// The test is excluded from the default run by an `ignore` attribute.
+    Ignored,
+    /// A placeholder for an unmeasured failure set. Expires.
+    Unfilled,
+}
+
+impl State {
+    fn as_str(self) -> &'static str {
+        match self {
+            State::Fail => "fail",
+            State::Hang => "hang",
+            State::Ignored => "ignored",
+            State::Unfilled => "unfilled",
+        }
+    }
+
+    /// Does a row in this state require an outcome-enforcing `should_panic`?
+    fn requires_should_panic(self) -> bool {
+        match self {
+            State::Fail | State::Hang => true,
+            State::Ignored | State::Unfilled => false,
+        }
+    }
+
+    /// Does a row in this state require an `ignore` attribute?
+    fn requires_ignore(self) -> bool {
+        match self {
+            State::Ignored => true,
+            State::Fail | State::Hang | State::Unfilled => false,
+        }
+    }
+
+    /// Does a row in this state name a test that must actually exist?
+    fn names_a_real_test(self) -> bool {
+        match self {
+            State::Fail | State::Hang | State::Ignored => true,
+            State::Unfilled => false,
+        }
+    }
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for State {
+    type Err = LedgerError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "fail" => Ok(State::Fail),
+            "hang" => Ok(State::Hang),
+            "ignored" => Ok(State::Ignored),
+            "unfilled" => Ok(State::Unfilled),
+            other => Err(LedgerError::UnknownState(other.to_string())),
+        }
+    }
+}
+
+/// The cargo test targets of this crate. Closed domain.
+///
+/// A libtest name is rooted at its *target's* crate root, so the same bare
+/// function name can legitimately exist in two targets. Carrying the target as
+/// its own column, rather than smuggling it into the name, is what keeps
+/// `(target, test)` a real key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum TestTarget {
+    /// `tests/async_generator.rs`.
+    AsyncGenerator,
+    /// `tests/cli/` -- `main.rs` plus the area modules.
+    Cli,
+    /// `tests/perf.rs`.
+    Perf,
+}
+
+impl TestTarget {
+    fn as_str(self) -> &'static str {
+        match self {
+            TestTarget::AsyncGenerator => "async_generator",
+            TestTarget::Cli => "cli",
+            TestTarget::Perf => "perf",
+        }
+    }
+
+    /// Map a `tests/<stem>.rs` file to its target.
+    ///
+    /// `Cli` is deliberately absent: that target's root is `tests/cli/main.rs`,
+    /// found by directory rather than by file stem. A new `tests/<name>.rs`
+    /// therefore lands here as `None` and fails the scan loudly instead of
+    /// being silently unaudited.
+    fn from_top_level_stem(stem: &str) -> Option<Self> {
+        match stem {
+            "async_generator" => Some(TestTarget::AsyncGenerator),
+            "perf" => Some(TestTarget::Perf),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for TestTarget {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for TestTarget {
+    type Err = LedgerError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "async_generator" => Ok(TestTarget::AsyncGenerator),
+            "cli" => Ok(TestTarget::Cli),
+            "perf" => Ok(TestTarget::Perf),
+            other => Err(LedgerError::UnknownTarget(other.to_string())),
+        }
+    }
+}
+
+/// A backlog task id: `T` followed by exactly two digits.
+///
+/// Validated once, here, so no consumer has to re-check that an owner is real.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct TaskId(u8);
+
+impl TaskId {
+    /// The `tasks/` filename prefix this id must be backed by, e.g. `"17-"`.
+    fn task_file_prefix(self) -> String {
+        format!("{:02}-", self.0)
+    }
+}
+
+impl fmt::Display for TaskId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "T{:02}", self.0)
+    }
+}
+
+impl FromStr for TaskId {
+    type Err = LedgerError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let digits = text
+            .strip_prefix('T')
+            .ok_or_else(|| LedgerError::MalformedTaskId(text.to_string()))?;
+        if digits.len() != 2 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(LedgerError::MalformedTaskId(text.to_string()));
+        }
+        let number = digits
+            .parse::<u8>()
+            .map_err(|_| LedgerError::MalformedTaskId(text.to_string()))?;
+        Ok(TaskId(number))
+    }
+}
+
+/// One ledger row. Borrows from [`LEDGER`], which is `'static`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Row {
+    pub(crate) target: TestTarget,
+    pub(crate) test: &'static str,
+    pub(crate) state: State,
+    pub(crate) owner_task: TaskId,
+    pub(crate) reason: &'static str,
+    pub(crate) evidence: &'static str,
+    /// 1-based line in `known-failures.tsv`, for diagnostics only.
+    pub(crate) line: usize,
+}
+
+impl Row {
+    fn sort_key(&self) -> (&'static str, &'static str) {
+        (self.target.as_str(), self.test)
+    }
+}
+
+/// The parsed ledger.
+#[derive(Clone, Debug)]
+pub(crate) struct Ledger {
+    /// Batch number taken from the `unfilled-allowed-until` header.
+    unfilled_allowed_until: u32,
+    rows: Vec<Row>,
+}
+
+impl Ledger {
+    fn row_for(&self, target: TestTarget, test: &str) -> Option<&Row> {
+        self.rows
+            .iter()
+            .find(|row| row.target == target && row.test == test)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LedgerError {
+    UnknownState(String),
+    UnknownTarget(String),
+    MalformedTaskId(String),
+    WrongColumnCount { line: usize, found: usize },
+    EmptyColumn { line: usize, column: &'static str },
+    PaddedColumn { line: usize, column: &'static str },
+    OutOfOrder { line: usize },
+    Duplicate { line: usize, test: String },
+    UnfilledNameMismatch { line: usize, test: String },
+    MissingExpiryHeader,
+    DuplicateExpiryHeader { line: usize },
+    MalformedExpiryHeader { line: usize, value: String },
+    NoRows,
+}
+
+impl fmt::Display for LedgerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let file = "crates/porffor-cli/tests/known-failures.tsv";
+        match self {
+            LedgerError::UnknownState(found) => write!(
+                formatter,
+                "{file}: unknown state `{found}`; the closed set is fail | hang | ignored | unfilled"
+            ),
+            LedgerError::UnknownTarget(found) => write!(
+                formatter,
+                "{file}: unknown target `{found}`; the closed set is async_generator | cli | perf. \
+                 A new cargo test target means extending TestTarget, not widening this column"
+            ),
+            LedgerError::MalformedTaskId(found) => write!(
+                formatter,
+                "{file}: owner_task `{found}` is not a task id; expected T followed by exactly two digits"
+            ),
+            LedgerError::WrongColumnCount { line, found } => write!(
+                formatter,
+                "{file}:{line}: found {found} tab-separated columns, expected {} \
+                 (target, test, state, owner_task, reason, evidence)",
+                LEDGER_COLUMNS
+            ),
+            LedgerError::EmptyColumn { line, column } => {
+                write!(formatter, "{file}:{line}: column `{column}` is empty")
+            }
+            LedgerError::PaddedColumn { line, column } => write!(
+                formatter,
+                "{file}:{line}: column `{column}` has leading or trailing whitespace; \
+                 the separator is a tab, so padding is always a mistake"
+            ),
+            LedgerError::OutOfOrder { line } => write!(
+                formatter,
+                "{file}:{line}: rows must be sorted ascending by (target, test); \
+                 this row is not greater than the one before it"
+            ),
+            LedgerError::Duplicate { line, test } => write!(
+                formatter,
+                "{file}:{line}: duplicate row for `{test}`; (target, test) is the key"
+            ),
+            LedgerError::UnfilledNameMismatch { line, test } => write!(
+                formatter,
+                "{file}:{line}: state `unfilled` requires the test column to be exactly `{}`, \
+                 found `{test}`. A placeholder must never shadow a real test name",
+                UNFILLED_SENTINEL
+            ),
+            LedgerError::MissingExpiryHeader => write!(
+                formatter,
+                "{file}: no `{}<n>` header; without it an `unfilled` row would be permanent",
+                UNFILLED_HEADER_PREFIX
+            ),
+            LedgerError::DuplicateExpiryHeader { line } => write!(
+                formatter,
+                "{file}:{line}: a second `{}<n>` header; there is exactly one deadline",
+                UNFILLED_HEADER_PREFIX
+            ),
+            LedgerError::MalformedExpiryHeader { line, value } => write!(
+                formatter,
+                "{file}:{line}: expiry header value `{value}` is not a batch number"
+            ),
+            LedgerError::NoRows => write!(
+                formatter,
+                "{file}: parsed zero data rows. Either every row was lost or the parser is \
+                 reading the wrong file; both are failures"
+            ),
+        }
+    }
+}
+
+/// Parse [`LEDGER`].
+///
+/// Returns `Err` on anything the closed domains do not admit. The one caller
+/// that runs inside every test ([`execution_path`]) treats an error
+/// conservatively rather than panicking; [`ledger_is_well_formed`] is where a
+/// malformed ledger is reported.
+pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
+    let mut rows: Vec<Row> = Vec::new();
+    let mut unfilled_allowed_until: Option<u32> = None;
+
+    for (index, raw) in LEDGER.lines().enumerate() {
+        let line = index + 1;
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            if let Some(value) = trimmed.strip_prefix(UNFILLED_HEADER_PREFIX) {
+                if unfilled_allowed_until.is_some() {
+                    return Err(LedgerError::DuplicateExpiryHeader { line });
+                }
+                let value = value.trim();
+                let batch = value
+                    .parse::<u32>()
+                    .map_err(|_| LedgerError::MalformedExpiryHeader {
+                        line,
+                        value: value.to_string(),
+                    })?;
+                unfilled_allowed_until = Some(batch);
+            }
+            continue;
+        }
+
+        let columns: Vec<&'static str> = raw.split('\t').collect();
+        if columns.len() != LEDGER_COLUMNS {
+            return Err(LedgerError::WrongColumnCount {
+                line,
+                found: columns.len(),
+            });
+        }
+        for (column, name) in columns.iter().zip(LEDGER_COLUMN_NAMES) {
+            if column.is_empty() {
+                return Err(LedgerError::EmptyColumn { line, column: name });
+            }
+            if column.trim() != *column {
+                return Err(LedgerError::PaddedColumn { line, column: name });
+            }
+        }
+
+        let row = Row {
+            target: columns[0].parse::<TestTarget>()?,
+            test: columns[1],
+            state: columns[2].parse::<State>()?,
+            owner_task: columns[3].parse::<TaskId>()?,
+            reason: columns[4],
+            evidence: columns[5],
+            line,
+        };
+
+        if (row.state == State::Unfilled) != (row.test == UNFILLED_SENTINEL) {
+            return Err(LedgerError::UnfilledNameMismatch {
+                line,
+                test: row.test.to_string(),
+            });
+        }
+
+        if let Some(previous) = rows.last() {
+            if previous.sort_key() == row.sort_key() {
+                return Err(LedgerError::Duplicate {
+                    line,
+                    test: row.test.to_string(),
+                });
+            }
+            if previous.sort_key() > row.sort_key() {
+                return Err(LedgerError::OutOfOrder { line });
+            }
+        }
+        rows.push(row);
+    }
+
+    if rows.is_empty() {
+        return Err(LedgerError::NoRows);
+    }
+    let unfilled_allowed_until = unfilled_allowed_until.ok_or(LedgerError::MissingExpiryHeader)?;
+    Ok(Ledger {
+        unfilled_allowed_until,
+        rows,
+    })
+}
+
+// -------------------------------------------------------------------------
+// Enforcement level 2: test existence, checked by the compiler.
+//
+// One line per `cli`-target row that names a real test. A rename or a deletion
+// is then E0425 (no such function) or E0603 (private), caught by `cargo xc` in
+// seconds rather than by a suite run measured in hours that nobody would think
+// to attribute to a stale ledger. `ledger_is_well_formed` checks the reverse
+// direction by reading these very lines back out of this file.
+//
+// `perf` and `async_generator` are separate crates, so `crate::` cannot reach
+// them; their rows are covered by the source scan instead.
+// -------------------------------------------------------------------------
+
+const _: fn() = crate::binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture;
+const _: fn() = crate::heap::run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture;
+
+// -------------------------------------------------------------------------
+// Routing: which `porf` invocations must run as a guarded subprocess.
+// -------------------------------------------------------------------------
+
+/// How `main.rs`'s `Command::output` should execute a `porf` invocation.
+///
+/// Closed domain, matched exhaustively at its single call site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExecutionPath {
+    /// The fast path: call `porffor_cli::run_cli_capture` in this process. No
+    /// process spawn, no timeout, and no way to recover from a call that
+    /// blocks.
+    InProcess,
+    /// Spawn the real `porf` binary, poll it, and kill it after the hang
+    /// timeout. Costs a process spawn; survives a test that never returns.
+    GuardedSubprocess,
+}
+
+/// Thread name libtest uses when it does not spawn a worker per test, i.e.
+/// under `--test-threads=1`. The test's own name is unavailable there.
+const MAIN_THREAD_NAME: &str = "main";
+
+/// Decide how to run a `porf` invocation, given the current thread's name.
+///
+/// libtest names each worker thread after the test it is running, so the thread
+/// name *is* the libtest name, and it is the only routing key reachable from
+/// inside a test body without threading state through ~590 call sites.
+///
+/// The bias is deliberate and one-directional: when the name is unknown the
+/// guarded path is taken, never skipped. Backwards, the suite stops
+/// terminating. Two consequences worth knowing:
+///
+/// - Under `--test-threads=1` every CLI test spawns a real `porf` process.
+///   That is slower, and it is the documented price of not reintroducing the
+///   hang. The documented rung-1c invocation uses `--test-threads=2`.
+/// - If the ledger fails to parse, every test takes the guarded path. That is
+///   loud rather than silent: [`ledger_is_well_formed`] reports the parse error
+///   in the same run.
+pub(crate) fn execution_path(thread_name: Option<&str>) -> ExecutionPath {
+    let Some(name) = thread_name else {
+        return ExecutionPath::GuardedSubprocess;
+    };
+    if name.is_empty() || name == MAIN_THREAD_NAME {
+        return ExecutionPath::GuardedSubprocess;
+    }
+    let Ok(ledger) = parse_ledger() else {
+        return ExecutionPath::GuardedSubprocess;
+    };
+    match ledger.row_for(TestTarget::Cli, name) {
+        None => ExecutionPath::InProcess,
+        Some(row) => match row.state {
+            State::Hang => ExecutionPath::GuardedSubprocess,
+            State::Fail | State::Ignored | State::Unfilled => ExecutionPath::InProcess,
+        },
+    }
+}
+
+// -------------------------------------------------------------------------
+// Source scanning.
+// -------------------------------------------------------------------------
+
+/// A `should_panic` attribute as written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ShouldPanicAttribute {
+    /// No arguments. Always rejected: it passes on ANY panic, which turns a
+    /// genuine new defect into a green test.
+    Bare,
+    /// `(expected = "...")`, carrying the substring.
+    Expected(String),
+}
+
+/// An `ignore` attribute as written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum IgnoreAttribute {
+    /// No reason. Rejected: an undocumented skip.
+    Bare,
+    /// `= "..."`, carrying the reason.
+    Reason(String),
+}
+
+/// One test function found in a source file.
+#[derive(Clone, Debug)]
+struct TestDeclaration {
+    target: TestTarget,
+    /// libtest name within the target: `module::function` for the `cli`
+    /// target's area modules, bare `function` for a target whose tests live in
+    /// its crate root.
+    name: String,
+    /// Repo-relative source path, for diagnostics.
+    source: String,
+    /// 1-based line of the `fn` item.
+    line: usize,
+    should_panic: Option<ShouldPanicAttribute>,
+    ignore: Option<IgnoreAttribute>,
+}
+
+fn manifest_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn repo_root() -> PathBuf {
+    manifest_dir()
+        .parent()
+        .and_then(Path::parent)
+        .expect("CARGO_MANIFEST_DIR is crates/porffor-cli, so it has two ancestors")
+        .to_path_buf()
+}
+
+fn repo_relative(path: &Path) -> String {
+    path.strip_prefix(repo_root())
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+/// `.rs` files directly inside `directory`, sorted so diagnostics are stable.
+fn rust_sources_in(directory: &Path) -> Vec<PathBuf> {
+    let entries = std::fs::read_dir(directory).unwrap_or_else(|error| {
+        panic!("{}: could not read directory: {error}", directory.display())
+    });
+    let mut paths: Vec<PathBuf> = entries
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|error| {
+                    panic!("{}: could not read entry: {error}", directory.display())
+                })
+                .path()
+        })
+        .filter(|path| {
+            path.is_file() && path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn file_stem(path: &Path) -> String {
+    path.file_stem()
+        .expect("a .rs file has a stem")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Scan every test source of every target in this crate.
+///
+/// Panics with a pointed message rather than skipping anything: a source this
+/// function cannot classify is an unaudited test file, which is the failure
+/// mode the whole module exists to prevent.
+fn scan_test_sources() -> Vec<TestDeclaration> {
+    let tests_dir = manifest_dir().join("tests");
+    let mut declarations = Vec::new();
+
+    for path in rust_sources_in(&tests_dir) {
+        let stem = file_stem(&path);
+        let relative = repo_relative(&path);
+        let target = TestTarget::from_top_level_stem(&stem).unwrap_or_else(|| {
+            panic!(
+                "{relative}: `{stem}` is a cargo integration target that TestTarget does not know \
+                 about. Add a variant -- and, if it can produce a non-green outcome, a ledger row \
+                 -- rather than leaving a whole test target unaudited."
+            )
+        });
+        declarations.extend(scan_source(target, None, &path));
+    }
+
+    let cli_dir = tests_dir.join("cli");
+    let mut saw_this_file = false;
+    for path in rust_sources_in(&cli_dir) {
+        let stem = file_stem(&path);
+        if stem == "known_failures" {
+            saw_this_file = true;
+        }
+        // `main.rs` is the `cli` target's crate root, so anything declared
+        // there would carry a bare libtest name.
+        let module = if stem == "main" { None } else { Some(stem) };
+        declarations.extend(scan_source(TestTarget::Cli, module, &path));
+    }
+    assert!(
+        saw_this_file,
+        "the source scan did not find tests/cli/known_failures.rs. CARGO_MANIFEST_DIR is not \
+         resolving to this crate, so every hygiene check here would pass vacuously."
+    );
+
+    assert!(
+        declarations.len() >= MINIMUM_SCANNED_TESTS,
+        "the source scan found only {} test declarations, below the anti-vacuity floor of {}. \
+         Either the scan is reading the wrong tree or the parser stopped recognising the test \
+         attribute.",
+        declarations.len(),
+        MINIMUM_SCANNED_TESTS
+    );
+
+    declarations
+}
+
+/// Extract the function name from an already-trimmed item line.
+fn function_name(line: &str) -> Option<&str> {
+    let rest = line
+        .strip_prefix("pub(crate) ")
+        .or_else(|| line.strip_prefix("pub "))
+        .unwrap_or(line);
+    let rest = rest.strip_prefix("fn ")?;
+    let end = rest.find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))?;
+    let name = &rest[..end];
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn parse_should_panic(attribute: &str, source: &str, line: usize) -> ShouldPanicAttribute {
+    let rest = attribute
+        .strip_prefix(SHOULD_PANIC_PREFIX)
+        .expect("caller matched the prefix");
+    if rest == "]" {
+        return ShouldPanicAttribute::Bare;
+    }
+    let expected = rest
+        .strip_prefix("(expected = \"")
+        .and_then(|text| text.strip_suffix("\")]"))
+        .unwrap_or_else(|| {
+            panic!(
+                "{source}:{line}: unsupported attribute spelling `{attribute}`. This hygiene check \
+                 understands only the rustfmt form with a single `expected = \"...\"` string, so \
+                 that the expected substring can be read back and checked."
+            )
+        });
+    ShouldPanicAttribute::Expected(expected.to_string())
+}
+
+fn parse_ignore(attribute: &str, source: &str, line: usize) -> IgnoreAttribute {
+    let rest = attribute
+        .strip_prefix(IGNORE_PREFIX)
+        .expect("caller matched the prefix");
+    if rest == "]" {
+        return IgnoreAttribute::Bare;
+    }
+    let reason = rest
+        .strip_prefix(" = \"")
+        .and_then(|text| text.strip_suffix("\"]"))
+        .unwrap_or_else(|| {
+            panic!(
+                "{source}:{line}: unsupported attribute spelling `{attribute}`. Use the \
+                 `= \"<owner task> <reason>\"` form so the reason can be read back."
+            )
+        });
+    IgnoreAttribute::Reason(reason.to_string())
+}
+
+/// Parse one source file into its test declarations.
+///
+/// The parser is deliberately literal: attributes must be single-line, which
+/// every attribute in this crate's tests already is. A multi-line attribute
+/// panics rather than being silently mis-attributed, and the per-file count
+/// assertion below catches any declaration the walk fails to see.
+fn scan_source(target: TestTarget, module: Option<String>, path: &Path) -> Vec<TestDeclaration> {
+    let source = repo_relative(path);
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("{source}: could not read: {error}"));
+
+    let mut declarations = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+
+    for (index, raw) in text.lines().enumerate() {
+        let line = index + 1;
+        let trimmed = raw.trim();
+
+        if trimmed.starts_with("#[") {
+            assert!(
+                trimmed.ends_with(']'),
+                "{source}:{line}: multi-line attribute `{trimmed}`. Keep attributes on one line in \
+                 this crate's tests; the ledger hygiene checks read them textually."
+            );
+            pending.push(trimmed.to_string());
+            continue;
+        }
+        // Comments and blank lines may legally separate an attribute from its
+        // item, so they do not reset the pending set.
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+
+        let Some(name) = function_name(trimmed) else {
+            pending.clear();
+            continue;
+        };
+        if !pending
+            .iter()
+            .any(|attribute| attribute.as_str() == TEST_ATTRIBUTE)
+        {
+            pending.clear();
+            continue;
+        }
+
+        let should_panic = pending
+            .iter()
+            .find(|attribute| attribute.starts_with(SHOULD_PANIC_PREFIX))
+            .map(|attribute| parse_should_panic(attribute, &source, line));
+        let ignore = pending
+            .iter()
+            .find(|attribute| attribute.starts_with(IGNORE_PREFIX))
+            .map(|attribute| parse_ignore(attribute, &source, line));
+
+        let libtest_name = match &module {
+            Some(module) => format!("{module}::{name}"),
+            None => name.to_string(),
+        };
+        declarations.push(TestDeclaration {
+            target,
+            name: libtest_name,
+            source: source.clone(),
+            line,
+            should_panic,
+            ignore,
+        });
+        pending.clear();
+    }
+
+    // Anti-vacuity: the walk must see every test attribute in the file. If the
+    // two ever disagree the parser has silently dropped declarations, and every
+    // check downstream is weaker than it looks.
+    let attribute_count = text
+        .lines()
+        .filter(|raw| raw.trim() == TEST_ATTRIBUTE)
+        .count();
+    assert_eq!(
+        declarations.len(),
+        attribute_count,
+        "{source}: the scan recognised {} test functions but the file contains {} `{}` \
+         attributes. The attribute walk lost declarations.",
+        declarations.len(),
+        attribute_count,
+        TEST_ATTRIBUTE
+    );
+
+    declarations
+}
+
+/// The enforcement-level-2 targets, read back out of this file as
+/// `module::function`.
+fn declared_const_assertions() -> BTreeSet<String> {
+    let path = manifest_dir().join("tests/cli/known_failures.rs");
+    let source = repo_relative(&path);
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{source}: could not read: {error}"));
+    let names: BTreeSet<String> = text
+        .lines()
+        .filter_map(|raw| raw.trim().strip_prefix(CONST_ASSERT_PREFIX))
+        .map(|rest| {
+            rest.strip_suffix(';')
+                .unwrap_or_else(|| {
+                    panic!("{source}: compile-time assertion `{rest}` does not end in a semicolon")
+                })
+                .to_string()
+        })
+        .collect();
+    assert!(
+        !names.is_empty(),
+        "{source}: no compile-time test-existence assertions found. Either every one was deleted, \
+         or this function is reading the wrong file and its check is vacuous."
+    );
+    names
+}
+
+fn parsed_ledger_or_panic() -> Ledger {
+    parse_ledger().unwrap_or_else(|error| panic!("{error}"))
+}
+
+fn declaration_for<'a>(
+    declarations: &'a [TestDeclaration],
+    target: TestTarget,
+    name: &str,
+) -> Option<&'a TestDeclaration> {
+    declarations
+        .iter()
+        .find(|declaration| declaration.target == target && declaration.name == name)
+}
+
+// -------------------------------------------------------------------------
+// The hygiene tests.
+// -------------------------------------------------------------------------
+
+#[test]
+fn ledger_is_well_formed() {
+    let ledger = parsed_ledger_or_panic();
+
+    // Every owner is a real backlog task.
+    let tasks_dir = repo_root().join("tasks");
+    let task_files: Vec<String> = std::fs::read_dir(&tasks_dir)
+        .unwrap_or_else(|error| panic!("{}: could not read: {error}", tasks_dir.display()))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|error| panic!("{}: could not read entry: {error}", tasks_dir.display()))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert!(
+        !task_files.is_empty(),
+        "{}: no task files found, so the owner check below would pass vacuously",
+        tasks_dir.display()
+    );
+    for row in &ledger.rows {
+        let prefix = row.owner_task.task_file_prefix();
+        assert!(
+            task_files
+                .iter()
+                .any(|name| name.starts_with(&prefix) && name.ends_with(".md")),
+            "known-failures.tsv:{}: owner_task {} has no backing tasks/{}*.md. Every conformance \
+             failure needs an owner and a reason (AGENTS.md), and an owner nobody can look up is \
+             not an owner.",
+            row.line,
+            row.owner_task,
+            prefix
+        );
+    }
+
+    for row in &ledger.rows {
+        // A reason short enough to fit in a shrug is not a reason.
+        assert!(
+            row.reason.len() >= 20,
+            "known-failures.tsv:{}: reason `{}` is too short to be a reason",
+            row.line,
+            row.reason
+        );
+        // Evidence is a path, or a path plus a symbol -- never a line number.
+        // This ledger already lost one file to silent rot; line-numbered
+        // evidence rots the same way, one edit at a time.
+        assert!(
+            !row.evidence
+                .as_bytes()
+                .windows(2)
+                .any(|pair| pair[0] == b':' && pair[1].is_ascii_digit()),
+            "known-failures.tsv:{}: evidence `{}` cites a line number. Cite a path, or a path and \
+             a symbol; line numbers go stale without anything failing.",
+            row.line,
+            row.evidence
+        );
+    }
+
+    // The `unfilled` placeholder expires.
+    let unfilled_rows = ledger
+        .rows
+        .iter()
+        .filter(|row| row.state == State::Unfilled)
+        .count();
+    if unfilled_rows > 0 {
+        assert!(
+            CURRENT_BATCH < ledger.unfilled_allowed_until,
+            "known-failures.tsv still has {} `unfilled` row(s), the deadline is batch-{}, and this \
+             checkout is batch-{}. Run rung 1c, replace the placeholder with real rows, and delete \
+             it. Extending the deadline instead is possible, but it is a visible edit to the \
+             header, which is the point.",
+            unfilled_rows,
+            ledger.unfilled_allowed_until,
+            CURRENT_BATCH
+        );
+    }
+
+    // Enforcement level 2, both directions: every `cli` row naming a real test
+    // has a compile-time assertion, and every assertion has a row.
+    let asserted = declared_const_assertions();
+    let expected: BTreeSet<String> = ledger
+        .rows
+        .iter()
+        .filter(|row| row.target == TestTarget::Cli && row.state.names_a_real_test())
+        .map(|row| row.test.to_string())
+        .collect();
+    for name in &expected {
+        assert!(
+            asserted.contains(name),
+            "known-failures.tsv names `{name}` in the cli target, but known_failures.rs has no \
+             compile-time existence assertion for it. Without one, renaming or deleting the test \
+             leaves a live ledger row pointing at nothing and nothing fails."
+        );
+    }
+    for name in &asserted {
+        assert!(
+            expected.contains(name),
+            "known_failures.rs asserts the existence of `{name}`, but no cli ledger row names it. \
+             Delete the orphan assertion or add the row."
+        );
+    }
+}
+
+#[test]
+fn every_expected_failure_carries_a_should_panic() {
+    let ledger = parsed_ledger_or_panic();
+    let declarations = scan_test_sources();
+
+    // Forward: a declared fail/hang must be enforced by libtest itself.
+    for row in &ledger.rows {
+        if !row.state.names_a_real_test() {
+            continue;
+        }
+        let declaration = declaration_for(&declarations, row.target, row.test).unwrap_or_else(|| {
+            panic!(
+                "known-failures.tsv:{}: no test function named `{}` in target `{}`. A renamed or \
+                 deleted test must not leave a live ledger row behind.",
+                row.line, row.test, row.target
+            )
+        });
+        if !row.state.requires_should_panic() {
+            continue;
+        }
+        match &declaration.should_panic {
+            None => panic!(
+                "known-failures.tsv:{}: `{}` is declared `{}`, but {}:{} carries no should_panic \
+                 attribute. libtest would report the failure as an ordinary red test and rung 1c \
+                 could not be its own gate.",
+                row.line, row.test, row.state, declaration.source, declaration.line
+            ),
+            Some(ShouldPanicAttribute::Bare) => panic!(
+                "{}:{}: bare should_panic on `{}`. It passes on ANY panic, so a genuine new defect \
+                 in this test would show up green. Give it the substring the current failure \
+                 actually prints.",
+                declaration.source, declaration.line, row.test
+            ),
+            Some(ShouldPanicAttribute::Expected(expected)) => assert!(
+                !expected.trim().is_empty(),
+                "{}:{}: should_panic on `{}` has an empty expected string, which matches every \
+                 panic and is exactly as vacuous as the bare form.",
+                declaration.source,
+                declaration.line,
+                row.test
+            ),
+        }
+    }
+
+    // Reverse: every should_panic in this crate's tests is declared.
+    for declaration in &declarations {
+        let Some(attribute) = &declaration.should_panic else {
+            continue;
+        };
+        let row = ledger
+            .row_for(declaration.target, &declaration.name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}:{}: `{}` carries {:?}, but has no row in known-failures.tsv. An expected \
+                     failure with no owner, no reason and no expiry is the silent expected failure \
+                     AGENTS.md bans.",
+                    declaration.source, declaration.line, declaration.name, attribute
+                )
+            });
+        assert!(
+            row.state.requires_should_panic(),
+            "{}:{}: `{}` carries a should_panic attribute, but its ledger row says `{}`. The row \
+             and the attribute must agree on what this test does.",
+            declaration.source,
+            declaration.line,
+            declaration.name,
+            row.state
+        );
+    }
+}
+
+#[test]
+fn every_ignored_test_is_declared() {
+    let ledger = parsed_ledger_or_panic();
+    let declarations = scan_test_sources();
+
+    // Reverse: every ignore attribute in `tests/cli/*.rs` and `tests/*.rs` is
+    // declared with an owner. Today that is one in the `cli` target (the T05
+    // allocation-stress case in heap.rs) and three in `perf`.
+    for declaration in &declarations {
+        let Some(attribute) = &declaration.ignore else {
+            continue;
+        };
+        match attribute {
+            IgnoreAttribute::Bare => panic!(
+                "{}:{}: `{}` is ignored with no reason. An undocumented skip becomes a permanent \
+                 skip.",
+                declaration.source, declaration.line, declaration.name
+            ),
+            IgnoreAttribute::Reason(reason) => assert!(
+                !reason.trim().is_empty(),
+                "{}:{}: `{}` is ignored with an empty reason.",
+                declaration.source,
+                declaration.line,
+                declaration.name
+            ),
+        }
+        let row = ledger
+            .row_for(declaration.target, &declaration.name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}:{}: `{}` is ignored, but has no row in known-failures.tsv. Add one with an \
+                     owner task: a reason inside the attribute is invisible to anyone reading the \
+                     suite result.",
+                    declaration.source, declaration.line, declaration.name
+                )
+            });
+        assert!(
+            row.state.requires_ignore(),
+            "{}:{}: `{}` carries an ignore attribute, but its ledger row says `{}`.",
+            declaration.source,
+            declaration.line,
+            declaration.name,
+            row.state
+        );
+    }
+
+    // Forward: an `ignored` row whose test is no longer ignored is stale.
+    for row in &ledger.rows {
+        if !row.state.requires_ignore() {
+            continue;
+        }
+        let declaration = declaration_for(&declarations, row.target, row.test).unwrap_or_else(|| {
+            panic!(
+                "known-failures.tsv:{}: no test function named `{}` in target `{}`.",
+                row.line, row.test, row.target
+            )
+        });
+        assert!(
+            declaration.ignore.is_some(),
+            "known-failures.tsv:{}: `{}` is declared ignored, but {}:{} no longer carries an \
+             ignore attribute. Delete the row: the ledger must not outlive what it describes.",
+            row.line,
+            row.test,
+            declaration.source,
+            declaration.line
+        );
+    }
+}
+
+#[test]
+fn routing_takes_the_guarded_path_whenever_the_test_name_is_unknown() {
+    // The hang-to-fail conversion is what lets rung 1c drop `--skip`, and it is
+    // keyed on the libtest thread name. Getting the bias backwards restores the
+    // hang, so it is asserted rather than left to a comment.
+    assert_eq!(execution_path(None), ExecutionPath::GuardedSubprocess);
+    assert_eq!(execution_path(Some("")), ExecutionPath::GuardedSubprocess);
+    assert_eq!(
+        execution_path(Some(MAIN_THREAD_NAME)),
+        ExecutionPath::GuardedSubprocess,
+        "under --test-threads=1 libtest runs tests on the main thread, so the test name is \
+         unavailable and the guarded path is the only safe choice"
+    );
+
+    let ledger = parsed_ledger_or_panic();
+    let hangs: Vec<&Row> = ledger
+        .rows
+        .iter()
+        .filter(|row| row.state == State::Hang && row.target == TestTarget::Cli)
+        .collect();
+    assert!(
+        !hangs.is_empty(),
+        "no cli hang rows, so the loop below would assert nothing. If the hang is genuinely fixed, \
+         delete this assertion along with the row."
+    );
+    for row in hangs {
+        assert_eq!(
+            execution_path(Some(row.test)),
+            ExecutionPath::GuardedSubprocess,
+            "`{}` is declared a hang but would run in-process, which is the configuration that \
+             spins forever",
+            row.test
+        );
+    }
+
+    // A name with no row keeps the fast path; otherwise the whole suite would
+    // pay a process spawn per test.
+    assert_eq!(
+        execution_path(Some("array::a_name_that_is_not_in_the_ledger")),
+        ExecutionPath::InProcess
+    );
+}

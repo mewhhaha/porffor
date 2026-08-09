@@ -35,7 +35,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
 | 1 | `cargo test -p porffor-ir`, focused `-p porffor-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
-| 1c | the whole CLI suite (581 tests) | **~26 min** | end-to-end CLI behaviour | conformance beyond the fixture corpus |
+| 1c | the whole CLI suite (584 tests) | **~26 min** at `--test-threads=8` on 16 CPUs; est. **~1 h 45 min** at `--test-threads=2` | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
 | 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |
@@ -50,21 +50,66 @@ run rung 1b for its own area — the per-test cost varies by more than 1.7× acr
 modules (`heap` is `1.5 s`/test, the whole-suite mix is `2.6 s`/test), so do not
 extrapolate one module's cost to the suite.
 
-### The CLI suite does not terminate on its own
+### Rung 1c terminates, and checks its own expectations
 
-`cli::binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture`
-**hangs indefinitely**: the suite reaches 580 of 581 and then spins. Always skip
-it, and expect the failures already recorded in
-`crates/porffor-cli/tests/known-failures.txt` — a lane compares against that
-list, not against zero.
+Run it exactly like this. No `--skip`:
 
 ```sh
-./scripts/run-watched.sh --label cli --stall 420 -- \
-  cargo test -p porffor-cli --test cli -- --test-threads=8 --skip atomics_wait_core
+./scripts/run-watched.sh --label b3-cli --stall 900 -- \
+  cargo test -p porffor-cli --test cli -- --test-threads=2
 ```
 
-Tracked as a defect under T17; the skip is a workaround, not an accepted
-exclusion.
+Raise `--test-threads` on a machine with spare cores; the suite is CPU-bound and
+scales close to linearly. Keep `--stall` at 900 regardless: on a 4-CPU box with
+a sweep holding two of them, a single cold Wasm-AOT compile can exceed 300 s of
+log silence, and the 300 s default then kills a perfectly healthy run with exit
+code 124. As always, judge a long run by whether its **log is still growing**,
+never by elapsed time against an estimate.
+
+**Do not compare the result against a document.** The expected non-green
+outcomes are tracked in `crates/porffor-cli/tests/known-failures.tsv` and the
+suite enforces them itself, so a green rung 1c means "exactly the declared
+outcomes, for the declared reasons" and a red one means something moved. Six
+kinds of drift are failures rather than notes someone has to remember:
+
+| Drift | How it fails |
+|---|---|
+| new failure | ordinary red test |
+| declared failure starts passing | libtest: `test did not panic as expected` |
+| declared failure fails for a different reason | `should_panic` message mismatch |
+| declared test renamed or deleted | `cargo xc`: E0425/E0603 on a `const _` line |
+| ledger row with no test, or test with no row | `known_failures::*` hygiene tests |
+| `#[ignore]` added with no owner | `known_failures::every_ignored_test_is_declared` |
+
+`binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture` used to
+hang the suite forever at 583 of 584, which is why the old invocation carried
+`--skip atomics_wait_core` and why rung 1c was never actually a gate. It is now
+a declared hang (owner T17): `tests/cli/main.rs` runs it as a real child process
+and kills it after 120 s, so it terminates as a bounded, expected failure. The
+underlying defect is still open — the ledger row carries the lead.
+
+Two naming traps, both of which have cost time:
+
+- **libtest names carry no target prefix.** `cli` is the cargo *target*, so the
+  name is `binary_data::run_...`. `cli::binary_data::run_...`, which this
+  document used to print, matches nothing as a filter.
+- **`--skip` and filters are substring matches**, not exact names. Prefer
+  `-- --exact <name>` when you mean one test.
+
+#### Adding a row
+
+1. Get the names: `sed -n '/^failures:$/,/^test result:/p' target/watched/b3-cli.log`.
+2. Get the message per failure: `grep -n '^---- .* stdout ----' -A6 target/watched/b3-cli.log`.
+3. Add a ledger row (target, test, state, owner from
+   `test262/backlog/ownership-map.tsv`, reason, evidence).
+4. Add `#[should_panic(expected = "<stable substring of that message>")]` and
+   `pub(crate)` to the test, and a `const _: fn() = crate::<module>::<name>;`
+   line in `tests/cli/known_failures.rs`.
+5. Re-run until green.
+
+A bare `#[should_panic]`, or an empty `expected`, is rejected by the hygiene
+tests: it passes on any panic and would turn the next genuine defect in that
+test green.
 
 ### Always run long commands under the stall guard
 
@@ -87,6 +132,30 @@ log goes quiet for `--stall` seconds is killed and reported with exit code 124.
 
 Judge a long run by whether its **log is still growing**, never by elapsed time
 against an estimate.
+
+### Before adding any tracked data file, run `git check-ignore -v`
+
+`.gitignore` line 3 is a bare `*.txt`. It is not scoped to a directory, so it
+swallows any `.txt` anywhere in the tree, `git add -A` reports nothing, and the
+file simply never exists for anyone else.
+
+```sh
+git check-ignore -v <path>   # exit 1 = tracked. exit 0 prints the rule eating it.
+```
+
+This has already cost this repository two files. `benchmarks/wasm-aot-20.txt` is
+machine-local for exactly this reason (see the comment in
+`crates/porffor-cli/tests/perf.rs`), and an earlier
+`crates/porffor-cli/tests/known-failures.txt` was silently dropped while this
+document and `README.md` went on citing it for three batches — nobody noticed,
+because the suite that would have used it could not be run.
+
+Use `.tsv` for hand-maintained tables; that is already the convention
+(`test262/backlog/ownership-map.tsv`, `test262/backlog/shortcut-allowlist.tsv`,
+`crates/porffor-cli/tests/known-failures.tsv`). Do **not** "fix" this with a `!`
+negation in `.gitignore`: `*.txt` has real users, and the next such file walks
+into the same trap. Better still, give the file a consumer that fails without it
+— `known-failures.tsv` is an `include_str!`, so its absence is a compile error.
 
 ### Rung G — the refactor gate
 
@@ -259,8 +328,21 @@ Landed:
   `cargo`, ending recurring full-workspace rebuilds.
 - Per-tier cache budgets (`PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
 - The golden capture (rung G).
-- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — 589 tests across 14
-  area modules, so feature lanes no longer all append to one 10,709-line file.
+- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — 593 `#[test]`
+  attributes across 14 area modules, so feature lanes no longer all append to
+  one 10,709-line file. 8 of them sit behind `#[cfg(feature =
+  "spec-exec-oracle")]` in `frontend.rs`, so **585 compile** under default
+  features and **584 execute** (one is `#[ignore]`d). Recount with
+  `grep -h '#\[test\]' crates/porffor-cli/tests/cli/*.rs | wc -l` rather than
+  trusting this line; two different wrong numbers lived in this document at
+  once because nobody could run the suite to notice.
+
+- **`crates/porffor-cli/tests/known-failures.tsv`** — the tracked ledger of
+  expected non-green outcomes for this crate's three test targets, enforced by
+  `tests/cli/known_failures.rs` at compile time (file existence via
+  `include_str!`, test existence via `const _`) and by libtest at run time
+  (`should_panic` with a required non-empty `expected`). This is what makes
+  rung 1c a gate instead of a reading exercise.
 
 - **`intrinsics/<family>.rs`** — the 4,760-line
   `init_builtin_constructor_object` is split into 15 family modules;

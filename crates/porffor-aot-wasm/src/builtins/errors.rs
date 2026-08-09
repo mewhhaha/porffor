@@ -415,6 +415,31 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// Allocate the error object for a runtime-thrown error.
+    ///
+    /// KNOWN DEFECT, deliberately still present: the `message` property is
+    /// defined from `_message`'s *name* payload, so every error thrown by the
+    /// runtime reports `e.message === e.name`. Reproduced on the b3 binary with
+    ///
+    /// ```text
+    /// try { null.x } catch (e) { print(e.name); print(e.message); }
+    /// // TypeError / TypeError
+    /// ```
+    ///
+    /// The one-token repair (`self.strings.payload(_message)`, exactly as the
+    /// sibling `emit_throw_runtime_error_with_prototype_local` already does)
+    /// cannot land on its own: `StringPool::payload` panics with
+    /// ``string `..` must exist in pool`` for a string that was never interned,
+    /// and 92 distinct message literals across 120 call sites reach here without
+    /// being in the pool — precisely because this function never asks for them.
+    /// The repair therefore has to land together with the `data.rs` interning,
+    /// which is a different owner. The audit, the full 92-string list and the
+    /// ready-to-apply patch are in
+    /// `target/lane-notes/dead-branch-and-runtime-error-message-defects-b3-integration.md`.
+    ///
+    /// Do not "fix" this by making the message fall back to the name when the
+    /// pool lookup misses: that is the silent fallback the current behaviour
+    /// already is, only harder to find.
     pub(crate) fn emit_runtime_error_object(
         &mut self,
         name: &str,
@@ -434,6 +459,17 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(object_local));
+        // [[ErrorData]]. Without it a runtime-thrown error is not an error to
+        // anything that reads the internal brand: `Object.prototype.toString`
+        // answered "[object Object]" and `Error.isError` answered `false`, while
+        // the same class constructed by user code answered "[object Error]" and
+        // `true`. Same store as `emit_alloc_error_instance_from_locals`.
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_ERROR,
+            function,
+        );
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
@@ -609,6 +645,15 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
+        // [[ErrorData]], as in `emit_runtime_error_object`: this is the same
+        // error object reached through the realm-carrying prototype instead of
+        // the global one, and it was missing the brand for the same reason.
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_ERROR,
+            function,
+        );
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
