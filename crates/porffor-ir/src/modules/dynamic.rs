@@ -710,7 +710,19 @@ impl ModuleGraphIr {
                 // from the merged script for a legal module. Pathological, but
                 // it is the same merged-name hazard invariant M3 governs, and
                 // the linker-prefix check beside it covers a different family.
-                if MergedName::is_minted_shaped(merged.as_str()) {
+                //
+                // Asked of the *source* spelling, not of `merged`. `merged_in`
+                // is the identity on a `LocalName::Source`, so for that variant
+                // the two spellings are the same string and the question is
+                // unchanged — but `LocalName::AnonymousDefault` is mapped *into*
+                // the minted range on purpose, and asking `merged` there reports
+                // every module with an anonymous `export default` as colliding
+                // with the very cell the linker minted for it. `spec_name` is
+                // `*default*` for that variant, which no `BindingIdentifier` can
+                // spell and which is therefore never minted-shaped, so the two
+                // generators stay distinguishable here by construction rather
+                // than by a second predicate that could drift.
+                if MergedName::is_minted_shaped(binding.name.spec_name()) {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
                         "unsupported in porffor wasm-aot: module {key}: top-level `{}` collides \
                          with a linker-minted per-unit cell name",
@@ -1719,6 +1731,41 @@ mod tests {
                 .any(|diagnostic| diagnostic.message.contains("linker-synthesized name")),
             "got {diagnostics:?}"
         );
+    }
+
+    /// The minted-cell half of the same hazard, and the positive control for
+    /// the `spec_name` narrowing beside it: source text *can* spell `$m0$…` and
+    /// `$d0$`, and a top-level declaration of one lands in the merged cell the
+    /// prelude declares, so it is reported.
+    ///
+    /// Paired deliberately with
+    /// [`an_anonymous_default_export_is_exposed_under_its_minted_name`], which
+    /// is the same predicate's negative control: that module's `*default*`
+    /// binding is spelled `$d0$` in the merged scope too, and must *not* be
+    /// reported. A predicate asked of the merged spelling passes this test and
+    /// fails that one, which is how the two together pin the right question.
+    #[test]
+    fn a_user_binding_shaped_like_a_minted_cell_is_reported() {
+        for spelling in [
+            MergedName::minted(0, UnitCellRole::Namespace)
+                .as_str()
+                .to_string(),
+            LocalName::AnonymousDefault
+                .merged_in(0)
+                .as_str()
+                .to_string(),
+        ] {
+            let source = format!("const {spelling} = 1;\nimport(x);");
+            let sources = sources_of(&[("d", source.as_str())], 0, Vec::new());
+            let graph = graph_of(&sources);
+            let diagnostics = graph.check_dynamic_import_linkable();
+            assert!(
+                diagnostics.iter().any(|diagnostic| diagnostic
+                    .message
+                    .contains("linker-minted per-unit cell name")),
+                "{spelling}: got {diagnostics:?}"
+            );
+        }
     }
 
     /// An anonymous `export default` binds `*default*`, which no source text

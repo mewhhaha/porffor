@@ -111,8 +111,19 @@ const TEST_ATTRIBUTE: &str = "#[test]";
 const SHOULD_PANIC_PREFIX: &str = "#[should_panic";
 const IGNORE_PREFIX: &str = "#[ignore";
 
-/// Prefix of the enforcement-level-2 lines further down this file.
+/// Prefix of the enforcement-level-2 statements further down this file, once
+/// their whitespace has been normalised to single spaces.
 const CONST_ASSERT_PREFIX: &str = "const _: fn() = crate::";
+
+/// What an enforcement-level-2 statement opens with, before `crate::`.
+///
+/// The scan keys on this rather than on [`CONST_ASSERT_PREFIX`] because
+/// `rustfmt` wraps a long assertion after the `=`, and because this file's own
+/// declaration of `CONST_ASSERT_PREFIX` contains that prefix as a string
+/// literal — a substring scan would match the literal and read the ledger back
+/// as one bogus name. A line opening `const _: fn()` is an assertion and
+/// nothing else is.
+const CONST_ASSERT_OPENER: &str = "const _: fn()";
 
 /// Floor on the number of test declarations the source scan must find.
 ///
@@ -882,22 +893,53 @@ fn scan_source(target: TestTarget, module: Option<String>, path: &Path) -> Vec<T
 
 /// The enforcement-level-2 targets, read back out of this file as
 /// `module::function`.
+///
+/// Statement-based, not line-based. `rustfmt` wraps an assertion whose path is
+/// long enough to cross the column limit:
+///
+/// ```text
+/// const _: fn() =
+///     crate::language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name;
+/// ```
+///
+/// A line-based scan finds neither half, so `ledger_is_well_formed` reports a
+/// row as unasserted when the assertion is right there — which is exactly what
+/// it did, on the first row long enough to wrap. Since `cargo fmt --check` is
+/// enforced, the wrap is not something a shorter line can avoid; the scan has
+/// to read the statement.
 fn declared_const_assertions() -> BTreeSet<String> {
     let path = manifest_dir().join("tests/cli/known_failures.rs");
     let source = repo_relative(&path);
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("{source}: could not read: {error}"));
-    let names: BTreeSet<String> = text
-        .lines()
-        .filter_map(|raw| raw.trim().strip_prefix(CONST_ASSERT_PREFIX))
-        .map(|rest| {
-            rest.strip_suffix(';')
-                .unwrap_or_else(|| {
-                    panic!("{source}: compile-time assertion `{rest}` does not end in a semicolon")
-                })
-                .to_string()
-        })
-        .collect();
+    let mut names = BTreeSet::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        if !line.trim_start().starts_with(CONST_ASSERT_OPENER) {
+            continue;
+        }
+        let mut statement = line.trim().to_string();
+        while !statement.contains(';') {
+            let continuation = lines.next().unwrap_or_else(|| {
+                panic!("{source}: compile-time assertion `{statement}` is never terminated")
+            });
+            statement.push(' ');
+            statement.push_str(continuation.trim());
+        }
+        let normalised = statement.split_whitespace().collect::<Vec<_>>().join(" ");
+        let rest = normalised
+            .strip_prefix(CONST_ASSERT_PREFIX)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{source}: `{normalised}` opens like a compile-time assertion but does not \
+                     read `{CONST_ASSERT_PREFIX}<module>::<test>;`"
+                )
+            });
+        let name = rest.strip_suffix(';').unwrap_or_else(|| {
+            panic!("{source}: compile-time assertion `{rest}` does not end in a semicolon")
+        });
+        names.insert(name.to_string());
+    }
     assert!(
         !names.is_empty(),
         "{source}: no compile-time test-existence assertions found. Either every one was deleted, \
