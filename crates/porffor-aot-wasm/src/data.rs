@@ -1617,8 +1617,15 @@ impl StringPool {
                 pool.intern_string(spelling);
             }
         }
+        // Every spelling, not just `code()`: `code()` is defined as
+        // `spellings()[0]`, and `CalendarResolveFields` matches an incoming
+        // `era` against all of them (`ad`/`bc` are the CLDR aliases of
+        // `ce`/`bce`). Interning the same table the resolver reads is what
+        // makes "add an alias" a one-place change instead of three.
         for era in Era::ALL {
-            pool.intern_string(era.code());
+            for spelling in era.spellings() {
+                pool.intern_string(spelling);
+            }
         }
         for value in crate::builtins::intl_date_time_format_pool_strings() {
             pool.intern_string(&value);

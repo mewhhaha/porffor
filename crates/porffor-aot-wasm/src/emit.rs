@@ -2568,6 +2568,8 @@ impl<'a> FunctionBuilder<'a> {
             outline_object_is_extensible: true,
             outline_object_read_proxy: true,
             outline_array_write: true,
+            outline_indexed_element_read: true,
+            outline_indexed_element_write: true,
             ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission::Inline,
             object_write_strict_flag_local: None,
         }
@@ -2751,6 +2753,18 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn temporal_calendar_identifier_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index
             .map(|base| RuntimeHelperId::TemporalCalendarIdentifier.index(base))
+    }
+
+    /// Wasm function index of the shared `expr[index]` read composite.
+    pub(crate) fn indexed_element_read_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::IndexedElementRead.index(base))
+    }
+
+    /// Wasm function index of the shared `expr[index] = value` write composite.
+    pub(crate) fn indexed_element_write_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::IndexedElementWrite.index(base))
     }
 
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
