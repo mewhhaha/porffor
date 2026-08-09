@@ -40,6 +40,7 @@ mod bigint;
 mod builtins;
 mod control_flow;
 mod data;
+mod emission_sites;
 mod emit;
 mod emitted_function;
 mod environments;

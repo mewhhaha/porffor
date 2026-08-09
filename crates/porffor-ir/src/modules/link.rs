@@ -118,7 +118,7 @@ use crate::*;
 use super::dynamic::collect_components;
 use super::namespace::{
     collect_observed_namespaces, deferred_body_source, namespace_prelude_source,
-    namespace_target_reference,
+    namespace_target_reference, shadows_prelude_global,
 };
 use super::record::{import_meta_binding, rewrite_import_meta, DefaultExportFormIr};
 use super::source::{strip_module_syntax, DefaultExportRewrite};
@@ -494,7 +494,7 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
             // anonymous `export default` both name it `*default*` and would
             // collide over a name neither of them declares. The type is what
             // says which of the two this is.
-            let name = binding.name.merged_in(*unit_id);
+            let name = unit.record.merged(&binding.name);
             if let Some(previous) = owners.insert(name.clone(), unit.record.key.as_str()) {
                 if previous != unit.record.key {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
@@ -575,14 +575,11 @@ fn collect_binding_aliases(
             // binding is always source-spelled, so `merged_in` is the identity
             // here — but that is now a fact the reader can see rather than one
             // the code depended on silently.
-            let local = entry.local_name.merged_in(unit.record.id);
+            let local = unit.record.merged(&entry.local_name);
             if reference == local {
                 continue;
             }
-            if matches!(
-                local.as_str(),
-                OBJECT_NAME | SYMBOL_NAME | GLOBAL_THIS_NAME
-            ) {
+            if shadows_prelude_global(local.as_str()) {
                 diagnostics.push(unsupported(
                     key,
                     &format!(
@@ -640,10 +637,7 @@ fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<MergedName, String> {
         }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
-                declared.insert(
-                    binding.name.merged_in(unit.record.id),
-                    unit.record.key.clone(),
-                );
+                declared.insert(unit.record.merged(&binding.name), unit.record.key.clone());
             }
         }
         // A namespace or module-source alias is a real `const` in the merged
@@ -657,7 +651,7 @@ fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<MergedName, String> {
                 })
             ) {
                 declared.insert(
-                    entry.local_name.merged_in(unit.record.id),
+                    unit.record.merged(&entry.local_name),
                     unit.record.key.clone(),
                 );
             }
@@ -1023,22 +1017,18 @@ mod tests {
         let linked =
             linked_script_source(&sources, &mut graph).expect("two anonymous defaults link");
         assert!(
-            linked
-                .source_text
-                .contains(&format!(
-                    "let {}     = 1;",
-                    MergedName::anonymous_default(0).as_str()
-                )),
+            linked.source_text.contains(&format!(
+                "let {}     = 1;",
+                MergedName::anonymous_default(0).as_str()
+            )),
             "got {}",
             linked.source_text
         );
         assert!(
-            linked
-                .source_text
-                .contains(&format!(
-                    "let {}     = 2;",
-                    MergedName::anonymous_default(1).as_str()
-                )),
+            linked.source_text.contains(&format!(
+                "let {}     = 2;",
+                MergedName::anonymous_default(1).as_str()
+            )),
             "got {}",
             linked.source_text
         );
@@ -1118,12 +1108,10 @@ mod tests {
             linked.source_text
         );
         assert!(
-            linked
-                .source_text
-                .contains(&format!(
-                    "resolve({})",
-                    MergedName::minted(0, UnitCellRole::Namespace).as_str()
-                )),
+            linked.source_text.contains(&format!(
+                "resolve({})",
+                MergedName::minted(0, UnitCellRole::Namespace).as_str()
+            )),
             "got {}",
             linked.source_text
         );

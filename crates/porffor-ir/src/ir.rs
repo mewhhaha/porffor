@@ -7,9 +7,9 @@ use porffor_front::ParseGoal;
 use crate::{
     ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CallableToStringRepresentation,
     CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp, HostBuiltinId, IrDiagnostic,
-    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NativeErrorKind, NumericUpdateOp,
-    RegExpProgram, RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint,
-    UnaryNumericOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage,
+    NativeErrorKind, NumericUpdateOp, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
+    StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp, UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
 
@@ -1775,10 +1775,14 @@ pub struct AsyncForOfIteratorPlanIr {
     pub value_resume_state: u32,
     pub close_resume_state: u32,
     pub exit_state: u32,
-    pub iterator_binding: String,
-    pub next_binding: String,
+    /// `{ [[Iterator]], [[NextMethod]], [[Done]] }` (7.4). These were three
+    /// same-typed `String` fields; transposing `[[Iterator]]` and
+    /// `[[NextMethod]]` type-checked and miscompiled every `for await`.
+    pub record: IteratorRecordIr,
+    /// Not an Iterator Record field: the runtime flag for whether the iterable
+    /// supplied `@@asyncIterator` rather than a wrapped sync iterator.
     pub async_iterator_binding: String,
-    pub done_binding: String,
+    /// Not an Iterator Record field: whether a rejection must run the close.
     pub close_on_rejection_binding: String,
 }
 
@@ -1935,6 +1939,16 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        /// How this specialization discharged the four 7.4 obligations.
+        ///
+        /// **The emitter must not read this**, and cannot: every reader of a
+        /// witness's contents is `pub(crate)` to `porffor-ir`, so a
+        /// `porffor-aot-wasm` arm that binds `protocol` and branches on it is
+        /// `E0624`. It exists so that a for-of specialization cannot be
+        /// constructed without stating, for every obligation, whether it is
+        /// emitted or assumed away and on which premise. Non-optional and
+        /// without a `Default` on purpose.
+        protocol: IteratorProtocolWitness,
         async_plan: Option<AsyncForOfPlanIr>,
     },
     ForOfString {
@@ -1943,6 +1957,8 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        /// See `ForOfArray::protocol`.
+        protocol: IteratorProtocolWitness,
     },
     ForOfIterator {
         mode: BindingMode,
@@ -1950,6 +1966,8 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        /// See `ForOfArray::protocol`.
+        protocol: IteratorProtocolWitness,
         async_plan: Option<AsyncForOfIteratorPlanIr>,
     },
     ForInArray {
@@ -2020,18 +2038,113 @@ pub enum StatementIr {
 }
 
 impl StatementIr {
+    /// The Completion Record (6.2.4) this statement itself produces, if any.
+    ///
+    /// Exhaustive with **no catch-all**: the previous `_ => None` absorbed 29
+    /// of 33 variants, so "I added a statement that is an abrupt completion and
+    /// forgot to say so" answered *not abrupt* silently. It is now `E0004`.
     pub fn abrupt_completion_record(&self) -> Option<CompletionRecordIr<TypedExpr>> {
         match self {
             Self::Throw(value) => Some(CompletionRecordIr::throw(value.clone())),
             Self::Return(value) => Some(CompletionRecordIr::return_(value.clone())),
             Self::Break { label } => Some(CompletionRecordIr::break_(None, label.clone())),
             Self::Continue { label } => Some(CompletionRecordIr::continue_(None, label.clone())),
-            _ => None,
+            Self::Empty
+            | Self::ModuleUnitOnce { .. }
+            | Self::Lexical { .. }
+            | Self::AnnexBFunctionCopy { .. }
+            | Self::LexicalBlock(_)
+            | Self::ParameterInitialization { .. }
+            | Self::Var(_)
+            | Self::Expression(_)
+            | Self::GeneratorYield { .. }
+            | Self::AsyncAwait { .. }
+            | Self::GeneratorLoop { .. }
+            | Self::GeneratorIf { .. }
+            | Self::Block(_)
+            | Self::If { .. }
+            | Self::While { .. }
+            | Self::DoWhile { .. }
+            | Self::For { .. }
+            | Self::ForOfArray { .. }
+            | Self::ForOfString { .. }
+            | Self::ForOfIterator { .. }
+            | Self::ForInArray { .. }
+            | Self::ForInString { .. }
+            | Self::ForInObject { .. }
+            | Self::Switch { .. }
+            | Self::Labelled { .. }
+            | Self::Debugger
+            | Self::TryCatch { .. }
+            | Self::TryFinally { .. }
+            | Self::TryCatchFinally { .. } => None,
         }
     }
 
     pub fn is_abrupt_completion_statement(&self) -> bool {
         self.abrupt_completion_record().is_some()
+    }
+}
+
+/// What lowering a `for`-`of` head produced: the statement, the kind its body
+/// evaluates to, and the witness saying how that statement discharged the four
+/// 7.4 obligations.
+///
+/// Attaching the witness to the three `ForOf*` variants alone was not enough.
+/// There is already a **fourth** for-of specialization that is not spelled as a
+/// `ForOf*` variant: `for (x of arr) { … await … }` inside a plain async
+/// function is desugared to `StatementIr::GeneratorLoop` with an explicit
+/// `index < PropertyKeyIr::ArrayLength` test and `PropertyKeyIr::ArrayIndex`
+/// element reads — an index walk resting on all the array premises, which no
+/// `protocol` field on a `ForOf*` variant could have demanded.
+///
+/// So the obligation is attached to the *lowering of the head* instead. Every
+/// path out of `ScriptLowerer::lower_for_of_head` returns one of these, the
+/// only constructor takes a witness, and there is no `Default`. A new
+/// desugaring target therefore cannot be added without naming its premises,
+/// and the `ForOf*` `protocol` field becomes a consumer of that value rather
+/// than the only place it is demanded.
+///
+/// The witness is dropped at the boundary back to `lower_statement`; its work
+/// is done at the type level by then. Spread, `yield*` and array destructuring
+/// reach the protocol by other routes and are named as `EmissionSite`s instead
+/// — see ledger L6.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForOfLoweringIr {
+    statement: StatementIr,
+    result_kind: ValueKind,
+    protocol: IteratorProtocolWitness,
+}
+
+impl ForOfLoweringIr {
+    pub fn new(
+        statement: StatementIr,
+        result_kind: ValueKind,
+        protocol: IteratorProtocolWitness,
+    ) -> Self {
+        Self {
+            statement,
+            result_kind,
+            protocol,
+        }
+    }
+
+    /// The head did not lower to an iteration: an unsupported form was reported
+    /// and the statement is `StatementIr::Empty`.
+    pub fn no_iteration() -> Self {
+        Self::new(
+            StatementIr::Empty,
+            ValueKind::Undefined,
+            IteratorProtocolWitness::NO_ITERATION,
+        )
+    }
+
+    pub fn protocol(&self) -> IteratorProtocolWitness {
+        self.protocol
+    }
+
+    pub fn into_statement_and_kind(self) -> (StatementIr, ValueKind) {
+        (self.statement, self.result_kind)
     }
 }
 

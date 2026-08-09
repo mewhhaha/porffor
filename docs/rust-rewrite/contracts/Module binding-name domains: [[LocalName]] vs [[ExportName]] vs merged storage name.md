@@ -5,6 +5,11 @@ merged storage name*
 Stage: FORMALIZER. This document is normative for the encoder and is the
 oracle the dry-runner checks against. No source code is edited in this stage.
 
+> **Read §10 first.** A dry-run discrepancy pass amended this document after the
+> encoding landed. §10 supersedes every claim it names — including §1.3, §1.4
+> M2/M3, §2.4, §2.6 V6, §3 M4/M5, §4 K1/K2/K4, §5.4, §5.6, §9.3 and §9.4, and
+> ledger entries R1/R2/R3. Do not cite §§1–9 without checking §10.
+
 Owned files:
 
 - `crates/porffor-ir/src/binding_names.rs` (new)
@@ -933,3 +938,214 @@ and `record.rs:981` and now exists once, inside `SourceName::new`.
 Nothing was moved from the mistake-class table to the ledger. Two *new* ledger
 entries were added (**R5**, **R6**) for obligations the encoder found rather
 than inherited.
+
+---
+
+# 10. Amendments from the dry-run discrepancy pass (applied)
+
+**This section supersedes every claim it names.** The code changes it describes
+are in the tree.
+
+## 10.1 V6 could not catch what it claimed; K4 was not discharged
+
+`ALL`'s declared type `[UnitCellRole; 5]` hardcoded its own length, so
+`assert!(UnitCellRole::ALL.len() == 5)` compared 5 against 5 by construction.
+Adding a sixth variant forced an edit to `suffix()` (`E0004`) but **not** to
+`ALL`: the tree still compiled with a five-element `ALL`, V6 still passed, and
+the new role's suffix was checked by neither V3 (identifier-legality, M4) nor V5
+(distinctness) — the exact regression K4 exists to prevent, since `import.meta`
+and `component.completion` are the two suffixes deleted for failing V3.
+§9.4's "K4 Discharged" was wrong.
+
+The enum, `ALL` and `suffix()` are now three expansions of one
+`unit_cell_roles!` row list, so a short, long or out-of-order `ALL` is
+unrepresentable and V3/V5 quantify over the whole domain by construction. `ALL`
+becomes `&'static [UnitCellRole]`. **V6 and `all_is_in_declaration_order` are
+deleted** — both had become unfalsifiable — and what V6 used to check is
+recorded in the macro's doc comment so nobody reinstates it. **K4 is discharged
+by construction**, not by an assertion.
+
+## 10.2 The minted and source ranges are *not* disjoint by construction
+
+§1.3, ledger R2 and `MINTED_PREFIX`'s doc all asserted disjointness. The
+quantifier ranges over what the *compiler* mints, not over what *source text*
+may spell: `merged_in` is the identity on a source name, and `$m0$namespace`,
+`$m1$meta` and `$d0$` are all legal `BindingIdentifier`s. Nothing checked it —
+`check_linkable`'s collision map holds only per-unit bindings, and the one
+prefix guard that existed covers `LINKER_NAME_PREFIX` (`$porffor$module$`), a
+different family. A module that *declares* `$m0$namespace` produced a
+duplicate-declaration SyntaxError from the merged script for a legal module; a
+module that merely *reads* one had the read silently captured by the prelude's
+own cell.
+
+Added: `MergedName::is_minted_shaped`, derived from `MINTED_PREFIX` /
+`ANONYMOUS_DEFAULT_PREFIX` / `UNIT_ID_TERMINATOR` so predicate and generators
+cannot drift, and a second guard in `check_dynamic_import_linkable` — which
+already runs unconditionally from `linked_script_source` and already walks every
+unit's environment in the merged spelling. The **read**-of-an-undeclared-global
+case remains: a program that reads a `$m<u>$…`-shaped global it never declares
+still resolves to the prelude's cell. Recorded as new ledger entry **R7**;
+closing it needs the per-unit renaming pass R2 already defers.
+
+## 10.3 Ledger R1's stated reason does not survive the retype
+
+R1 justified keeping `is_binding_identifier` with two examples, and neither
+holds. A `\u`-escaped identifier is resolved to its code points by boa's
+interner long before it reaches a `SourceName`. An astral-plane identifier
+**passes**, because `char::is_alphabetic` accepts astral letters. Nor does the
+emitter need ASCII: identifiers are written raw into UTF-8 merged source that
+boa re-parses — only `push_js_string_literal` escapes to ASCII, and that is for
+string keys. Its documented `*default*` job is genuinely dead, as §5.4 says, and
+that was its only reachable job.
+
+What it actually did was produce **false rejections**: legal `IdentifierName`s
+containing `Other_ID_Start`/`Other_ID_Continue` characters or ZWNJ/ZWJ (U+2118,
+U+212E, U+309B, U+309C, U+00B7, U+200C, U+200D) turned a conformant module into
+an "unsupported" diagnostic. Option (b) of the fix is applied: the predicate is
+kept as a conservative guard, its doc is rewritten to say all of the above, and
+`is_identifier_start_char` / `is_identifier_part_char` widen it to cover
+`Other_ID_Start`, `Other_ID_Continue`, ZWNJ and ZWJ. It **remains** conservative
+for `IdentifierPart`'s `Mn`, `Mc` and `Pc` categories, which would need Unicode
+tables this crate does not carry; that residual is stated in the doc comment and
+is a *report*, never a miscompilation.
+
+## 10.4 The unit/name pairing is now carried by the record
+
+`LocalName::merged_in(&self, unit: ModuleUnitId)` took a bare `u32`, so the
+"which unit does this name belong to" coordinate — the exact one commit
+`e27c01b1e` got wrong — was carried by loop structure. Passing the importer's id
+where the exporter's was required compiled, was silent for `LocalName::Source`
+(`merged_in` ignores the unit there) and produced the wrong `$d<unit>$` cell for
+`AnonymousDefault`. All ten call sites were correct; nine were correct only
+because name and id came from the same loop variable.
+
+`SourceTextModuleRecordIr::merged(&self, &LocalName)` is added, and the nine
+sites that already hold the record now use it, so the id cannot be supplied
+independently of the name's owner. The tenth (`namespace_target_reference`)
+keeps `merged_in`: `module` and `binding` are destructured from the same
+`ResolvedBindingIr::Resolved`, so its pairing is structural already, and the
+code now says so. `merged_in` stays `pub` (making it `pub(crate)` would break
+the public intra-doc links in this domain's module header for no gain).
+
+## 10.5 K1 and K2 were overclaimed; the load-bearing halves hold
+
+§2.4's "there is no `From<String>`, so a bare `String` cannot become one" is
+literally false. `LocalName::from_bound_name(arbitrary).merged_in(0)` yields
+`MergedName(arbitrary)`; `ExportName::new(local.spec_name())` yields an
+`ExportName` holding a `[[LocalName]]`, `*default*` included;
+`LocalName::from_bound_name(export.as_str())` yields the converse. All three
+compile because every constructor takes `impl Into<String>` / `&str`.
+
+What does hold, and is the part that matters: the *implicit* mixing that shipped
+is `E0308`, and no double-prefix expression exists at all (T10.iii). The claims
+are restated as **"no implicit conversion exists; a deliberate re-derivation
+still has to name `spec_name()`/`as_str()` at the call site."** Closing the
+`spec_name()` route would need a `SpecName<'_>` wrapper with no `Into<String>`;
+not done, and the reverse direction is not worth closing.
+
+## 10.6 New ledger entry: nothing forces an emitted identifier to be a `MergedName`
+
+The four emitters accumulate generated Script text with
+`String::push_str(&str)`, so `text.push_str(entry.local_name.spec_name())` —
+emitting `*default*`, the zero-prefix half of K1 — compiles at any of them.
+Every current site is correct (all go through `MergedName::as_str()` or
+`namespace_target_reference`), but the guarantee lives at the `push_str` as a
+convention rather than in a type, and §1.4 M2 did not record it.
+
+Recorded as ledger **R8**. The fix is a thin `ScriptText` builder in
+`binding_names` with `push_literal(&'static str)`,
+`push_identifier(&MergedName)` and `push_string_literal(&str)`, replacing the
+raw `String` those four functions accumulate into — an identifier position would
+then accept only a `MergedName`. Not applied here: it rewrites the emitters that
+produce merged source text and so belongs to a lane with a rung-G budget.
+
+## 10.7 `import_name_text`'s `"*"` is not a name no module could export under
+
+Its doc claimed exactly that. 16.2.3.1 makes `ModuleExportName : StringLiteral`
+legal, so `export { x as "*" } from "m"` spells it, and invariant E1 relies on
+that openness. A `MissingExport`/`AmbiguousExport` diagnostic naming `*` is
+therefore ambiguous between a namespace import and a literal `"*"` export.
+Diagnostic text only, no miscompilation. The false half of the sentence is
+deleted and replaced with the ambiguity it actually has.
+
+## 10.8 The `unwrap_or(ModuleUnitId::MAX)` saturations: scope corrected
+
+§9.3 item 3 said the saturation "is gone". Six such expressions remained in
+product code (`graph.rs` ×5, `dynamic.rs` ×1). All six are provably unreachable
+— `build_graph` rejects `units.len() > MAX_LINKABLE_MODULE_UNIT_ID` at the one
+mint site, so every later `try_from(index)` over `0..units.len()` succeeds — so
+this was a scope error in the claim rather than a live defect. It is worth
+recording because the argument that makes them safe is exactly the cap R3
+introduced, and a future change to the cap silently re-arms them.
+
+Restated: **gone at the mint site, and thereby unreachable at the six
+index-to-id conversions that remain.** All six are now `.expect("unit index is
+capped by build_graph …")`, so the reliance on the cap is stated where it is
+relied on instead of hidden behind a saturating default.
+
+## 10.9 The three prelude-global guards disagreed
+
+`link.rs`'s renamed-import check tested `OBJECT_NAME | SYMBOL_NAME |
+GLOBAL_THIS_NAME`; `namespace.rs`'s two alias checks and its shadowed-globals
+check tested only `OBJECT_NAME | SYMBOL_NAME`. So
+`import * as globalThis from './m.js'` emitted
+`const globalThis = $m0$namespace;` into the merged scope ahead of
+`binding_alias_prelude`'s `Object.defineProperty(globalThis, …)`, which then
+defined every renamed-import alias on the namespace object — a silent wrong
+answer where the other two names give a diagnostic. Pathological input, but the
+same merged-name hazard M3 governs, and the asymmetry was invisible because the
+three lists were three literals.
+
+One `PRELUDE_GLOBALS: [&str; 3]` and one `shadows_prelude_global` now back all
+four sites.
+
+## 10.10 The `local_export` test helper's witness was half-real
+
+§5.6 called it "the adversarial trace T6's compile-time witness". It was that
+for the field initialisers *inside* it, not for its call sites: both parameters
+were `&str`, so `local_export("x", "y")` and `local_export("y", "x")` both
+compiled. The parameters are now `LocalName` and `ExportName`, with `local(..)`
+and `ExportName::new(..)` at each call site, so the swap is `E0308` where it
+would actually be written.
+
+## 10.11 Obligations that resolved in the contract's favour
+
+- **E1** (`[[ExportName]]` is open) — discharged by design, correctly not by
+  validation; the UTF-16 escaping path still round-trips unpaired surrogates.
+- **M2** (apply exactly once) — discharged by type in the strong form §1.4
+  predicts: there is no prefixing function at all, `MergedName`'s only
+  constructors take no name-shaped argument, and `$m0$$m0$x` is inexpressible.
+  The zero-times direction is the weaker one — see R8 in 10.6.
+
+## 11. Integration record — the compile gate
+
+Integrator's section, written after running the gate. Commands: `cargo check -p
+porffor-ir --all-targets`, `cargo xc`, `cargo fmt --all -- --check`.
+
+**Green, with zero integrator edits to this area.** §9's containment claim held
+under the compiler, which is the first real test it has had: retyping the seven
+module IR types and deleting the eleven minting functions required **no** edit
+in `porffor-aot-wasm` or any other crate. The encoder's §6.2 worry — a fourth
+`is_binding_identifier` call site that grep missed — did not materialise; there
+are three, all passing merged names.
+
+The ~1,000-line blind retype across seven files produced **no** type errors at
+integration, and the predicted `&ExportName`-vs-`ExportName` mismatches at test
+call sites did not appear either. Every const assertion (V1–V7) evaluated,
+including the tight V4 (11 ≤ 11 at the unit-id cap) and V7 tying it to the text
+`rewrite_import_meta` reads.
+
+The deletions are the load-bearing result and they are now *proved* rather than
+measured: five minting functions, one field, one method and `cell_name` are gone
+and the workspace still builds, which is what "these had no product call site"
+means when a compiler says it.
+
+Formatting note: `binding_names.rs`, `link.rs`, `namespace.rs` and `record.rs`
+needed `cargo fmt` (import ordering and one over-wrapped boolean chain); the
+tree is now clean workspace-wide.
+
+**Unchanged and still open** after the gate: **R5** (`SourceName::new` rejects
+only `*default*`, not the empty string — the deviation stands, with the
+encoder's reasoning), **R8** (§10.6, nothing forces an emitted identifier to be
+a `MergedName`), and the R3 unit test that builds 10,001 module records, which
+was not run here and may still want `#[ignore]`.

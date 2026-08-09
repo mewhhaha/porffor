@@ -1253,7 +1253,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::RuntimeThrow { name, message } => {
                 self.emit_throw_runtime_error(
-                    name,
+                    name.as_str(),
                     message,
                     self.scratch_local,
                     self.result_tag_local,
@@ -3022,7 +3022,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(tag_local));
             }
             ExprIr::RuntimeThrow { name, message } => {
-                self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
+                self.emit_throw_runtime_error(
+                    name.as_str(),
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
             }
             ExprIr::JsonParseStaticReviver { value, reviver } => {
                 self.compile_json_static_reviver_to_locals(

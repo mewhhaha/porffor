@@ -4,6 +4,11 @@ Area: *Closed spec name domains: NativeErrorKind and WellKnownSymbol*
 Stage: FORMALIZER. This document is normative for the encoder and is the
 oracle the dry-runner checks against. Source code is not edited in this stage.
 
+> **Read §11 first.** A dry-run discrepancy pass amended this document after the
+> encoding landed. §11 supersedes every claim it names — including parts of
+> §4.3, §4.4, §6.2, §6.3, §10.2 and ledger entries R3/R5/R6. Do not cite
+> §§1–10 without checking §11.
+
 Owned files:
 
 - `crates/porffor-ir/src/native_error.rs` (new)
@@ -1038,3 +1043,222 @@ tables and `emit_throw_runtime_error`'s `name: &str` were not touched (R4).
    and the `debug_assert!`. Obligation **D8** stands: the rung-G diff must be
    empty, and a non-empty diff means a fourth `ValueKind::Symbol` string
    producer exists that this contract did not find.
+
+---
+
+# 11. Amendments from the dry-run discrepancy pass (applied)
+
+**This section supersedes every claim it names.** The code changes it describes
+are in the tree.
+
+## 11.1 The tree did not build; §4.3's three call sites were never edited
+
+`ExprIr::RuntimeThrow.name` was retyped to `NativeErrorKind` in `porffor-ir`,
+but the three `porffor-aot-wasm` consumers §4.3 names were left alone, so
+`porffor-aot-wasm` could not compile and `cargo check` — this campaign's stated
+main test — could not be run against the area's own work. The fix existed only
+as prose in `target/lane-notes/`.
+
+Applied, all byte-neutral (`as_str()` yields the same interned bytes):
+`data.rs:3197` `self.intern_string(name)` → `self.intern_string(name.as_str())`;
+`expressions.rs:1256` and `:3025` `emit_throw_runtime_error(name, …)` →
+`(name.as_str(), …)`. Verified against `fn intern_string(&mut self, value: &str)`
+and `fn emit_throw_runtime_error(&mut self, name: &str, …)`, and verified that
+the other ten `RuntimeThrow` matches in the crate all bind `{ .. }`.
+
+## 11.2 Obligation D5 is a confirmed live defect (recorded, not fixed here)
+
+A string-keyed property read resolves an intrinsic-shape entry inserted under
+the bare Table 1 `[[Description]]`, violating S4. Symbolic trace for
+`[1,2,3]?.["Symbol.iterator"]`:
+
+1. `lower_static_property_key` sees `is_symbol_description("Symbol.iterator")`,
+   lowers the operand, finds `kind == ValueKind::String` (a string literal, not
+   a symbol) and falls through to `PropertyKeyIr::StaticString`.
+2. `optional_chain_static_property_info(receiver, "Symbol.iterator")`.
+3. Receiver kind `Array` with `shape.prototype.is_none()` selects `ARRAY_NAME`,
+   so `%Array.prototype%`'s modelled shape is read.
+4. `ir.rs`'s filter rejects only `@@`-prefixed keys, and `"Symbol.iterator"` is
+   not `@@`-prefixed, so it passes.
+5. `properties.get("Symbol.iterator")` **hits** the entry inserted as
+   `WellKnownSymbol::Iterator.description().to_string()`, yielding
+   `StandardBuiltinId::ArrayPrototypeValues`.
+
+Static inference concludes the read is a function with a known target; the spec
+answer is `undefined`. The existing S4 tests exercise object-*literal* shapes,
+which correctly use the `@@` namespace, so they do not cover this.
+
+**Not fixed in this pass**, deliberately: the fix routes the 47 intrinsic-shape
+inserts through `shape_namespace_key(sym)` and stops the two deliberate symbol
+readers accepting the bare-description spelling, which changes emitted bytes and
+therefore belongs to a lane with a rung-G budget. It is recorded here as the
+area's largest open defect rather than left in a lane note.
+
+## 11.3 The census regex could not see member names; two literals survived
+
+§6.3's census regex `"Symbol\.[A-Za-z]*"` matches **descriptions** only, so
+"all 66 literals gone" was an incomplete measurement of the domain rather than
+of the regex. `symbol_well_known_value(&mut self, property: &str)` was called
+with the member-name literals `"dispose"` and `"asyncDispose"`, and the
+parameter was load-bearing twice — the shape lookup key and the emitted
+`PropertyKeyIr::StaticString`. Misspelling it compiled, emitted a read of a
+property that does not exist, and made `await using` silently never dispose:
+S5's "resource not disposed" row. The shape half was masked (the modelled
+`Symbol` constructor shape carries only `prototype`, `for` and `keyFor`); the
+emitted-key half was not.
+
+The parameter is now `symbol: WellKnownSymbol`, using `symbol.member_name()`,
+with the two callers passing `Dispose` / `AsyncDispose`. Re-measured: only three
+member-name literals ever existed in `lowering.rs`, and the third (`"matchAll"`)
+is `String.prototype.matchAll`, an ordinary method name and correctly a string.
+
+## 11.4 The two `NativeErrorKind::from_str` predicates were unguarded
+
+§4.4's "same replacement" wording hid an asymmetry: §6.2 extracted
+`expression_is_builtin_symbol_intrinsic` precisely because a spelling test is
+not a resolution test, and the error-name path got no equivalent. 9.1.1 resolves
+a name against the environment first, so:
+
+- `function f(TypeError) { for (const k in TypeError) return k; } f({a:1})` —
+  spec `"a"`; the compiler elided the loop and answered `undefined`;
+- `function g(RangeError){ return RangeError.propertyIsEnumerable("prototype"); }`
+  folded to `false` whatever the argument was.
+
+Pre-existing rather than introduced (the old nine-arm `matches!` was equally
+unguarded), but fixed here: `ScriptLowerer::identifier_is_builtin_native_error`
+mirrors `expression_is_builtin_symbol_intrinsic`'s four clauses and both sites
+now use it. Note `is_error_constructor_expr` inherits the same weakness through
+`is_builtin_reference_expr`, which still matches on identifier text alone —
+recorded as open.
+
+## 11.5 Five receiver-specialization arms ignored the receiver
+
+Ledger R3/R6 justified the match with "the domain here is
+`WellKnownSymbol × ValueKind`", which was true only of the two `Iterator` arms.
+The `Match`/`MatchAll`/`Replace`/`Search`/`Split` arms fired on the symbol
+alone, so `({ [Symbol.match](s) { return 42; } })[Symbol.match]("x")` was typed
+as `RegExp.prototype[@@match]`'s `Array | Null` rather than as `Number`. The
+emitted IR is a generic `ExprIr::CallMethod` either way, so dispatch was still
+right; the damage was confined to the inferred `ValueInfo` — which is exactly
+invariant S5's subject.
+
+The five arms now carry `if regexp_receiver`, computed by
+`Self::receiver_shape_allows_regexp_symbol_protocol`: `true` when the receiver
+carries the RegExp prototype shape (a literal or a `RegExpConstructor` result)
+and `true` when nothing is known about its shape (the pre-existing inference,
+kept so this is byte-neutral for unshaped receivers); `false` for any other
+*known* shape, which is what an object literal with its own `[Symbol.match]`
+has. The R3/R6 comment is rewritten to say what the code does.
+
+## 11.6 §10.2's "tautological assertions were rejected" claim is withdrawn
+
+`partition_covers_all` (W2) cannot fail: `ALL`, `TABLE_1` and
+`EXPLICIT_RESOURCE_MANAGEMENT` are three expansions of the same two `$(...)+`
+sequences in the same order, so the concatenation identity is definitional. The
+same is true of the discriminant-order halves of N3/W3 (`ALL` is generated in
+declaration order and `#[repr(u8)]` assigns discriminants in declaration order),
+and N4/W4/W5 can only fail when N5/W7 already have.
+
+The assertion is kept — as executable documentation of the partition, and as the
+check that starts being able to fail the moment either group stops being a
+direct expansion — and its doc comment now says so plainly. What is withdrawn is
+§10.2's claim that checks which cannot fail were rejected on principle: the code
+does not follow that principle, and pretending otherwise is worse than either
+choice. The assertions that genuinely earn their place today are **N5/W7** (a
+duplicate spelling is writable in a row list), **N6** (two rows can name the
+same `$constructor`, which is otherwise only an `unreachable_patterns` warning)
+and **W8** (a change to `SYMBOL_DESCRIPTION_PREFIX` is a real edit).
+
+## 11.7 The parse side of the three-strings hazard is closed
+
+M14 analysed only the *print* side. `from_member_name` and `from_description`
+shared the signature `fn(&str) -> Option<Self>`, so handing one the other's
+domain compiled and silently returned `None` — at `lowering.rs:35167` that
+discards every `well_known_symbol_prototype_properties` fact and stops the
+specialization firing, with no compile error and no test signal: the M1 failure
+mode relocated to the parse boundary. Both live call sites were correct, so this
+was latent, not live.
+
+Closed with two zero-cost newtypes at the parse boundary only —
+`SymbolMemberName<'a>` and `SymbolDescription<'a>`, no `Deref`, no
+`From<&str>` — which M14's cost/benefit argument does not cover because they are
+not unwrapped at any map boundary: the shape maps stay string-keyed.
+
+## 11.8 Dead surface deleted
+
+- `SYMBOL_DESCRIPTION_PREFIX` was crate-public with **zero** consumers outside
+  the module defining it (measured: definition, `is_symbol_description`'s own
+  body, and the `lib.rs` re-export). It is now module-private and dropped from
+  the re-export. `is_symbol_description` is the intended public face and is
+  genuinely used. Its doc now states that it answers `true` for `"Symbol."`,
+  `"Symbol.for"`, `"Symbol.keyFor"` and `"Symbol.prototype"` — honest for a
+  namespace test, misleading only if read as a well-known-symbol test.
+- **Ledger R5 is corrected.** `from_constructor` is **not** dead: it is
+  load-bearing inside `all_is_ordered_and_round_trips`, the only thing that
+  turns two rows naming the same `$constructor` from an `unreachable_patterns`
+  warning into `error[E0080]` (N6). R5 grouped it wrongly. What *was* dead is
+  `NATIVE_ERRORS`, `is_native_error`, `native_errors_contains` and
+  `native_error_subset_agrees` — zero consumers workspace-wide, and
+  `is_native_error` additionally invited a silent wrong answer
+  (`for k in ALL { if k.is_native_error() { … } }` reads as "every error kind"
+  while skipping `Error`, `AggregateError` and `SuppressedError`). All four are
+  deleted along with the row list's `native =` column; §20.5.5 membership is
+  recorded in the per-variant doc comments. Reintroduce it spelled
+  `is_20_5_5_native_error`, in the patch that gives it a consumer.
+
+## 11.9 Two measurement corrections
+
+- §4.3 says "12 test patterns in `crates/porffor-ir/src/lib.rs`" and then lists
+  eleven line numbers. Measured in the retrofitted tree: **11**
+  (`ReferenceError` ×10, `TypeError` ×1). The encoder's 11 was right.
+- §§4–7 cite **pre-retrofit line numbers** throughout (Species producers,
+  consumers, the 14 `RuntimeThrow` sites, the 15 `Symbol.iterator` sites, the
+  whitelist addresses). Every *count* re-measured correct; every *address* has
+  moved. Treat §§4–7 addresses as historical and re-grep before using one.
+
+## 11.10 Obligations that resolved in the contract's favour
+
+- **R1** (shape key stays `String`) — confirmed; the key domain is all JS
+  property keys, an open set, and a closed enum there would be false. This is
+  also what makes 11.2 a *which-string* bug rather than a *which-type* bug.
+- **R2** (`is_symbol_description` over an open domain) — confirmed, and the
+  specified `debug_assert!` was delivered.
+- **S2** (`description == "Symbol." ++ member_name`) — discharged
+  definitionally by `concat!`, stronger than the proposed W6, which was
+  correctly not written.
+- **E4** (prototype-map totality) — discharged by type on the producer side:
+  `infer_expr_throw_info` no longer enumerates at all. The four
+  `porffor-aot-wasm` tables keep their catch-alls; **R4 stays open**.
+
+## 12. Integration record — the compile gate
+
+Integrator's section, written after running the gate. Commands: `cargo check -p
+porffor-ir --all-targets`, `cargo xc`, `cargo fmt --all -- --check`.
+
+**Green, with zero integrator edits to this area.** The three
+`porffor-aot-wasm` call sites that §11.1 applied (`data.rs:3197`,
+`expressions.rs:1256`, `expressions.rs:3025`) are the only reason this crate
+compiles with `ExprIr::RuntimeThrow.name: NativeErrorKind`, and they do.
+
+Two of this area's blind risks are now measured rather than argued:
+
+- **D7 resolved in the primary form's favour.** The nine `*_ERROR_NAME` consts
+  in `names.rs`, defined as `NativeErrorKind::X.as_str()`, are used in
+  match-pattern position at `module.rs:1731`, `module.rs:1746` and
+  `operations.rs:142` and compile. Pattern legality follows the const's *type*,
+  not how the value was computed, exactly as the encoder argued. §4.2's
+  literal-reverting fallback and the N8 assertion it would have needed are **not
+  required** and should not be taken.
+- **Every const assertion in `native_error.rs` and `well_known.rs` evaluated.**
+  N2–N7 and W2–W5, W7, W8 are checked facts now, not intended ones. §11.6's
+  withdrawal stands: several of them cannot fail today, and the doc comments say
+  so.
+
+No warning in either new module: everything in them is `pub` and reachable, and
+nothing the retype touched decayed into dead code.
+
+**Unchanged and still open** after the gate: **D5** (§11.2, the bare-description
+shape-key defect — it needs a rung-G budget), **R4** (the four `porffor-aot-wasm`
+error-name tables keep their catch-alls), and `is_error_constructor_expr`
+inheriting the unguarded-identifier weakness through `is_builtin_reference_expr`
+(§11.4).

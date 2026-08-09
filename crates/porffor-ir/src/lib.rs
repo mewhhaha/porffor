@@ -59,6 +59,7 @@ mod builtins;
 mod diagnostics;
 mod early_errors;
 mod ir;
+mod iterator_obligations;
 mod lowering;
 mod lowering_helpers;
 mod modules;
@@ -73,6 +74,14 @@ pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, Lowerin
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
+/// The iterator-protocol obligations of 7.4 and the witness a for-of
+/// specialization carries. See
+/// `docs/rust-rewrite/contracts/iterator-protocol.md`.
+pub use iterator_obligations::{
+    EmissionSite, GetIteratorDischarge, IntactnessPremise, IteratorCloseDischarge,
+    IteratorObligation, IteratorProtocolWitness, IteratorStepDischarge, IteratorValueDischarge,
+    ObligationDischarge, PremiseKind,
+};
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub(crate) use lowering_helpers::*;
 pub use modules::{
@@ -86,14 +95,14 @@ pub use modules::{
 };
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
-    AbstractRelationalComparisonResult, ArithmeticBinaryOp, ArraySpeciesCreateIr, BindingMode,
-    BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind, CompletionKindIr, CompletionRecordIr,
-    CreateDataPropertyIr, DefinePropertyIr, EcmaLanguageType, EqualityBinaryOp,
-    IntegerIndexedConversionIr, IntegerIndexedElementType, IteratorRecordIr, IteratorRecordKind,
-    LogicalBinaryOp, NumericUpdateOp, OperationLoweringStatus, OrdinaryCreateFromConstructorIr,
-    PropertyDescriptorIr, PropertyDescriptorKind, RelationalBinaryOp, SpecOperationCatalogEntry,
-    SpecOperationFamily, SpecOperationIr, SpeciesConstructorIr, ToPrimitiveHint, UnaryNumericOp,
-    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
+    ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind,
+    CompletionKindIr, CompletionRecordIr, DoneSlot, EcmaLanguageType, EmitterEvidence,
+    EqualityBinaryOp, IteratorRecordIr, IteratorSlot, LogicalBinaryOp, NextMethodSlot,
+    NormalResult, NumericUpdateOp, OperationLoweringStatus, OwnerTaskId, RelationalBinaryOp,
+    RowSource, SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr,
+    StatementEmissionRow, ToPrimitiveHint, TrackedGapReason, TrackedGapRow, UnaryNumericOp,
+    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
+    STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
 };
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,
@@ -126,7 +135,8 @@ pub(crate) use binding_names::{
 /// `docs/rust-rewrite/contracts/closed-name-domains.md`.
 pub use native_error::NativeErrorKind;
 pub use well_known::{
-    is_symbol_description, shape_namespace_key, WellKnownSymbol, SYMBOL_DESCRIPTION_PREFIX,
+    is_symbol_description, shape_namespace_key, SymbolDescription, SymbolMemberName,
+    WellKnownSymbol,
 };
 
 #[cfg(test)]
@@ -7523,15 +7533,15 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.iterator_binding));
+            .any(|binding| binding.name == plan.record.iterator().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.next_binding));
+            .any(|binding| binding.name == plan.record.next_method().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.done_binding));
+            .any(|binding| binding.name == plan.record.done().as_str()));
     }
 
     #[test]
@@ -7571,11 +7581,11 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.iterator_binding));
+            .any(|binding| binding.name == plan.record.iterator().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.next_binding));
+            .any(|binding| binding.name == plan.record.next_method().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
@@ -7583,7 +7593,7 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.done_binding));
+            .any(|binding| binding.name == plan.record.done().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()

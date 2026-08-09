@@ -7658,6 +7658,41 @@ impl<'a> ScriptLowerer<'a> {
         name
     }
 
+    /// Allocates the `[[Iterator]]` slot of a `for await` Iterator Record.
+    ///
+    /// The three slot allocators exist so that a slot can only be obtained from
+    /// the allocation that names it. Wrapping three interchangeable `String`s
+    /// at the construction site would have left the original defect intact —
+    /// `IteratorSlot::new(next_binding), NextMethodSlot::new(iterator_binding)`
+    /// type-checks and miscompiles every `for await`. With these there is no
+    /// `String` left in the expression to transpose, and swapping two of the
+    /// three results is `E0308`.
+    ///
+    /// The hint strings are fixed here rather than passed in, so the emitted
+    /// binding names cannot drift either.
+    fn alloc_iterator_slot(&mut self) -> IteratorSlot {
+        IteratorSlot::new(self.alloc_suspension_owned_binding(
+            "async.forof.iterator.",
+            ValueInfo::new(ValueKind::Object),
+        ))
+    }
+
+    /// Allocates the `[[NextMethod]]` slot. See [`Self::alloc_iterator_slot`].
+    fn alloc_next_method_slot(&mut self) -> NextMethodSlot {
+        NextMethodSlot::new(self.alloc_suspension_owned_binding(
+            "async.forof.next.",
+            ValueInfo::new(ValueKind::Dynamic),
+        ))
+    }
+
+    /// Allocates the `[[Done]]` slot. See [`Self::alloc_iterator_slot`].
+    fn alloc_done_slot(&mut self) -> DoneSlot {
+        DoneSlot::new(self.alloc_suspension_owned_binding(
+            "async.forof.done.",
+            ValueInfo::new(ValueKind::Boolean),
+        ))
+    }
+
     fn add_suspension_owned_binding(&mut self, name: String) {
         if self
             .generated_owned_env_bindings
@@ -9788,17 +9823,29 @@ impl<'a> ScriptLowerer<'a> {
     /// Read off the global `Symbol` object rather than a scope lookup so a
     /// local binding named `Symbol` cannot redirect it.
     fn symbol_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value("dispose")
+        self.symbol_well_known_value(WellKnownSymbol::Dispose)
     }
 
     /// `%Symbol%.asyncDispose`, the `@@asyncDispose` key an `await using`
     /// declaration looks up first (ECMA-262 27.3.1.4 `GetDisposeMethod` with
     /// hint `async-dispose`).
     fn symbol_async_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value("asyncDispose")
+        self.symbol_well_known_value(WellKnownSymbol::AsyncDispose)
     }
 
-    fn symbol_well_known_value(&mut self, property: &str) -> TypedExpr {
+    /// Reads `%Symbol%.<member>` for a well-known symbol.
+    ///
+    /// Takes the symbol, not its member name. The member name is load-bearing
+    /// twice here — it is the shape lookup key *and* the emitted
+    /// `PropertyKeyIr::StaticString` — and this used to be a `&str` parameter
+    /// called with the literals `"dispose"` and `"asyncDispose"`. Misspelling
+    /// one compiled, emitted a read of a property that does not exist, resolved
+    /// to `undefined`, and made `await using` silently never dispose. The shape
+    /// half of that was masked (the modelled `Symbol` constructor shape carries
+    /// only `prototype`, `for` and `keyFor`, so the lookup always missed and
+    /// fell back to `ValueKind::Symbol`); the emitted-key half was not.
+    fn symbol_well_known_value(&mut self, symbol: WellKnownSymbol) -> TypedExpr {
+        let property = symbol.member_name();
         let symbol_info = self
             .lookup_global_property(SYMBOL_NAME)
             .unwrap_or_else(|| ValueInfo::new(ValueKind::Object));
@@ -10791,7 +10838,7 @@ impl<'a> ScriptLowerer<'a> {
             return false;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        NativeErrorKind::from_str(&name).is_some()
+        self.identifier_is_builtin_native_error(&name).is_some()
     }
 
     fn for_in_global_non_enumerable_guard_only(
@@ -12987,6 +13034,15 @@ impl<'a> ScriptLowerer<'a> {
     /// Only the array-shaped iterable is rewritten. Anything else keeps the
     /// iterator protocol, which has its own suspension points, so it is reported
     /// as unsupported rather than silently miscompiled.
+    ///
+    /// This is the **fourth** for-of specialization, and the one a `protocol`
+    /// field on `StatementIr::ForOfArray` could never have caught: the statement
+    /// it produces is a `GeneratorLoop`, not a `ForOf*`. It rests on exactly the
+    /// premises of [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — an
+    /// `index < ArrayLength` test and `ArrayIndex` element reads, with no
+    /// `@@iterator` `Get` anywhere — which is why it returns a
+    /// [`ForOfLoweringIr`] carrying
+    /// [`IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE`].
     #[allow(clippy::too_many_arguments)]
     fn lower_async_for_of_array_with_body_await(
         &mut self,
@@ -12999,7 +13055,7 @@ impl<'a> ScriptLowerer<'a> {
         has_unsupported_binding_form: bool,
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
-    ) -> (StatementIr, ValueKind) {
+    ) -> ForOfLoweringIr {
         let is_array = iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array));
@@ -13008,17 +13064,17 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported(
                 "async for-of with a body await requires an array iterable and a plain binding",
             );
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         };
         let Some((before_suspension, suspension_statement, after_suspension)) =
             Self::split_resumable_loop_body(body)
         else {
             self.unsupported("async for-of body did not lower to one direct await");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         };
         let StatementIr::AsyncAwait { resume_state, .. } = &suspension_statement else {
             self.unsupported("async for-of body did not lower to one direct await");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         };
         let resume_state = *resume_state;
         let exit_state = resume_state + 1;
@@ -13122,7 +13178,7 @@ impl<'a> ScriptLowerer<'a> {
         before.extend(before_suspension);
 
         self.current_async_resume_state = Some(exit_state);
-        (
+        ForOfLoweringIr::new(
             StatementIr::GeneratorLoop {
                 init: Some(init),
                 test: Some(test),
@@ -13135,21 +13191,39 @@ impl<'a> ScriptLowerer<'a> {
                 exit_state,
             },
             body_kind,
+            IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE,
         )
     }
 
+    /// Lowers a `for`-`of` head.
+    ///
+    /// Thin wrapper: the witness [`lower_for_of_head`] produced has done its
+    /// work by the time control returns here (every path out of that function
+    /// had to name one), and no emitter may read it.
+    ///
+    /// [`lower_for_of_head`]: Self::lower_for_of_head
     fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
+        self.lower_for_of_head(for_of).into_statement_and_kind()
+    }
+
+    /// Every path out of this function returns a [`ForOfLoweringIr`], whose only
+    /// constructor takes an [`IteratorProtocolWitness`]. That is what makes
+    /// "add a fourth for-of desugaring and silently assume the protocol away" a
+    /// compile error rather than a silent wrong answer: attaching `protocol` to
+    /// the three `ForOf*` variants alone missed the desugaring to
+    /// `StatementIr::GeneratorLoop` that already existed.
+    fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {
         let uses_unified_resumable_plan = for_of.r#await() && self.current_resumable_plan.is_some();
         if for_of.r#await()
             && !uses_unified_resumable_plan
             && self.current_async_resume_state.is_none()
         {
             self.unsupported("for-await-of outside async function");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         }
         if for_of.r#await() && contains(for_of.body(), ContainsSymbol::AwaitExpression) {
             self.unsupported("explicit await in for-await-of body");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         }
         // A plain `for (x of …)` whose body awaits needs the same
         // one-iteration-per-invocation shape a resumable `for` loop gets, so it
@@ -13164,14 +13238,17 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported(
                 "async for-of with await requires an eager iterable and a body without break or continue",
             );
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         }
         if let IterableLoopInitializer::WebCompatCall(call) = for_of.initializer() {
-            return (
+            // The head evaluates the iterable and then throws a ReferenceError,
+            // so no 7.4 operation ever runs: the loop is gone, not specialized.
+            return ForOfLoweringIr::new(
                 StatementIr::Expression(
                     self.lower_web_compat_loop_assignment_target(call, for_of.iterable()),
                 ),
                 ValueKind::Undefined,
+                IteratorProtocolWitness::NO_ITERATION,
             );
         }
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
@@ -13226,7 +13303,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             _ => {
                 self.unsupported("for-of initializer");
-                return (StatementIr::Empty, ValueKind::Undefined);
+                return ForOfLoweringIr::no_iteration();
             }
         };
         let static_generator_elements =
@@ -13250,7 +13327,7 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
                     self.unsupported("for-of initializer");
                     self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    return ForOfLoweringIr::no_iteration();
                 };
                 for bound in bound_names {
                     self.declare_binding(
@@ -13366,7 +13443,7 @@ impl<'a> ScriptLowerer<'a> {
             );
             let Some(assign) = self.lower_pattern_assign_value(pattern, value) else {
                 self.pop_scope();
-                return (StatementIr::Empty, ValueKind::Undefined);
+                return ForOfLoweringIr::no_iteration();
             };
             vec![StatementIr::Expression(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
@@ -13377,7 +13454,7 @@ impl<'a> ScriptLowerer<'a> {
             if *pattern_mode == BindingMode::Var {
                 let Some(prefix) = self.lower_pattern_var_binding_from_value(pattern, init) else {
                     self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    return ForOfLoweringIr::no_iteration();
                 };
                 prefix
             } else {
@@ -13400,7 +13477,7 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 else {
                     self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    return ForOfLoweringIr::no_iteration();
                 };
                 prefix
             }
@@ -13441,31 +13518,44 @@ impl<'a> ScriptLowerer<'a> {
                 lexical_environment.clone(),
             );
         }
-        let statement = if iterable
+        // Each arm produces its statement together with the witness that says how
+        // it discharged the four 7.4 obligations, so the two cannot drift apart
+        // and a fourth arm cannot be added without stating its premises.
+        let (statement, protocol) = if iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array))
             && !for_of.r#await()
         {
-            StatementIr::ForOfArray {
-                mode,
-                name: storage_name,
-                iterable,
-                body: Box::new(body),
-                lexical_environment,
-                async_plan: None,
-            }
+            let protocol = IteratorProtocolWitness::ARRAY_INDEX_WALK;
+            (
+                StatementIr::ForOfArray {
+                    mode,
+                    name: storage_name,
+                    iterable,
+                    body: Box::new(body),
+                    lexical_environment,
+                    protocol,
+                    async_plan: None,
+                },
+                protocol,
+            )
         } else if iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::String))
             && !for_of.r#await()
         {
-            StatementIr::ForOfString {
-                mode,
-                name: storage_name,
-                iterable,
-                body: Box::new(body),
-                lexical_environment,
-            }
+            let protocol = IteratorProtocolWitness::STRING_CODE_POINT_WALK;
+            (
+                StatementIr::ForOfString {
+                    mode,
+                    name: storage_name,
+                    iterable,
+                    body: Box::new(body),
+                    lexical_environment,
+                    protocol,
+                },
+                protocol,
+            )
         } else {
             // Everything else goes through the generic iterator protocol. That
             // includes primitives: `for (x of 37)` has to reach `GetIterator`,
@@ -13499,22 +13589,17 @@ impl<'a> ScriptLowerer<'a> {
             };
             let async_plan = async_states.map(
                 |(entry_state, value_resume_state, close_resume_state, exit_state)| {
-                    let iterator_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.iterator.",
-                        ValueInfo::new(ValueKind::Object),
-                    );
-                    let next_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.next.",
-                        ValueInfo::new(ValueKind::Dynamic),
-                    );
+                    // Allocation order is load-bearing: `alloc_temp_binding_name`
+                    // numbers bindings as it hands them out, so these five calls
+                    // must stay in this sequence for the emitted names to be the
+                    // ones they were before the Iterator Record retrofit.
+                    let iterator = self.alloc_iterator_slot();
+                    let next_method = self.alloc_next_method_slot();
                     let async_iterator_binding = self.alloc_suspension_owned_binding(
                         "async.forof.async_iterator.",
                         ValueInfo::new(ValueKind::Boolean),
                     );
-                    let done_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.done.",
-                        ValueInfo::new(ValueKind::Boolean),
-                    );
+                    let done = self.alloc_done_slot();
                     let close_on_rejection_binding = self.alloc_suspension_owned_binding(
                         "async.forof.close_on_rejection.",
                         ValueInfo::new(ValueKind::Boolean),
@@ -13524,24 +13609,31 @@ impl<'a> ScriptLowerer<'a> {
                         value_resume_state,
                         close_resume_state,
                         exit_state,
-                        iterator_binding,
-                        next_binding,
+                        record: IteratorRecordIr::new(iterator, next_method, done),
                         async_iterator_binding,
-                        done_binding,
                         close_on_rejection_binding,
                     }
                 },
             );
-            StatementIr::ForOfIterator {
-                mode,
-                name: storage_name,
-                iterable,
-                body: Box::new(body),
-                lexical_environment,
-                async_plan,
-            }
+            let protocol = if async_plan.is_some() {
+                IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
+            } else {
+                IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL
+            };
+            (
+                StatementIr::ForOfIterator {
+                    mode,
+                    name: storage_name,
+                    iterable,
+                    body: Box::new(body),
+                    lexical_environment,
+                    protocol,
+                    async_plan,
+                },
+                protocol,
+            )
         };
-        (statement, body_kind)
+        ForOfLoweringIr::new(statement, body_kind, protocol)
     }
 
     fn lower_switch(&mut self, switch: &AstSwitch) -> (StatementIr, ValueKind) {
@@ -20750,7 +20842,9 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         if field_name == "propertyIsEnumerable"
                             && args.len() == 1
-                            && NativeErrorKind::from_str(target_name.as_str()).is_some()
+                            && self
+                                .identifier_is_builtin_native_error(target_name.as_str())
+                                .is_some()
                             && self
                                 .try_static_string_key(&args[0])
                                 .is_some_and(|property| property == "prototype")
@@ -21002,16 +21096,29 @@ impl<'a> ScriptLowerer<'a> {
                         if let Some((symbol, symbol_key)) =
                             self.lower_well_known_symbol_property_key(expr)
                         {
-                            // Contract ledger entry R3. The domain here is
-                            // `WellKnownSymbol x ValueKind`, and most cells
-                            // legitimately have no static fast path, so this
-                            // match keeps a catch-all rather than nine
+                            // Contract ledger entry R3, corrected. The domain
+                            // here is `WellKnownSymbol x receiver`, and the R3
+                            // note used to claim both axes were honoured — true
+                            // only of the two `Iterator` arms. The other five
+                            // fired on the symbol alone, so
+                            // `({ [Symbol.match](s) { return 42; } })[Symbol.match]("x")`
+                            // was typed as `RegExp.prototype[@@match]`'s
+                            // `Array | Null` rather than as `Number`. The
+                            // emitted IR is a generic `ExprIr::CallMethod`
+                            // either way, so the damage was confined to the
+                            // inferred `ValueInfo` and to anything keyed on it —
+                            // but that is exactly invariant S5's subject.
+                            //
+                            // Most cells legitimately have no static fast path,
+                            // so this match keeps a catch-all rather than nine
                             // information-free `=> None` arms. The symbols that
                             // deliberately fall through are `asyncIterator`,
                             // `dispose`, `asyncDispose`, `hasInstance`,
                             // `isConcatSpreadable`, `species`, `toPrimitive`,
                             // `toStringTag` and `unscopables`; what the enum
                             // buys is that the arms above name real variants.
+                            let regexp_receiver =
+                                Self::receiver_shape_allows_regexp_symbol_protocol(&receiver);
                             let builtin = match symbol {
                                 WellKnownSymbol::Iterator if receiver.kind == ValueKind::String => {
                                     Some(StandardBuiltinId::StringPrototypeIterator)
@@ -21019,19 +21126,19 @@ impl<'a> ScriptLowerer<'a> {
                                 WellKnownSymbol::Iterator if receiver.kind == ValueKind::Array => {
                                     Some(StandardBuiltinId::ArrayPrototypeValues)
                                 }
-                                WellKnownSymbol::Match => {
+                                WellKnownSymbol::Match if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatch)
                                 }
-                                WellKnownSymbol::MatchAll => {
+                                WellKnownSymbol::MatchAll if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatchAll)
                                 }
-                                WellKnownSymbol::Replace => {
+                                WellKnownSymbol::Replace if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolReplace)
                                 }
-                                WellKnownSymbol::Search => {
+                                WellKnownSymbol::Search if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSearch)
                                 }
-                                WellKnownSymbol::Split => {
+                                WellKnownSymbol::Split if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSplit)
                                 }
                                 _ => None,
@@ -25631,7 +25738,7 @@ impl<'a> ScriptLowerer<'a> {
                 if let Some(key_arg) = args.get(1) {
                     if let ExprIr::String(key) = &key_arg.expr {
                         let is_species_symbol = key_arg.kind == ValueKind::Symbol
-                            && WellKnownSymbol::from_description(key)
+                            && WellKnownSymbol::from_description(SymbolDescription::new(key))
                                 == Some(WellKnownSymbol::Species);
                         let species_getter = if is_species_symbol
                             && target
@@ -28357,7 +28464,9 @@ impl<'a> ScriptLowerer<'a> {
                     // `ValueKind::Symbol` is what distinguishes it from an
                     // ordinary string of the same text.
                     if self.expression_is_builtin_symbol_intrinsic(&target_name) {
-                        if let Some(symbol) = WellKnownSymbol::from_member_name(&member_name) {
+                        if let Some(symbol) =
+                            WellKnownSymbol::from_member_name(SymbolMemberName::new(&member_name))
+                        {
                             return TypedExpr::from_info(
                                 ValueInfo::new(ValueKind::Symbol),
                                 ExprIr::String(symbol.description().to_string()),
@@ -34013,6 +34122,53 @@ impl<'a> ScriptLowerer<'a> {
                 })
     }
 
+    /// The native-error intrinsic `name` denotes, **if** the identifier really
+    /// resolves to the builtin.
+    ///
+    /// `NativeErrorKind::from_str(name).is_some()` tests the *spelling* of an
+    /// identifier and nothing else, but 9.1.1 resolves a name against the
+    /// environment before the global object, so a parameter named `TypeError`
+    /// shadows it. Two constant-folds keyed off the bare spelling and gave
+    /// silent wrong answers:
+    ///
+    /// - `function f(TypeError) { for (const k in TypeError) return k; } f({a:1})`
+    ///   elided the loop and answered `undefined` instead of `"a"`;
+    /// - `function g(RangeError) { return RangeError.propertyIsEnumerable("prototype"); }`
+    ///   folded to `false` whatever the argument was.
+    ///
+    /// Neither was introduced by the `NativeErrorKind` retrofit — the nine-arm
+    /// `matches!` it replaced was equally unguarded — but the retrofit is where
+    /// the asymmetry with `expression_is_builtin_symbol_intrinsic` above became
+    /// visible, and the guard is the same four clauses.
+    fn identifier_is_builtin_native_error(&self, name: &str) -> Option<NativeErrorKind> {
+        let kind = NativeErrorKind::from_str(name)?;
+        let resolves_to_builtin = self.active_with_objects.is_empty()
+            && self.lookup_binding(name).is_none()
+            && self
+                .lookup_global_property_info(name)
+                .is_some_and(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                });
+        resolves_to_builtin.then_some(kind)
+    }
+
+    /// Whether a `receiver[@@match]`-shaped call may be typed as
+    /// `RegExp.prototype`'s.
+    ///
+    /// Conservative in the direction that matters. `true` when the receiver
+    /// carries the RegExp prototype shape (a literal or a `RegExpConstructor`
+    /// result), and `true` when nothing is known about its shape — that is the
+    /// pre-existing inference, and the emitter dispatches dynamically anyway.
+    /// `false` for any other *known* shape, which is what an object literal with
+    /// its own `[Symbol.match]` has.
+    fn receiver_shape_allows_regexp_symbol_protocol(receiver: &TypedExpr) -> bool {
+        Self::has_regexp_prototype_shape(receiver) || receiver.heap_shape.is_none()
+    }
+
+    fn has_regexp_prototype_shape(target: &TypedExpr) -> bool {
+        target.heap_shape.as_deref() == Some(Self::regexp_prototype_shape().as_ref())
+    }
+
     /// The well-known symbol `expr` denotes, if it is a static `Symbol.x` read
     /// of the real intrinsic.
     ///
@@ -34037,7 +34193,7 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         let member_name = self.interner.resolve_expect(name.sym()).to_string();
-        WellKnownSymbol::from_member_name(&member_name)
+        WellKnownSymbol::from_member_name(SymbolMemberName::new(&member_name))
     }
 
     fn static_parse_float_arg(&self, arg: Option<&Expression>) -> Option<f64> {
@@ -35163,7 +35319,9 @@ impl<'a> ScriptLowerer<'a> {
                 // compiler never produces — takes the conservative branch that
                 // discards everything recorded for this intrinsic, which is
                 // strictly weaker inference and never a wrong answer.
-                let Some(symbol) = WellKnownSymbol::from_description(symbol_name) else {
+                let Some(symbol) =
+                    WellKnownSymbol::from_description(SymbolDescription::new(symbol_name))
+                else {
                     self.well_known_symbol_prototype_properties
                         .retain(|(constructor_name, _), _| constructor_name != &root);
                     return true;

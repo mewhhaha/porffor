@@ -3195,7 +3195,7 @@ impl StringPool {
             }
             ExprIr::RuntimeThrow { name, message } => {
                 self.uses_heap = true;
-                self.intern_string(name);
+                self.intern_string(name.as_str());
                 self.intern_string(message);
             }
             ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {

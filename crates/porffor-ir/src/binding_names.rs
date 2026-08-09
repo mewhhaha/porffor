@@ -100,9 +100,7 @@ const fn is_identifier_body_ascii(text: &str) -> bool {
     let mut index = 0;
     while index < bytes.len() {
         let byte = bytes[index];
-        let legal = byte == b'$'
-            || byte == b'_'
-            || byte.is_ascii_alphanumeric();
+        let legal = byte == b'$' || byte == b'_' || byte.is_ascii_alphanumeric();
         if !legal {
             return false;
         }
@@ -150,9 +148,11 @@ const fn ends_with(text: &str, tail: &str) -> bool {
 
 /// Prefix of every compiler-owned per-unit cell name.
 ///
-/// `$` is not a byte this compiler ever mints at the start of a source-spelled
-/// binding, so the minted range and the source range are disjoint by
-/// construction.
+/// `$` is not a byte this compiler mints at the start of a source-spelled
+/// binding — but it *is* a legal `IdentifierStart`, so source text can spell a
+/// name in this range and the two ranges are **not** disjoint by construction.
+/// [`MergedName::is_minted_shaped`] is the predicate that closes the gap, and
+/// `check_dynamic_import_linkable` is where it is enforced.
 const MINTED_PREFIX: &str = "$m";
 /// Prefix of the merged spelling of an anonymous `export default`.
 const ANONYMOUS_DEFAULT_PREFIX: &str = "$d";
@@ -347,52 +347,74 @@ impl ExportName {
 
 // -- D3: the merged name --------------------------------------------------
 
-/// The compiler-owned per-unit cells of the merged scope.
+/// Declares [`UnitCellRole`], its `ALL` enumeration and its `suffix` renderer
+/// from **one** row list.
 ///
-/// Closed by the linker's design, not an open string namespace: every one of
-/// these is emitted into generated Script text as a declaration or a read, and
-/// each exists because the linker needs exactly one of it per unit. A new cell
-/// is a new variant here, which const assertions V3/V5/V6 then check.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(u8)]
-pub enum UnitCellRole {
-    /// Identity-cached namespace exotic object (16.2.1.10).
-    Namespace,
-    /// `import defer` export table; `undefined` until the body has begun, which
-    /// is what [`Self::DeferEvaluate`] tests to evaluate at most once.
-    DeferCells,
-    /// `import defer` evaluator thunk.
-    DeferEvaluate,
-    /// `import source` module source object.
-    ModuleSource,
-    /// `import.meta` object (13.3.12, 16.2.1.9).
-    ImportMeta,
+/// Assertion V6 could not do the job it claimed. `ALL`'s declared type
+/// `[UnitCellRole; 5]` hardcodes its own length, so `assert!(ALL.len() == 5)`
+/// compared 5 against 5 by construction. A sixth variant forced an edit to
+/// `suffix()` (`E0004`) but **not** to `ALL`: the tree still compiled with a
+/// five-element `ALL`, V6 still passed, and the new role's suffix was checked by
+/// neither V3 (identifier-legality, invariant M4) nor V5 (distinctness) — which
+/// is precisely the regression mistake class K4 exists to prevent, since
+/// `import.meta` and `component.completion` are the two suffixes that were
+/// deleted for failing V3.
+///
+/// With the enum and `ALL` being two expansions of one `$(...)+` sequence, `ALL`
+/// cannot be short, long or out of order, and V3/V5 quantify over the whole
+/// domain by construction.
+macro_rules! unit_cell_roles {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident => $suffix:literal;
+    )+) => {
+        /// The compiler-owned per-unit cells of the merged scope.
+        ///
+        /// Closed by the linker's design, not an open string namespace: every
+        /// one of these is emitted into generated Script text as a declaration
+        /// or a read, and each exists because the linker needs exactly one of it
+        /// per unit. A new cell is a new row above, which const assertions
+        /// V3/V5 then check over the whole of `ALL`.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(u8)]
+        pub enum UnitCellRole {
+            $(
+                $(#[$meta])*
+                $variant,
+            )+
+        }
+
+        impl UnitCellRole {
+            /// Every role, in declaration order — generated from the same rows
+            /// as the enum, so "added a variant, forgot `ALL`" has no spelling.
+            pub const ALL: &'static [UnitCellRole] = &[$(UnitCellRole::$variant,)+];
+
+            /// The part of the minted name that follows `$m{unit}$`.
+            ///
+            /// Must be an ASCII `IdentifierPart` sequence, because every minted
+            /// name is emitted as an `IdentifierReference` — assertion V3.
+            #[must_use]
+            pub const fn suffix(self) -> &'static str {
+                match self {
+                    $(UnitCellRole::$variant => $suffix,)+
+                }
+            }
+        }
+    };
 }
 
-impl UnitCellRole {
-    /// Every role, in declaration order. Assertion V6 ties the two together.
-    pub const ALL: [UnitCellRole; 5] = [
-        Self::Namespace,
-        Self::DeferCells,
-        Self::DeferEvaluate,
-        Self::ModuleSource,
-        Self::ImportMeta,
-    ];
-
-    /// The part of the minted name that follows `$m{unit}$`.
-    ///
-    /// Must be an ASCII `IdentifierPart` sequence, because every minted name is
-    /// emitted as an `IdentifierReference` — assertion V3.
-    #[must_use]
-    pub const fn suffix(self) -> &'static str {
-        match self {
-            Self::Namespace => "namespace",
-            Self::DeferCells => "defer$cells",
-            Self::DeferEvaluate => "defer$evaluate",
-            Self::ModuleSource => "source",
-            Self::ImportMeta => "meta",
-        }
-    }
+unit_cell_roles! {
+    /// Identity-cached namespace exotic object (16.2.1.10).
+    Namespace => "namespace";
+    /// `import defer` export table; `undefined` until the body has begun, which
+    /// is what [`UnitCellRole::DeferEvaluate`] tests to evaluate at most once.
+    DeferCells => "defer$cells";
+    /// `import defer` evaluator thunk.
+    DeferEvaluate => "defer$evaluate";
+    /// `import source` module source object.
+    ModuleSource => "source";
+    /// `import.meta` object (13.3.12, 16.2.1.9).
+    ImportMeta => "meta";
 }
 
 /// A name in the single merged Script top-level scope.
@@ -435,6 +457,35 @@ impl MergedName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Whether this merged name lies in the *minted* range — `$m<digits>$…` or
+    /// `$d<digits>$`.
+    ///
+    /// The two generators' ranges are **not** disjoint from the source range by
+    /// construction, contrary to what `MINTED_PREFIX`'s doc used to say. That
+    /// quantifier ranges over what the compiler mints, not over what source text
+    /// may spell, and `$m0$namespace`, `$m1$meta` and `$d0$` are all legal
+    /// `BindingIdentifier`s. `merged_in` is the identity on a source name, so a
+    /// module that declares one collides with the prelude's own cell, and a
+    /// module that merely *reads* one has the read captured by it.
+    ///
+    /// Derived from `MINTED_PREFIX`/`ANONYMOUS_DEFAULT_PREFIX`/
+    /// `UNIT_ID_TERMINATOR` rather than from a literal, so this predicate and
+    /// the generators cannot drift apart.
+    #[must_use]
+    pub fn is_minted_shaped(name: &str) -> bool {
+        let rest = match name
+            .strip_prefix(MINTED_PREFIX)
+            .or_else(|| name.strip_prefix(ANONYMOUS_DEFAULT_PREFIX))
+        {
+            Some(rest) => rest,
+            None => return false,
+        };
+        let digits_end = rest
+            .find(|byte: char| !byte.is_ascii_digit())
+            .unwrap_or(rest.len());
+        digits_end > 0 && rest[digits_end..].starts_with(UNIT_ID_TERMINATOR)
+    }
 }
 
 // -- const assertions -----------------------------------------------------
@@ -474,17 +525,6 @@ const fn every_suffix_is_distinct() -> bool {
             right += 1;
         }
         left += 1;
-    }
-    true
-}
-
-const fn all_is_in_declaration_order() -> bool {
-    let mut index = 0;
-    while index < UnitCellRole::ALL.len() {
-        if UnitCellRole::ALL[index] as u8 != index as u8 {
-            return false;
-        }
-        index += 1;
     }
     true
 }
@@ -531,12 +571,13 @@ const _: () = assert!(
     "two unit-cell roles share a suffix"
 );
 
-// **V6.** `ALL` short, long or out of order.
-const _: () = assert!(UnitCellRole::ALL.len() == 5, "UnitCellRole::ALL is not the whole domain");
-const _: () = assert!(
-    all_is_in_declaration_order(),
-    "UnitCellRole::ALL is not in declaration order"
-);
+// **V6.** Deleted. `ALL` is generated from the same macro rows as the enum, so
+// "short, long or out of order" is unrepresentable and an assertion about it
+// could not fail. What V6 actually used to check — `5 == 5`, because `ALL`'s
+// array type carried its own length — is recorded in the macro's doc comment so
+// the next reader does not reinstate it. `all_is_in_declaration_order` goes with
+// it: `#[repr(u8)]` assigns discriminants in declaration order and `ALL` is now
+// generated in that same order, so it too cannot fail.
 
 // **V7.** The two fragments `modules::record` matches an `import.meta` span
 // against must together *be* the meta-property whose width V4 budgets, or V4
@@ -616,7 +657,7 @@ mod tests {
             MergedName::minted(0, UnitCellRole::DeferCells),
             MergedName::minted(0, UnitCellRole::DeferEvaluate)
         );
-        for role in UnitCellRole::ALL {
+        for role in UnitCellRole::ALL.iter().copied() {
             assert_ne!(
                 MergedName::minted(0, role),
                 LocalName::AnonymousDefault.merged_in(0)

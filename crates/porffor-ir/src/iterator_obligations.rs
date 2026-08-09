@@ -18,19 +18,37 @@
 //!   all four obligations, whether the specialization *emits* the operation or
 //!   *assumes it away*, and on which premise;
 //! - transposing two obligations is `E0308` rather than a plausible-looking
-//!   wrong witness.
+//!   wrong witness — including *inside this module*, because the four discharge
+//!   newtypes are what [`IteratorProtocolWitness::new`] takes.
 //!
-//! Ledger **L3** is the honest bound: an [`IntactnessPremise`] is a statement
-//! about the *user's program*, not about our code. No type can prove it; only a
-//! lowering-time guard can, and building that guard is a separate lane.
-//! Adversarial trace A1 in the contract records a program for which
-//! [`IntactnessPremise::ArrayIteratorIntact`] is false today.
+//! ## What a premise is, and what it is not
+//!
+//! [`IntactnessPremise`] used to mix three different kinds of claim under one
+//! name, which made `ByAssumption(ArrayLengthReadOnce)` read as *discharged*
+//! while assuming nothing: "length is read once" is a description of what our
+//! emitter does, not a condition under which doing that is correct. Every
+//! variant now carries an [`IntactnessPremise::kind`]:
+//!
+//! - [`PremiseKind::ProgramProperty`] — a proposition about the *user's
+//!   program* that only a lowering-time guard can establish. Ledger **L3**.
+//! - [`PremiseKind::ImplementationFact`] — a proposition about *our emitter*,
+//!   established by reading it. Recorded so the reader knows no guard is owed.
+//! - [`PremiseKind::Vacuous`] — there is nothing to discharge.
+//!
+//! Ledger **L3** is the honest bound, restated: a *partial* intactness guard
+//! already exists — `ScriptLowerer::array_prototype_mutated` — and four sibling
+//! fast paths already consult it. The for-of specialization decision is the
+//! outlier that does not. See ledger L3 in the contract for the exact
+//! conjunct that is missing and why closing it is a separate lane (it moves
+//! emitted bytes).
 //!
 //! ## The emitter must not read this
 //!
-//! No `porffor-aot-wasm` arm consults the witness. An IR field the emitter
-//! reads changes emitted bytes; an IR field the emitter ignores changes nothing
-//! but still forces the author to fill it in. Rung G must diff empty.
+//! No `porffor-aot-wasm` arm consults the witness, and now it cannot: every
+//! reader of a witness's contents is `pub(crate)`, so a backend arm that binds
+//! `protocol` and branches on `is_fully_emitted()` is `E0624` at `cargo check`
+//! rather than a ten-minute rung-G diff. The type stays `pub` only because it
+//! is the type of a `pub` enum variant's field.
 //!
 //! See `docs/rust-rewrite/contracts/Spec-operation catalog evidence and the
 //! iterator-protocol obligation witness.md`.
@@ -87,7 +105,10 @@ pub enum EmissionSite {
     /// `FunctionBuilder::compile_array_destructure_from_value_locals`
     /// (`control_flow.rs:8220`). Array destructuring runs the same protocol:
     /// the `@@iterator` read, `finish_get_iterator_from_method`'s callability
-    /// and object checks and the once-only `next` cache, and a guarded close.
+    /// and object checks and the once-only `next` cache,
+    /// `emit_destructuring_iterator_step` per element, and a guarded close.
+    /// There is no array fast path here, so every array destructuring pays the
+    /// real protocol.
     ArrayDestructuring,
 }
 
@@ -101,11 +122,29 @@ impl EmissionSite {
     }
 }
 
+/// What kind of claim an [`IntactnessPremise`] is.
+///
+/// The distinction is load-bearing: only [`Self::ProgramProperty`] premises owe
+/// a lowering-time guard, so the lane that closes ledger **L3** needs to know
+/// which variants it must actually establish and which are already true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PremiseKind {
+    /// A proposition about the *user's program* or the realm. No type can prove
+    /// it; a lowering-time guard must. Ledger **L3**.
+    ProgramProperty,
+    /// A proposition about *our emitter*, established by reading it. No guard
+    /// is owed; the citation in the variant's doc comment is the evidence.
+    ImplementationFact,
+    /// There is nothing to discharge — the obligation does not arise.
+    Vacuous,
+}
+
 /// The premises a specialization may rely on when it declines to emit an
 /// obligation.
 ///
 /// Closed: a lowering that needs a premise not in this list must add a variant,
-/// which is a diff a reviewer sees. None of these is checked — see ledger L3.
+/// which is a diff a reviewer sees. No [`PremiseKind::ProgramProperty`] variant
+/// is checked anywhere — see ledger L3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IntactnessPremise {
     /// `%Array.prototype%[@@iterator]` is still `%Array.prototype.values%`, no
@@ -118,34 +157,69 @@ pub enum IntactnessPremise {
     /// `KindSet::EMPTY.is_subset_of({Array})` is `true`, so an *empty*
     /// `possible_kinds` also selects the array walk.
     ArrayIteratorIntact,
-    /// `length` is read once before the walk, whereas `CreateArrayIterator`
-    /// re-reads `LengthOfArrayLike` on every step. (23.1.5.1.)
-    ArrayLengthReadOnce,
-    /// Elements are read from the backing storage rather than by `[[Get]]`, so
-    /// a hole does not consult `Array.prototype` and an index accessor does not
-    /// run. (23.1.5.1.)
-    ArrayElementReadBypassesGet,
+    /// The loop body does not change the array's `length`.
+    ///
+    /// The index walk hoists `emit_array_length` above the loop
+    /// (`control_flow.rs:5779`, read above the loop header at `:5790`), whereas
+    /// `CreateArrayIterator` re-reads `LengthOfArrayLike` on every step
+    /// (23.1.5.1). The hoist is a fact about our emitter; *this* premise is the
+    /// condition on the program under which the hoist is unobservable.
+    ArrayLengthStableDuringBody,
+    /// The array has no holes, and neither it nor its prototype chain carries
+    /// an accessor or a proxy trap on an index key.
+    ///
+    /// `emit_array_read` (`control_flow.rs:5796`) reads backing storage rather
+    /// than performing `[[Get]]`; again, that is a fact about our emitter, and
+    /// *this* premise is the condition on the program under which skipping
+    /// `[[Get]]` is unobservable (23.1.5.1).
+    ArrayHasNoHolesOrIndexAccessors,
     /// `%String.prototype%[@@iterator]` is still the initial value and
     /// `%StringIteratorPrototype%.next` is unpatched. (22.1.3.x.)
     StringIteratorIntact,
     /// The walk steps by code point over the internal encoding; `CodePointAt`
     /// (11.1.5) yields an unpaired surrogate as a one-unit code point rather
     /// than skipping or replacing it.
+    ///
+    /// [`PremiseKind::ImplementationFact`], and a discharged one: dry run
+    /// verified `utf16_units_to_runtime_string` (`lowering.rs:3162`) pairs
+    /// surrogates and escapes unpaired ones, `Data::runtime_bytes_for_string`
+    /// (`data.rs:3721`) re-encodes the escape through `push_wtf8_code_unit`,
+    /// and `emit_decode_utf8_scalar_at_index` (`builtins/string.rs:19762`)
+    /// decodes 3- and 4-byte sequences without rejecting `D800`-`DFFF`. Astral
+    /// pairs and lone surrogates each yield exactly one iteration.
     StringWalkIsCodePoint,
     /// There is no iterator object, so there is nothing `IteratorClose` could
     /// call: the close obligation is *vacuous* rather than skipped.
     NoIteratorObjectExists,
+    /// The head did not lower to an iteration at all — an unsupported form was
+    /// reported and `StatementIr::Empty` was emitted — so no 7.4 operation is
+    /// owed by the statement that was produced.
+    NoIterationLowered,
 }
 
 impl IntactnessPremise {
     pub const fn name(self) -> &'static str {
         match self {
             Self::ArrayIteratorIntact => "ArrayIteratorIntact",
-            Self::ArrayLengthReadOnce => "ArrayLengthReadOnce",
-            Self::ArrayElementReadBypassesGet => "ArrayElementReadBypassesGet",
+            Self::ArrayLengthStableDuringBody => "ArrayLengthStableDuringBody",
+            Self::ArrayHasNoHolesOrIndexAccessors => "ArrayHasNoHolesOrIndexAccessors",
             Self::StringIteratorIntact => "StringIteratorIntact",
             Self::StringWalkIsCodePoint => "StringWalkIsCodePoint",
             Self::NoIteratorObjectExists => "NoIteratorObjectExists",
+            Self::NoIterationLowered => "NoIterationLowered",
+        }
+    }
+
+    /// Which kind of claim this premise is. Exhaustive and without a catch-all:
+    /// a new premise must state whether it owes a guard.
+    pub const fn kind(self) -> PremiseKind {
+        match self {
+            Self::ArrayIteratorIntact
+            | Self::ArrayLengthStableDuringBody
+            | Self::ArrayHasNoHolesOrIndexAccessors
+            | Self::StringIteratorIntact => PremiseKind::ProgramProperty,
+            Self::StringWalkIsCodePoint => PremiseKind::ImplementationFact,
+            Self::NoIteratorObjectExists | Self::NoIterationLowered => PremiseKind::Vacuous,
         }
     }
 }
@@ -161,7 +235,7 @@ pub enum ObligationDischarge {
 }
 
 impl ObligationDischarge {
-    pub const fn is_emitted(self) -> bool {
+    pub(crate) const fn is_emitted(self) -> bool {
         match self {
             Self::ByEmission(_) => true,
             Self::ByAssumption(_) => false,
@@ -170,9 +244,15 @@ impl ObligationDischarge {
 }
 
 // Four distinct newtypes, deliberately not one generic wrapper: transposing
-// "what I assumed about `next`" with "what I assumed about `return`" at a
-// construction site must be `E0308`, not a witness that type-checks and lies.
-// Each constructor is private to this module — see `IteratorProtocolWitness`.
+// "what I assumed about `next`" with "what I assumed about `return`" must be
+// `E0308`, not a witness that type-checks and lies. That only holds if the
+// *constructors* are per-obligation too — `assumed(a, b, c, d)` over four
+// same-typed `IntactnessPremise` arguments would have moved the transposition
+// inside this module rather than removing it — so each newtype carries its own
+// `assumed`/`emitted` pair and `IteratorProtocolWitness::new` takes the four
+// newtypes. Every constructor is private to this module, so outside
+// `iterator_obligations` the only inhabitants of the witness are the five named
+// constants.
 
 /// How a specialization discharged `GetIterator` (7.4.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -191,57 +271,57 @@ pub struct IteratorValueDischarge(ObligationDischarge);
 pub struct IteratorCloseDischarge(ObligationDischarge);
 
 impl GetIteratorDischarge {
-    const fn new(discharge: ObligationDischarge) -> Self {
-        Self(discharge)
+    const fn assumed(premise: IntactnessPremise) -> Self {
+        Self(ObligationDischarge::ByAssumption(premise))
     }
 
-    pub const fn obligation(self) -> IteratorObligation {
-        IteratorObligation::GetIterator
+    const fn emitted(site: EmissionSite) -> Self {
+        Self(ObligationDischarge::ByEmission(site))
     }
 
-    pub const fn get(self) -> ObligationDischarge {
+    pub(crate) const fn get(self) -> ObligationDischarge {
         self.0
     }
 }
 
 impl IteratorStepDischarge {
-    const fn new(discharge: ObligationDischarge) -> Self {
-        Self(discharge)
+    const fn assumed(premise: IntactnessPremise) -> Self {
+        Self(ObligationDischarge::ByAssumption(premise))
     }
 
-    pub const fn obligation(self) -> IteratorObligation {
-        IteratorObligation::IteratorStep
+    const fn emitted(site: EmissionSite) -> Self {
+        Self(ObligationDischarge::ByEmission(site))
     }
 
-    pub const fn get(self) -> ObligationDischarge {
+    pub(crate) const fn get(self) -> ObligationDischarge {
         self.0
     }
 }
 
 impl IteratorValueDischarge {
-    const fn new(discharge: ObligationDischarge) -> Self {
-        Self(discharge)
+    const fn assumed(premise: IntactnessPremise) -> Self {
+        Self(ObligationDischarge::ByAssumption(premise))
     }
 
-    pub const fn obligation(self) -> IteratorObligation {
-        IteratorObligation::IteratorValue
+    const fn emitted(site: EmissionSite) -> Self {
+        Self(ObligationDischarge::ByEmission(site))
     }
 
-    pub const fn get(self) -> ObligationDischarge {
+    pub(crate) const fn get(self) -> ObligationDischarge {
         self.0
     }
 }
 
 impl IteratorCloseDischarge {
-    const fn new(discharge: ObligationDischarge) -> Self {
-        Self(discharge)
+    const fn assumed(premise: IntactnessPremise) -> Self {
+        Self(ObligationDischarge::ByAssumption(premise))
     }
 
-    pub const fn obligation(self) -> IteratorObligation {
-        IteratorObligation::IteratorClose
+    const fn emitted(site: EmissionSite) -> Self {
+        Self(ObligationDischarge::ByEmission(site))
     }
 
-    pub const fn get(self) -> ObligationDischarge {
+    pub(crate) const fn get(self) -> ObligationDischarge {
         self.0
     }
 }
@@ -250,9 +330,9 @@ impl IteratorCloseDischarge {
 ///
 /// Non-defaultable, non-optional, all fields private, and **`new` is private to
 /// this module**. Outside `iterator_obligations`, the only values of this type
-/// are the four named constants below. That is what turns "these four constants
-/// are the only witnesses `lowering.rs` may use" from a rule in a document into
-/// a property of the type: a fifth specialization cannot invent a witness at a
+/// are the five named constants below. That is what turns "these constants are
+/// the only witnesses `lowering.rs` may use" from a rule in a document into a
+/// property of the type: a new specialization cannot invent a witness at a
 /// construction site 13,000 lines into `lowering.rs`; it must add a constant
 /// here, next to the premises it is claiming.
 ///
@@ -281,26 +361,12 @@ impl IteratorProtocolWitness {
         }
     }
 
-    const fn assumed(
-        get_iterator: IntactnessPremise,
-        iterator_step: IntactnessPremise,
-        iterator_value: IntactnessPremise,
-        iterator_close: IntactnessPremise,
-    ) -> Self {
-        Self::new(
-            GetIteratorDischarge::new(ObligationDischarge::ByAssumption(get_iterator)),
-            IteratorStepDischarge::new(ObligationDischarge::ByAssumption(iterator_step)),
-            IteratorValueDischarge::new(ObligationDischarge::ByAssumption(iterator_value)),
-            IteratorCloseDischarge::new(ObligationDischarge::ByAssumption(iterator_close)),
-        )
-    }
-
     const fn emitted_by(site: EmissionSite) -> Self {
         Self::new(
-            GetIteratorDischarge::new(ObligationDischarge::ByEmission(site)),
-            IteratorStepDischarge::new(ObligationDischarge::ByEmission(site)),
-            IteratorValueDischarge::new(ObligationDischarge::ByEmission(site)),
-            IteratorCloseDischarge::new(ObligationDischarge::ByEmission(site)),
+            GetIteratorDischarge::emitted(site),
+            IteratorStepDischarge::emitted(site),
+            IteratorValueDischarge::emitted(site),
+            IteratorCloseDischarge::emitted(site),
         )
     }
 
@@ -311,22 +377,34 @@ impl IteratorProtocolWitness {
     /// `emit_array_read` index walk with no `@@iterator` `Get` anywhere in it,
     /// which is exactly what these premises assert is safe — and what trace A1
     /// shows is observably wrong when `Array.prototype[@@iterator]` is patched.
-    pub const ARRAY_INDEX_WALK: Self = Self::assumed(
-        IntactnessPremise::ArrayIteratorIntact,
-        IntactnessPremise::ArrayLengthReadOnce,
-        IntactnessPremise::ArrayElementReadBypassesGet,
-        IntactnessPremise::NoIteratorObjectExists,
+    pub const ARRAY_INDEX_WALK: Self = Self::new(
+        GetIteratorDischarge::assumed(IntactnessPremise::ArrayIteratorIntact),
+        IteratorStepDischarge::assumed(IntactnessPremise::ArrayLengthStableDuringBody),
+        IteratorValueDischarge::assumed(IntactnessPremise::ArrayHasNoHolesOrIndexAccessors),
+        IteratorCloseDischarge::assumed(IntactnessPremise::NoIteratorObjectExists),
     );
+
+    /// The same index walk, reached by a different desugaring: `for (x of arr)`
+    /// whose body awaits, inside a plain async function, becomes a
+    /// `StatementIr::GeneratorLoop` over `PropertyKeyIr::ArrayLength` and
+    /// `PropertyKeyIr::ArrayIndex` (`lowering.rs`,
+    /// `lower_async_for_of_array_with_body_await`).
+    ///
+    /// It is a *fourth* for-of specialization that is not spelled as a `ForOf*`
+    /// variant, and it relies on exactly the premises of
+    /// [`Self::ARRAY_INDEX_WALK`]. It is a separate constant so that the
+    /// witness names the desugaring a reader has to go and check.
+    pub const ARRAY_INDEX_WALK_RESUMABLE: Self = Self::ARRAY_INDEX_WALK;
 
     /// `StatementIr::ForOfString` — the code-point walk.
     ///
     /// `compile_for_of_string` (`control_flow.rs:5850`) steps via
     /// `emit_decode_utf8_scalar_at_index`.
-    pub const STRING_CODE_POINT_WALK: Self = Self::assumed(
-        IntactnessPremise::StringIteratorIntact,
-        IntactnessPremise::StringWalkIsCodePoint,
-        IntactnessPremise::StringWalkIsCodePoint,
-        IntactnessPremise::NoIteratorObjectExists,
+    pub const STRING_CODE_POINT_WALK: Self = Self::new(
+        GetIteratorDischarge::assumed(IntactnessPremise::StringIteratorIntact),
+        IteratorStepDischarge::assumed(IntactnessPremise::StringWalkIsCodePoint),
+        IteratorValueDischarge::assumed(IntactnessPremise::StringWalkIsCodePoint),
+        IteratorCloseDischarge::assumed(IntactnessPremise::NoIteratorObjectExists),
     );
 
     /// `StatementIr::ForOfIterator`, sync. Every obligation is really emitted;
@@ -337,40 +415,241 @@ impl IteratorProtocolWitness {
     /// `StatementIr::ForOfIterator` with an async plan (`for await`).
     pub const ASYNC_ITERATOR_PROTOCOL: Self = Self::emitted_by(EmissionSite::AsyncForOfIterator);
 
-    pub const fn get_iterator(self) -> GetIteratorDischarge {
+    /// The for-of head produced no iteration: an unsupported form was reported
+    /// and the statement is `StatementIr::Empty`. Every obligation is vacuous
+    /// because nothing runs.
+    ///
+    /// This exists so that a bail-out path is still a construction a reviewer
+    /// sees, rather than the one shape in which a for-of head can escape
+    /// without saying anything.
+    pub const NO_ITERATION: Self = Self::new(
+        GetIteratorDischarge::assumed(IntactnessPremise::NoIterationLowered),
+        IteratorStepDischarge::assumed(IntactnessPremise::NoIterationLowered),
+        IteratorValueDischarge::assumed(IntactnessPremise::NoIterationLowered),
+        IteratorCloseDischarge::assumed(IntactnessPremise::NoIterationLowered),
+    );
+
+    pub(crate) const fn get_iterator(self) -> GetIteratorDischarge {
         self.get_iterator
     }
 
-    pub const fn iterator_step(self) -> IteratorStepDischarge {
+    pub(crate) const fn iterator_step(self) -> IteratorStepDischarge {
         self.iterator_step
     }
 
-    pub const fn iterator_value(self) -> IteratorValueDischarge {
+    pub(crate) const fn iterator_value(self) -> IteratorValueDischarge {
         self.iterator_value
     }
 
-    pub const fn iterator_close(self) -> IteratorCloseDischarge {
+    pub(crate) const fn iterator_close(self) -> IteratorCloseDischarge {
         self.iterator_close
     }
 
-    pub const fn discharge(self, obligation: IteratorObligation) -> ObligationDischarge {
+    /// Read one obligation's discharge, going through the typed accessor for
+    /// that slot rather than the field. The four accessors return four
+    /// different newtypes, so an arm that reached into the wrong slot would be
+    /// `E0308` here rather than a witness that type-checks and lies.
+    pub(crate) const fn discharge(self, obligation: IteratorObligation) -> ObligationDischarge {
         match obligation {
-            IteratorObligation::GetIterator => self.get_iterator.get(),
-            IteratorObligation::IteratorStep => self.iterator_step.get(),
-            IteratorObligation::IteratorValue => self.iterator_value.get(),
-            IteratorObligation::IteratorClose => self.iterator_close.get(),
+            IteratorObligation::GetIterator => self.get_iterator().get(),
+            IteratorObligation::IteratorStep => self.iterator_step().get(),
+            IteratorObligation::IteratorValue => self.iterator_value().get(),
+            IteratorObligation::IteratorClose => self.iterator_close().get(),
         }
     }
 
     /// True when every obligation is discharged by real emitted code, i.e. the
     /// specialization relies on no premise about the program.
-    pub const fn is_fully_emitted(self) -> bool {
+    pub(crate) const fn is_fully_emitted(self) -> bool {
         self.get_iterator.get().is_emitted()
             && self.iterator_step.get().is_emitted()
             && self.iterator_value.get().is_emitted()
             && self.iterator_close.get().is_emitted()
     }
 }
+
+// ---------------------------------------------------------------------------
+// What each witness claims, checked by `cargo check`
+// ---------------------------------------------------------------------------
+//
+// Every reader above is a `const fn`, so "this constant says what its doc
+// comment says" is checkable at compile time and does not need a test run to
+// discover. That matters twice here:
+//
+//  1. It is the campaign's standard — an invariant the compiler enforces beats
+//     one a test discovers.
+//  2. §13.12 narrowed every reader to `pub(crate)` so that a `porffor-aot-wasm`
+//     arm binding `protocol` and branching on it is `E0624`. That narrowing left
+//     the readers with no caller outside `#[cfg(test)]`, i.e. `dead_code` in the
+//     product build — the "survival by `pub`" defect this area exists to delete,
+//     reappearing one visibility level down. These assertions are their callers,
+//     so the emitter still cannot read a witness and the readers still earn
+//     their place.
+//
+// The mistake actually being caught: editing a witness so it *claims* emission
+// it does not perform (or renaming a premise into a weaker one) is the exact lie
+// that makes the index walk look discharged. That is now `E0080` at build time.
+
+const fn assumes(
+    witness: IteratorProtocolWitness,
+    obligation: IteratorObligation,
+    premise: IntactnessPremise,
+) -> bool {
+    match witness.discharge(obligation) {
+        ObligationDischarge::ByAssumption(actual) => actual as u8 == premise as u8,
+        ObligationDischarge::ByEmission(_) => false,
+    }
+}
+
+const fn emits(
+    witness: IteratorProtocolWitness,
+    obligation: IteratorObligation,
+    site: EmissionSite,
+) -> bool {
+    match witness.discharge(obligation) {
+        ObligationDischarge::ByEmission(actual) => actual as u8 == site as u8,
+        ObligationDischarge::ByAssumption(_) => false,
+    }
+}
+
+const fn assumes_kind(
+    witness: IteratorProtocolWitness,
+    obligation: IteratorObligation,
+    kind: PremiseKind,
+) -> bool {
+    match witness.discharge(obligation) {
+        ObligationDischarge::ByAssumption(premise) => premise.kind() as u8 == kind as u8,
+        ObligationDischarge::ByEmission(_) => false,
+    }
+}
+
+const fn emits_every_obligation(witness: IteratorProtocolWitness, site: EmissionSite) -> bool {
+    witness.is_fully_emitted()
+        && emits(witness, IteratorObligation::GetIterator, site)
+        && emits(witness, IteratorObligation::IteratorStep, site)
+        && emits(witness, IteratorObligation::IteratorValue, site)
+        && emits(witness, IteratorObligation::IteratorClose, site)
+}
+
+/// The array index walk emits nothing and rests on four named premises.
+/// `compile_for_of_array` contains no `@@iterator` read at all, so flipping any
+/// of these to `ByEmission` would be a lie about the emitter.
+const _: () = assert!(
+    !IteratorProtocolWitness::ARRAY_INDEX_WALK.is_fully_emitted()
+        && assumes(
+            IteratorProtocolWitness::ARRAY_INDEX_WALK,
+            IteratorObligation::GetIterator,
+            IntactnessPremise::ArrayIteratorIntact,
+        )
+        && assumes(
+            IteratorProtocolWitness::ARRAY_INDEX_WALK,
+            IteratorObligation::IteratorStep,
+            IntactnessPremise::ArrayLengthStableDuringBody,
+        )
+        && assumes(
+            IteratorProtocolWitness::ARRAY_INDEX_WALK,
+            IteratorObligation::IteratorValue,
+            IntactnessPremise::ArrayHasNoHolesOrIndexAccessors,
+        )
+        && assumes(
+            IteratorProtocolWitness::ARRAY_INDEX_WALK,
+            IteratorObligation::IteratorClose,
+            IntactnessPremise::NoIteratorObjectExists,
+        ),
+    "ARRAY_INDEX_WALK must discharge all four 7.4 obligations by its named premises"
+);
+
+/// The string walk, likewise: `compile_for_of_string` steps by code point and
+/// never builds a String Iterator.
+const _: () = assert!(
+    !IteratorProtocolWitness::STRING_CODE_POINT_WALK.is_fully_emitted()
+        && assumes(
+            IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+            IteratorObligation::GetIterator,
+            IntactnessPremise::StringIteratorIntact,
+        )
+        && assumes(
+            IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+            IteratorObligation::IteratorStep,
+            IntactnessPremise::StringWalkIsCodePoint,
+        )
+        && assumes(
+            IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+            IteratorObligation::IteratorValue,
+            IntactnessPremise::StringWalkIsCodePoint,
+        )
+        && assumes(
+            IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+            IteratorObligation::IteratorClose,
+            IntactnessPremise::NoIteratorObjectExists,
+        ),
+    "STRING_CODE_POINT_WALK must discharge all four 7.4 obligations by its named premises"
+);
+
+/// The two real-protocol witnesses emit every obligation, each at its own site.
+const _: () = assert!(
+    emits_every_obligation(
+        IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL,
+        EmissionSite::SyncForOfIterator,
+    ),
+    "SYNC_ITERATOR_PROTOCOL must emit all four 7.4 obligations at compile_for_of_iterator"
+);
+
+const _: () = assert!(
+    emits_every_obligation(
+        IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL,
+        EmissionSite::AsyncForOfIterator,
+    ),
+    "ASYNC_ITERATOR_PROTOCOL must emit all four 7.4 obligations at compile_async_for_of_iterator"
+);
+
+/// The bail-out witness assumes nothing about the program: every obligation is
+/// vacuous because no iteration was lowered.
+const _: () = assert!(
+    assumes_kind(
+        IteratorProtocolWitness::NO_ITERATION,
+        IteratorObligation::GetIterator,
+        PremiseKind::Vacuous,
+    ) && assumes_kind(
+        IteratorProtocolWitness::NO_ITERATION,
+        IteratorObligation::IteratorStep,
+        PremiseKind::Vacuous,
+    ) && assumes_kind(
+        IteratorProtocolWitness::NO_ITERATION,
+        IteratorObligation::IteratorValue,
+        PremiseKind::Vacuous,
+    ) && assumes_kind(
+        IteratorProtocolWitness::NO_ITERATION,
+        IteratorObligation::IteratorClose,
+        PremiseKind::Vacuous,
+    ),
+    "NO_ITERATION must be vacuous in all four obligations"
+);
+
+/// Ledger **L3** keys off this split: only a [`PremiseKind::ProgramProperty`]
+/// premise owes a lowering-time guard. Reclassifying `ArrayIteratorIntact` as an
+/// `ImplementationFact` would make the index walk *read* as discharged while
+/// still assuming the whole of 23.1.3.x — the 13.6 defect. It is now `E0080`.
+const _: () = assert!(
+    assumes_kind(
+        IteratorProtocolWitness::ARRAY_INDEX_WALK,
+        IteratorObligation::GetIterator,
+        PremiseKind::ProgramProperty,
+    ) && assumes_kind(
+        IteratorProtocolWitness::ARRAY_INDEX_WALK,
+        IteratorObligation::IteratorStep,
+        PremiseKind::ProgramProperty,
+    ) && assumes_kind(
+        IteratorProtocolWitness::ARRAY_INDEX_WALK,
+        IteratorObligation::IteratorValue,
+        PremiseKind::ProgramProperty,
+    ) && assumes_kind(
+        IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+        IteratorObligation::GetIterator,
+        PremiseKind::ProgramProperty,
+    ),
+    "the array and string walks rest on unguarded program properties: ledger L3"
+);
 
 #[cfg(test)]
 mod tests {
@@ -451,26 +730,54 @@ mod tests {
         }
     }
 
-    /// The per-obligation newtypes carry their own obligation, so a witness
-    /// cannot be read back through the wrong accessor even in a test.
+    /// Ledger **L3** keys off this split: only `ProgramProperty` premises owe a
+    /// lowering-time guard. `ByAssumption(ArrayLengthReadOnce)` used to read as
+    /// discharged while assuming nothing, because the old variant described our
+    /// emitter rather than the program.
     #[test]
-    fn discharge_newtypes_name_their_own_obligation() {
-        let witness = IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL;
-        assert_eq!(
-            witness.get_iterator().obligation(),
-            IteratorObligation::GetIterator
-        );
-        assert_eq!(
-            witness.iterator_step().obligation(),
-            IteratorObligation::IteratorStep
-        );
-        assert_eq!(
-            witness.iterator_value().obligation(),
-            IteratorObligation::IteratorValue
-        );
-        assert_eq!(
-            witness.iterator_close().obligation(),
-            IteratorObligation::IteratorClose
-        );
+    fn every_assumed_premise_states_which_kind_of_claim_it_is() {
+        for (witness, expected) in [
+            (
+                IteratorProtocolWitness::ARRAY_INDEX_WALK,
+                [
+                    PremiseKind::ProgramProperty,
+                    PremiseKind::ProgramProperty,
+                    PremiseKind::ProgramProperty,
+                    PremiseKind::Vacuous,
+                ],
+            ),
+            (
+                IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+                [
+                    PremiseKind::ProgramProperty,
+                    PremiseKind::ImplementationFact,
+                    PremiseKind::ImplementationFact,
+                    PremiseKind::Vacuous,
+                ],
+            ),
+            (
+                IteratorProtocolWitness::NO_ITERATION,
+                [
+                    PremiseKind::Vacuous,
+                    PremiseKind::Vacuous,
+                    PremiseKind::Vacuous,
+                    PremiseKind::Vacuous,
+                ],
+            ),
+        ] {
+            for (obligation, expected_kind) in ALL_OBLIGATIONS.into_iter().zip(expected) {
+                let ObligationDischarge::ByAssumption(premise) = witness.discharge(obligation)
+                else {
+                    panic!("{} should be discharged by assumption", obligation.name());
+                };
+                assert_eq!(
+                    premise.kind(),
+                    expected_kind,
+                    "{} rests on {}",
+                    obligation.name(),
+                    premise.name()
+                );
+            }
+        }
     }
 }

@@ -8,8 +8,17 @@
 //!
 //! [`NativeErrorKind`] names the nine-element union of those four clauses.
 //! ECMA-262 has no name for that union because it has no need of one, so the
-//! name is a mild abuse; [`NativeErrorKind::is_native_error`] recovers the
-//! spec-exact six so the abuse cannot harden into a misconception.
+//! name is a mild abuse. Which six are the spec-exact §20.5.5 NativeErrors is
+//! recorded in the per-variant doc comments of the row list below, not in a
+//! predicate: `is_native_error`, `NATIVE_ERRORS` and the two const assertions
+//! that tied them together had **no call site anywhere in the workspace**, and a
+//! `pub` item with no call site is precisely the "survival by `pub`" AGENTS.md
+//! names. Worse, `for k in ALL { if k.is_native_error() { … } }` reads as "for
+//! every error kind" while silently skipping `Error`, `AggregateError` and
+//! `SuppressedError` — a wrong answer the predicate invited rather than
+//! prevented. Reintroduce it, spelled `is_20_5_5_native_error` so no call site
+//! can read it as a general error test, in the same patch that gives it a
+//! consumer.
 //!
 //! The nine are, exhaustively:
 //!
@@ -58,7 +67,7 @@ macro_rules! native_error_kinds {
     (
         $(
             $(#[$variant_meta:meta])*
-            $variant:ident => $spelling:literal, $constructor:ident, native = $is_native:literal;
+            $variant:ident => $spelling:literal, $constructor:ident;
         )+
     ) => {
         /// One of the nine ECMA-262 error intrinsic names. See the module docs.
@@ -134,64 +143,31 @@ macro_rules! native_error_kinds {
                     _ => None,
                 }
             }
-
-            /// Whether this is a NativeError under §20.5.5 — i.e. one of the six
-            /// for which the §20.5.6 template applies uniformly (same
-            /// constructor arity, same `[[Prototype]]` chain, no extra
-            /// arguments).
-            ///
-            /// `Error` is the superclass, not a NativeError (§20.5.6.3).
-            /// `AggregateError` takes an extra `errors` argument (§20.5.7) and
-            /// `SuppressedError` takes `error` and `suppressed`; neither is
-            /// produced by the §20.5.6 template.
-            #[must_use]
-            pub const fn is_native_error(self) -> bool {
-                match self {
-                    $(NativeErrorKind::$variant => $is_native,)+
-                }
-            }
         }
     };
 }
 
 native_error_kinds! {
-    /// §20.5.1. The shared superclass, not a NativeError.
-    Error => "Error", ErrorConstructor, native = false;
-    /// §20.5.5.
-    EvalError => "EvalError", EvalErrorConstructor, native = true;
-    /// §20.5.5.
-    RangeError => "RangeError", RangeErrorConstructor, native = true;
-    /// §20.5.5.
-    ReferenceError => "ReferenceError", ReferenceErrorConstructor, native = true;
-    /// §20.5.5.
-    SyntaxError => "SyntaxError", SyntaxErrorConstructor, native = true;
-    /// §20.5.5.
-    TypeError => "TypeError", TypeErrorConstructor, native = true;
-    /// §20.5.5.
-    URIError => "URIError", URIErrorConstructor, native = true;
-    /// §20.5.7. Its own clause, with an extra `errors` argument.
-    AggregateError => "AggregateError", AggregateErrorConstructor, native = false;
+    /// §20.5.1. The shared superclass, **not** a §20.5.5 NativeError.
+    Error => "Error", ErrorConstructor;
+    /// §20.5.5 NativeError.
+    EvalError => "EvalError", EvalErrorConstructor;
+    /// §20.5.5 NativeError.
+    RangeError => "RangeError", RangeErrorConstructor;
+    /// §20.5.5 NativeError.
+    ReferenceError => "ReferenceError", ReferenceErrorConstructor;
+    /// §20.5.5 NativeError.
+    SyntaxError => "SyntaxError", SyntaxErrorConstructor;
+    /// §20.5.5 NativeError.
+    TypeError => "TypeError", TypeErrorConstructor;
+    /// §20.5.5 NativeError.
+    URIError => "URIError", URIErrorConstructor;
+    /// §20.5.7. Its own clause, with an extra `errors` argument, so the §20.5.6
+    /// template does not produce it: **not** a §20.5.5 NativeError.
+    AggregateError => "AggregateError", AggregateErrorConstructor;
     /// Explicit Resource Management. Its own clause, with `error` and
-    /// `suppressed` arguments.
-    SuppressedError => "SuppressedError", SuppressedErrorConstructor, native = false;
-}
-
-impl NativeErrorKind {
-    /// §20.5.5 *Native Error Types Used in This Standard*, verbatim.
-    ///
-    /// Hand-written rather than filtered out of [`NativeErrorKind::ALL`],
-    /// because `macro_rules!` cannot filter. The two are tied by the
-    /// `native_error_subset_agrees` const assertion below, so this list and the
-    /// `native = ` column of the row list cannot drift apart without failing the
-    /// build.
-    pub const NATIVE_ERRORS: [NativeErrorKind; 6] = [
-        NativeErrorKind::EvalError,
-        NativeErrorKind::RangeError,
-        NativeErrorKind::ReferenceError,
-        NativeErrorKind::SyntaxError,
-        NativeErrorKind::TypeError,
-        NativeErrorKind::URIError,
-    ];
+    /// `suppressed` arguments: **not** a §20.5.5 NativeError.
+    SuppressedError => "SuppressedError", SuppressedErrorConstructor;
 }
 
 const fn kind_eq(a: NativeErrorKind, b: NativeErrorKind) -> bool {
@@ -254,33 +230,6 @@ const fn spellings_are_distinct() -> bool {
     true
 }
 
-const fn native_errors_contains(kind: NativeErrorKind) -> bool {
-    let six = NativeErrorKind::NATIVE_ERRORS;
-    let mut i = 0;
-    while i < six.len() {
-        if kind_eq(six[i], kind) {
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-
-/// Contract assertions N2 and N7: `NativeErrorKind::NATIVE_ERRORS` and the
-/// `native = ` column agree in **both** directions, so §20.5.5's six cannot
-/// silently become five or seven.
-const fn native_error_subset_agrees() -> bool {
-    let all = NativeErrorKind::ALL;
-    let mut i = 0;
-    while i < all.len() {
-        if all[i].is_native_error() != native_errors_contains(all[i]) {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
 const _: () = assert!(
     all_is_ordered_and_round_trips(),
     "NativeErrorKind::ALL must be in declaration order, and as_str/constructor must round-trip through from_str/from_constructor"
@@ -288,8 +237,4 @@ const _: () = assert!(
 const _: () = assert!(
     spellings_are_distinct(),
     "two NativeErrorKind variants share an as_str() spelling"
-);
-const _: () = assert!(
-    native_error_subset_agrees(),
-    "NativeErrorKind::NATIVE_ERRORS disagrees with is_native_error(); ECMA-262 20.5.5 enumerates exactly six"
 );

@@ -70,7 +70,54 @@ const fn str_eq(a: &str, b: &str) -> bool {
 ///
 /// This is *not* the same string as [`SYMBOL_SHAPE_PROPERTY_PREFIX`], which
 /// marks a shape-map entry as symbol-keyed. See the module docs.
-pub const SYMBOL_DESCRIPTION_PREFIX: &str = "Symbol.";
+const SYMBOL_DESCRIPTION_PREFIX: &str = "Symbol.";
+
+/// A member name of the `Symbol` intrinsic (§19.4.2) — `"iterator"`.
+///
+/// This and [`SymbolDescription`] exist only at the parse boundary, and only
+/// because `from_member_name` and `from_description` otherwise share the
+/// signature `fn(&str) -> Option<Self>`. Handing one the other's domain
+/// compiles, returns `None`, and takes the conservative branch — no compile
+/// error, no test signal, and the specialization silently stops firing. That is
+/// the M1 failure mode the enum was built to kill, relocated to the parse
+/// boundary, so it is closed here.
+///
+/// Unlike the three *output* newtypes the contract rejected under M14, these are
+/// not unwrapped at any map boundary: the shape maps stay string-keyed, there
+/// are exactly two constructors, and no `Deref` or `From<&str>` is provided —
+/// which is the whole point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolMemberName<'a>(&'a str);
+
+impl<'a> SymbolMemberName<'a> {
+    #[must_use]
+    pub const fn new(name: &'a str) -> Self {
+        Self(name)
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
+
+/// Table 1's `[[Description]]` for a symbol — `"Symbol.iterator"` — which is
+/// also this compiler's runtime string encoding of the symbol value. See
+/// [`SymbolMemberName`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolDescription<'a>(&'a str);
+
+impl<'a> SymbolDescription<'a> {
+    #[must_use]
+    pub const fn new(description: &'a str) -> Self {
+        Self(description)
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
 
 macro_rules! well_known_symbols {
     (
@@ -153,8 +200,13 @@ macro_rules! well_known_symbols {
 
             /// The only parse from source text. Replaced both hand-kept
             /// `matches!` whitelists in `lowering.rs`.
+            ///
+            /// Takes a [`SymbolMemberName`] rather than a `&str` so that passing
+            /// a description here — which compiled, returned `None`, and
+            /// silently disabled the specialization — is `E0308`.
             #[must_use]
-            pub const fn from_member_name(name: &str) -> Option<Self> {
+            pub const fn from_member_name(name: SymbolMemberName<'_>) -> Option<Self> {
+                let name = name.as_str();
                 $(
                     if str_eq(name, $t1_member) {
                         return Some(WellKnownSymbol::$t1_variant);
@@ -173,8 +225,13 @@ macro_rules! well_known_symbols {
             /// `None` for a `"Symbol."`-prefixed description outside the fifteen:
             /// the description namespace is open (a program may compute one), the
             /// well-known set is not.
+            ///
+            /// Takes a [`SymbolDescription`] for the same reason
+            /// [`WellKnownSymbol::from_member_name`] takes a
+            /// [`SymbolMemberName`].
             #[must_use]
-            pub const fn from_description(description: &str) -> Option<Self> {
+            pub const fn from_description(description: SymbolDescription<'_>) -> Option<Self> {
+                let description = description.as_str();
                 $(
                     if str_eq(description, concat!("Symbol.", $t1_member)) {
                         return Some(WellKnownSymbol::$t1_variant);
@@ -243,6 +300,13 @@ pub fn shape_namespace_key(symbol: WellKnownSymbol) -> String {
 
 /// Whether `name` lies in this compiler's symbol-value string namespace.
 ///
+/// Read the name as `is_in_symbol_value_namespace`: it is a prefix test, so it
+/// answers `true` for `"Symbol."`, `"Symbol.for"`, `"Symbol.keyFor"` and
+/// `"Symbol.prototype"`, none of which is a symbol value and the first three of
+/// which exist as literals in `builtins.rs`. That is the intended, honest
+/// behaviour of a namespace test — it is only misleading if the name is read as
+/// a well-known-symbol test.
+///
 /// An **open** predicate over an **open** domain, and not derivable from
 /// [`WellKnownSymbol`]: a program can produce a `ValueKind::Symbol` string that
 /// is not one of the fifteen. Callers that need a well-known symbol must use
@@ -292,13 +356,13 @@ const fn all_is_ordered_and_round_trips() -> bool {
             return false;
         }
         if !found_is(
-            WellKnownSymbol::from_member_name(all[i].member_name()),
+            WellKnownSymbol::from_member_name(SymbolMemberName::new(all[i].member_name())),
             all[i],
         ) {
             return false;
         }
         if !found_is(
-            WellKnownSymbol::from_description(all[i].description()),
+            WellKnownSymbol::from_description(SymbolDescription::new(all[i].description())),
             all[i],
         ) {
             return false;
@@ -340,6 +404,17 @@ const fn spellings_are_distinct() -> bool {
 /// The lengths alone are carried by the array types; what this adds is that the
 /// two named groups really *are* the fifteen, so a row added to `ALL` cannot
 /// escape being classified as either ES2024 Table 1 or an ERM addition.
+///
+/// Stated plainly, because the contract used to claim the opposite: under the
+/// current macro this **cannot fail**. `ALL`, `TABLE_1` and
+/// `EXPLICIT_RESOURCE_MANAGEMENT` are three expansions of the same two `$(...)+`
+/// sequences in the same order, so the concatenation identity is definitional.
+/// It is kept as executable documentation of the partition, and it is the check
+/// that would start being able to fail the moment either group stops being a
+/// direct expansion. The assertions that *can* fail today are W7 (a duplicate
+/// spelling is writable in a row list) and W8 (a change to
+/// `SYMBOL_DESCRIPTION_PREFIX` is a real edit); the discriminant-order halves of
+/// W3 are definitional for the same reason as this one.
 const fn partition_covers_all() -> bool {
     let all = WellKnownSymbol::ALL;
     let table_1 = WellKnownSymbol::TABLE_1;

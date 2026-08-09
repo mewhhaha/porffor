@@ -216,7 +216,8 @@ pub struct DynamicComponentIr {
 pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
     let mut components: Vec<DynamicComponentIr> = Vec::new();
     for index in 0..graph.units.len() {
-        let referrer = ModuleUnitId::try_from(index).unwrap_or(ModuleUnitId::MAX);
+        let referrer = ModuleUnitId::try_from(index)
+            .expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
         let sites = graph.units[index].record.dynamic_import_sites.clone();
         for site in sites {
             let Some(specifier) = site.static_specifier else {
@@ -692,11 +693,27 @@ impl ModuleGraphIr {
                 // declares in the *merged* scope, so both sides are D3. A
                 // `[[LocalName]]` of `*default*` has already become `$d{u}$`
                 // here and cannot be mistaken for a linker name.
-                let merged = binding.name.merged_in(unit.record.id);
+                let merged = unit.record.merged(&binding.name);
                 if merged.as_str().starts_with(LINKER_NAME_PREFIX) {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
                         "unsupported in porffor wasm-aot: module {key}: top-level `{}` collides \
                          with a linker-synthesized name",
+                        merged.as_str()
+                    )));
+                }
+                // The `$m<unit>$…` / `$d<unit>$` range is minted by
+                // `MergedName::minted` and `MergedName::anonymous_default`, and
+                // `merged_in` is the identity on a source name — so a module
+                // that declares `$m0$namespace` lands in the same merged cell as
+                // the prelude's `const $m0$namespace = Object.create(null);`.
+                // Left unchecked that is a duplicate-declaration SyntaxError
+                // from the merged script for a legal module. Pathological, but
+                // it is the same merged-name hazard invariant M3 governs, and
+                // the linker-prefix check beside it covers a different family.
+                if MergedName::is_minted_shaped(merged.as_str()) {
+                    diagnostics.push(IrDiagnostic::unsupported(format!(
+                        "unsupported in porffor wasm-aot: module {key}: top-level `{}` collides \
+                         with a linker-minted per-unit cell name",
                         merged.as_str()
                     )));
                 }

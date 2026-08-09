@@ -5,6 +5,11 @@ edited to produce this document. Every count in it was obtained by reading the
 tree at `claude/test-driven-rust-opus-pp6giw`, not estimated; the command that
 produced each count is given so the dry-runner can re-derive it.
 
+> **Read §13 first.** A dry-run discrepancy pass amended this document after the
+> encoding landed. §13 supersedes every claim it names — including parts of §2,
+> §3 A1/A3/A5/A6, §5 L1/L3/L4/L6, §6 mistake classes 1, 4, 7 and 8, §7, §10 and
+> §12. Do not cite §§1–12 without checking §13.
+
 Owned area files:
 
 - `crates/porffor-ir/src/operations.rs`
@@ -1210,3 +1215,298 @@ integrator runs the gate.
 | **L6** | `EmissionSite::ArrayDestructuring` has zero construction sites: no row and no witness names it. | Its value is the R7 match arm, which pins `compile_array_destructure_from_value_locals` to something real and forces a new variant to name something real. A variant that is only *matched* still breaks the build when its function disappears, which a merely-defined type does not. | None. Recorded so a later lane either finds the anchor persuasive or deletes variant and arm together. |
 | **L7** | `NormalResult::name`, `TrackedGapReason::name`, `IntactnessPremise::name` have no caller (the other two renderers are used by test failure messages). | `pub` suppresses dead-code detection — the exact "survival by `pub`" this area names. Kept because the catalog's only consumer is a human reader, and a row that cannot be rendered cannot be reviewed. | None. Recorded rather than hidden. |
 | **L8** | `STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` still state `family` / `normal_result` / `abrupt` by hand, and a `StatementEmissionRow` can name an arm that does not in fact emit it. | These operations have no `SpecOperationIr` variant to derive from — that is what makes them gaps. Inventing variants for unimplemented operations would recreate the false-claim defect one level down. R7 proves the named function exists, not what it emits (same boundary as L2). | Nothing. Bounded: a wrong signature on a row that also says "not implemented" cannot be read as an implementation claim. |
+
+---
+
+# 13. Amendments from the dry-run discrepancy pass (applied)
+
+**This section supersedes every claim it names.** It was written after a
+symbolic dry run of the encoded tree, and the code changes it describes are in
+the tree. Where §§1–12 and this section disagree, this section is correct.
+
+## 13.1 The integration steps were not applied; they now are
+
+§12.1 and §7 said Part A and Part B had "landed", and §10 item 1 said
+`cargo check -p porffor-ir` was clean. Neither was true: `lib.rs` had no
+`mod iterator_obligations;` (so `operations.rs`'s
+`use crate::iterator_obligations::EmissionSite;` was `E0433`) and still exported
+eleven types the rewrite had deleted (`E0432` ×11). Measured across
+`crates/**/*.rs`, `IteratorProtocolWitness`, `EmissionSite`, `IteratorRecordIr`,
+the three slot newtypes and the two row tables had **exactly one** mention
+outside their own two files — the stale `pub use` line. Part B had zero
+construction sites, i.e. it was the "survival by `pub`" defect this area exists
+to delete.
+
+Applied, in `porffor-ir` unless stated: `mod iterator_obligations;`; the export
+block replaced (eleven dead names dropped, `iterator_obligations`'s surface
+added); `ir.rs` retrofitted (`AsyncForOfIteratorPlanIr::record`, `protocol` on
+the three `ForOf*` variants, `abrupt_completion_record` exhaustive over all 33
+variants with no catch-all); `lowering.rs` construction sites; the six
+full-field `ForOf*` patterns in `porffor-aot-wasm/src/control_flow.rs` gained
+`..`; `compile_array_destructure_from_value_locals` widened to `pub(crate)`; and
+`porffor-aot-wasm/src/emission_sites.rs` created and declared. **I7 (deleting
+the dead `ForOfArray` async path) was not applied** and remains an open item —
+`AsyncForOfPlanIr` still has zero construction sites.
+
+## 13.2 Mistake class 1 was false: the catalog entry was forgeable
+
+§6 class 1 claimed an implementation status was reachable only from
+`SpecOperationIr::catalog_entry` or an `EmissionSite`. It was not:
+`SpecOperationCatalogEntry` had five `pub` fields, so the whole evidence design
+was bypassed by writing the struct literal out, and `EmitterEvidence` was not
+tied to the row's `name`, so even legitimately-obtained evidence could be
+attached to any name.
+
+Now: every field of `SpecOperationCatalogEntry` is private, a new private
+`source: RowSource` field makes the struct unconstructible outside
+`operations.rs`, accessors replace field reads, `catalog_entry` derives `name`
+from `evidence.operation().name()` rather than from a free field, and const
+assert **J6** checks name-vs-evidence agreement for every assembled row.
+
+## 13.3 Ledger L1 is discharged by construction; its test is deleted
+
+L1 said "added a variant, forgot `ALL`" was uncatchable and was covered by
+`spec_operation_all_is_complete_and_dense`. That test could not detect its own
+invariant: a 30th variant with all four exhaustive arms and no `ALL` row passed
+J1, J3, J4 and J5 *and* passed the test, whose final assertion was the
+hardcoded `ALL.len() == 29` that the omission preserves — and J4 cemented it.
+
+`SpecOperationIr`, `ALL` and `name()` are now three expansions of one
+`spec_operations!` row list, so the omission is unrepresentable. The test is
+deleted. `catalog_index` and const assert **J3** are deleted with it (density
+became definitional); **J5** is restated as a real check on `build_catalog`'s
+row order. §12.3 addition 16 no longer applies.
+
+## 13.4 Mistake class 7 / §10 item 7 were false as stated
+
+`E0308` fired only for a transposition of already-*wrapped* values, which was
+not the shape of the construction site: `IteratorSlot::new(next_binding),
+NextMethodSlot::new(iterator_binding)` type-checked and miscompiled every
+`for await`, exactly the original defect. The three `new`s are now
+`pub(crate)`, and `ScriptLowerer::alloc_iterator_slot` /
+`alloc_next_method_slot` / `alloc_done_slot` each wrap
+`alloc_suspension_owned_binding` with its own fixed hint and return the slot
+type. There is no `String` left in the expression, and §10 item 7 is now true.
+Allocation order is unchanged, so the emitted binding names are byte-identical.
+
+## 13.5 Mistake class 8 was aimed at the wrong place: there were already four
+
+A `protocol` field on three `ForOf*` variants cannot catch a specialization
+that is not spelled as a `ForOf*`. `for (x of arr) { … await … }` inside a
+plain async function is desugared by `lower_async_for_of_array_with_body_await`
+into `StatementIr::GeneratorLoop` with an explicit
+`index < PropertyKeyIr::ArrayLength` test and `PropertyKeyIr::ArrayIndex`
+element reads — an index walk on all the array premises, with no witness and no
+way to demand one. §2's "for-of specialization construction sites: 3" was wrong.
+
+The obligation is now attached to the **lowering of the head**:
+`lower_for_of_head` returns `ForOfLoweringIr`, whose only constructor takes an
+`IteratorProtocolWitness`, and every one of its ten exits produces one
+(`ForOfLoweringIr::no_iteration()` for the bail-outs, `NO_ITERATION` for the
+`WebCompatCall` head that throws instead of iterating,
+`ARRAY_INDEX_WALK_RESUMABLE` for the `GeneratorLoop` desugaring). The `ForOf*`
+`protocol` field is now a consumer of that value rather than the only place it
+is demanded. Spread, `yield*` and array destructuring reach the protocol by
+other routes and are named as `EmissionSite`s instead (13.9).
+
+One honest cost, recorded under the same heading as L7: `ForOfLoweringIr::protocol()`
+has no caller. The witness's work is done at the type level by the time control
+leaves `lower_for_of_head`, and the accessor exists so the private field is
+reachable public API rather than a field rustc reports as never read. Delete it
+in the patch that gives a consumer a reason to inspect a witness.
+
+## 13.6 `IntactnessPremise` conflated three kinds of claim
+
+`ArrayLengthReadOnce` and `ArrayElementReadBypassesGet` described what **our
+code** does, not conditions under which doing that is correct, so
+`ByAssumption(ArrayLengthReadOnce)` read as *discharged* while assuming nothing.
+They are renamed to the program properties they stand for —
+`ArrayLengthStableDuringBody` and `ArrayHasNoHolesOrIndexAccessors` — and every
+variant now carries `IntactnessPremise::kind() -> PremiseKind`
+(`ProgramProperty` | `ImplementationFact` | `Vacuous`), so the lane that closes
+L3 knows which variants it must actually establish. `NoIterationLowered` is
+added for 13.5's bail-out witness.
+
+## 13.7 Ledger L3 was understated to the point of being misleading
+
+L3 said no guard exists. A **partial** intactness guard already exists —
+`ScriptLowerer::array_prototype_mutated` (`lowering.rs:544`), set at ten sites
+including plain assignment to `Array.prototype[Symbol.iterator]`, `delete`,
+aliasing, `defineProperty` and `Reflect` — and four sibling fast paths already
+consult it (`:20960`, `:21458`, `:22213`, `:28497`). The for-of specialization
+decision is the outlier that does not.
+
+Corrected L3: *a guard exists and is not consulted at this decision.* Closing
+`ArrayIteratorIntact` is one conjunct — `&& !self.array_prototype_mutated` at
+the three-way `if` — plus an own-`@@iterator`/custom-prototype check for which
+`Self::array_shape_has_custom_prototype` already exists. That change moves
+emitted bytes, so it stays out of this pass. Also recorded: the same flag's
+incompleteness bounds those four sibling fast paths, a larger blast radius than
+for-of alone.
+
+## 13.8 Ledger L4 had two factual errors
+
+The `static_object_iterator_iife_source_values` oracle compacts with
+`chars().filter(|ch| !ch.is_whitespace())` — **total** whitespace removal — so
+`{[Symbol . iterator]:null}` compacts identically to `{[Symbol.iterator]:null}`
+and trace A4's cited counterexample is not one. The real sensitivities are
+`compact.find("let")` matching the substring `let` inside an earlier identifier
+or string literal, and `const` instead of `let` returning `None`. Second, the
+oracle does not select a for-of specialization at all: its output feeds
+`Iterator.prototype.toArray` / `Array.from` constant folding, and the folded
+expression has `possible_kinds` `{Object}`, so the for-of head reaches
+`ForOfIterator` either way. L4 is restated as *an unsound source-text guard on
+iterator constant-folding*, and A4's example is withdrawn.
+
+## 13.9 `EmissionSite` is a set, not a single value; L6 is retired
+
+`GetIterator`, `IteratorStep`, `IteratorValue` and `IteratorClose` are each
+emitted by at least three arms — the sync for-of, the async for-of, and array
+destructuring, which has no array fast path and always runs the real protocol
+(`emit_get_iterator_from_value_locals`, `emit_destructuring_iterator_step`,
+`emit_iterator_close`, `emit_iterator_close_preserving_current_throw`). As
+written, §3 A6 read as if `for await` performed no `GetIterator`.
+
+`StatementEmissionRow::site` is now `sites: &'static [EmissionSite]`,
+`OperationLoweringStatus::StatementEmission` carries the slice, and const assert
+**J7** rejects an empty one. `EmissionSite::ArrayDestructuring` thereby gains
+construction sites and **ledger L6 is retired**.
+
+## 13.10 Mistake class 4 was false: `OwnerTaskId` validated the wrong property
+
+Shape validation accepted every `T` + two digits, including every nonexistent
+id. `OwnerTaskId::new` now validates **membership** in `BACKLOG_TASK_IDS`, a
+28-row list transcribed from `tasks/` (`T00`–`T27`), so `T99` is a const-eval
+failure. Note for the record: T04 *is* a real backlog task
+(`tasks/04-spec-operations-and-completion-abi.md`); the dry run's claim that it
+does not exist came from checking `test262/backlog/ownership-map.tsv`, which
+maps Test262 path prefixes to tasks and so legitimately omits a task that owns
+no prefix. The twelve gap rows keep `T04` and it is correct.
+
+## 13.11 What `EmitterEvidence` proves, and how L2 must be scoped
+
+Verified good news: both `porffor-aot-wasm` matches on `SpecOperationIr` are
+exhaustive with no top-level catch-all (the three `_ =>` arms in that range are
+nested operand matches), so "add a variant, forget an arm" really is `E0004`.
+But `emitter_evidence` is total on the variant, so the evidence proves only that
+the name is a variant the backend must match on — an arm may satisfy both
+matches with `Err(EmitError::unsupported(..))` and the catalog still reads
+`SharedWasmEmitter`. §3 A1/A3 and mistake class 1 are amended accordingly, and
+the doc comment on `emitter_evidence` now says so.
+
+**L2 is rescoped**: the follow-up lane must make the arm's success type
+`Emitted::{MayThrow, NoAbrupt}` *and* make `EmitError::unsupported`
+unconstructible inside a `SpecOperationIr` arm. "Add a return type" alone would
+leave the hole open.
+
+## 13.12 The "emitter must not read `protocol`" rule is now a type
+
+§7 R4 enforced it with a comment plus six hand-added `..` patterns, detectable
+only by a ten-minute rung-G capture. Every reader of a witness's contents —
+`get_iterator`, `iterator_step`, `iterator_value`, `iterator_close`,
+`discharge`, `is_fully_emitted`, and `ObligationDischarge::is_emitted` — is now
+`pub(crate)`. A backend arm that binds `protocol` and branches on it is `E0624`
+at `cargo check`. §10 item 11 stops being the load-bearing check for it.
+
+## 13.13 D4 holds, and the residual transposition inside the module is closed
+
+§12.2 D4 was verified: outside `iterator_obligations` the only inhabitants of
+`IteratorProtocolWitness` are its named constants. The residual the dry run
+found — `assumed()`/`emitted_by()` took four same-typed `IntactnessPremise`
+arguments positionally, so a transposition *inside* the module still
+type-checked — is closed: each discharge newtype carries its own
+`assumed`/`emitted` constructor and `IteratorProtocolWitness::new` takes the
+four newtypes, so the constants are built per-obligation and swapping two is
+`E0308` at the only place it can still be written. `Self::assumed` is deleted.
+
+## 13.14 Two counting corrections
+
+- §2's measured baseline says the 46 rows use **20** distinct `normal_result`
+  strings. §12.2 D2 already recorded that the old table used **21** (a separate
+  `"Completion"` alongside `"Completion Record"`). §2 is wrong and D2 is right.
+- §3 A5 and the deleted test called `ALL` "one entry per variant". It is one
+  entry per **operation**: `ToPrimitive` has three variants and one entry.
+  Payload-carrying variants collapse to their canonical expression, which is
+  correct for a catalog keyed by operation name.
+
+## 13.15 Still open after this pass
+
+- **I7.** `AsyncForOfPlanIr` still has zero construction sites and
+  `compile_async_for_of_array` (449 lines) is still unreachable from the product
+  path, which AGENTS.md says should fail to build.
+- **L2**, rescoped as in 13.11.
+- **L3**, with the corrected statement in 13.7 — one conjunct, but it moves
+  emitted bytes.
+- **L4/L5**, untouched; L4 restated as in 13.8.
+- **L7**, unchanged: three `name()` renderers still have no product caller.
+
+## 14. Integration record — the compile gate, and what it caught
+
+This section is the integrator's, written after actually running the gate that
+§10 item 1 and §13.1 could only assert. Commands run: `cargo check -p porffor-ir
+--all-targets`, `cargo xc` (`check --workspace --all-targets`), `cargo fmt --all
+-- --check`. No tests, no golden capture, no Test262.
+
+### 14.1 The gate was green, and that is the smaller half of the result
+
+`cargo xc` exits 0 across all ten workspace crates with the three areas
+integrated. Every const assertion in `operations.rs` (J1, J2, J4, J5, J6, J7) and
+every one in `native_error.rs` / `well_known.rs` / `binding_names.rs` evaluated,
+which is the first time any of them has been *evaluated* rather than argued: a
+const assertion that never reaches a compiler is a comment. §13.1 was right that
+the tree did not build; it does now, and the assertions hold as written.
+
+### 14.2 §13.12's narrowing had a cost it did not price, and the fix upgrades it
+
+Narrowing every witness reader to `pub(crate)` bought the `E0624` guarantee —
+and left `is_emitted`, `get` ×4, the four slot accessors, `discharge` and
+`is_fully_emitted` with **no caller outside `#[cfg(test)]`**. rustc reported all
+ten as `dead_code`. That is the area's own defect reappearing one visibility
+level down: `pub` stopped hiding callerless code, so `pub(crate)` inherited the
+job of hiding it, and only the product build noticed.
+
+The resolution keeps the guarantee and removes the decoration, because every
+reader is a `const fn`:
+
+- Four `#[test]`s asserted that the five witness constants say what their doc
+  comments say. Three of those claims are now `const _: () = assert!(…)` —
+  evaluated by `cargo check`, not by a test run. Editing `ARRAY_INDEX_WALK` to
+  *claim* emission it does not perform, or reclassifying `ArrayIteratorIntact`
+  from `ProgramProperty` to `ImplementationFact` so the index walk reads as
+  discharged (the 13.6 defect), is now `E0080` at build time.
+- `discharge` now reads through the four typed accessors instead of the four
+  private fields, so the accessors have a product-path caller and the
+  wrong-slot mistake stays `E0308`.
+- `GetIteratorDischarge::obligation` and its three siblings are **deleted**.
+  Each returned a hardcoded constant, so no edit to them could disagree with
+  anything; the "cannot read a witness back through the wrong accessor"
+  property is carried by the four distinct newtypes, not by these four methods.
+  Their only caller was the one test that existed to call them; that test is
+  deleted with them. This is AGENTS.md's own test applied to this area's own
+  code: a plausible mistake did not become a compile error, so it was
+  decoration.
+
+Result: `porffor-ir` goes from 12 warnings to 6, and the 6 that remain are all
+in files this campaign never opened (`analysis.rs`, `lowering_helpers.rs`, and
+four pre-existing clusters in `lowering.rs`, the largest being 27 callerless
+generated-iterator and static-generator-folding helpers). Measured, not assumed:
+the campaign's diff mentions none of those names.
+
+§13.12 stands, strengthened — the readers still cannot be called from
+`porffor-aot-wasm`, and now they are not dead either.
+
+### 14.3 I7 was deliberately not applied
+
+`AsyncForOfPlanIr` still has zero construction sites. I7 was left undone for two
+reasons that are about this batch, not about the merit of the deletion: it is a
+449-line deletion in `porffor-aot-wasm`, the crate batch 2 is verifying in
+concurrently, and a deletion claimed to be behaviour-neutral wants the rung-G
+golden diff that this pass is not permitted to spend. It stays open exactly as
+13.15 states it, and it is still the right change.
+
+### 14.4 The one warning this campaign accepts
+
+`emission_sites.rs::emission_sites_are_backed` carries `#[allow(dead_code)]`. It
+is uncalled *by design* — being uncalled is the whole mechanism, since its only
+job is to make an `EmissionSite` variant name a real function or fail to
+resolve. Recorded here so the allow is a decision rather than a leftover.

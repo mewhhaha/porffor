@@ -260,6 +260,25 @@ pub enum DefaultExportFormIr {
 }
 
 impl SourceTextModuleRecordIr {
+    /// The merged spelling of one of *this* record's `[[LocalName]]`s.
+    ///
+    /// [`LocalName::merged_in`] takes a bare `ModuleUnitId`, so "which unit does
+    /// this name belong to" — the exact coordinate commit `e27c01b1e` got wrong
+    /// — was carried by loop structure rather than by types: passing the
+    /// importer's id where the exporter's is required compiled, was silent for
+    /// [`LocalName::Source`] (`merged_in` ignores the unit there) and produced
+    /// the wrong `$d<unit>$` cell for [`LocalName::AnonymousDefault`].
+    ///
+    /// Every call site that already holds the record goes through here instead,
+    /// so the id cannot be supplied independently of the name's owner. The one
+    /// site that legitimately keeps `merged_in` destructures both from the same
+    /// `ResolvedBindingIr::Resolved { module, binding }`, where the pairing is
+    /// structural already.
+    #[must_use]
+    pub fn merged(&self, name: &LocalName) -> MergedName {
+        name.merged_in(self.id)
+    }
+
     /// Number of `import.meta` references in the module body.
     ///
     /// `import.meta` is created lazily and at most once per module (13.3.12
@@ -1413,13 +1432,17 @@ mod tests {
         ImportNameIr::Name(ExportName::new(name))
     }
 
-    /// The compile-time witness for the coincident case: the two arguments go
-    /// through two *different* constructors, so this helper cannot be written
-    /// with one shared conversion and cannot silently swap its arguments.
-    fn local_export(local_name: &str, export_name: &str) -> LocalExportEntryIr {
+    /// The compile-time witness for the coincident case.
+    ///
+    /// It used to take two `&str`s, which made the *field initialisers* inside
+    /// it unswappable while leaving every **call site** free to swap:
+    /// `local_export("x", "y")` and `local_export("y", "x")` both compiled. The
+    /// parameters are typed now, so the swap is `E0308` where it would actually
+    /// be written.
+    fn local_export(local_name: LocalName, export_name: ExportName) -> LocalExportEntryIr {
         LocalExportEntryIr {
-            local_name: local(local_name),
-            export_name: ExportName::new(export_name),
+            local_name,
+            export_name,
         }
     }
 
@@ -1570,13 +1593,13 @@ mod tests {
         assert_eq!(
             record.local_export_entries,
             vec![
-                local_export("thing", "thing"),
-                local_export("thing", "renamed"),
-                local_export("counted", "counted"),
-                local_export("fn", "fn"),
+                local_export(local("thing"), ExportName::new("thing")),
+                local_export(local("thing"), ExportName::new("renamed")),
+                local_export(local("counted"), ExportName::new("counted")),
+                local_export(local("fn"), ExportName::new("fn")),
                 // ParseModule 12.a.iii: re-exporting a namespace *import* is a
                 // local entry, because the exported cell is this module's own.
-                local_export("namespaced", "namespaced"),
+                local_export(local("namespaced"), ExportName::new("namespaced")),
             ]
         );
         assert_eq!(
@@ -1626,7 +1649,10 @@ mod tests {
             let record = record_of(source);
             assert_eq!(
                 record.local_export_entries,
-                vec![local_export("alpha", MODULE_DEFAULT_EXPORT_NAME)],
+                vec![local_export(
+                    local("alpha"),
+                    ExportName::new(MODULE_DEFAULT_EXPORT_NAME)
+                )],
                 "{source}"
             );
         }
@@ -1658,8 +1684,8 @@ mod tests {
             assert_eq!(
                 record.local_export_entries,
                 vec![local_export(
-                    MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME,
-                    MODULE_DEFAULT_EXPORT_NAME
+                    local(MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME),
+                    ExportName::new(MODULE_DEFAULT_EXPORT_NAME)
                 )],
                 "{source}"
             );
@@ -1923,7 +1949,10 @@ mod tests {
             binding.declaration,
             "const $m0$meta = { __proto__: null, url: \"file:///root/a.mjs\" };"
         );
-        assert_eq!(binding.name, MergedName::minted(0, UnitCellRole::ImportMeta));
+        assert_eq!(
+            binding.name,
+            MergedName::minted(0, UnitCellRole::ImportMeta)
+        );
     }
 
     #[test]

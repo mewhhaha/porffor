@@ -204,24 +204,81 @@ fn push_js_string_literal(out: &mut String, value: &str) {
 /// to be reported rather than emitted.
 ///
 /// This is a *spellability* predicate, not a domain test, and it stays a runtime
-/// predicate on purpose — contract ledger R1. Its inputs are merged names, so
-/// the one name 8.2.2 makes unspellable can no longer reach it:
-/// [`LocalName::merged_in`] has already replaced `*default*` with a minted
-/// `$d{unit}$` before this is asked. What remains are source-spelled
-/// identifiers that boa has already accepted as `BindingIdentifier`s, which is
-/// *nearly* always enough — a `\u`-escaped identifier and an astral-plane
-/// identifier both parse and neither is ASCII-spellable by the current emitter.
-/// Encoding that in a type would mean duplicating boa's `IdentifierPart` scan in
-/// a constructor; the honest operation is this predicate.
+/// predicate — contract ledger R1, whose stated reason has been corrected.
+///
+/// R1 used to justify it with two examples, and neither survives. A
+/// `\u`-escaped identifier is resolved to its code points by boa's interner long
+/// before it reaches a `SourceName`, so nothing here ever sees the escape. An
+/// astral-plane identifier *passes*, because `char::is_alphabetic` accepts
+/// astral letters. And the emitter does not need ASCII: identifiers are written
+/// raw into UTF-8 merged source that boa re-parses — only
+/// [`push_js_string_literal`] escapes to ASCII, and that is for string keys.
+/// The documented `*default*` job is genuinely dead: [`LocalName::merged_in`]
+/// has already replaced it with a minted `$d{unit}$` before this is asked.
+///
+/// What it actually does, therefore, is produce **false rejections**, and the
+/// widening below removes the cheap ones: ZWNJ/ZWJ and the `Other_ID_Start` /
+/// `Other_ID_Continue` code points that `is_alphabetic`/`is_alphanumeric` miss.
+/// It remains conservative for `IdentifierPart`'s `Mn`, `Mc` and `Pc` general
+/// categories — combining marks and connector punctuation — which would need
+/// Unicode tables this crate does not carry. That residual is recorded in the
+/// ledger rather than hidden: a conformant module using one is reported as
+/// unsupported, not miscompiled.
 fn is_binding_identifier(name: &MergedName) -> bool {
     let mut chars = name.as_str().chars();
     let Some(first) = chars.next() else {
         return false;
     };
-    if !(first == '$' || first == '_' || first.is_alphabetic()) {
+    if !is_identifier_start_char(first) {
         return false;
     }
-    chars.all(|ch| ch == '$' || ch == '_' || ch.is_alphanumeric())
+    chars.all(is_identifier_part_char)
+}
+
+/// Every global the merged script's own preludes spell.
+///
+/// One list, because the four guards that need it used to be three different
+/// literals: `link.rs`'s renamed-import check tested
+/// `OBJECT_NAME | SYMBOL_NAME | GLOBAL_THIS_NAME`, while this module's two alias
+/// checks and its shadowed-globals check tested only `OBJECT_NAME | SYMBOL_NAME`.
+/// So `import * as globalThis from './m.js'` emitted
+/// `const globalThis = $m0$namespace;` into the merged scope ahead of
+/// `binding_alias_prelude`'s `Object.defineProperty(globalThis, …)`, which then
+/// defined every renamed-import alias on the namespace object — a silent wrong
+/// answer where the other two names give a diagnostic. Three literals could
+/// disagree; one cannot.
+pub(crate) const PRELUDE_GLOBALS: [&str; 3] = [OBJECT_NAME, SYMBOL_NAME, GLOBAL_THIS_NAME];
+
+/// Whether `name` is one of [`PRELUDE_GLOBALS`].
+pub(crate) fn shadows_prelude_global(name: &str) -> bool {
+    PRELUDE_GLOBALS.contains(&name)
+}
+
+/// `IdentifierStart` (12.7.1), minus the general categories noted on
+/// [`is_binding_identifier`].
+fn is_identifier_start_char(ch: char) -> bool {
+    ch == '$'
+        || ch == '_'
+        || ch.is_alphabetic()
+        // `Other_ID_Start`, which `char::is_alphabetic` does not cover.
+        || matches!(
+            ch,
+            '\u{1885}' | '\u{1886}' | '\u{2118}' | '\u{212E}' | '\u{309B}' | '\u{309C}'
+        )
+}
+
+/// `IdentifierPart` (12.7.1), minus the general categories noted on
+/// [`is_binding_identifier`].
+fn is_identifier_part_char(ch: char) -> bool {
+    is_identifier_start_char(ch)
+        || ch.is_alphanumeric()
+        // ZWNJ and ZWJ are `IdentifierPart` by name in 12.7.1.
+        || matches!(ch, '\u{200C}' | '\u{200D}')
+        // `Other_ID_Continue`.
+        || matches!(
+            ch,
+            '\u{00B7}' | '\u{0387}' | '\u{1369}'..='\u{1371}' | '\u{19DA}'
+        )
 }
 
 /// Expression the merged script evaluates to read a resolved binding.
@@ -250,6 +307,12 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedNa
             // `*default*` is the one `[[LocalName]]` no source text can spell,
             // and `merged_in` is where the merged script's minted name for it
             // comes from. Applied exactly once, here.
+            //
+            // The one site that keeps `merged_in` rather than
+            // `SourceTextModuleRecordIr::merged`: `module` and `name` are
+            // destructured from the *same* `ResolvedBindingIr::Resolved`, so the
+            // "which unit owns this name" pairing is already structural and
+            // there is no id to supply independently.
             let reference = name.merged_in(*module);
             is_binding_identifier(&reference).then_some(reference)
         }
@@ -421,8 +484,8 @@ fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Ve
         {
             // The merged spelling, because that is the name the prelude's own
             // `Object.` / `Symbol.` reads would resolve against.
-            let merged = shadowed.name.merged_in(unit.record.id);
-            if !matches!(merged.as_str(), OBJECT_NAME | SYMBOL_NAME) {
+            let merged = unit.record.merged(&shadowed.name);
+            if !shadows_prelude_global(merged.as_str()) {
                 continue;
             }
             diagnostics.push(namespace_unsupported(
@@ -461,10 +524,7 @@ fn collect_namespace_aliases(
         }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
-                declared.insert(
-                    binding.name.merged_in(unit.record.id),
-                    unit.record.key.as_str(),
-                );
+                declared.insert(unit.record.merged(&binding.name), unit.record.key.as_str());
             }
         }
     }
@@ -480,7 +540,7 @@ fn collect_namespace_aliases(
             // The alias is emitted as a real `const` in the merged scope, so
             // the name that matters here is the merged one — the same domain
             // as the `declared` map it is checked against below.
-            let merged = entry.local_name.merged_in(unit.record.id);
+            let merged = unit.record.merged(&entry.local_name);
             let local = merged.as_str();
             let Some(ResolvedBindingIr::Resolved {
                 module,
@@ -498,7 +558,7 @@ fn collect_namespace_aliases(
                     key,
                     &format!("namespace binding `{local}` is not spellable"),
                 ));
-            } else if matches!(local, OBJECT_NAME | SYMBOL_NAME) {
+            } else if shadows_prelude_global(local) {
                 // The same hazard `report_shadowed_namespace_globals` catches
                 // for ordinary declarations, which it cannot see here: an
                 // import binding is `ModuleBindingKindIr::Import`, so that
@@ -705,7 +765,7 @@ fn collect_module_source_aliases(
             }
             // As in `collect_namespace_aliases`: the binding is emitted as a
             // `const` of the merged scope, so it is a D3 name.
-            let merged = entry.local_name.merged_in(unit.record.id);
+            let merged = unit.record.merged(&entry.local_name);
             let local = merged.as_str();
             let Some(ResolvedBindingIr::Resolved {
                 module,
@@ -725,7 +785,7 @@ fn collect_module_source_aliases(
                 ));
                 continue;
             }
-            if matches!(local, OBJECT_NAME | SYMBOL_NAME) {
+            if shadows_prelude_global(local) {
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!(
@@ -951,8 +1011,7 @@ mod tests {
             Some(LocalName::from_bound_name("value").merged_in(0))
         );
         assert_eq!(
-            namespace_target_reference(&export.target)
-                .map(|name| name.as_str().to_string()),
+            namespace_target_reference(&export.target).map(|name| name.as_str().to_string()),
             Some("value".to_string())
         );
     }

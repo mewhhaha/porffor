@@ -777,7 +777,7 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
     let unit_count = graph.units.len();
 
     for module in 0..unit_count {
-        let id = ModuleUnitId::try_from(module).unwrap_or(ModuleUnitId::MAX);
+        let id = ModuleUnitId::try_from(module).expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
 
         // 16.2.3.1: duplicate export names are an early error.
         for export_name in graph.units[module].record.duplicate_export_names() {
@@ -929,7 +929,7 @@ fn classify_evaluation_modes(graph: &mut ModuleGraphIr) {
     let mut edges: Vec<(usize, ImportPhaseIr, usize)> = Vec::new();
     let mut targeted = vec![false; count];
     for module in 0..count {
-        let id = ModuleUnitId::try_from(module).unwrap_or(ModuleUnitId::MAX);
+        let id = ModuleUnitId::try_from(module).expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
         for request in &graph.units[module].record.requested_modules {
             let Some(target) = graph
                 .resolve_request(id, request)
@@ -1033,7 +1033,7 @@ fn report_unlinkable_phases(graph: &mut ModuleGraphIr) {
         if mode != ModuleEvaluationModeIr::Deferred {
             continue;
         }
-        let id = ModuleUnitId::try_from(module).unwrap_or(ModuleUnitId::MAX);
+        let id = ModuleUnitId::try_from(module).expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
         if graph.has_tla(id) {
             errors.push(ModuleLinkErrorIr::UnsupportedPhase {
                 module: id,
@@ -1065,8 +1065,15 @@ fn report_unlinkable_phases(graph: &mut ModuleGraphIr) {
 ///
 /// The `Namespace` arm has no `[[ExportName]]` behind it — `import * as ns`
 /// resolves to a namespace object, not to an export — so `"*"` here is a
-/// diagnostic spelling standing in for one, and is deliberately not a name any
-/// module could have exported under.
+/// diagnostic spelling standing in for one.
+///
+/// It is **not** a name no module could have exported under: 16.2.3.1 makes
+/// `ModuleExportName : StringLiteral` legal, so `export { x as "*" } from "m"`
+/// spells exactly this, and invariant E1 relies on that openness. A
+/// `MissingExport`/`AmbiguousExport` diagnostic naming `*` is therefore
+/// ambiguous between a namespace import and a literal `"*"` export. Diagnostic
+/// text only — no miscompilation — but the claim that it could not happen was
+/// false and is not repeated here.
 fn import_name_text(import_name: &ImportNameIr) -> ExportName {
     match import_name {
         ImportNameIr::Namespace => ExportName::new("*"),
@@ -1117,7 +1124,7 @@ fn compute_evaluation_order(graph: &mut ModuleGraphIr) {
 
     let dependencies: Vec<Vec<ModuleUnitId>> = (0..unit_count)
         .map(|module| {
-            let id = ModuleUnitId::try_from(module).unwrap_or(ModuleUnitId::MAX);
+            let id = ModuleUnitId::try_from(module).expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
             graph.units[module]
                 .record
                 .requested_modules
@@ -1131,7 +1138,7 @@ fn compute_evaluation_order(graph: &mut ModuleGraphIr) {
         if state.index[root].is_some() {
             continue;
         }
-        let root_id = ModuleUnitId::try_from(root).unwrap_or(ModuleUnitId::MAX);
+        let root_id = ModuleUnitId::try_from(root).expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
         let mut work = vec![Step::Enter(root_id)];
         while let Some(step) = work.pop() {
             match step {

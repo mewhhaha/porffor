@@ -3026,6 +3026,7 @@ impl<'a> FunctionBuilder<'a> {
                 body,
                 lexical_environment,
                 async_plan,
+                ..
             } => {
                 if let Some(async_plan) = async_plan {
                     self.compile_async_for_of_array(
@@ -3056,6 +3057,7 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
+                ..
             } => self.compile_for_of_string(
                 *mode,
                 name,
@@ -3072,6 +3074,7 @@ impl<'a> FunctionBuilder<'a> {
                 body,
                 lexical_environment,
                 async_plan,
+                ..
             } => {
                 if let Some(async_plan) = async_plan {
                     if self.current_function_meta().is_some_and(|meta| {
@@ -3372,6 +3375,7 @@ impl<'a> FunctionBuilder<'a> {
                 body,
                 lexical_environment,
                 async_plan,
+                ..
             } => {
                 if let Some(async_plan) = async_plan {
                     self.compile_async_for_of_array(
@@ -3402,6 +3406,7 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
+                ..
             } => self.compile_for_of_string(
                 *mode,
                 name,
@@ -3418,6 +3423,7 @@ impl<'a> FunctionBuilder<'a> {
                 body,
                 lexical_environment,
                 async_plan,
+                ..
             } => {
                 if let Some(async_plan) = async_plan {
                     self.compile_async_for_of_iterator(
@@ -6265,12 +6271,12 @@ impl<'a> FunctionBuilder<'a> {
                 );
         }
         let iterator_storage = self.allocate_binding(
-            async_plan.iterator_binding.clone(),
+            async_plan.record.iterator().as_str().to_string(),
             BindingMode::Let,
             ValueKind::Object,
         );
         let next_storage = self.allocate_binding(
-            async_plan.next_binding.clone(),
+            async_plan.record.next_method().as_str().to_string(),
             BindingMode::Let,
             ValueKind::Dynamic,
         );
@@ -6280,7 +6286,7 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Boolean,
         );
         let done_storage = self.allocate_binding(
-            async_plan.done_binding.clone(),
+            async_plan.record.done().as_str().to_string(),
             BindingMode::Let,
             ValueKind::Boolean,
         );
@@ -8217,7 +8223,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn compile_array_destructure_from_value_locals(
+    pub(crate) fn compile_array_destructure_from_value_locals(
         &mut self,
         value_info: ValueInfo,
         source_payload: u32,

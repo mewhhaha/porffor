@@ -147,8 +147,18 @@ impl EcmaLanguageType {
 /// `[[Iterator]]` — the name of the binding holding the iterator object.
 ///
 /// The three slots of an Iterator Record are all binding names, i.e. all
-/// `String`. Spelling them as three distinct newtypes is what makes transposing
-/// two of them `E0308` instead of a `for await` that compiles and miscompiles.
+/// `String`. Spelling them as three distinct newtypes moves the transposition
+/// inward; it does not by itself kill it, because the construction site used to
+/// read `IteratorSlot::new(iterator_binding), NextMethodSlot::new(next_binding)`
+/// and swapping the two *strings* type-checked just as well as the original
+/// three-`String` struct did.
+///
+/// So `new` is `pub(crate)` and the only callers are
+/// `ScriptLowerer::alloc_iterator_slot` / `alloc_next_method_slot` /
+/// `alloc_done_slot`, each of which allocates the binding it names. A slot can
+/// therefore only be obtained from the allocation that names it, there is no
+/// `String` left in the expression to transpose, and swapping two already-wrapped
+/// values is `E0308`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IteratorSlot(String);
 
@@ -161,7 +171,7 @@ pub struct NextMethodSlot(String);
 pub struct DoneSlot(String);
 
 impl IteratorSlot {
-    pub fn new(binding: String) -> Self {
+    pub(crate) fn new(binding: String) -> Self {
         Self(binding)
     }
 
@@ -171,7 +181,7 @@ impl IteratorSlot {
 }
 
 impl NextMethodSlot {
-    pub fn new(binding: String) -> Self {
+    pub(crate) fn new(binding: String) -> Self {
         Self(binding)
     }
 
@@ -181,7 +191,7 @@ impl NextMethodSlot {
 }
 
 impl DoneSlot {
-    pub fn new(binding: String) -> Self {
+    pub(crate) fn new(binding: String) -> Self {
         Self(binding)
     }
 
@@ -496,25 +506,40 @@ impl TrackedGapReason {
     }
 }
 
-/// A backlog task id. The only constructor validates, in `const`, so a
-/// malformed owner is a compile error rather than an assertion in a test.
+/// Every backlog task id, transcribed from the filenames in `tasks/`.
+///
+/// This is the domain `OwnerTaskId` closes over. Shape validation is not enough:
+/// `T99` and `T4x` are both "T plus two digits" and neither names a task, so a
+/// shape-only check accepts every nonexistent owner — which is exactly the class
+/// of mistake the newtype exists to catch. Adding a task means adding a row
+/// here, which is a diff a reviewer sees.
+const BACKLOG_TASK_IDS: [&str; 28] = [
+    "T00", "T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10", "T11", "T12",
+    "T13", "T14", "T15", "T16", "T17", "T18", "T19", "T20", "T21", "T22", "T23", "T24", "T25",
+    "T26", "T27",
+];
+
+/// A backlog task id. The only constructor validates **membership**, in
+/// `const`, so an owner that does not name a task in `tasks/` is a compile
+/// error rather than an assertion in a test.
+///
+/// Note that `test262/backlog/ownership-map.tsv` is a different map — it assigns
+/// *Test262 path prefixes* to tasks, so a task that owns no prefix (T04, the
+/// shared spec-operations lane, is one) legitimately does not appear there.
+/// Validating against that file would reject real task ids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OwnerTaskId(&'static str);
 
 impl OwnerTaskId {
     pub const fn new(id: &'static str) -> Self {
-        let bytes = id.as_bytes();
-        assert!(bytes.len() == 3, "owner task id must be T + two digits");
-        assert!(bytes[0] == b'T', "owner task id must start with T");
-        assert!(
-            matches!(bytes[1], b'0'..=b'9'),
-            "owner task id must be T + two digits"
-        );
-        assert!(
-            matches!(bytes[2], b'0'..=b'9'),
-            "owner task id must be T + two digits"
-        );
-        Self(id)
+        let mut i = 0;
+        while i < BACKLOG_TASK_IDS.len() {
+            if str_eq(BACKLOG_TASK_IDS[i], id) {
+                return Self(id);
+            }
+            i += 1;
+        }
+        panic!("owner must be a backlog task id listed in BACKLOG_TASK_IDS");
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -529,10 +554,17 @@ impl OwnerTaskId {
 /// that cannot be produced by hand:
 ///
 /// - `SharedWasmEmitter` needs an [`EmitterEvidence`], whose only constructor is
-///   [`SpecOperationIr::emitter_evidence`].
-/// - `StatementEmission` needs an [`EmissionSite`], every variant of which is
-///   joined to a real function path by
-///   `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`.
+///   [`SpecOperationIr::emitter_evidence`]. What that evidence proves is
+///   name resolution and match exhaustiveness, **not** that the arm emits
+///   anything: an arm may satisfy both backend matches with
+///   `Err(EmitError::unsupported(..))`. Closing that is ledger **L2**.
+/// - `StatementEmission` needs at least one [`EmissionSite`], every variant of
+///   which is joined to a real function path by
+///   `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`. It is
+///   a *slice* because the truth is a set: `GetIterator` is emitted by the sync
+///   for-of arm, the async for-of arm and the array-destructuring arm. A single
+///   `site` made the catalog read as if `for await` performed no `GetIterator`,
+///   which is a fresh instance of the false-claim defect this area removes.
 ///
 /// There is deliberately no `CatalogOnly` (a variant whose only semantics was
 /// "must never occur" — that is a missing variant, not a runtime check) and no
@@ -541,7 +573,7 @@ impl OwnerTaskId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationLoweringStatus {
     SharedWasmEmitter(EmitterEvidence),
-    StatementEmission(EmissionSite),
+    StatementEmission(&'static [EmissionSite]),
     TrackedGap {
         reason: TrackedGapReason,
         owner: OwnerTaskId,
@@ -605,37 +637,78 @@ impl NormalResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SpecOperationIr {
-    IsCallable,
-    IsConstructor,
-    IsPropertyKey,
-    ToPrimitive(ToPrimitiveHint),
-    ToBoolean,
-    ToNumeric,
-    ToNumber,
-    ToBigInt,
-    ToString,
-    ToObject,
-    ToPropertyKey,
-    ToIntegerOrInfinity,
-    ToLength,
-    ToIndex,
-    SameValue,
-    SameValueZero,
-    StrictEqualityComparison,
-    IsLooselyEqual,
-    Get,
-    GetV,
-    Set,
-    HasProperty,
-    HasOwnProperty,
-    DeletePropertyOrThrow,
-    CreateDataPropertyOrThrow,
-    CopyDataProperties,
-    GetMethod,
-    Call,
-    Construct,
+/// Declares [`SpecOperationIr`], its `ALL` enumeration and its `name` renderer
+/// from **one** row list.
+///
+/// Ledger **L1** used to record "you added a variant and forgot to add it to
+/// `ALL`" as the one drift this area could not turn into a compile error, and
+/// the test that was supposed to catch it could not: its final assertion was
+/// `ALL.len() == 29`, which is precisely the number an omission preserves. With
+/// the enum and `ALL` being two expansions of the same `$(...)+` sequence, the
+/// omission is not expressible, the test is deleted, and L1 is discharged by
+/// construction rather than by a runtime check.
+///
+/// A row is `Variant [(Payload)] => "Name", canonical-expression`. The canonical
+/// expression is what `ALL` carries. A payload-carrying variant contributes
+/// exactly one row, because the catalog is keyed by operation *name* and
+/// `ToPrimitive(hint)` is one operation with one signature.
+macro_rules! spec_operations {
+    ($(
+        $variant:ident $(( $payload:ty ))? => $name:literal , $canonical:expr
+    );+ $(;)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        pub enum SpecOperationIr {
+            $( $variant $(( $payload ))? , )+
+        }
+
+        impl SpecOperationIr {
+            /// Every operation, in catalog order — one entry per operation, not
+            /// per variant: payload-carrying variants collapse to their
+            /// canonical expression.
+            pub const ALL: &'static [SpecOperationIr] = &[ $( $canonical , )+ ];
+
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $( SpecOperationIr::$variant { .. } => $name , )+
+                }
+            }
+        }
+    };
+}
+
+spec_operations! {
+    IsCallable => "IsCallable", SpecOperationIr::IsCallable;
+    IsConstructor => "IsConstructor", SpecOperationIr::IsConstructor;
+    IsPropertyKey => "IsPropertyKey", SpecOperationIr::IsPropertyKey;
+    ToPrimitive(ToPrimitiveHint) => "ToPrimitive",
+        SpecOperationIr::ToPrimitive(ToPrimitiveHint::Default);
+    ToBoolean => "ToBoolean", SpecOperationIr::ToBoolean;
+    ToNumeric => "ToNumeric", SpecOperationIr::ToNumeric;
+    ToNumber => "ToNumber", SpecOperationIr::ToNumber;
+    ToBigInt => "ToBigInt", SpecOperationIr::ToBigInt;
+    ToString => "ToString", SpecOperationIr::ToString;
+    ToObject => "ToObject", SpecOperationIr::ToObject;
+    ToPropertyKey => "ToPropertyKey", SpecOperationIr::ToPropertyKey;
+    ToIntegerOrInfinity => "ToIntegerOrInfinity", SpecOperationIr::ToIntegerOrInfinity;
+    ToLength => "ToLength", SpecOperationIr::ToLength;
+    ToIndex => "ToIndex", SpecOperationIr::ToIndex;
+    SameValue => "SameValue", SpecOperationIr::SameValue;
+    SameValueZero => "SameValueZero", SpecOperationIr::SameValueZero;
+    StrictEqualityComparison => "StrictEqualityComparison",
+        SpecOperationIr::StrictEqualityComparison;
+    IsLooselyEqual => "IsLooselyEqual", SpecOperationIr::IsLooselyEqual;
+    Get => "Get", SpecOperationIr::Get;
+    GetV => "GetV", SpecOperationIr::GetV;
+    Set => "Set", SpecOperationIr::Set;
+    HasProperty => "HasProperty", SpecOperationIr::HasProperty;
+    HasOwnProperty => "HasOwnProperty", SpecOperationIr::HasOwnProperty;
+    DeletePropertyOrThrow => "DeletePropertyOrThrow", SpecOperationIr::DeletePropertyOrThrow;
+    CreateDataPropertyOrThrow => "CreateDataPropertyOrThrow",
+        SpecOperationIr::CreateDataPropertyOrThrow;
+    CopyDataProperties => "CopyDataProperties", SpecOperationIr::CopyDataProperties;
+    GetMethod => "GetMethod", SpecOperationIr::GetMethod;
+    Call => "Call", SpecOperationIr::Call;
+    Construct => "Construct", SpecOperationIr::Construct;
 }
 
 const NO_ABRUPT: &[CompletionAbruptKind] = &[];
@@ -648,78 +721,6 @@ const CONTROL_COMPLETIONS: &[CompletionAbruptKind] = &[
 ];
 
 impl SpecOperationIr {
-    /// Every variant, in catalog order. See ledger **L1**: stable Rust has no
-    /// `variant_count`, so "you added a variant and forgot to list it here" is
-    /// the one drift this area cannot make a compile error. It is bounded —
-    /// rows are *derived*, so a missing entry yields an incomplete enumeration,
-    /// never a false claim — and is covered by
-    /// `spec_operation_all_is_complete_and_dense`.
-    pub const ALL: &'static [SpecOperationIr] = &[
-        Self::IsCallable,
-        Self::IsConstructor,
-        Self::IsPropertyKey,
-        Self::ToPrimitive(ToPrimitiveHint::Default),
-        Self::ToBoolean,
-        Self::ToNumeric,
-        Self::ToNumber,
-        Self::ToBigInt,
-        Self::ToString,
-        Self::ToObject,
-        Self::ToPropertyKey,
-        Self::ToIntegerOrInfinity,
-        Self::ToLength,
-        Self::ToIndex,
-        Self::SameValue,
-        Self::SameValueZero,
-        Self::StrictEqualityComparison,
-        Self::IsLooselyEqual,
-        Self::Get,
-        Self::GetV,
-        Self::Set,
-        Self::HasProperty,
-        Self::HasOwnProperty,
-        Self::DeletePropertyOrThrow,
-        Self::CreateDataPropertyOrThrow,
-        Self::CopyDataProperties,
-        Self::GetMethod,
-        Self::Call,
-        Self::Construct,
-    ];
-
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::IsCallable => "IsCallable",
-            Self::IsConstructor => "IsConstructor",
-            Self::IsPropertyKey => "IsPropertyKey",
-            Self::ToPrimitive(_) => "ToPrimitive",
-            Self::ToBoolean => "ToBoolean",
-            Self::ToNumeric => "ToNumeric",
-            Self::ToNumber => "ToNumber",
-            Self::ToBigInt => "ToBigInt",
-            Self::ToString => "ToString",
-            Self::ToObject => "ToObject",
-            Self::ToPropertyKey => "ToPropertyKey",
-            Self::ToIntegerOrInfinity => "ToIntegerOrInfinity",
-            Self::ToLength => "ToLength",
-            Self::ToIndex => "ToIndex",
-            Self::SameValue => "SameValue",
-            Self::SameValueZero => "SameValueZero",
-            Self::StrictEqualityComparison => "StrictEqualityComparison",
-            Self::IsLooselyEqual => "IsLooselyEqual",
-            Self::Get => "Get",
-            Self::GetV => "GetV",
-            Self::Set => "Set",
-            Self::HasProperty => "HasProperty",
-            Self::HasOwnProperty => "HasOwnProperty",
-            Self::DeletePropertyOrThrow => "DeletePropertyOrThrow",
-            Self::CreateDataPropertyOrThrow => "CreateDataPropertyOrThrow",
-            Self::CopyDataProperties => "CopyDataProperties",
-            Self::GetMethod => "GetMethod",
-            Self::Call => "Call",
-            Self::Construct => "Construct",
-        }
-    }
-
     pub const fn family(self) -> SpecOperationFamily {
         match self {
             Self::IsCallable | Self::IsConstructor | Self::IsPropertyKey => {
@@ -824,43 +825,12 @@ impl SpecOperationIr {
         }
     }
 
-    /// Position of this operation's row in [`SPEC_OPERATION_CATALOG`]. Exists
-    /// for the density const assert (J3), not for lookup.
-    pub const fn catalog_index(self) -> usize {
-        match self {
-            Self::IsCallable => 0,
-            Self::IsConstructor => 1,
-            Self::IsPropertyKey => 2,
-            Self::ToPrimitive(_) => 3,
-            Self::ToBoolean => 4,
-            Self::ToNumeric => 5,
-            Self::ToNumber => 6,
-            Self::ToBigInt => 7,
-            Self::ToString => 8,
-            Self::ToObject => 9,
-            Self::ToPropertyKey => 10,
-            Self::ToIntegerOrInfinity => 11,
-            Self::ToLength => 12,
-            Self::ToIndex => 13,
-            Self::SameValue => 14,
-            Self::SameValueZero => 15,
-            Self::StrictEqualityComparison => 16,
-            Self::IsLooselyEqual => 17,
-            Self::Get => 18,
-            Self::GetV => 19,
-            Self::Set => 20,
-            Self::HasProperty => 21,
-            Self::HasOwnProperty => 22,
-            Self::DeletePropertyOrThrow => 23,
-            Self::CreateDataPropertyOrThrow => 24,
-            Self::CopyDataProperties => 25,
-            Self::GetMethod => 26,
-            Self::Call => 27,
-            Self::Construct => 28,
-        }
-    }
-
     /// The only constructor of [`EmitterEvidence`].
+    ///
+    /// Total on the variant, and therefore weaker than it looks: it proves that
+    /// this name is a variant of the enum the two `porffor-aot-wasm` matches
+    /// must handle exhaustively, not that the arm emits anything. See ledger
+    /// **L2**.
     pub const fn emitter_evidence(self) -> EmitterEvidence {
         EmitterEvidence { operation: self }
     }
@@ -868,41 +838,110 @@ impl SpecOperationIr {
     /// The row. Not a table entry that happens to match the variant — the row
     /// *is* the variant, so a variant without a row is not expressible, and a
     /// row whose signature disagrees with the variant is not expressible
-    /// either.
+    /// either. The row's `name` is taken from the evidence's own operation, so
+    /// it cannot name one operation while carrying another's evidence.
     pub const fn catalog_entry(self) -> SpecOperationCatalogEntry {
+        let evidence = self.emitter_evidence();
         SpecOperationCatalogEntry {
-            name: self.name(),
+            name: evidence.operation().name(),
             family: self.family(),
             normal_result: self.normal_result(),
             abrupt: self.abrupt(),
-            lowering_status: OperationLoweringStatus::SharedWasmEmitter(self.emitter_evidence()),
+            lowering_status: OperationLoweringStatus::SharedWasmEmitter(evidence),
+            source: RowSource::DerivedFromOperation,
         }
     }
 }
 
+/// Which of the three row constructors produced a
+/// [`SpecOperationCatalogEntry`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RowSource {
+    /// [`SpecOperationIr::catalog_entry`] — the row *is* the variant.
+    DerivedFromOperation,
+    /// [`StatementEmissionRow::into_entry`].
+    StatementEmissionTable,
+    /// [`TrackedGapRow::into_entry`].
+    TrackedGapTable,
+}
+
+/// One row of [`SPEC_OPERATION_CATALOG`].
+///
+/// **Every field is private and there is no public constructor.** The evidence
+/// design protects `EmitterEvidence` and `EmissionSite`, but that is worth
+/// nothing while the entry those produce can be written out by hand: with `pub`
+/// fields this compiled, and forged an implementation claim for an operation
+/// nobody implemented —
+///
+/// ```ignore
+/// pub const FORGED: SpecOperationCatalogEntry = SpecOperationCatalogEntry {
+///     name: "ArraySpeciesCreate",
+///     lowering_status: OperationLoweringStatus::SharedWasmEmitter(
+///         SpecOperationIr::ToString.emitter_evidence()),
+///     ..
+/// };
+/// ```
+///
+/// The private `source` field closes both halves of that hole: the struct is
+/// unconstructible outside this module, so the only producers are
+/// [`SpecOperationIr::catalog_entry`], [`StatementEmissionRow::into_entry`] and
+/// [`TrackedGapRow::into_entry`]; and the derived constructor takes `name` from
+/// the evidence rather than from a free field, so evidence and name cannot
+/// disagree (const assert J6 checks that for every assembled row).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpecOperationCatalogEntry {
-    pub name: &'static str,
-    pub family: SpecOperationFamily,
-    pub normal_result: NormalResult,
-    pub abrupt: &'static [CompletionAbruptKind],
-    pub lowering_status: OperationLoweringStatus,
+    name: &'static str,
+    family: SpecOperationFamily,
+    normal_result: NormalResult,
+    abrupt: &'static [CompletionAbruptKind],
+    lowering_status: OperationLoweringStatus,
+    source: RowSource,
+}
+
+impl SpecOperationCatalogEntry {
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub const fn family(&self) -> SpecOperationFamily {
+        self.family
+    }
+
+    pub const fn normal_result(&self) -> NormalResult {
+        self.normal_result
+    }
+
+    pub const fn abrupt(&self) -> &'static [CompletionAbruptKind] {
+        self.abrupt
+    }
+
+    pub const fn lowering_status(&self) -> OperationLoweringStatus {
+        self.lowering_status
+    }
+
+    pub const fn source(&self) -> RowSource {
+        self.source
+    }
 }
 
 /// A row for an operation emitted by a statement-shaped emitter arm rather than
 /// by a `SpecOperationIr` arm.
 ///
 /// It cannot claim the shared emitter: there is no field that can hold an
-/// [`EmitterEvidence`]. What it *can* claim is that a named function emits it,
-/// and that name is checked by
+/// [`EmitterEvidence`]. What it *can* claim is that one or more named functions
+/// emit it, and those names are checked by
 /// `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`.
+///
+/// `sites` is a slice, not a single site, because an operation of 7.4 is
+/// emitted by every arm that runs the protocol. Const assert J7 rejects an
+/// empty slice, so "statement-emitted, by nothing" has no spelling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatementEmissionRow {
     pub name: &'static str,
     pub family: SpecOperationFamily,
     pub normal_result: NormalResult,
     pub abrupt: &'static [CompletionAbruptKind],
-    pub site: EmissionSite,
+    pub sites: &'static [EmissionSite],
 }
 
 impl StatementEmissionRow {
@@ -912,7 +951,8 @@ impl StatementEmissionRow {
             family: self.family,
             normal_result: self.normal_result,
             abrupt: self.abrupt,
-            lowering_status: OperationLoweringStatus::StatementEmission(self.site),
+            lowering_status: OperationLoweringStatus::StatementEmission(self.sites),
+            source: RowSource::StatementEmissionTable,
         }
     }
 }
@@ -940,6 +980,7 @@ impl TrackedGapRow {
                 reason: self.reason,
                 owner: self.owner,
             },
+            source: RowSource::TrackedGapTable,
         }
     }
 }
@@ -956,42 +997,53 @@ const T04: OwnerTaskId = OwnerTaskId::new("T04");
 /// `emit_iterator_close_condition_i32` into `emit_iterator_close` or
 /// `emit_iterator_close_preserving_current_throw`.
 /// `compile_async_for_of_iterator` (`control_flow.rs:6078`) open-codes the async
-/// close.
+/// close. `compile_array_destructure_from_value_locals` (`control_flow.rs:8220`)
+/// runs the same four operations for every array destructuring — it has no array
+/// fast path — via `emit_get_iterator_from_value_locals`,
+/// `emit_destructuring_iterator_step`, `emit_iterator_close` and
+/// `emit_iterator_close_preserving_current_throw`.
+const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
+    EmissionSite::SyncForOfIterator,
+    EmissionSite::AsyncForOfIterator,
+    EmissionSite::ArrayDestructuring,
+];
+const ASYNC_CLOSE_SITES: &[EmissionSite] = &[EmissionSite::AsyncForOfIterator];
+
 pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
     StatementEmissionRow {
         name: "GetIterator",
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::IteratorRecord,
         abrupt: MAY_THROW,
-        site: EmissionSite::SyncForOfIterator,
+        sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
         name: "IteratorStep",
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::ObjectOrFalse,
         abrupt: MAY_THROW,
-        site: EmissionSite::SyncForOfIterator,
+        sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
         name: "IteratorValue",
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::LanguageValue,
         abrupt: MAY_THROW,
-        site: EmissionSite::SyncForOfIterator,
+        sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
         name: "IteratorClose",
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::CompletionRecord,
         abrupt: CONTROL_COMPLETIONS,
-        site: EmissionSite::SyncForOfIterator,
+        sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
         name: "AsyncIteratorClose",
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::CompletionRecord,
         abrupt: CONTROL_COMPLETIONS,
-        site: EmissionSite::AsyncForOfIterator,
+        sites: ASYNC_CLOSE_SITES,
     },
 ];
 
@@ -1177,23 +1229,10 @@ const _: () = {
     }
 };
 
-// (J3) `SpecOperationIr::ALL` is dense and duplicate-free under
-//      `catalog_index`, so the derived rows occupy exactly slots 0..ALL.len().
-const _: () = {
-    let mut seen = [false; SPEC_OPERATION_ROW_COUNT];
-    let mut i = 0;
-    while i < SpecOperationIr::ALL.len() {
-        let idx = SpecOperationIr::ALL[i].catalog_index();
-        assert!(!seen[idx], "duplicate catalog_index");
-        seen[idx] = true;
-        i += 1;
-    }
-    let mut j = 0;
-    while j < SpecOperationIr::ALL.len() {
-        assert!(seen[j], "catalog_index is not dense over SpecOperationIr::ALL");
-        j += 1;
-    }
-};
+// (J3) was "catalog_index is dense over ALL". Deleted with `catalog_index`
+//      itself: `ALL` and the enum are now one macro expansion, so density is
+//      definitional, and an assertion that cannot fail is decoration by
+//      AGENTS.md's own test.
 
 // (J4) The census the contract states, tied to the tables that produce it:
 //      29 shared-emitter rows + 5 statement-emission rows + 12 tracked gaps.
@@ -1207,15 +1246,49 @@ const _: () = {
     assert!(SPEC_OPERATION_ROW_COUNT == 46);
 };
 
-// (J5) Row order: the derived rows come first, so `catalog_index` addresses the
-//      catalog directly.
+// (J5) Row order: `build_catalog` lays the derived rows down first, in `ALL`
+//      order. This is a real check on `build_catalog`, not on `ALL`.
 const _: () = {
     let mut i = 0;
     while i < SpecOperationIr::ALL.len() {
-        let operation = SpecOperationIr::ALL[i];
         assert!(
-            str_eq(CATALOG[operation.catalog_index()].name, operation.name()),
-            "catalog_index does not address the operation's own row"
+            str_eq(CATALOG[i].name, SpecOperationIr::ALL[i].name()),
+            "build_catalog does not lay the derived rows down first, in ALL order"
+        );
+        i += 1;
+    }
+};
+
+// (J6) A `SharedWasmEmitter` row names the operation its evidence is for.
+//      `EmitterEvidence` is unforgeable, but before the entry's fields became
+//      private a legitimately-obtained evidence could still be attached to any
+//      name. `catalog_entry` now derives `name` from the evidence; this pins
+//      that for every assembled row rather than for the one constructor.
+const _: () = {
+    let mut i = 0;
+    while i < SPEC_OPERATION_ROW_COUNT {
+        match CATALOG[i].lowering_status {
+            OperationLoweringStatus::SharedWasmEmitter(evidence) => {
+                assert!(
+                    str_eq(CATALOG[i].name, evidence.operation().name()),
+                    "a shared-emitter row names an operation its evidence is not for"
+                );
+            }
+            OperationLoweringStatus::StatementEmission(_)
+            | OperationLoweringStatus::TrackedGap { .. } => {}
+        }
+        i += 1;
+    }
+};
+
+// (J7) A `StatementEmission` row names at least one emitter arm. "Emitted by a
+//      statement arm, by no statement arm" is the false claim in miniature.
+const _: () = {
+    let mut i = 0;
+    while i < STATEMENT_EMISSION_ROWS.len() {
+        assert!(
+            !STATEMENT_EMISSION_ROWS[i].sites.is_empty(),
+            "a statement-emission row names no emitter arm"
         );
         i += 1;
     }
@@ -1228,7 +1301,7 @@ pub fn spec_operation_catalog() -> &'static [SpecOperationCatalogEntry] {
 pub fn find_spec_operation(name: &str) -> Option<&'static SpecOperationCatalogEntry> {
     SPEC_OPERATION_CATALOG
         .iter()
-        .find(|entry| entry.name == name)
+        .find(|entry| entry.name() == name)
 }
 
 pub fn completion_abi_slots() -> &'static [CompletionAbiSlot] {
@@ -1243,42 +1316,13 @@ pub fn find_completion_abi_slot(kind: CompletionKindIr) -> Option<&'static Compl
 mod tests {
     use super::*;
 
-    /// Ledger **L1**. This is the only surviving catalog test, and it is not
-    /// vacuous: it checks the *assembly* (that `ALL` enumerates every variant
-    /// and that the assembled catalog has the shape the const asserts assume),
-    /// not the table's own contents. Stable Rust has no `variant_count`, so a
-    /// variant absent from `ALL` is invisible to every const expression.
-    #[test]
-    fn spec_operation_all_is_complete_and_dense() {
-        assert_eq!(
-            SPEC_OPERATION_CATALOG.len(),
-            SPEC_OPERATION_ROW_COUNT,
-            "assembled catalog length disagrees with SPEC_OPERATION_ROW_COUNT"
-        );
-
-        for (index, operation) in SpecOperationIr::ALL.iter().enumerate() {
-            assert_eq!(
-                operation.catalog_index(),
-                index,
-                "SpecOperationIr::ALL order disagrees with catalog_index for {}; \
-                 if you added a variant, add it to SpecOperationIr::ALL",
-                operation.name()
-            );
-            assert_eq!(
-                SPEC_OPERATION_CATALOG[index].name,
-                operation.name(),
-                "SpecOperationIr::ALL does not address its own catalog row"
-            );
-        }
-
-        // A variant missing from `ALL` shows up here as a hole in the index
-        // space: `catalog_index` hands out 0..=28, so `ALL` must have 29 rows.
-        assert_eq!(
-            SpecOperationIr::ALL.len(),
-            29,
-            "SpecOperationIr::ALL is missing a variant"
-        );
-    }
+    // `spec_operation_all_is_complete_and_dense` is deleted. It named ledger L1
+    // in its failure message but could not detect L1's failure: a 30th variant
+    // with all four exhaustive arms and no `ALL` row passed J1, J3, J4 and J5,
+    // and passed the test itself, whose final assertion was the hardcoded
+    // `ALL.len() == 29` that the omission preserves. `ALL` is now generated
+    // from the same macro rows as the enum, so the omission is unrepresentable
+    // and there is nothing left for a test to check.
 
     /// Not a test of the type's own contents: it pins that each slot reads back
     /// through its own accessor, which is the property a transposition at the
