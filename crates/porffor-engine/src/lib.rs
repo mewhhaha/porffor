@@ -4109,7 +4109,10 @@ report;
             diagnostic.kind(),
             porffor_front::ParseDiagnosticKind::MalformedJavaScript
         );
-        assert_eq!(diagnostic.phase(), porffor_front::ParseDiagnosticPhase::Parse);
+        assert_eq!(
+            diagnostic.phase(),
+            porffor_front::ParseDiagnosticPhase::Parse
+        );
         assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
         assert_eq!(diagnostic.code, porffor_front::ParseCode::Malformed);
         assert!(diagnostic.span.is_some());
@@ -4150,7 +4153,10 @@ report;
                 porffor_front::EarlyErrorCode::ObjectDuplicateProto
             ))
         );
-        assert_eq!(diagnostic.phase(), porffor_front::ParseDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.phase(),
+            porffor_front::ParseDiagnosticPhase::Early
+        );
         assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
         assert!(err.ir_diagnostic().is_none());
     }

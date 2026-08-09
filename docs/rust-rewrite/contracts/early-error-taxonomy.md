@@ -45,3 +45,37 @@ Two behaviour changes need a pass-count report at §8 rung 6, reported
 separately from B1/B2: the `resolution` family (L10) and `parse/SyntaxError`
 negatives that were passing on a caught parser abort (L11 — an *expected*
 pass-count decrease, since those passes were false).
+
+---
+
+## INTEGRATOR stage (compile gate)
+
+Nothing was left outstanding by the lane note. The one routed cross-lane edit
+(§6.14, `lowering.rs`'s call to the deleted `IrDiagnostic::early_error`) had
+already been applied by the discrepancy-fixer, and the tree confirms it:
+`grep -rn "IrDiagnostic::early_error" crates/` returns **0**, and the duplicate
+`__proto__` producer now goes through `IrDiagnostic::rejected(EarlyErrorCode::ObjectDuplicateProto, …)`.
+
+The value of this stage is therefore that the const-assertion set was **actually
+evaluated by rustc for the first time**, which is what the whole encoding is for:
+
+- `cargo check -p porffor-front` — clean. **P1–P6, P5′ and P10 pass**: no empty
+  fragment or fragment string, no `wire_name()` colliding with
+  `NO_EARLY_ERROR_CODE`, the 15-row `PARSE_FAILURE_RULE_TABLE` matches
+  `PARSE_FAILURE_RULE_COUNT`, every row's witnesses are matched by that row's own
+  fragments, and `INTERPOLATING_MESSAGE_SHAPES` eats no witness.
+- `cargo check -p porffor-ir` — clean. **P7–P9 pass**: every code
+  `rejection_kind` can name is `is_parse_classified`, and the reparse prefix has
+  exactly one definition.
+- `cargo xc` — 0 errors, no new warnings.
+
+Two of the note's §4.3 uncertainties are now resolved by the compiler rather
+than by argument: `const PARSE_FAILURE_RULES: &[ParseFailureRule] = &PARSE_FAILURE_RULE_TABLE;`
+is accepted, and slice indexing inside a `const fn` is accepted. Neither
+fallback in §4.3 is needed.
+
+Unchanged and still open: the two behaviour changes (L10, the `resolution`
+family; L11, the `parse/SyntaxError` negatives that were passing on a caught
+parser abort) need a rung-6 pass-count report, which is a conformance run and so
+belongs elsewhere. L11 predicts a pass-count **decrease** and that decrease is
+correct — those passes were false.

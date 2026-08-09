@@ -103,3 +103,63 @@ AST-derived constructor stays a follow-up lane for the reason the encoder gave.
 
 **Not verified by this stage.** No cargo or rustc command was run: the integrator
 owns the compile gate. Every claim above is from reading the tree.
+
+---
+
+## INTEGRATOR stage (compile gate)
+
+Applied from
+`target/lane-notes/Reference Records: …-theory-integration.md`, on top of the
+encoder and discrepancy-fixer stages.
+
+| Note item | Status |
+|---|---|
+| §2.1 — `emit.rs`'s `object_write_strict_flag_local` doc comment still asserted the belief F1 falsifies (`None` ⇒ "the compile-time strictness of the enclosing function is authoritative") | **APPLIED.** Rewritten to say `None` means *no Reference is in play* — property installation, class field definition, internal helper writes — where `ambient_object_write_strict_flag_word` is authoritative. Doc-only. |
+| §2.2 — three helpers still taking `strict: bool` | already applied by the discrepancy-fixer (finding 9). Verified: `environments.rs:1265`, `environments.rs:1329`, `objects.rs:7674` take `Strictness`; the only surviving `strict: bool` in those two files is `environments.rs:668`, which is not a Reference write. **Ledger L4 closed.** |
+| §2.3 — `DestructuringTargetIr::AssignmentProperty` carried no `[[Strict]]`, so 13.15.5.4's PutValue used the emitting function's ambient mode | **APPLIED** (see below). **Ledger L6′ closed.** |
+| §2.4 / S5 / MC4b — `super.x = v` writes to the super base, not `GetThisValue(V)` | **not attempted**, for the encoder's reason: the fix needs a new `this_value` operand on the IR node wired into `emit_ordinary_set_result_with_receiver_fallback`, and a receiver change written without a runtime oracle is more likely to produce a second wrong answer than a right one. Stays ledger **L6**. |
+| §1 — optional move of `mod reference` from `ir.rs`'s `#[path]` to `lib.rs` | **deliberately skipped.** Module location holds no invariant: no mistake becomes a compile error either way, so by the contract's own §5.1 standard it is not worth a redeploy of a shared file while another workflow is committing the tree. The `#[path]` form is correct as it stands. |
+
+### §2.3, as landed
+
+Three files, one new field, and the field is read.
+
+1. `porffor-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
+   `strictness: Strictness`. Its one construction site is
+   `lowering.rs`'s `lower_array_assignment_property_target`, so omitting it is
+   `E0063`; a `bool` there is `E0308` for the reasons in `Strictness`'s doc.
+   `AssignmentIdentifier` and `AssignmentPrivate` still carry none, and the
+   field comment says why (branch 4.c and PrivateSet respectively).
+2. `porffor-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
+   the crate's single producer. The `grep -c 'self\.reference_strictness()'`
+   gate in ledger L1 moves from **21** to **22**.
+3. `porffor-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
+   carries it from `prepare_destructuring_target` to `put_destructuring_target`,
+   which wraps `compile_property_write_to_locals` in
+   `with_reference_strictness` (promoted to `pub(crate)` for this call).
+   Analysis arms in `data.rs` and `planning.rs` took `..` / `strictness: _`.
+4. `porffor-aot-wasm/src/planning.rs` — the array-pattern
+   `AssignmentProperty` temp-local budget gains
+   `REFERENCE_STRICTNESS_FLAG_LOCALS`, because `with_reference_strictness`
+   reserves one and `reserve_temp_local` **asserts** rather than diagnosing.
+   The object-pattern path is covered by its flat `128 + …` budget.
+
+**Why this is not a new instance of discrepancy-fixer finding 1.**
+`with_reference_strictness` opens no Wasm block of its own; the extra block is
+opened by the runtime guard inside `emit_object_write_set_failure_else` /
+`emit_object_write_non_extensible_failure`, and both already compensate their
+`Br` immediates with `RUNTIME_STRICT_GUARD_BLOCK_DEPTH`. This site inherits that
+compensation rather than adding a second one.
+
+**Behavioural surface.** `({ x: o.p } = src)` and `[o.p] = src` now select
+PutValue 3.d's TypeError from the Reference's `[[Strict]]`. The two answers
+differ exactly when lowering hoists the pattern into a generated function whose
+mode differs from the owner plan's — the same divergence class item 2 of the
+encoder's §4 describes, now closed for destructuring as well.
+
+### Compile-gate outcome
+
+`cargo check -p porffor-ir` clean; `cargo check -p porffor-aot-wasm` clean;
+`cargo xc` (`check --workspace --all-targets`) exit 0, **0 errors**, and the
+warning set is identical to the pre-integration baseline after normalising line
+numbers. `cargo fmt --all -- --check` exit 0.

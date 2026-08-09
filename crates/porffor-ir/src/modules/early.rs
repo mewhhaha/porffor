@@ -358,7 +358,10 @@ mod tests {
                 EarlyErrorCode::UndefinedContinueTarget,
             ),
             ("illegal break statement", EarlyErrorCode::IllegalBreak),
-            ("illegal continue statement", EarlyErrorCode::IllegalContinue),
+            (
+                "illegal continue statement",
+                EarlyErrorCode::IllegalContinue,
+            ),
         ];
         for (boa_message, code) in cases {
             let message = format!("{PREFIX}{boa_message}");

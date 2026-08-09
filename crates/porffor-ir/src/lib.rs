@@ -1188,12 +1188,9 @@ mod tests {
     fn allows_non_prototype_proto_property_forms() {
         let program = lower_script(r#"({ __proto__() { return 1; }, ["__proto__"]: 2 });"#);
         assert!(
-            program
-                .diagnostics
-                .iter()
-                .all(|diagnostic| {
-                    diagnostic.code() != Some(EarlyErrorCode::ObjectDuplicateProto)
-                }),
+            program.diagnostics.iter().all(|diagnostic| {
+                diagnostic.code() != Some(EarlyErrorCode::ObjectDuplicateProto)
+            }),
             "diagnostics: {:?}",
             program.diagnostics
         );

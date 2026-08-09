@@ -289,9 +289,7 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
     ParseFailureRule {
         fragments: &["could not find the exported binding"],
         code: EarlyErrorCode::ModuleUndeclaredExport,
-        witnesses: &[
-            "could not find the exported binding `x` in the declared names of the module",
-        ],
+        witnesses: &["could not find the exported binding `x` in the declared names of the module"],
     },
     // 4. W2: boa_parser/src/parser/mod.rs:512,526 (module goal only).
     //    W1: boa_parser/src/parser/mod.rs:366,376; statement/block/mod.rs:109;

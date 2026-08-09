@@ -1262,3 +1262,25 @@ shape-key defect — it needs a rung-G budget), **R4** (the four `porffor-aot-wa
 error-name tables keep their catch-alls), and `is_error_constructor_expr`
 inheriting the unguarded-identifier weakness through `is_builtin_reference_expr`
 (§11.4).
+
+---
+
+## INTEGRATOR stage — D7 discharged by the compiler
+
+The lane note's §3 named **D7** as the one risk it could not discharge without a
+compiler: `names.rs`'s nine `*_ERROR_NAME` consts are now
+`NativeErrorKind::<V>.as_str()` rather than string literals, and they are used in
+**match-pattern position** at `porffor-aot-wasm/src/module.rs:1731`,
+`module.rs:1746` and `operations.rs:142`.
+
+`cargo check -p porffor-aot-wasm` is clean, so the primary form compiles: a
+`const` item is usable as a pattern when its *type* is structural-match, and
+`&'static str` is, regardless of how the value was computed. **The §4.2 fallback
+(reverting the nine consts to literals plus assertion N8) is not needed and
+should not be taken.**
+
+`cargo check -p porffor-ir` is likewise clean, so assertions N2–N7 and W2–W5,
+W7, W8 are evaluated and pass.
+
+Steps 3 and 4 of the note's ladder (`cargo test -p porffor-ir`, rung G) are test
+and golden-capture rungs and were not run by this stage.

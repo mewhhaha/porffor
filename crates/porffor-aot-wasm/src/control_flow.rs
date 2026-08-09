@@ -2,8 +2,7 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use porffor_ir::{
-    AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
-    ObjectDestructuringPatternIr,
+    AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr, ObjectDestructuringPatternIr,
 };
 
 fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
@@ -5256,7 +5255,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
     }
-
 
     pub(crate) fn compile_for_of_array(
         &mut self,
