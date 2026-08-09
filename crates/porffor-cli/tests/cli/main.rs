@@ -28,16 +28,54 @@ use std::io;
 use std::path::Path;
 use std::process::Command as ProcessCommand;
 
-/// Wall-clock bound on a single guarded `porf` subprocess.
+/// Wall-clock bound on a single `porf` invocation, on **both** execution paths.
 ///
-/// Only the guarded path pays this; the in-process fast path is unchanged, so
-/// the suite's cost is unchanged except for this one budget. Raising it is the
-/// wrong response to a red run: a test that needs more than two minutes to
-/// print a fixture's output is the defect.
-const HANG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// # Why 900 s and not two minutes
+///
+/// The previous value was 120 s, justified as "a test that needs more than two
+/// minutes to print a fixture's output is the defect". That justification is
+/// contradicted by this repository's own calibration two files over:
+/// `README.md` and `docs/rust-rewrite/batch-workflow.md` both record that on a
+/// 4-CPU box with a sweep holding two of them **a single cold Wasm-AOT compile
+/// can exceed the 300 s** `run-watched.sh` default, which is exactly why the
+/// documented rung-1c invocation passes `--stall 900`. The guarded child is a
+/// cold `porf` spawned from scratch and the clock starts at spawn, so the whole
+/// parse → lower → emit → Cranelift path is inside this budget before the
+/// fixture's first `Atomics.wait` is reached. At 120 s a loaded box times out on
+/// a *correct* run, the declared-hang row goes green either way, and the "test
+/// did not panic as expected" stale-baseline signal — the entire payoff of
+/// declaring the hang — never fires.
+///
+/// 900 s is the same headroom `--stall 900` already buys, chosen from the same
+/// measurement rather than invented. It is a **termination** bound, not a
+/// performance assertion: the suite pays it only when something is actually
+/// stuck, and there is exactly one declared hang.
+///
+/// # What a timeout here does and does not prove
+///
+/// Be precise, because `#[should_panic(expected = "porf run exceeded")]` asserts
+/// on *this* message and not on anything about blocking.
+/// `wasm_atomics_wait_core.js` prints nothing before it blocks, so "no output
+/// before the deadline" cannot separate "blocked in `Atomics.wait`" from "still
+/// compiling". The calibration above is the only thing separating them. Read a
+/// timeout on a test with **no** ledger row as "hung *or* pathologically slow",
+/// investigate before adding a row, and do not raise this constant as the
+/// response to a red run — recalibrate it against a measured cold compile on the
+/// box in question and record that measurement in the ledger's evidence column.
+const HANG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
 
 /// Poll interval for the guarded path's `try_wait` loop.
 const HANG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Stack for the in-process worker thread introduced by [`Command::output`]'s
+/// bounded in-process path.
+///
+/// Generous on purpose. libtest gives its worker threads `RUST_MIN_STACK` or
+/// std's default, and the in-process CLI call used to run directly on that
+/// thread; moving it onto a thread of our own must not shrink the stack it gets,
+/// so this is set well above either. Linux commits thread stacks lazily, so the
+/// cost is address space, not memory.
+const IN_PROCESS_STACK_SIZE: usize = 64 * 1024 * 1024;
 
 /// Stand-in name when libtest gives the current thread none at all.
 const UNNAMED_THREAD: &str = "<unnamed libtest thread>";
@@ -83,32 +121,84 @@ impl Command {
 
     /// Run `porf` and collect its output.
     ///
-    /// Almost every test takes the in-process fast path: no spawn, no timeout,
-    /// and the 143 MB binary is already linked into this process. The exception
-    /// is a test the ledger declares a hang. `Atomics.wait` blocks the calling
-    /// thread outright, so in process it consumes a libtest worker forever and
-    /// the whole suite spins at 583 of 584 — which is why the documented
-    /// invocation carried a `--skip` for three batches and rung 1c was never a
-    /// gate. Running that one test as a real child, and killing the child after
+    /// Almost every test takes the in-process path: no process spawn, and the
+    /// 143 MB binary is already linked into this process. The exception is a
+    /// test the ledger declares a hang. `Atomics.wait` blocks the calling thread
+    /// outright, so run directly it consumes a libtest worker forever and the
+    /// whole suite spins at 587 of 588 — which is why the documented invocation
+    /// carried a `--skip` for three batches and rung 1c was never a gate.
+    /// Running that one test as a real child, and killing the child after
     /// [`HANG_TIMEOUT`], turns the hang into an ordinary bounded failure that
     /// libtest can report and `should_panic` can pin.
+    ///
+    /// **Both paths are bounded, and that is the point.** Routing by ledger row
+    /// means the guarded path is only ever reached by a test the ledger already
+    /// knows about; a *new* hang, in a test with no row, is by construction on
+    /// the other path. If that path were unbounded — as it was — then under the
+    /// documented `--test-threads=2` invocation every one of the 587 undeclared
+    /// tests could still spin rung 1c forever, which is precisely the state the
+    /// ledger exists to end, and `guarded_output`'s "this is a NEW hang" message
+    /// could never actually be produced by the documented command. So the
+    /// in-process call runs on a worker thread and is bounded by the same
+    /// [`HANG_TIMEOUT`]. The blocked thread is leaked rather than killed —
+    /// threads cannot be killed safely — but a leaked thread does not stop the
+    /// test binary exiting, so termination becomes universal at the cost of one
+    /// thread spawn per invocation.
+    ///
+    /// A panic inside the worker is resumed on this thread rather than being
+    /// swallowed, so `#[should_panic]` and ordinary assertion failures behave
+    /// exactly as they did when the call ran inline.
     fn output(&mut self) -> io::Result<CommandOutput> {
         let thread = std::thread::current();
         let thread_name = thread.name().map(str::to_owned);
         match known_failures::execution_path(thread_name.as_deref()) {
             known_failures::ExecutionPath::InProcess => {
-                let output = porffor_cli::run_cli_capture(self.args.clone());
-                Ok(CommandOutput {
-                    status: CommandStatus {
-                        success: output.exit_code == 0,
-                    },
-                    stdout: output.stdout,
-                    stderr: output.stderr,
-                })
+                self.bounded_in_process_output(thread_name.as_deref().unwrap_or(UNNAMED_THREAD))
             }
             known_failures::ExecutionPath::GuardedSubprocess => {
                 self.guarded_output(thread_name.as_deref().unwrap_or(UNNAMED_THREAD))
             }
+        }
+    }
+
+    /// Run the CLI in process on a worker thread, bounded by [`HANG_TIMEOUT`].
+    ///
+    /// See [`Self::output`] for why this is not simply a direct call.
+    fn bounded_in_process_output(&mut self, test_name: &str) -> io::Result<CommandOutput> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let args = self.args.clone();
+        std::thread::Builder::new()
+            .stack_size(IN_PROCESS_STACK_SIZE)
+            .name(format!("porf-cli:{test_name}"))
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    porffor_cli::run_cli_capture(args)
+                }));
+                // A send failure means this test already gave up waiting; the
+                // result is simply dropped.
+                let _ = sender.send(result);
+            })
+            .expect("in-process CLI worker should spawn");
+
+        match receiver.recv_timeout(HANG_TIMEOUT) {
+            Ok(Ok(output)) => Ok(CommandOutput {
+                status: CommandStatus {
+                    success: output.exit_code == 0,
+                },
+                stdout: output.stdout,
+                stderr: output.stderr,
+            }),
+            Ok(Err(panic)) => std::panic::resume_unwind(panic),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!(
+                "porf run exceeded {:?} in process: {} - the worker thread is leaked, not killed. \
+                 If this test has no row in crates/porffor-cli/tests/known-failures.tsv it is a \
+                 NEW hang (or a pathologically slow case; this bound cannot tell them apart): \
+                 investigate, then add a row with an owner, or fix it.",
+                HANG_TIMEOUT, test_name
+            ),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!(
+                "the in-process CLI worker for {test_name} disconnected without sending a result"
+            ),
         }
     }
 
@@ -161,8 +251,11 @@ impl Command {
                 let _ = child.wait();
                 panic!(
                     "porf run exceeded {:?}: {} - the child was killed. If this test has no row in \
-                     crates/porffor-cli/tests/known-failures.tsv it is a NEW hang: add a row with \
-                     an owner, or fix it. Do not raise the timeout.",
+                     crates/porffor-cli/tests/known-failures.tsv it is a NEW hang (or a \
+                     pathologically slow case; this bound cannot tell them apart, since the \
+                     fixture prints nothing before it blocks): investigate, then add a row with \
+                     an owner, or fix it. Recalibrate the timeout only against a measured cold \
+                     compile on this box, never as a response to a red run.",
                     HANG_TIMEOUT, test_name
                 );
             }

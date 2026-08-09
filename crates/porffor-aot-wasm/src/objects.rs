@@ -4057,6 +4057,38 @@ impl<'a> FunctionBuilder<'a> {
                     // arm is also statically unreachable as written — `target.kind`
                     // is `ValueKind::Array` in this match arm, so `target_tag_local`
                     // is never the `Object` or `Function` tag.
+                    //
+                    // OPEN DEFECT, pre-existing, made visible by that deletion.
+                    // The `If` opened above is a raw `Instruction::If`, so it is
+                    // NOT on `control_stack` and `depth_to` cannot see it. Any
+                    // `Br` emitted underneath it — and this call reaches
+                    // `emit_propagate_throw_from_locals_if_needed`, which emits
+                    // `Br(depth_to(target) + 1)` where the `+ 1` covers only the
+                    // propagator's own raw `If` — is therefore off by the number
+                    // of untracked frames in between. There were two here before
+                    // the deletion and there is one after, so the deletion moved
+                    // the landing point from `f_pre(i + 1)` to `f_pre(i)`; only
+                    // `i == 0` is the same program point, because nothing is
+                    // emitted between the two `End`s.
+                    //
+                    // Observable today, on the untouched named-property path too
+                    // (`a.zzz` behaves identically), so this is common upstream
+                    // code and not something the deletion introduced: wrap a
+                    // property read that throws in a `for` and the throw lands on
+                    // the loop back-edge instead of the handler and the loop
+                    // spins until it traps; wrap it in a `switch` and the throw is
+                    // discarded silently. A flat `try { ... } catch` is `i == 0`
+                    // and works, which is why every probe so far has passed.
+                    //
+                    // The repair is to stop lying to `depth_to`:
+                    // `push_control(ControlFrameKind::If)` / `pop_control` around
+                    // this raw frame, as `emit_value_to_string_payload` already
+                    // does around its own. That changes branch targets at all 16
+                    // `emit_object_read_with_key_tag` call sites, which sit at
+                    // differing untracked depths, so it needs a build and a run —
+                    // neither rung G (a `Br` immediate is the same width either
+                    // way) nor wasm validation (both indices are in range) can
+                    // tell a correct depth from an incorrect one.
                     self.emit_object_read_with_key_tag(
                         target_local,
                         target_tag_local,

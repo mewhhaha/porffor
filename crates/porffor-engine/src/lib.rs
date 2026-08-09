@@ -3667,6 +3667,51 @@ report;
         );
     }
 
+    /// `Engine::emit_wasm` must carry the backend's `debug_dump` out to its
+    /// caller.
+    ///
+    /// This is the regression [`Artifact::debug_dump`] exists to prevent, and
+    /// nothing else pins it. `emit_wasm_on_current_thread` used to build an
+    /// `Artifact` with nowhere to put the dump and drop it on the floor, which
+    /// is the path both `porf build wasm` and the Test262 wasm-aot backend take
+    /// — so `PORFFOR_WASM_TRACE_DUMP` printed nothing on exactly the two
+    /// commands anyone would use it from, and `PORFFOR_EMIT_SIZE_REPORT`
+    /// silently reported nothing for a whole batch of size work. A test in
+    /// `porffor-aot-wasm` cannot catch that: the dump was correct where it was
+    /// produced and lost one layer up.
+    ///
+    /// The attribution line is asserted rather than mere non-emptiness, so that
+    /// truncating the dump to a placeholder does not pass.
+    #[test]
+    fn emit_wasm_carries_the_backend_debug_dump_to_its_caller() {
+        let engine = engine();
+        let unit = engine
+            .compile_script("var x = 1 + 1;", CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+
+        assert!(
+            !artifact.debug_dump.is_empty(),
+            "the wasm backend always produces a self-description; an empty dump \
+             here means it was dropped between `porffor_aot_wasm::emit` and the \
+             `Artifact`"
+        );
+        for prefix in [
+            "largest emitted function: ",
+            "most locals in an emitted function: ",
+            "emitted code bytes: ",
+        ] {
+            assert!(
+                artifact
+                    .debug_dump
+                    .lines()
+                    .any(|line| line.starts_with(prefix)),
+                "debug_dump is missing {prefix:?}:\n{}",
+                artifact.debug_dump
+            );
+        }
+    }
+
     /// The attribution is appended to the failure detail that `porffor-test262`
     /// classifies with, and both `classify_failure_origin` and
     /// `classify_failure_outcome` (`crates/porffor-test262/src/lib.rs`) match

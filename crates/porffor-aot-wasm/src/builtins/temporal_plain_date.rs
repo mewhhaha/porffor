@@ -85,6 +85,21 @@ impl TemporalCalendarId {
     /// Every calendar, in the order `CanonicalizeCalendar` tests them. Order is
     /// not observable — the spellings are disjoint — but keeping the default
     /// first keeps the common case's compare first.
+    ///
+    /// **Adding a calendar with a leap month invalidates a shortcut elsewhere.**
+    /// `emit_temporal_month_day_string_reference_year`
+    /// (`temporal_plain_month_day.rs`) stores the literal
+    /// `TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR` (1972) unconditionally. That is
+    /// only the `iso8601` branch's reference year; on the non-ISO branch the
+    /// spec takes whatever `CalendarMonthDayFromFields` returns, and
+    /// `intl402/Temporal/PlainMonthDay/from/reference-year-1972.js` pins that it
+    /// is **not** always 1972 (`{monthCode:"M05L", day:1, calendar:"hebrew"}`
+    /// asserts 1970). The shortcut is correct while this array holds only
+    /// `Iso8601` and `Gregory`, because every gregory month-day exists in the
+    /// leap year 1972. A lunisolar calendar (hebrew, chinese) added here must
+    /// derive that year rather than inherit the constant — and no test can see
+    /// the difference until such a calendar ships, which is exactly why this is
+    /// written down at the array rather than only at the store.
     pub(crate) const ALL: [Self; 2] = [Self::Iso8601, Self::Gregory];
 
     /// `ToTemporalCalendarIdentifier(undefined)`.

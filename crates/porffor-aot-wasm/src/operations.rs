@@ -2621,6 +2621,28 @@ impl<'a> FunctionBuilder<'a> {
     /// the output locals *and* in `result_local`/`result_tag_local`, with
     /// `completion_local == THROW`. So the seam adopts the completion tuple,
     /// needs no `extra_depth` parameter, and emits no branch of its own.
+    ///
+    /// Param 6 forwards [`Self::current_env_local`], and the two conflicting
+    /// in-tree precedents are reconciled as follows rather than picked between.
+    /// Inline, this composite always ran inside the *caller's* body, so it saw
+    /// the caller's `current_env_local`. Outlining it into a helper that leaves
+    /// `current_env_local` at zero would silently replace that environment with
+    /// zero at every one of the sixteen call sites, which is a behaviour change,
+    /// not a relocation. Forwarding is therefore the behaviour-preserving
+    /// choice, and it is the one `compile_value_to_numeric_helper` /
+    /// `emit_value_to_numeric_locals` already make (emit.rs `LocalGet(6)` /
+    /// `LocalSet(current_env_local)`) — load-bearing here, because that helper's
+    /// body reaches this composite through
+    /// `emit_tagged_to_primitive_locals_without_throw_propagation` and hence
+    /// through this seam, so a zero here would drop an environment that path
+    /// demonstrably carries today.
+    ///
+    /// The zero-passing seams (`emit_value_to_number_payload`,
+    /// `emit_value_to_string_payload`, `IndexedElementRead`) are not a
+    /// counter-precedent to follow: they drop the caller's environment for the
+    /// same reason, which is a pre-existing defect of this same class rather
+    /// than a decision. Do not "harmonise" this seam down to theirs.
+    /// `compile_value_to_primitive_helper` reads the parameter back.
     fn emit_value_to_primitive_via_helper_if_outlined(
         &mut self,
         hint: ToPrimitiveHint,
@@ -2640,9 +2662,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(input_payload_local));
         function.instruction(&Instruction::LocalGet(input_tag_local));
-        for _ in 0..5 {
+        for _ in 0..4 {
             function.instruction(&Instruction::I64Const(0));
         }
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
         function.instruction(&Instruction::Call(helper));
         self.store_call_results(payload_local, tag_local, function);
         function.instruction(&Instruction::Else);
@@ -4623,6 +4646,13 @@ impl<'a> FunctionBuilder<'a> {
         // The propagation is emitted *after* the `end` of the seam's `if`, at
         // depth 0, so it keeps the `extra_depth = 0` this function has always
         // passed — the same shape `emit_value_to_number_payload`'s seam uses.
+        //
+        // Param 6 forwards `current_env_local` for the reason spelled out on
+        // `emit_value_to_primitive_via_helper_if_outlined`: inline, this body ran
+        // with the caller's environment, so an outlined copy that leaves it at
+        // zero is a behaviour change rather than a relocation. The ToPropertyKey
+        // helper body reaches the ToPrimitive helper by call, and that inner call
+        // forwards the same local again, so the environment survives both hops.
         if self.outline_value_to_property_key {
             if let Some(helper) = self.value_to_property_key_helper_function_index() {
                 self.emit_is_property_key_i32(tag_local, function);
@@ -4639,9 +4669,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(payload_local));
                 function.instruction(&Instruction::LocalGet(tag_local));
-                for _ in 0..5 {
+                for _ in 0..4 {
                     function.instruction(&Instruction::I64Const(0));
                 }
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(payload_local, tag_local, function);
                 function.instruction(&Instruction::End);

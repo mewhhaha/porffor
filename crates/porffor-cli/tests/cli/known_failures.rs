@@ -46,17 +46,23 @@
 //!
 //! At the commit this module was written:
 //!
-//! - 593 `#[test]` attributes across `tests/cli/*.rs`; 8 of them behind
-//!   `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so 585 compile
-//!   under default features and 584 execute (one is ignored).
-//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 597 total.
+//! - 598 `#[test]` attributes across `tests/cli/*.rs` (593 before this module
+//!   added its own 4, plus one declared failure added by the batch-3 findings
+//!   fixer); 8 of them behind `#[cfg(feature = "spec-exec-oracle")]` in
+//!   `frontend.rs`, so 590 compile under default features and 589 execute (one
+//!   is ignored, in `heap.rs`).
+//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 602 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
-//! - 0 `should_panic` attributes before this change, 1 after it.
+//! - 0 `should_panic` attributes before this change, 2 after it.
 //!
-//! Reproduce with:
+//! Reproduce with the **exact-line** form, which is what [`scan_source`] itself
+//! matches. A substring `grep -h '#\[test\]'` over these files currently returns
+//! two extra hits, because it matches prose lines *in this module* that name the
+//! attribute — including this one.
 //!
 //! ```sh
-//! grep -h '#\[test\]' crates/porffor-cli/tests/cli/*.rs crates/porffor-cli/tests/*.rs | wc -l
+//! awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
+//!   crates/porffor-cli/tests/cli/*.rs crates/porffor-cli/tests/*.rs
 //! grep -rn '#\[ignore' crates/porffor-cli/tests/
 //! ```
 
@@ -113,7 +119,7 @@ const CONST_ASSERT_PREFIX: &str = "const _: fn() = crate::";
 /// An anti-vacuity guard, not a budget. The scan reads sources from
 /// `CARGO_MANIFEST_DIR` at run time; if that ever resolved somewhere
 /// unexpected it would find nothing and every hygiene check below would pass
-/// for the worst possible reason. Today's count is 597 across the three
+/// for the worst possible reason. Today's count is 602 across the three
 /// targets. This bound fails when the count *shrinks*, which is the direction
 /// that means the scan broke; a growing suite must never require an edit here.
 const MINIMUM_SCANNED_TESTS: usize = 500;
@@ -517,6 +523,8 @@ pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
 
 const _: fn() = crate::binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture;
 const _: fn() = crate::heap::run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture;
+const _: fn() =
+    crate::language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name;
 
 // -------------------------------------------------------------------------
 // Routing: which `porf` invocations must run as a guarded subprocess.
@@ -528,8 +536,15 @@ const _: fn() = crate::heap::run_wasm_backend_succeeds_for_heap_page_boundary_st
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExecutionPath {
     /// The fast path: call `porffor_cli::run_cli_capture` in this process. No
-    /// process spawn, no timeout, and no way to recover from a call that
-    /// blocks.
+    /// process spawn.
+    ///
+    /// Bounded, but by a leaked worker thread rather than by a kill: `main.rs`
+    /// runs the call on its own thread and gives up after the hang timeout. A
+    /// blocked call therefore fails its test instead of consuming a libtest
+    /// worker forever. That matters because this is the path a **new**,
+    /// undeclared hang takes — the guarded path is reachable only for a test the
+    /// ledger already names — so leaving it unbounded left rung 1c able to spin
+    /// forever under the documented `--test-threads=2` invocation.
     InProcess,
     /// Spawn the real `porf` binary, poll it, and kill it after the hang
     /// timeout. Costs a process spawn; survives a test that never returns.
@@ -547,15 +562,21 @@ const MAIN_THREAD_NAME: &str = "main";
 /// inside a test body without threading state through ~590 call sites.
 ///
 /// The bias is deliberate and one-directional: when the name is unknown the
-/// guarded path is taken, never skipped. Backwards, the suite stops
-/// terminating. Two consequences worth knowing:
+/// guarded path is taken, never skipped. Backwards, the suite pays a process
+/// spawn it did not need. Three consequences worth knowing:
 ///
-/// - Under `--test-threads=1` every CLI test spawns a real `porf` process.
-///   That is slower, and it is the documented price of not reintroducing the
-///   hang. The documented rung-1c invocation uses `--test-threads=2`.
+/// - Under `--test-threads=1` every CLI test spawns a real `porf` process,
+///   because libtest runs every test on `main` and the test's own name is
+///   unavailable there. That is correct and terminating but far slower than the
+///   in-process path the suite's runtime estimate is built on. Use
+///   `--test-threads=2` or higher, and `-- --exact <name>` for a single test.
 /// - If the ledger fails to parse, every test takes the guarded path. That is
 ///   loud rather than silent: [`ledger_is_well_formed`] reports the parse error
-///   in the same run.
+///   in the same run — but read that one diagnostic early, because the visible
+///   symptom is 588 cold subprocess spawns and a run that looks merely slow.
+/// - Routing by row means a hang in an *undeclared* test never reaches the
+///   guarded path. It is bounded on the other path instead; see
+///   [`ExecutionPath::InProcess`].
 pub(crate) fn execution_path(thread_name: Option<&str>) -> ExecutionPath {
     let Some(name) = thread_name else {
         return ExecutionPath::GuardedSubprocess;
@@ -961,6 +982,39 @@ fn ledger_is_well_formed() {
              a symbol; line numbers go stale without anything failing.",
             row.line,
             row.evidence
+        );
+
+        // ...and the path has to resolve, in this checkout, outside `target/`.
+        //
+        // This column was free text with one negative check, in a ledger whose
+        // entire purpose is that a path nothing consumes rots silently. It
+        // reproduced that shape in its own schema: the `unfilled` row cited
+        // `target/watched/b2-cli.log`, which is gitignored, so on any other
+        // checkout it simply does not exist and nothing notices. Contrast the
+        // columns that *are* consumed -- `owner_task` against `tasks/<NN>-*.md`
+        // and `test` against the source scan -- and both bite.
+        let evidence_path = row.evidence.split_whitespace().next().unwrap_or("");
+        assert!(
+            !evidence_path.is_empty(),
+            "known-failures.tsv:{}: evidence must start with a path",
+            row.line
+        );
+        assert!(
+            !evidence_path.starts_with("target/"),
+            "known-failures.tsv:{}: evidence `{}` points into `target/`, which is gitignored. \
+             Nobody else's checkout has that file, so the citation is unverifiable by \
+             construction. Cite a tracked path.",
+            row.line,
+            evidence_path
+        );
+        let resolved = repo_root().join(evidence_path);
+        assert!(
+            resolved.exists(),
+            "known-failures.tsv:{}: evidence path `{}` does not exist ({}). Cite something that \
+             is actually in the tree.",
+            row.line,
+            evidence_path,
+            resolved.display()
         );
     }
 

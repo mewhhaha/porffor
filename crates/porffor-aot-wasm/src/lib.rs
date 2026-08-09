@@ -287,16 +287,30 @@ mod tests {
         );
     }
 
-    /// The typed per-function report is populated on every emission, and it
-    /// agrees with the `largest emitted function:` line the golden capture
-    /// already records — because both come from one traversal of
-    /// `ModuleFunctionTable`.
+    /// The typed per-function report has exactly one row per code-section
+    /// entry in the encoded module.
     ///
-    /// Agreement is the whole assertion. Two independently-maintained size
-    /// reports are how `runtime helper functions: 27` came to disagree with a
-    /// counted 32 + 1, and a report that is merely *present* proves nothing.
+    /// **What in here can actually fail, and what cannot.** The `largest` vs
+    /// `debug_dump` comparison below is near-tautological by construction:
+    /// `emit()` builds `function_sizes` and renders the `largest emitted
+    /// function:` line from the *same* slice in adjacent statements, so the two
+    /// cannot disagree without an edit that deliberately splits them. It is kept
+    /// as a guard against exactly that re-split — two independently-maintained
+    /// size reports are how `runtime helper functions: 27` came to disagree with
+    /// a counted 32 + 1 — but it is not evidence.
+    ///
+    /// The falsifiable assertion is `function_sizes.len() == code_entries`,
+    /// counted by an independent `wasmparser` walk of the encoded bytes. That is
+    /// what the name promises and it is the only part that can catch a real
+    /// defect.
+    ///
+    /// This test also does **not** cover every emit path: it calls the
+    /// in-process `emit_script` helper only. `Engine::emit_wasm_on_current_thread`
+    /// and `run_with_wasm_aot_inner` — the two paths where the dump was actually
+    /// being dropped — are covered in `porffor-engine`, not here, because this
+    /// crate cannot reach them.
     #[test]
-    fn report_is_written_for_every_emit_path() {
+    fn typed_report_row_count_matches_the_code_section() {
         let artifact = emit_script("this;").expect("full bootstrap script should emit");
         assert!(
             !artifact.function_sizes.is_empty(),
@@ -379,6 +393,23 @@ mod tests {
     /// before the split and GREEN after without being a tripwire on ordinary
     /// drift.
     ///
+    /// **The absolute budget alone is not enough**, and that is why the static
+    /// control below exists. The post-split floor is ~14,900 (the static-index
+    /// row) plus a call, so *anything* from ~15,000 to 30,000 satisfies the
+    /// budget — including a half-landed split in which the ToPropertyKey seam
+    /// fires and the ToPrimitive one does not, or the reverse. The budget
+    /// asserts a constant; it cannot express the relationship it means.
+    ///
+    /// So the test emits a second probe that is the same text with a **static**
+    /// index (`x = A[0];`) and asserts that the dynamic body costs the static
+    /// body plus at most [`DYNAMIC_KEY_MARGIN_BYTES`]. That is the real claim:
+    /// *a dynamic key costs about what a static key costs, plus a call.* The
+    /// margin is 10,000 rather than the few hundred bytes a seam plus a call
+    /// should really cost, because the post-split delta has not been measured —
+    /// but 10,000 is one seventh of the 72,528 bytes a single inline copy of
+    /// either composite occupies, so no partially-fired seam can hide inside it.
+    /// Tighten it towards ~1,000 once the delta is counted.
+    ///
     /// It asserts on a **named** function. Asserting on the largest body in the
     /// module would be vacuous: in any bootstrap-heavy module that is a builtin
     /// (`builtin::Object.defineProperty`, 375,534 bytes in this very probe),
@@ -398,7 +429,45 @@ mod tests {
              return x;\n\
              }\n\
              print(probe('a-b-c', 0, 1));\n";
+        /// The same text with a static index. Every other line is identical, so
+        /// the difference between the two largest `js::probe#` bodies is the
+        /// cost of the dynamic key and nothing else.
+        const STATIC_CONTROL: &str = "function probe(k, i, j) {\n  \
+             var A = k.split('-');\n  \
+             var x = '';\n  \
+             x = A[0];\n  \
+             return x;\n\
+             }\n\
+             print(probe('a-b-c', 0, 1));\n";
         const BUDGET_BYTES: u32 = 30_000;
+        /// See the doc comment: one inline copy of either composite is 72,528
+        /// bytes, so a margin this size cannot conceal a half-fired seam.
+        const DYNAMIC_KEY_MARGIN_BYTES: u32 = 10_000;
+
+        /// Largest emitted body whose name starts with `js::probe#`. There are
+        /// two (`js::probe#f0` and `js::probe#f0$exact_helper_context$0`), and
+        /// an empty set must fail rather than pass vacuously.
+        fn largest_probe_body(artifact: &WasmArtifact) -> (String, u32) {
+            let probe_bodies = artifact
+                .function_sizes
+                .iter()
+                .filter(|summary| summary.name.starts_with("js::probe#"))
+                .collect::<Vec<_>>();
+            assert!(
+                !probe_bodies.is_empty(),
+                "the probe function must be emitted, or this budget is vacuous: {:?}",
+                artifact
+                    .function_sizes
+                    .iter()
+                    .map(|summary| summary.name.as_str())
+                    .collect::<Vec<_>>()
+            );
+            let largest = probe_bodies
+                .iter()
+                .max_by_key(|summary| summary.body_bytes.bytes())
+                .expect("non-empty");
+            (largest.name.clone(), largest.body_bytes.bytes())
+        }
 
         let artifact = emit_script(PROBE).expect("probe script should emit");
         let probe_bodies = artifact
@@ -424,6 +493,83 @@ mod tests {
                 body.body_bytes.bytes()
             );
         }
+
+        // The relational half. `BUDGET_BYTES` above is a constant and cannot
+        // distinguish "both composites outlined" from "one of the two".
+        let (dynamic_name, dynamic_bytes) = largest_probe_body(&artifact);
+        let control = emit_script(STATIC_CONTROL).expect("static control script should emit");
+        let (static_name, static_bytes) = largest_probe_body(&control);
+        assert!(
+            dynamic_bytes >= static_bytes,
+            "a dynamic key cannot be cheaper than a static one: \
+             {dynamic_name} is {dynamic_bytes} bytes, {static_name} is {static_bytes}"
+        );
+        let delta = dynamic_bytes - static_bytes;
+        assert!(
+            delta <= DYNAMIC_KEY_MARGIN_BYTES,
+            "a dynamic key costs {delta} bytes over the static control \
+             ({dynamic_name} {dynamic_bytes} vs {static_name} {static_bytes}), \
+             against a margin of {DYNAMIC_KEY_MARGIN_BYTES}. One inline copy of the \
+             ToPrimitive/ToPropertyKey composite is 72,528 bytes, so a delta this \
+             large means at least one of the two seams did not fire — read the two \
+             numbers rather than only raising the margin"
+        );
+    }
+
+    /// The `PORFFOR_EMIT_SIZE_REPORT_PATH` sink writes one line per emitted
+    /// function, from the same traversal as the typed report, with the largest
+    /// body first.
+    ///
+    /// This exists because the sink was the one mechanism the size-report work
+    /// added specifically so that "I set the variable and saw nothing" could not
+    /// be read as "there are no large functions" — and it was itself protected
+    /// only by review. The env read is deliberately *not* exercised here (it
+    /// would be visible to every other test in the process); this drives
+    /// `write_size_report_file`, which is everything the env wrapper does after
+    /// reading the variable.
+    #[test]
+    fn the_size_report_file_is_the_same_traversal_as_the_typed_report() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+        let path = std::env::temp_dir().join(format!(
+            "porffor-emit-size-report-{}.txt",
+            std::process::id()
+        ));
+        crate::emitted_function::write_size_report_file(&path, &artifact.function_sizes);
+
+        let written = std::fs::read_to_string(&path).expect("the sink must write the report file");
+        let _ = std::fs::remove_file(&path);
+
+        let lines = written.lines().collect::<Vec<_>>();
+        assert_eq!(
+            lines.len(),
+            artifact.function_sizes.len(),
+            "the report file must hold one row per typed summary"
+        );
+
+        let largest_bytes = artifact
+            .function_sizes
+            .iter()
+            .map(|summary| summary.body_bytes.bytes())
+            .max()
+            .expect("a non-empty report has a largest entry");
+        assert!(
+            lines[0].contains(&format!(" bytes={largest_bytes} ")),
+            "the first report row must be a largest body ({largest_bytes} bytes), got {:?}",
+            lines[0]
+        );
+        // `report_lines` breaks size ties by ascending wasm index while
+        // `EmittedFunctionSummary::largest` keeps the last maximum, so assert on
+        // the row's own identity rather than assuming the two pick the same tie.
+        let reported_name = lines[0]
+            .rsplit_once(" name=")
+            .map(|(_, name)| name)
+            .expect("every report row ends with name=");
+        assert!(
+            artifact.function_sizes.iter().any(|summary| {
+                summary.name == reported_name && summary.body_bytes.bytes() == largest_bytes
+            }),
+            "the first report row names {reported_name}, which is not a largest typed summary"
+        );
     }
 
     #[test]

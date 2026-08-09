@@ -132,10 +132,11 @@ pub(crate) enum RuntimeHelperId {
     ///
     /// **Retraction, batch 3.** This doc comment used to assert that this
     /// composite "is what pushed the `testIntl.js` `canonicalizeLanguageTag`
-    /// body to 3,615,449 bytes". The *causal* half of that claim is refuted and
-    /// the correct cause is [`Self::ValueToPrimitiveString`] /
-    /// [`Self::ValueToPropertyKey`]; see the note on those variants for the
-    /// measurement and how to reproduce it. What survives is only that this
+    /// body to 3,615,449 bytes". The *causal* half of that claim is refuted.
+    /// The *predicted* replacement cause is [`Self::ValueToPrimitiveString`] /
+    /// [`Self::ValueToPropertyKey`] — predicted, not established: see the note
+    /// on those variants for the ratio argument, its falsifier and its known
+    /// blind spot. What survives here without qualification is only that this
     /// composite is large per inline site; with this helper in place
     /// `helper::indexed_element_read` is 2,761 bytes, and
     /// `canonicalizeLanguageTag` was still *exactly* 3,615,449 bytes
@@ -171,13 +172,30 @@ pub(crate) enum RuntimeHelperId {
     /// bytes per operand — the same composite, reached through ToPropertyKey in
     /// the first case and directly in the second.
     ///
-    /// The cause claim for `js::canonicalizeLanguageTag#f46` (3,615,449 bytes,
-    /// 154 locals) is *counted*, not estimated: five independent call-count
-    /// ratios against the one-site probe agree on ~49 copies of this composite
-    /// in that one body — `object_define_data 7130/144.5`,
-    /// `string_equality 6352/130`, `plain_object_alloc 3565/72.5`,
-    /// `function_call 1177/24`, `array_alloc 1225/26`. 49 x 72,347 is 98.0% of
-    /// the body.
+    /// The table above is measured. The attribution of
+    /// `js::canonicalizeLanguageTag#f46` (3,615,449 bytes, 154 locals) to this
+    /// composite is **a prediction, not a measurement**, and is recorded here
+    /// with its falsifier so it cannot harden into folklore the way the
+    /// [`Self::IndexedElementRead`] claim retracted above did.
+    ///
+    /// Predicted cause: five independent call-count ratios against the one-site
+    /// probe agree on ~49 copies of this composite in that one body —
+    /// `object_define_data 7130/144.5`, `string_equality 6352/130`,
+    /// `plain_object_alloc 3565/72.5`, `function_call 1177/24`,
+    /// `array_alloc 1225/26`. 49 x 72,347 is 98.0% of the body.
+    ///
+    /// **Falsifier:** the post-split size of `js::canonicalizeLanguageTag#f46`,
+    /// read exactly as the table above was read. Predicted under 250,000 bytes.
+    /// **Above 500,000 the attribution is wrong** and the residual must be
+    /// re-attributed before anyone claims the split worked. That measurement has
+    /// not been taken — no compiler ran in the session that wrote this.
+    ///
+    /// **Known blind spot of the ratio method:** a call-count ratio cannot
+    /// separate a composite from the composites emitted *adjacent to it at the
+    /// same sites*, because they scale together. That is precisely how batch 2
+    /// misattributed these same 49 sites to [`Self::IndexedElementRead`]. The
+    /// ratios are therefore evidence that ~49 *sites* dominate the body, and
+    /// only weak evidence about which composite at those sites owns the bytes.
     ValueToPrimitiveDefault = 34,
     /// `ToPrimitive(value, number)`. Separate body rather than a runtime hint
     /// parameter: the hook order differs (`valueOf` before `toString`), so a

@@ -4183,18 +4183,26 @@ impl<'a> FunctionBuilder<'a> {
     /// Test262 case observed the wrong coercion order.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag. Params 2-6 are unused. Results are the standard four-i64
+    /// 1=value tag, 6=calling function's realm environment. Params 2-5 are
+    /// unused. Results are the standard four-i64
     /// tuple: on normal completion the primitive `(payload, tag)` is in the
     /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
     /// surfaced through the completion slots with the thrown value in the first
     /// two, which is exactly what the inline composite leaves in its output
     /// locals, so the seam's callers cannot tell the difference.
+    ///
+    /// Param 6 is loaded into `current_env_local` for the reason recorded on
+    /// `emit_value_to_primitive_via_helper_if_outlined`: inline, this composite
+    /// ran with the caller's environment, and `compile_value_to_numeric_helper`
+    /// already forwards param 6 into a path that now reaches this helper.
     fn compile_value_to_primitive_helper(
         &mut self,
         hint: ToPrimitiveHint,
     ) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::helper_for(hint));
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         let primitive_payload_local = self.reserve_temp_local();
@@ -4252,7 +4260,8 @@ impl<'a> FunctionBuilder<'a> {
     /// own seam. That is the one intended helper-to-helper edge in this pair.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag, updated in place. Params 2-6 are unused. Results are the
+    /// 1=value tag, updated in place, 6=calling function's realm environment.
+    /// Params 2-5 are unused. Results are the
     /// standard four-i64 tuple. The inline body's own throw propagation is what
     /// produces the abrupt result: inside a helper there is no active catch
     /// target, so it becomes a completion return, exactly as in
@@ -4260,6 +4269,8 @@ impl<'a> FunctionBuilder<'a> {
     fn compile_value_to_property_key_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ValueToPropertyKey);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_property_key_locals(0, 1, &mut function)?;

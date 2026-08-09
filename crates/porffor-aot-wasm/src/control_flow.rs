@@ -553,6 +553,34 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// OPEN DEFECT — read this before adding a call site.
+    ///
+    /// The `Br` below is `depth_to(target) + 1 + extra_depth`. `depth_to` counts
+    /// only frames pushed through [`Self::push_control`]; the `+ 1` covers this
+    /// function's own raw `If`. Every *other* raw `Instruction::If`/`Block`
+    /// between the innermost tracked frame and this call must be declared by the
+    /// caller through `extra_depth`, and several callers do not declare it.
+    ///
+    /// The consequence is observable today. With one undeclared frame the throw
+    /// exits one frame too few:
+    ///
+    /// * a property read that throws inside a `for` lands on the loop back-edge
+    ///   instead of the handler — the loop spins and eventually traps;
+    /// * the same read inside a `switch` has the throw discarded silently.
+    ///
+    /// A flat `try { ... } catch` is `depth_to == 0` and works, which is why
+    /// probes keep passing. The named path (`a.zzz`) and the computed path
+    /// (`a[k]`) fail identically, so this is upstream of any one emitter.
+    ///
+    /// Two things cannot detect a wrong depth, and both have been offered as
+    /// evidence: rung G, because a `Br` immediate is the same width either way,
+    /// and wasm validation, because both the right and the wrong label index are
+    /// in range. Only running the program can tell.
+    ///
+    /// The structural repair is to stop having undeclared frames —
+    /// `push_control`/`pop_control` the raw frames, as
+    /// `emit_value_to_string_payload` already does — rather than to add more
+    /// hand-counted `extra_depth` arguments.
     pub(crate) fn emit_propagate_throw_from_locals_if_needed_with_extra_depth(
         &mut self,
         payload_local: u32,

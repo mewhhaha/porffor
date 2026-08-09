@@ -32,15 +32,16 @@ const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 /// year, plus whether the source actually carried one.
 ///
 /// `ToTemporalMonthDay`'s string branch asks two questions of that pair and then
-/// throws the year away:
+/// throws the year away (steps named, not lettered — see
+/// [`FunctionBuilder::emit_temporal_month_day_string_reference_year`] for why):
 ///
-/// * step (g) — `result.[[Year]] is empty` and the calendar is not `iso8601` is
-///   a RangeError, which is what rejects `"11-18[u-ca=gregory]"`;
-/// * step (k) — a non-ISO calendar bounds the *parsed* date by
-///   `ISODateWithinLimits`, which is what rejects
-///   `"±999999-01-01[u-ca=gregory]"`.
+/// * **year-empty rejection** — `result.[[Year]] is empty` and the calendar is
+///   not `iso8601` is a RangeError, which is what rejects
+///   `"11-18[u-ca=gregory]"`;
+/// * **`ISODateWithinLimits`** — a non-ISO calendar bounds the *parsed* date,
+///   which is what rejects `"±999999-01-01[u-ca=gregory]"`.
 ///
-/// Only then does step (l) replace the year with
+/// Only then is the year replaced with
 /// `TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR`. Both facts were previously
 /// unrecoverable by the time the reference year was stored, and both checks were
 /// simply absent; naming the pair is what stops them being droppable again.
@@ -56,6 +57,29 @@ const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 /// skips the checks therefore also skips the reference year and produces a
 /// visibly wrong `[[ISOYear]]`, rather than a correct-looking `PlainMonthDay`
 /// built from a string the spec rejects.
+///
+/// **Be precise about the enforcement level: this is a warning, not a compile
+/// error, and the enforcing witness is a test.** `#[must_use]` fires on a
+/// *discarded expression*; it does not fire on
+/// `let parsed = self.emit_temporal_parse_month_day_string(...)?;` followed by
+/// nothing. `cargo xc` is `check --workspace --all-targets` (`.cargo/config.toml`
+/// `[alias]`) with no `-D warnings`, and this crate sets no `deny`, so a future
+/// string path that reserves this struct and never feeds it to the consumer
+/// compiles clean.
+///
+/// What actually catches that omission is
+/// `built-ins/Temporal/PlainMonthDay/from/fields-string.js`: it calls
+/// `TemporalHelpers.assertPlainMonthDay(plainMonthDay, "M10", 1, ...)` whose
+/// fifth parameter defaults to `1972` and is asserted as
+/// `Number(monthDay.toString({calendarName:"always"}).split("-")[0])`
+/// (`harness/temporalHelpers.js:302-308`). A missing reference-year store fails
+/// there, on the **ISO** path, i.e. in this lane's own target test — not only
+/// through `equals`.
+///
+/// The compile-error version, if one is wanted later: make
+/// `emit_alloc_temporal_partial_date` take a year *token* that only this
+/// checker can mint, instead of a bare `u32` local. That moves the obligation to
+/// the allocation site, which every path must reach.
 #[must_use]
 pub(crate) struct TemporalParsedMonthDayYear {
     year_local: u32,
@@ -669,11 +693,29 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         // Step (f). `from/observable-get-overflow-argument-string-invalid.js`
-        // pins that a string the parser rejects reads no option at all, so this
-        // stays after the parse; `from/options-read-before-algorithmic-validation.js`
-        // pins that it happens before any further validation, so it stays before
-        // steps (g) and (k). `equals` arrives with `read_options: false` and
-        // still owes both RangeErrors, which is why they are not inside here.
+        // pins that a string the parser rejects reads no option at all
+        // (`from("13-34", observer)` must leave the observer log empty), so this
+        // stays after the parse. That is the only string-path ordering
+        // constraint the corpus actually observes.
+        //
+        // Its placement *before* the year-empty and ISODateWithinLimits throws
+        // follows the spec — GetTemporalOverflowOption precedes both — and is
+        // **unobserved**: no test in the 286-case corpus passes an options
+        // observer together with an input that reaches those throws. The only
+        // inputs that reach them are the three `[u-ca=gregory]` strings, and
+        // neither red test supplies an observer. Moving this read would
+        // therefore turn nothing red; do not read a green suite as confirmation
+        // that the order is right.
+        //
+        // `from/options-read-before-algorithmic-validation.js` does NOT pin
+        // this, despite what an earlier version of this comment said: its only
+        // call is `Temporal.PlainMonthDay.from({ monthCode: "M08L", day: 14 },
+        // options)`, a property bag, which `emit_temporal_to_temporal_month_day`
+        // routes through the `handled_local == 0` bag branch and which never
+        // enters this string branch at all.
+        //
+        // `equals` arrives with `read_options: false` and still owes both
+        // RangeErrors, which is why they are not inside here.
         if read_options {
             self.emit_temporal_month_day_overflow_option(
                 options_payload_local,
@@ -815,28 +857,50 @@ impl<'a> FunctionBuilder<'a> {
         })
     }
 
-    /// `ToTemporalMonthDay` steps (g), (k) and (l) — the three things the string
-    /// branch does with the parsed `[[Year]]` before discarding it.
+    /// The three things `ToTemporalMonthDay`'s string branch does with the
+    /// parsed `[[Year]]` before discarding it.
     ///
-    /// Emitted in spec order, and the order is observable:
+    /// Steps are named rather than lettered. An earlier version of this comment
+    /// lettered them (g)/(k)/(l) and the letters were shifted; spec step letters
+    /// in this area have moved between proposal revisions, and a stale letter
+    /// reads as authority it does not have. The operation names do not drift.
     ///
-    /// * (g) `result.[[Year]] is empty` with a non-`iso8601` calendar is a
-    ///   RangeError. `"11-18[u-ca=gregory]"` is the case; `"11-18"` and
-    ///   `"--10-01"` are not, because step (i) returns for `iso8601` before this
-    ///   is reached, and that ISO gate is why `plainMonthDayStringsValid()`'s
-    ///   bare forms keep working.
-    /// * (k) a non-`iso8601` calendar bounds the parsed date by
-    ///   `ISODateWithinLimits`. `"±999999-01-01[u-ca=gregory]"` is the case;
+    /// Emitted in spec order:
+    ///
+    /// * **year-empty rejection** — `result.[[Year]] is empty` with a
+    ///   non-`iso8601` calendar is a RangeError. `"11-18[u-ca=gregory]"` is the
+    ///   case; `"11-18"` and `"--10-01"` are not, because the `iso8601` branch
+    ///   returns before this is reached, and that ISO gate is why
+    ///   `plainMonthDayStringsValid()`'s bare forms keep working.
+    /// * **`ISODateWithinLimits`** — a non-`iso8601` calendar bounds the parsed
+    ///   date. `"±999999-01-01[u-ca=gregory]"` is the case;
     ///   `"±999999-10-01[u-ca=iso8601]"` is explicitly *valid* and is the proof
     ///   that this bound must stay behind the same ISO gate.
-    /// * (l) the stored `[[ISOYear]]` becomes the reference year 1972.
+    /// * **reference-year store** — the stored `[[ISOYear]]` becomes
+    ///   [`TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR`].
     ///
-    /// Both checks are outside the caller's `if read_options` block: `equals`
-    /// reaches `ToTemporalMonthDay` with no options at all and
+    /// **The unconditional 1972 store is a shortcut, valid only while
+    /// [`TemporalCalendarId::ALL`] contains no calendar with a leap month.** The
+    /// literal 1972 is the `iso8601` branch's reference year; on the non-ISO
+    /// branch the reference year is whatever `CalendarMonthDayFromFields`
+    /// returns, and the spec does not promise 1972 there.
+    /// `intl402/Temporal/PlainMonthDay/from/reference-year-1972.js` pins exactly
+    /// that: `result4` (`{monthCode:"M05L", day:1, calendar:"hebrew"}`) asserts
+    /// **1970** and `result7` asserts 1971, checked through
+    /// `TemporalHelpers.assertPlainMonthDay`'s fifth parameter
+    /// (`harness/temporalHelpers.js:302-308`, which reads the year back out of
+    /// `toString({calendarName:"always"})`). `ALL` is `[Iso8601, Gregory]` and
+    /// every gregory month-day exists in the leap year 1972, so the shortcut is
+    /// correct today and only today. A lunisolar calendar added to `ALL` must
+    /// derive this year from `CalendarMonthDayFromFields` instead — see the note
+    /// on `ALL` itself.
+    ///
+    /// Both checks are outside the caller's `if read_options` block, because
+    /// `equals` reaches `ToTemporalMonthDay` with no options at all and
     /// `prototype/equals/argument-string-invalid.js` still requires both
-    /// RangeErrors, while `from/options-read-before-algorithmic-validation.js`
-    /// requires the overflow read to happen first when there are options. The
-    /// caller therefore emits the option read between the parse and this.
+    /// RangeErrors. That the overflow read is emitted *before* them follows the
+    /// spec (GetTemporalOverflowOption precedes both) but is **unobserved** by
+    /// the corpus — see the comment at the caller's option-read site.
     ///
     /// Taking the [`TemporalParsedMonthDayYear`] by value is the point: this is
     /// also the only place the reference year is stored, so a future string path
@@ -855,7 +919,7 @@ impl<'a> FunctionBuilder<'a> {
             year_present_local,
         } = parsed;
 
-        // (g) — non-ISO calendar and no year in the source.
+        // Year-empty rejection — non-ISO calendar and no year in the source.
         self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::LocalGet(year_present_local));
@@ -871,7 +935,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        // (k) — non-ISO calendar: the parsed date, not the reference date, is
+        // `ISODateWithinLimits` — non-ISO calendar: the parsed date, not the
+        // reference date, is
         // what has to be representable. `ISODateWithinLimits`, not
         // `ISOYearMonthWithinLimits`: the latter is the bag path's bound and
         // disagrees on the two boundary days.
@@ -890,7 +955,9 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(days_local);
         function.instruction(&Instruction::End);
 
-        // (l) — the parsed year is never stored.
+        // Reference-year store — the parsed year is never stored. See the doc
+        // comment: the unconditional literal is a shortcut that holds only while
+        // no calendar in `TemporalCalendarId::ALL` has a leap month.
         function.instruction(&Instruction::I64Const(
             TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
         ));

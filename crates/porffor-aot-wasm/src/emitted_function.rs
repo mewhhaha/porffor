@@ -588,6 +588,19 @@ pub(crate) fn emit_size_report_requested() -> bool {
 /// Test262 wasm-aot backend). A failing write panics rather than being ignored —
 /// an empty or absent report file is exactly the ambiguity this exists to
 /// remove.
+///
+/// The env read is the *only* thing this wrapper does; the report text and the
+/// write are [`write_size_report_file`], which is what
+/// `the_size_report_file_is_the_same_traversal_as_the_typed_report` exercises.
+/// The split exists because a test that sets `EMIT_SIZE_REPORT_PATH_ENV` would
+/// be visible to every other test in the process, and the sink is the one part
+/// of this module that was previously protected by review alone.
+///
+/// One hazard this deliberately does not hide: the variable names a single
+/// path, so N concurrent compilations (the Test262 wasm-aot runner's workers,
+/// for instance) all write the same file and the survivor is whichever finished
+/// last. Give each worker its own path, or read the file as "some module's
+/// report", never "this module's report".
 pub(crate) fn write_size_report_file_if_requested(summaries: &[EmittedFunctionSummary]) {
     let Some(path) = std::env::var_os(EMIT_SIZE_REPORT_PATH_ENV) else {
         return;
@@ -595,9 +608,15 @@ pub(crate) fn write_size_report_file_if_requested(summaries: &[EmittedFunctionSu
     if path.is_empty() {
         return;
     }
+    write_size_report_file(path.as_ref(), summaries);
+}
+
+/// Renders and writes the report. Separated from the env read so it is directly
+/// testable; see [`write_size_report_file_if_requested`].
+pub(crate) fn write_size_report_file(path: &std::path::Path, summaries: &[EmittedFunctionSummary]) {
     let mut report = EmittedFunctionSummary::report_lines(summaries, usize::MAX).join("\n");
     report.push('\n');
-    std::fs::write(&path, report).unwrap_or_else(|err| {
+    std::fs::write(path, report).unwrap_or_else(|err| {
         panic!("failed to write the {EMIT_SIZE_REPORT_PATH_ENV} report to {path:?}: {err}")
     });
 }

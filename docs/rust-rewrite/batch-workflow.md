@@ -35,7 +35,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
 | 1 | `cargo test -p porffor-ir`, focused `-p porffor-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
-| 1c | the whole CLI suite (584 tests) | **~26 min** at `--test-threads=8` on 16 CPUs; est. **~1 h 45 min** at `--test-threads=2` | end-to-end CLI behaviour | conformance beyond the fixture corpus |
+| 1c | the whole CLI suite (589 executing tests) | **~26 min** at `--test-threads=8` on 16 CPUs; est. **~1 h 45 min** at `--test-threads=2` | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
 | 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |
@@ -60,16 +60,23 @@ Run it exactly like this. No `--skip`:
 ```
 
 Raise `--test-threads` on a machine with spare cores; the suite is CPU-bound and
-scales close to linearly. Keep `--stall` at 900 regardless: on a 4-CPU box with
-a sweep holding two of them, a single cold Wasm-AOT compile can exceed 300 s of
-log silence, and the 300 s default then kills a perfectly healthy run with exit
-code 124. As always, judge a long run by whether its **log is still growing**,
-never by elapsed time against an estimate.
+scales close to linearly. **Never lower it to 1.** Under `--test-threads=1`
+libtest runs every test on the thread named `main`, the per-test name that
+`known_failures::execution_path` routes on is unavailable, and all 589 tests fall
+back to spawning a cold `porf` child process instead of the warm in-process call
+the ~26 minute estimate is built on. It is correct and terminating, just far
+slower. For one test use `-- --exact <name>`, not a lower thread count.
+
+Keep `--stall` at 900 regardless: on a 4-CPU box with a sweep holding two of
+them, a single cold Wasm-AOT compile can exceed 300 s of log silence, and the
+300 s default then kills a perfectly healthy run with exit code 124. As always,
+judge a long run by whether its **log is still growing**, never by elapsed time
+against an estimate.
 
 **Do not compare the result against a document.** The expected non-green
 outcomes are tracked in `crates/porffor-cli/tests/known-failures.tsv` and the
 suite enforces them itself, so a green rung 1c means "exactly the declared
-outcomes, for the declared reasons" and a red one means something moved. Six
+outcomes, for the declared reasons" and a red one means something moved. Seven
 kinds of drift are failures rather than notes someone has to remember:
 
 | Drift | How it fails |
@@ -80,13 +87,29 @@ kinds of drift are failures rather than notes someone has to remember:
 | declared test renamed or deleted | `cargo xc`: E0425/E0603 on a `const _` line |
 | ledger row with no test, or test with no row | `known_failures::*` hygiene tests |
 | `#[ignore]` added with no owner | `known_failures::every_ignored_test_is_declared` |
+| **hang in an undeclared test** | `porf run exceeded ... in process` after the hang timeout |
+
+That last row is the one the table used to be missing, and its absence was not
+cosmetic. `execution_path` routes only *declared* hangs to the guarded
+subprocess; every undeclared test takes the in-process path, so a new hang could
+never produce the guarded path's "this is a NEW hang" message under the
+documented `--test-threads=2` invocation. The in-process path is now bounded by
+the same timeout, on a worker thread that is leaked rather than killed — so the
+suite terminates whichever path the hang appears on. A `fail`-state row whose
+test later starts hanging is covered by the same bound.
+
+Neither bound can distinguish "blocked" from "pathologically slow": the declared
+hang's fixture prints nothing before it blocks. The timeout is calibrated (900 s,
+the same headroom as `--stall 900`) so that a cold Wasm-AOT compile on a loaded
+4-CPU box finishes well inside it; treat a timeout as "hung *or* very slow" and
+investigate before adding a row.
 
 `binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture` used to
-hang the suite forever at 583 of 584, which is why the old invocation carried
+hang the suite forever at 588 of 589, which is why the old invocation carried
 `--skip atomics_wait_core` and why rung 1c was never actually a gate. It is now
 a declared hang (owner T17): `tests/cli/main.rs` runs it as a real child process
-and kills it after 120 s, so it terminates as a bounded, expected failure. The
-underlying defect is still open — the ledger row carries the lead.
+and kills it after the hang timeout, so it terminates as a bounded, expected
+failure. The underlying defect is still open — the ledger row carries the lead.
 
 Two naming traps, both of which have cost time:
 
@@ -105,6 +128,15 @@ Two naming traps, both of which have cost time:
 4. Add `#[should_panic(expected = "<stable substring of that message>")]` and
    `pub(crate)` to the test, and a `const _: fn() = crate::<module>::<name>;`
    line in `tests/cli/known_failures.rs`.
+
+   **The attribute must stay on one physical line and use the exact
+   `expected = "..."` spelling.** `known_failures::scan_source` asserts that any
+   line starting with `#[` also ends with `]`, and the `should_panic` parser
+   accepts only that spelling. A wrapped or `\`-continued attribute fails the
+   hygiene tests with a pointed message — and the `\`-continued form is already
+   idiomatic in this tree for long `#[ignore = "..."]` reasons
+   (`crates/porffor-aot-wasm/src/planning.rs`), so a contributor following local
+   convention will trip it. Shorten the substring instead of wrapping the line.
 5. Re-run until green.
 
 A bare `#[should_panic]`, or an empty `expected`, is rejected by the hygiene
@@ -189,7 +221,7 @@ git stash pop && mv target/golden/intrinsics-parked crates/porffor-aot-wasm/src/
 
 Empty diff means byte identity. This exists because the ordinary suites assert
 on program *output*, so a refactor that perturbs emission order, function index
-assignment, or property installation order can leave all 581 CLI tests green
+assignment, or property installation order can leave all 589 CLI tests green
 while changing the emitted module. Two independent runs were verified
 byte-identical, so a non-empty diff is signal, not noise.
 
@@ -328,14 +360,24 @@ Landed:
   `cargo`, ending recurring full-workspace rebuilds.
 - Per-tier cache budgets (`PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
 - The golden capture (rung G).
-- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — 593 `#[test]`
-  attributes across 14 area modules, so feature lanes no longer all append to
-  one 10,709-line file. 8 of them sit behind `#[cfg(feature =
-  "spec-exec-oracle")]` in `frontend.rs`, so **585 compile** under default
-  features and **584 execute** (one is `#[ignore]`d). Recount with
-  `grep -h '#\[test\]' crates/porffor-cli/tests/cli/*.rs | wc -l` rather than
-  trusting this line; two different wrong numbers lived in this document at
-  once because nobody could run the suite to notice.
+- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — **598** `#[test]`
+  attributes across 14 area modules plus the `known_failures.rs` hygiene module,
+  so feature lanes no longer all append to one 10,709-line file. 8 of them sit
+  behind `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **590
+  compile** under default features and **589 execute** (one is `#[ignore]`d, in
+  `heap.rs`). Recount with the **exact-line** form — the same one the hygiene
+  scanner itself uses (`known_failures.rs`), not a substring grep:
+
+  ```sh
+  awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
+    crates/porffor-cli/tests/cli/*.rs
+  ```
+
+  This line has been wrong three times. `grep -h '#\[test\]' … | wc -l` — which
+  this document used to print as the recount recipe — is a *substring* match and
+  currently returns 600, because it also matches two prose lines inside
+  `known_failures.rs` that mention the attribute. Do not trust either the number
+  or a substring recount; run the `awk` form.
 
 - **`crates/porffor-cli/tests/known-failures.tsv`** — the tracked ledger of
   expected non-green outcomes for this crate's three test targets, enforced by

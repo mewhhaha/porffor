@@ -217,17 +217,26 @@ cargo test -p porffor-engine --quiet
 ./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
-The CLI suite is 584 executing tests: about 26 minutes at `--test-threads=8` on
-16 CPUs, an estimated 1 h 45 min at `--test-threads=2`. Raise the thread count
-on a machine with spare cores, but keep `--stall 900` — a single cold Wasm-AOT
+The CLI suite is 589 executing tests (590 compile; 8 more sit behind the
+`spec-exec-oracle` feature): about 26 minutes at `--test-threads=8` on 16 CPUs,
+an estimated 1 h 45 min at `--test-threads=2`. Raise the thread count on a
+machine with spare cores, but keep `--stall 900` — a single cold Wasm-AOT
 compile can exceed the 300 s default of log silence, and the guard then kills a
 healthy run with exit code 124.
+
+**Do not use `--test-threads=1`.** libtest then runs every test on the thread
+named `main`, the per-test name the suite routes on is unavailable, and all 589
+tests fall back to spawning a cold `porf` child process instead of the warm
+in-process call the 26-minute figure is built on. It is correct and terminating,
+just far slower. For a single test use `-- --exact <name>`.
 
 It no longer needs `--skip atomics_wait_core`. That case still hangs (tracked
 under T17), but it is now a declared hang in
 `crates/porffor-cli/tests/known-failures.tsv`: `tests/cli/main.rs` runs it as a
-real child process and kills it after 120 s, so the suite terminates and the
-hang is reported as a bounded, expected failure.
+real child process and kills it after the hang timeout, so the suite terminates
+and the hang is reported as a bounded, expected failure. A hang in a test with
+*no* ledger row is bounded too, on the in-process path, so the suite terminates
+either way.
 
 Do not compare the result against a list by hand. That ledger is enforced by
 the suite itself — a new failure, a declared failure that starts passing, a
@@ -4490,14 +4499,22 @@ integration target statically relinks a 143 MB binary. Per-test cost varies by
 more than 1.7x across modules, so do not extrapolate one module's runtime to the
 whole suite.
 
-Every expected non-green outcome in that crate is declared in
+Every expected non-green outcome in **`porffor-cli`'s three integration-test
+targets** (`cli`, `perf`, `async_generator`) is declared in
 `crates/porffor-cli/tests/known-failures.tsv` — target, libtest name, state
 (`fail`/`hang`/`ignored`/`unfilled`), owner task, reason, evidence — and
-enforced by `crates/porffor-cli/tests/cli/known_failures.rs`. There is no skip
-list and no expected failure without an owner: an `#[ignore]` or a
-`#[should_panic]` with no row fails the suite, a row whose test no longer exists
-fails `cargo xc`, and a bare `#[should_panic]` (which would pass on any panic at
-all) is rejected outright.
+enforced by `crates/porffor-cli/tests/cli/known_failures.rs`. Within that scope
+there is no skip list and no expected failure without an owner: an `#[ignore]`
+or a `#[should_panic]` with no row fails the suite, a row whose test no longer
+exists fails `cargo xc`, and a bare `#[should_panic]` (which would pass on any
+panic at all) is rejected outright.
+
+The scope is real, not a hedge: `TestTarget` is a closed three-variant enum and
+the source scan reads only `crates/porffor-cli/tests/`. Undeclared cases of
+exactly this shape survive one crate over — `porffor-aot-wasm` carries an
+`#[ignore]` with a reason but no owner, expiry or row (`src/planning.rs`), and an
+undeclared `#[should_panic]` (`src/control_flow.rs`). Extending the ledger to
+unit tests in other crates is open work, not a claim this paragraph makes.
 
 Before adding any tracked data file, run `git check-ignore -v <path>` and
 require exit status 1. `.gitignore` line 3 is a bare `*.txt` that applies
