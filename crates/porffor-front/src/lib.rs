@@ -479,10 +479,7 @@ mod tests {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
         assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
-        assert_eq!(
-            err.diagnostic().code,
-            early(EarlyErrorCode::IllegalBreak)
-        );
+        assert_eq!(err.diagnostic().code, early(EarlyErrorCode::IllegalBreak));
 
         let err = parse("continue missing;", ParseOptions::script())
             .expect_err("labelled continue outside iteration should fail");
@@ -902,5 +899,36 @@ switch (0) {
         ] {
             parse(source, ParseOptions::module()).expect_err("module HTML comment should fail");
         }
+    }
+
+    /// Ledger L1's injection channel, closed.
+    ///
+    /// boa renders a `TokenKind::StringLiteral` as its raw contents
+    /// (`boa_parser/src/lexer/token.rs:313`) and interpolates the found token
+    /// into `Error::Unexpected` / `Error::Expected`, so a program can put a
+    /// whole fragment set of the one table into the message boa produces for an
+    /// ordinary syntax error. `classify_parse_failure` refuses the two
+    /// interpolating shapes, so this stays `Malformed` — a syntax error we do
+    /// not model — rather than becoming a forged `E_ILLEGAL_BREAK`.
+    #[test]
+    fn user_source_text_cannot_forge_an_early_error_classification() {
+        let err = parse(
+            "var x = \"illegal break statement\" \"y\";",
+            ParseOptions::script(),
+        )
+        .expect_err("two adjacent string literals are a syntax error");
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed, "{err}");
+    }
+
+    /// MC4's call-site half. A code the fragment table cannot produce is not a
+    /// `ParseClassified`, so it cannot be reported at
+    /// `ParseDiagnosticPhase::Early` by any parse-stage producer.
+    #[test]
+    fn only_parse_table_codes_are_parse_classified() {
+        assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleTooManyUnits).is_none());
     }
 }

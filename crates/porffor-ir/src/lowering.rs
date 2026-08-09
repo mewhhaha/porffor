@@ -13553,7 +13553,6 @@ impl<'a> ScriptLowerer<'a> {
                     body: Box::new(body),
                     lexical_environment,
                     protocol,
-                    async_plan: None,
                 },
                 protocol,
             )
@@ -32119,7 +32118,16 @@ impl<'a> ScriptLowerer<'a> {
                 DestructuringPropertyKeyIr::Computed(self.lower_expression(expression))
             }
         };
-        Some(DestructuringTargetIr::AssignmentProperty { target, key })
+        // 13.15.5.4 routes this element through PutValue on the Reference the
+        // property access denotes, so its `[[Strict]]` comes from the code
+        // that *created* the Reference — the same single producer every other
+        // reference-shaped node uses — and not from whichever function the
+        // backend later emits the pattern into.
+        Some(DestructuringTargetIr::AssignmentProperty {
+            target,
+            key,
+            strictness: self.reference_strictness(),
+        })
     }
 
     fn lower_lexical_binding_value(
@@ -32845,11 +32853,7 @@ impl<'a> ScriptLowerer<'a> {
     ///
     /// Extracted from `lower_update` so that function can match `UpdateTarget`
     /// exhaustively; the body is unchanged.
-    fn lower_property_access_update(
-        &mut self,
-        op: UpdateOp,
-        access: &PropertyAccess,
-    ) -> TypedExpr {
+    fn lower_property_access_update(&mut self, op: UpdateOp, access: &PropertyAccess) -> TypedExpr {
         let read = self.lower_property_access(access);
         let value_kind = if read
             .possible_kinds
@@ -32904,12 +32908,8 @@ impl<'a> ScriptLowerer<'a> {
             // yet, so these two still have no lowering. They are named
             // here rather than swallowed by a `_` arm, so that adding one
             // is a deliberate edit at this site.
-            ReferenceBase::Private { .. } => {
-                self.unsupported_expr("private field update target")
-            }
-            ReferenceBase::Super { .. } => {
-                self.unsupported_expr("super property update target")
-            }
+            ReferenceBase::Private { .. } => self.unsupported_expr("private field update target"),
+            ReferenceBase::Super { .. } => self.unsupported_expr("super property update target"),
         }
     }
 

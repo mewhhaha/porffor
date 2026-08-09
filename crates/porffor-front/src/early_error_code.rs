@@ -499,11 +499,8 @@ impl ParseClassified {
 /// Detected by substring rather than prefix because the dependency path
 /// prepends [`MODULE_REPARSE_PREFIX`]. Assertion P10 proves this guard eats no
 /// witness of any row. Ledger L1.
-const INTERPOLATING_MESSAGE_SHAPES: &[&str] = &[
-    "unexpected token '",
-    "expected token '",
-    "expected one of ",
-];
+const INTERPOLATING_MESSAGE_SHAPES: &[&str] =
+    &["unexpected token '", "expected token '", "expected one of "];
 
 const fn message_interpolates_source_text(message: &str) -> bool {
     let mut i = 0;

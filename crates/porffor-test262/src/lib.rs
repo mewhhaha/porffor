@@ -21554,14 +21554,18 @@ fn compile_negative_error_matches(
                 NegativePhase::Resolution | NegativePhase::Runtime,
             ) => false,
         };
-        // A `None` error type is a compiler gap claiming no spec error, and a
-        // gap must never satisfy a negative expectation (clause 17: an
-        // implementation must not treat other kinds of error as early errors).
+        // `error_type()` is `None` for `ParseCode::UnsupportedParserFeature`,
+        // the caught-panic case — a compiler gap, not a program ECMAScript
+        // rejects. Requiring `Some` here (rather than only comparing when the
+        // expectation names a type) is what stops a source that merely crashed
+        // boa's parser from being scored as a pass for every `parse`/
+        // `SyntaxError` negative: its phase is already `Parse`, so the phase
+        // test alone admits it. Clause 17: an implementation must not treat
+        // other kinds of error as early errors.
         return phase_matches
-            && (negative.error_type.is_empty()
-                || diagnostic
-                    .error_type()
-                    .is_some_and(|kind| kind == negative.error_type));
+            && diagnostic
+                .error_type()
+                .is_some_and(|kind| negative.error_type.is_empty() || kind == negative.error_type);
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
         let phase_matches = match (diagnostic.phase(), expected) {
@@ -21624,9 +21628,10 @@ fn compile_negative_error_detail(err: &porffor_engine::EngineError) -> String {
         // It must stay a distinct token rather than an `EarlyErrorCode`
         // variant: a code that named the absence of a code would let `Some(_)`
         // mean "none".
-        let code = diagnostic
-            .code()
-            .map_or(porffor_front::NO_EARLY_ERROR_CODE, EarlyErrorCode::wire_name);
+        let code = diagnostic.code().map_or(
+            porffor_front::NO_EARLY_ERROR_CODE,
+            EarlyErrorCode::wire_name,
+        );
         let error_type = diagnostic
             .error_type()
             .map_or(NO_SPEC_ERROR_TYPE, NativeErrorKind::as_str);

@@ -255,7 +255,45 @@ ToNumeric, and PutValue on that one record.
 | **C2** | Consumer C may be discharged statically or dynamically. | **Statically, at lowering** (§1.5). | It already is; formalising it lets §5.1 delete three fields the brief would add, and turns "which variants carry `[[Strict]]`" from taste into a theorem. |
 | **C3** | `[[Strict]]` may be a `bool` threaded by convention or a distinct type. | **A two-inhabitant `enum Strictness`** with no `bool` conversion in the producing direction. | MC1 and MC2 are both "a `bool` in the wrong slot". A `bool` cannot make either a compile error. |
 | **C4** | The strictness of code whose owner plan is missing. | **`Strictness::Strict`, plus a recorded `IrDiagnostic`.** Never a silent `false`. | A spurious throw fails loudly in the first test that touches it; a suppressed throw is invisible — the fae75423a story, where strict mode "was not enforced at all for unresolvable references" and no test noticed. Prefer the loud failure, and make it non-silent besides. |
-| **C5** | Where the `ToPropertyKey` of a computed key runs relative to RHS evaluation. | **Preserve the spec order**: key *expression* before RHS, `ToPropertyKey` after. The `ReferenceRecord` pins the key expression's *value*, not its property-key coercion. | O2. The tree already lowers this correctly via `SpecOperationIr::Get`/`GetV` with a `spec_to_property_key` operand; the contract must not regress it while restructuring. |
+| **C5** | Where the `ToPropertyKey` of a computed key runs relative to RHS evaluation. | **Preserve the spec order**: key *expression* before RHS, `ToPropertyKey` after. The `ReferenceRecord` pins the key expression's *value*, not its property-key coercion. | O2. ~~The tree already lowers this correctly~~ — **false; corrected at DISCREPANCY-FIXER stage, see below.** The contract must not regress the *compound-assignment* path, and must not claim the plain-assignment path is already right. |
+
+> **C5's "the tree already lowers this correctly" is refuted.** It holds for the
+> compound-assignment path, which reaches `reference_base_of_lowered_read`'s
+> `SpecOperationIr::Get`/`GetV` arm and pins the key operand uncoerced. It is
+> false for **plain assignment** (`ExprIr::PropertyWrite`), which is where
+> `base[prop] = expr()` actually lands:
+> `compile_property_write_to_locals` (`objects.rs:6343`) calls
+> `compile_object_key_to_locals` at `:6364` — and again at `:6435`, `:6453`,
+> `:6467` — *before* it compiles the value at `:6370`, and
+> `compile_object_key_to_locals` performs the coercion itself
+> (`emit_value_to_property_key_locals`, `objects.rs:9067`). So corpus entry 6's
+> second half throws `Test262Error("property key evaluated")` instead of
+> `DummyError`.
+>
+> **Pre-existing, and outside this landing's delta.** It is recorded here rather
+> than fixed because the fix that is safe is the *typed* one, and it is not a
+> local reordering: `PropertyKeyIr::StringExpr` conflates "the key operand" with
+> "the property key", so the IR has nowhere to say the coercion is owed. The
+> shape that closes it —
+>
+> ```rust
+> enum PropertyKeyIr {
+>     UncoercedExpr(Box<TypedExpr>),   // operand pinned, ToPropertyKey owed
+>     CoercedExpr(Box<TypedExpr>),     // already a String | Symbol
+>     …
+> }
+> ```
+>
+> — makes "this emitter coerced before the RHS" a named arm an author has to
+> write, and is `E0004` at every emitter that matches the key. `PropertyKeyIr` is
+> a shared enum matched across the whole backend, so this is its own lane with
+> build access. The purely local alternative (evaluate the raw key operand,
+> then the value, then `emit_value_to_property_key_locals`) touches four
+> branches of `compile_property_write_to_locals` and two helpers shared with the
+> *read* path, where the current order is correct — not work to do blind.
+>
+> **Owed:** a follow-up lane, named here so no other lane reads C5 as a
+> guarantee. Ledger **L7**.
 | **C6** | Whether an internal, compiler-synthesised binding write is modelled as a Reference. | **It is not.** Compiler temps are written with `ExprIr::AssignIdentifier`, which under §5.1 carries no `[[Strict]]` at all, so the question does not arise. | Avoids inventing a third `Strictness` inhabitant, or a `Strictness::Internal` that would be a lie at 27 construction sites. |
 
 ---
@@ -410,6 +448,22 @@ I2 is carried by `ReferenceBase` being an `enum` matched exhaustively with no
 sixth base shape then produces **E0004 non-exhaustive patterns** at every
 consumer, which is the point.
 
+**`base_mut()` is deleted (DISCREPANCY-FIXER stage).** The encoder added
+`ReferenceRecord::base_mut(&mut self) -> &mut ReferenceBase` for pinning, with a
+doc comment stating "the shape of the base cannot be changed through this, only
+its operands". `&mut ReferenceBase` permits whole-value assignment, so
+
+```rust
+*record.base_mut() = ReferenceBase::Global { name };
+```
+
+compiled and swapped a property Reference for a global one *after* its
+`[[Strict]]` had been chosen — the exact confusion the single record exists to
+prevent, with the type carrying none of the invariant the comment asserted. Its
+one caller now goes through `ReferenceRecord::pin_operands` (§2.4), which reaches
+`evaluated_base_mut()` / `computed_key_mut()` internally and hands the caller one
+operand at a time.
+
 ### 2.3 Linearity: `read` borrows, `write` consumes — invariant I5
 
 > **I5.** One Reference is written at most once, and a second write of the same
@@ -465,7 +519,8 @@ into a `TypedExpr` is to spend the pins:
 
 ```rust
 /// The `MaterializeBinding` bindings this Reference's evaluation created.
-/// Not `Clone`; the only consumer is `materialize`.
+/// Not `Clone`, no `Default`, no public constructor; the only producer is
+/// `ReferenceRecord::pin_operands` and the only consumer is `materialize`.
 #[must_use]
 pub(crate) struct ReferencePins(Vec<(String, TypedExpr)>);
 
@@ -488,6 +543,39 @@ Now the failure modes are compile errors, not review comments:
 - materialise twice → `ReferencePins` moved → **E0382**;
 - materialise the *wrong* reference's write → still type-correct, and this is
   the one hole; see ledger **L3**.
+
+**Corrected at DISCREPANCY-FIXER stage.** As first encoded, the E0308 forced *a*
+materialise, not *the right* one, and the hole was wider than L3 said:
+`ReferencePins` derived `Default` and exposed `pub(crate) fn none()`, so
+
+```rust
+let pins = self.pin_reference_operands(record.base_mut());
+…
+ReferencePins::none().materialize(record.write(value, compose))   // compiled
+```
+
+type-checked and silently discarded the real pin chain, leaving `pins` as a
+merely-unused binding — a warning at most, and not even that once it is passed
+anywhere, because `#[must_use]` on a struct does not fire for a value bound to a
+name. Both constructors of an *empty* chain are gone. `ReferencePins` is now
+produced only by
+
+```rust
+impl ReferenceRecord {
+    /// The sole producer of `ReferencePins`. Needs a record to be called on, so
+    /// no code path can hold a bare pin chain.
+    pub(crate) fn pin_operands(
+        &mut self,
+        pin: impl FnMut(ReferenceOperand, &mut TypedExpr) -> Option<(String, TypedExpr)>,
+    ) -> ReferencePins;
+}
+
+/// Which operand is being pinned. The record knows which operands *exist*
+/// (exhaustively, over `ReferenceBase`); the caller names the temporary.
+pub(crate) enum ReferenceOperand { Base, ComputedKey }
+```
+
+which also deletes `base_mut()` — see the note under §2.2 below.
 
 ### 2.5 `lower_reference` — invariant I7, and the death of the catch-all
 
@@ -552,7 +640,8 @@ success paths that were previously reachable only by falling out of a match.
 ### 2.6 `strictness_of` — invariant I8, the const-assert equivalent
 
 > **I8.** Adding a new reference-shaped `ExprIr` variant must force an explicit
-> decision about whether it carries `[[Strict]]`.
+> decision about whether it carries `[[Strict]]` **and which of PutValue's two
+> strict throws it can reach** (widened at DISCREPANCY-FIXER stage).
 
 ```rust
 /// Which `[[Strict]]` (if any) an IR node carries, as a total function of the
@@ -561,7 +650,7 @@ success paths that were previously reachable only by falling out of a match.
 /// This match has NO catch-all. Its only purpose is to fail to compile when a
 /// variant is added: whoever adds `ExprIr::TypedArrayElementWrite` must decide,
 /// at that moment, whether it is a PutValue site.
-pub(crate) fn carried_strictness(expr: &ExprIr) -> Option<Strictness> {
+pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueFailure)> {
     match expr {
         ExprIr::PropertyWrite { strictness, .. }
         | ExprIr::PropertyUpdate { strictness, .. }
@@ -582,6 +671,48 @@ This earns its place under the AGENTS.md test: the plausible mistake ("a new
 write node ships without `[[Strict]]`") becomes **E0004** in `reference.rs`,
 a file whose whole subject is that question. It must be called from at least one
 product path so it is not dead code — §4.3 gives it one.
+
+**The return type was `Option<Strictness>` and it was too narrow — corrected at
+DISCREPANCY-FIXER stage.** Its product call site is `infer_expr_throw_info`
+(`lowering.rs`), which merges the throw shape of every node into
+`infer_catch_binding_info`'s inferred type for a `catch` binding. With a bare
+`Option<Strictness>` it attributed a **TypeError** instance to every node
+carrying `Strictness::Strict` — including the three global-write variants, whose
+PutValue step **2.a** raises a **ReferenceError**. So
+
+```js
+"use strict"; try { undeclaredXyz = 1 } catch (e) { /* e.name, e.constructor */ }
+```
+
+narrowed `e` from the previous `Dynamic` / `all_runtime_tags` default to a
+TypeError-shaped object, complete with
+`prototype: standard_error_prototype_shape(TypeErrorConstructor)` — a wrong
+static answer for a value that is a ReferenceError. The encoder's note calling
+this "wider … a correctness fix" was right about the merge and wrong about the
+error type.
+
+The function is now total over the *pair*:
+
+```rust
+/// Which spec error a failed PutValue on this node raises, when `[[Strict]]`
+/// is `Strict`. Closed; matched exhaustively at the consumer.
+pub enum PutValueFailure {
+    /// PutValue 3.d, or `delete` 5.e. The base is resolved, so 2.a is
+    /// unreachable and a TypeError is the only outcome.
+    TypeErrorOnly,
+    /// PutValue 2.a **or** 3.d. `ReferenceBase::Global` covers "the global
+    /// object" and "unresolvable" alike, and which one holds is a runtime fact.
+    TypeErrorOrReferenceError,
+}
+```
+
+`GlobalPropertyWrite` / `GlobalPropertyUpdate` / `GlobalPropertyCompoundAssign`
+return the second and the consumer merges both error shapes; the other six return
+the first. `DeleteGlobalProperty` is deliberately in the *first* group: `delete`
+step 4.a is an **assertion** that `[[Strict]]` is false for an unresolvable
+Reference (13.5.1.1 makes `delete <identifier>` an early SyntaxError in strict
+code), so the ReferenceError branch cannot arise for a delete. "A new global-write
+node forgot that 2.a is a ReferenceError" is now `E0004` in `reference.rs`.
 
 ### 2.7 The IR field set — invariant I9
 
@@ -626,9 +757,27 @@ why a type cannot carry the invariant.
 |---|---|---|---|
 | **L1** | The `Strictness` a lowering site passes is the strictness of *the code that created this Reference*, not of some other owner. | `reference_strictness()` reads `self.current_owner_id`, ambient mutable state set at `lowering.rs:14565`, `17785`, `19793`, `20193`. Making the owner a parameter threaded through ~600 lowering methods is a different lane's refactor. | `lower_reference` is the **only** caller of `reference_strictness` for reference construction; a lane-local `grep` gate (`reference_strictness` appears exactly once outside `delete` lowering) makes drift visible. Dry-run 8.14.4-8-b_1 / _2 (§6) is the behavioural oracle. |
 | **L2** | Owner-plan lookup actually succeeds for every owner the lowerer visits. | C4 makes the miss loud and recorded, but "the diagnostic list is empty" is a runtime property. | `record_missing_owner_plan_strictness` pushes an `IrDiagnostic`; assert the diagnostic count is zero over the fixture corpus. |
-| **L3** | `ReferencePins::materialize` is spent on the write of *its own* Reference, not a sibling's. | Both are plain values of the same types; distinguishing them needs a lifetime brand (`GhostToken`-style), which is more machinery than the one nesting case in the tree justifies. | `lower_reference` returns the pair, and no lowering function holds two live pairs at once — checkable by reading the four call sites §4.2 creates. |
+| **L3** | `ReferencePins::materialize` is spent on the write of *its own* Reference, not a sibling's. **Shrunk at DISCREPANCY-FIXER stage:** the *empty* chain is no longer constructible (no `Default`, no `none()`, sole producer `ReferenceRecord::pin_operands`), so what remains is only "two live records at once, chains crossed". | Distinguishing two live pairs needs a lifetime brand (`GhostToken`-style), which is more machinery than the one nesting case in the tree justifies. | `pin_operands` needs a record to be called on, and no lowering function holds two live `(record, pins)` pairs at once — checkable by reading the one call site (`lower_property_reference_update`). |
 | **L4** | The backend's emitted strict guard matches the `Strictness` on the node. | The IR/Wasm boundary is `i64` words; `helper_flag_word` is the last typed point. | The b361b4815 oracle pair (§6, corpus 4/5) is precisely this test, and it is a byte-identical source pair differing only in the directive prologue. |
-| **L5** | `ExprIr::PropertyWrite`'s new field is actually *read* by the backend rather than merely present. | Rust does not warn on an unread field of a public enum variant. | §4.3 stage 3 is not optional: the field and its consumer land together, and dry-run ADVERSARIAL-MC3 (§6) fails until they do. |
+| **L5** | `ExprIr::PropertyWrite`'s new field is actually *read* by the backend rather than merely present. | Rust does not warn on an unread field of a public enum variant. | §4.3 stage 3 is not optional: the field and its consumer land together, and dry-run ADVERSARIAL-MC3 (§6) fails until they do. **The entry fired at ENCODER stage and is now closed for all nine variants** — see the note below this table. |
+| **L6** | `SuperPropertyWrite`'s Receiver is `[[ThisValue]]`, not the super base (MC4b, §5.3). | The IR node has no `this_value` field and the backend has no receiver parameter to thread it into; S5 was deferred. | Open. Named as a follow-up lane. `delete super.x` (13.5.1.2 step 5.b, corpus 7) is in the same lane: its ReferenceError is neither emitted nor representable, and `lower_delete`'s super arm is still `unsupported_expr`. |
+| **L7** | `ToPropertyKey` on a computed key runs *after* the RHS on the plain-assignment path (C5, corrected). | `PropertyKeyIr::StringExpr` conflates the key operand with the property key, so the IR cannot record that the coercion is owed; the typed fix changes a shared enum matched across the whole backend. | Open, and **pre-existing** — not a regression of this landing. Corpus entry 6's second half is the oracle. Follow-up lane with build access; see C5. |
+| **L8** | The runtime strictness guard's block depth and the `Br` immediates emitted inside it. | Wasm label depths are `u32` immediates computed against a control stack the raw `If`/`Else` instructions in these guards are not on. No type distinguishes "depth relative to the guard" from "depth relative to the frame". | `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` and `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` are named once in `objects.rs` and added at every branch inside the guard, so the two arms of one helper cannot disagree — which is how the defect arose. The behavioural oracle is the fixture pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`; a wrong depth is a wasm validation failure or a throw caught by the wrong handler. |
+
+**L5, closed.** At ENCODER stage the field was read for six of the nine variants:
+`GlobalPropertyUpdate` and `GlobalPropertyCompoundAssign` bound `strictness: _`
+with an explanatory comment, and their write-back called the *unchecked*
+`emit_global_property_write`. A field constructed at three sites and read at zero
+is what invariant I9 prohibits, and the honest comment did not change that. Both
+arms now route their write-back through
+`FunctionBuilder::emit_reference_global_property_write`, which spends the carried
+`[[Strict]]` on both of PutValue's strict throws — 2.a via
+`emit_global_property_write_checked`'s presence test and 3.d via the runtime
+guard `with_reference_strictness` installs. The observable difference:
+`"use strict"; var g = "a"; g -= 1;` on a non-writable global no longer silently
+no-ops, and `"use strict"; delete globalThis.g; g++;` no longer silently creates
+a property. `planning.rs` gained the matching `+ REFERENCE_STRICTNESS_FLAG_LOCALS`
+budget entries at all three global-write arms.
 
 ---
 
@@ -637,13 +786,35 @@ why a type cannot carry the invariant.
 | # | Mistake | Today | Compile error after this contract | Type/variant involved |
 |---|---|---|---|---|
 | **MC1** | Hardcode `strict: false` at a reference-write construction site. | **Measured:** 6 `ExprIr::GlobalPropertyWrite` constructions in `lowering.rs` — `30634`, `30846`, `30946`, `31099`, `32183`, `32402`. Exactly **one** (`31099`) derives it, from `let strict = self.is_current_owner_strict();` at `31087`. **Five** write the literal `strict: false` (`30638`, `30850`, `30950`, `32187`, `32406`). | **E0308 mismatched types: expected `Strictness`, found `bool`** at each of the five. | `Strictness` (no `From<bool>`, §2.1) |
-| **MC2** | Pass the wrong strictness to a shared/outlined emitter. | Shipped as b361b4815: the outlined object-write helper was emitted with `strict=true`, so every read-only / non-extensible / proxy-`set`-false write threw regardless of caller mode. The mechanism was a bare positional `bool` in helper parameter 5 (`emit.rs:3526`, `objects.rs:14684`). | **E0308** at the helper boundary once the parameter is `Strictness`; and `helper_flag_word()` is the single named conversion, so a raw `i64::from(bool)` at the `I64Const` site (`objects.rs:14690`) no longer type-checks against a `Strictness`. | `Strictness::helper_flag_word` |
+| **MC2** | Pass the wrong strictness to a shared/outlined emitter. | Shipped as b361b4815: the outlined object-write helper was emitted with `strict=true`, so every read-only / non-extensible / proxy-`set`-false write threw regardless of caller mode. The mechanism was a bare positional `bool` in helper parameter 5 (`emit.rs:3526`, `objects.rs:14684`). | **E0308** at the helper boundary once the parameter is `Strictness`; and `helper_flag_word()` is the single named conversion, so a raw `i64::from(bool)` at the `I64Const` site no longer type-checks against a `Strictness`. **Not built at ENCODER stage; built at DISCREPANCY-FIXER stage** — see below. | `Strictness::helper_flag_word` |
 | **MC3** | Write a reference-shaped IR node with nowhere to record `[[Strict]]`. | **LIVE, VERIFIED.** `ExprIr::PropertyWrite { target, key, value }` (`ir.rs:1392`–`1396`) has no strict field. The backend arm (`expressions.rs:344`) calls `compile_property_write_payload(target, key, value, function)` (`objects.rs:5770`) — no strictness parameter — and the guard deep inside reads the **ambient** `object_write_strict_flag_local` / `is_current_function_strict()` (`objects.rs:14684`, `environments.rs:754`). `"use strict"; const o = Object.freeze({x:1}); o.x = 2;` has no IR that can express the required TypeError as a property of *the reference*. Same for `PropertyUpdate`, `PropertyCompoundAssign`, `SuperPropertyWrite`, `GlobalPropertyUpdate`, `GlobalPropertyCompoundAssign`. | **E0063 missing field `strictness` in initializer** at each of the counted construction sites (§4.2), and **E0027 pattern does not mention field `strictness`** at each backend arm that binds all fields (§4.3). | the six `ExprIr` variants of §2.7 |
 | **MC3′** | Fix MC3 by hardcoding `strictness: Strictness::Strict` on `PropertyWrite` — b361b4815 repeated one layer up. | n/a | Not a compile error. **This is the one mistake the types do not catch**, and it is why the sloppy control (§6 corpus 12) is mandatory and why L1 exists. | ledger L1/L4 |
 | **MC4a** | Reconstruct a Reference by pattern-matching a lowered read and fall into `_`, downgrading a legal target to `unsupported_expr`. | Two sites, not one: `lowering.rs:32248` (5 of 77 shapes) and `lowering.rs:32871` + `32867` (2 of 77). Any new read specialisation added anywhere in the 38,003-line lowering silently removes compound assignment or `++` for that shape, with no compile error. | Both reconstructions are deleted. `lower_reference` matches `AssignTarget` (4) / `UpdateTarget` (3) / `PropertyAccess` (3) exhaustively; a new AST shape is **E0004**, and a new `ExprIr` read shape is *irrelevant* because the record is built from the AST. | `ReferenceTarget`, `UnsupportedTarget` |
 | **MC4b** | Drop `[[ThisValue]]` from a Super Reference. | `PropertyReference::Super { key }` (`lowering.rs:80`–`82`) carries no this-value, and so does `ExprIr::SuperPropertyWrite { key, value }` (`ir.rs:1605`). The backend (`expressions.rs:1445`–`1470`) calls `emit_object_write(super_base_local, …)` — it writes **to the super base**, i.e. the home object's prototype, not to `this`. PutValue 3.c requires `GetThisValue(V)` as the Receiver. The lowerer's own comment at `lowering.rs:32385`–`32389` says the write goes to `this`; the backend disagrees. | `ReferenceBase::Super` cannot be constructed without a `SuperThisValue`, whose only constructor is `from_class_context` (§2.2) → **E0063** at construction, **E0027** at every backend arm that binds `SuperPropertyWrite`'s fields. | `SuperThisValue`, `ReferenceBase::Super` |
 | **MC5** | Evaluate the Reference twice, re-running an effectful base or computed key. | `PropertyReference::read_ir` (`lowering.rs:89`–`105`) and `build_property_reference_write` (`lowering.rs:32357`) are separately callable; the pinning at `32251`–`32279` and the `MaterializeBinding` wrap at `32328`–`32338` are joined only by convention. | Second write → **E0382 use of moved value: `record`** (`write(self, …)`, and `ReferenceRecord` is not `Clone`). Forgotten pin discharge → **E0308** (a `PendingReferenceWrite` where a `TypedExpr` is wanted). Double discharge → **E0382** on `ReferencePins`. | `ReferenceRecord::write`, `ReferencePins`, `PendingReferenceWrite` |
-| **MC6** *(new)* | Add a new reference-shaped `ExprIr` variant and forget `[[Strict]]` entirely. | Not covered by MC1–MC5: a brand-new variant has no construction site to break. | **E0004 non-exhaustive patterns** in `carried_strictness` (§2.6). | `carried_strictness` |
+| **MC6** *(new)* | Add a new reference-shaped `ExprIr` variant and forget `[[Strict]]` entirely. | Not covered by MC1–MC5: a brand-new variant has no construction site to break. | **E0004 non-exhaustive patterns** in `carried_put_value_failure` (§2.6). | `carried_put_value_failure` |
+| **MC7** *(new, DISCREPANCY-FIXER)* | Add a new global-write variant and forget that PutValue **2.a** is a **ReferenceError**, not a TypeError. | The `Option<Strictness>` return of `carried_strictness` could not express the distinction; every strict write contributed a TypeError shape to the enclosing `catch` binding's inferred type. | **E0004** in `carried_put_value_failure`, whose arms return a `PutValueFailure` the consumer matches exhaustively (§2.6). | `PutValueFailure` |
+
+**MC2, actually discharged (DISCREPANCY-FIXER stage).** At ENCODER stage the
+compile error MC2 names had not been built: `emit_global_property_write_checked`
+(`environments.rs`), `emit_global_property_delete` (`environments.rs`) and
+`compile_delete_property_i32` (`objects.rs`) all still took `strict: bool`, and
+the call sites converted with `.throws_on_failed_set()`. Nothing stopped
+
+```rust
+self.emit_global_property_write_checked(name, p, t, self.is_current_function_strict(), function)
+```
+
+from compiling at either of its call sites — b361b4815 verbatim, one layer out.
+All three parameters are now `strictness: Strictness` with the conversion moved
+inside. The second half of the claim — "`helper_flag_word` is the single named
+conversion to a machine word" — was also false while
+`i64::from(self.is_current_function_strict())` sat at the `I64Const` site in
+`emit_object_write`. That expression is now
+`FunctionBuilder::ambient_object_write_strict_flag_word()`, named for what it is:
+the *ambient* mode, correct only for writes the spec does not route through a
+Reference Record (property installation, class field definition, internal helper
+writes), and visibly not `Strictness::helper_flag_word`.
 
 ---
 
@@ -782,6 +953,48 @@ whose emitters live in owned files and `PropertyWrite` must be dropped from
 whole test262 families. **State the choice; do not let it be decided by which
 file an encoder happened to open.**
 
+### 4.5.1 The scoped override was chosen, and it moved a latent defect onto the product path
+
+The encoder took neither branch: it generalised the existing scoped-override
+idiom as `FunctionBuilder::with_reference_strictness` inside the *owned*
+`expressions.rs`, so the parameter never has to cross into `objects.rs`. That is
+correct and cheaper than §4.5's parameter threading — but it has a consequence
+§4.5 could not have named, and the dry run caught it.
+
+Before the landing, `object_write_strict_flag_local` was `Some(_)` only inside
+emitted helper/builtin bodies (`emit.rs:3526`, `emit.rs:3659`,
+`objects.rs:6251`, `objects.rs:14880`), where `is_main()` is false and
+`emit_throw_runtime_error_to_active_handler`'s `extra_depth` is **dead code** —
+`builtins/errors.rs:674-680` only reaches `emit_branch_to_target` under
+`is_main() && active_throw_target().is_some()`. `with_reference_strictness` makes
+the `Some` arm of those guards live in `main`, for every property write.
+
+That arm opens one extra `If(BlockType::Empty)` the `None` arm does not, and
+`emit_branch_to_target` adds `extra_depth` straight to a Wasm `Br` immediate
+(`control_flow.rs:811`). Two sites were wrong in opposite directions:
+
+- `emit_object_write_set_failure_else` forwarded the caller's `extra_depth`
+  unchanged into a guard it had just opened;
+- `emit_object_write_non_extensible_failure` compensated its sloppy
+  abandon-branch with `Br(sloppy_br_depth + 1)` while leaving its *throw's*
+  `extra_depth` at the inline value `5` in both arms. The two cannot both be
+  right.
+
+Symptom: `"use strict"; try { a.length = 0 } catch (e) {}` in **top-level script
+code** with a non-writable `length` branches one label too shallow — the wrong
+handler, or a module that fails validation. Nothing inside a function body shows
+it.
+
+Fixed by naming the quantity once: `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` (and
+`NON_EXTENSIBLE_THROW_EXTRA_DEPTH` for the bare `5` written twice) in
+`objects.rs`, added at **every** branch emitted inside the guard. Ledger **L8**.
+The behavioural oracle is a new fixture pair,
+`crates/porffor-cli/tests/fixtures/wasm_reference_strictness_putvalue_{strict,sloppy}.js`,
+whose failing writes sit inside a **top-level** `try` — the shape that makes the
+`extra_depth` live — with tests in `crates/porffor-cli/tests/cli/language.rs`.
+This is the one item in this area that can produce invalid or mis-branching Wasm,
+so it is the first thing to verify with an actual build.
+
 ---
 
 ## 5. Deviations from the area brief, with evidence
@@ -869,11 +1082,11 @@ Every path below was confirmed to exist under
 | 6 | `expressions/assignment/target-member-computed-reference.js` | **MC5 + O2** | Two halves: `base[prop()] = expr()` must throw `DummyError` from `prop()` (LHS before RHS); `base[objWithThrowingToString] = expr()` must throw `DummyError` from `expr()` (`ToPropertyKey` after both). Choice C5. Traces `lower_property_reference_update`'s `Get`/`GetV` arm (`32225`–`32240`) and the pins at `32251`–`32279`. |
 | 7 | `expressions/delete/super-property.js` | **MC4a + MC4b** | `delete super.x` must throw ReferenceError (13.5.1.2 step 5.b). **Today it does not**: `lower_delete`'s super arm (`lowering.rs:11456`) returns `unsupported_expr("unsupported unary operator")`. Under §2.5 this becomes `UnsupportedTarget::…` routed to a real ReferenceError. |
 | 8 | `expressions/assignment/non-simple-target.js` | **negative control, parser-level** | `1 = 1`, `negative: {phase: parse, type: SyntaxError}`. Boa's `AssignTarget::from_expression` (`boa_ast .../assign/mod.rs:141`) returns `None`, so this **never reaches `lower_reference`**. It controls that the *parser* still rejects, not that `lower_reference` does. State this, or the dry-runner will look for a lowering arm that cannot exist. |
-| 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **MC5** | `flags:[noStrict]`; counts evaluations to assert PutValue runs on the same `lref` the LHS produced. The canonical single-record trace for I5. |
+| 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **out of scope** (was labelled "the canonical single-record trace for I5") | **Relabelled at DISCREPANCY-FIXER stage.** The case's subject is a `with` scope: 9.1.1.2.5 `ObjectEnvironmentRecord.SetMutableBinding` re-checks `HasProperty` at *write* time, reached via PutValue 4.c, and the RHS deletes the binding in between. This compiler diverts `with`-scoped identifier writes at `lowering.rs:30439-30441` into `lower_with_scoped_identifier_write`, which emits `ExprIr::Conditional { condition: binding_visible, then: PropertyWrite{..}, else: fallback }` — and a `Conditional`'s condition is emitted *before* the RHS, whereas the spec re-runs `HasProperty` **inside** PutValue, after the RHS ran. So `count === 2` and `!('x' in scope)` both fail: control takes the `PropertyWrite` branch and re-creates `x`. **§4.4 deliberately excludes `with` and Object Environment Records from this lane**, so the fix is not owed here; the entry is relabelled so a failing I5 acceptance is not read as this lane's regression. Blocked on the 9.1.1.2 Environment Record lifecycle area. Corpus 14 is the canonical single-record trace for I5. |
 | 10 | `expressions/assignment/11.13.1-1-s.js` | **MC3** | `Object.defineProperty(obj,"prop",{writable:false})`, then `obj.prop = 20` → TypeError, `obj.prop === 10`. A **resolvable, non-global** property reference: the cleanest MC3 oracle, uncontaminated by §1.3's both-modes GetValue throw. |
 | 11 | ADVERSARIAL MC3 (strict): `"use strict"; const o = Object.freeze({x:1}); o.x = 2;` | **MC3 acceptance** | Must go from *"no IR node can express the throw"* to *"the throw is emitted"*. This is the S2+S3 acceptance criterion and the reason §4.5's extension is not optional. |
 | 12 | ADVERSARIAL MC3 (sloppy control): same source minus the directive; no throw, `o.x === 1` | **MC3′ guard** | Guards against fixing MC3 by hardcoding `Strictness::Strict`. Mandatory, per MC3′ and ledger L1. |
-| 13 | ADVERSARIAL MC1 (reachability): `"use strict"; Object.defineProperty(globalThis,'g',{value:1,writable:false,configurable:true}); g += 1;` | **MC1 reachability proof** | Distinguishes *present-but-non-writable* (reaches the `strict: false` literal at `lowering.rs:32187` in `lower_identifier_arithmetic_general`, currently mis-lowered) from *unresolvable* (which throws on the GetValue side in both modes — §1.3 — and therefore hides the bug). **The only proof for the 32187 literal**, since corpus 3 is inert. Must throw TypeError. |
+| 13 | ADVERSARIAL MC1 (reachability), **corrected at DISCREPANCY-FIXER stage**: `"use strict"; var g = "a"; Object.defineProperty(globalThis,'g',{writable:false}); g -= 1;` | **MC1 reachability proof** | The entry as first written (`Object.defineProperty(globalThis,'g',{value:1,…}); g += 1;` with no prior `var g`) **does not reach the arm it names.** `Object.defineProperty` registers nothing in `self.global_properties`, so `global_property_is_proven_present` (`lowering.rs:16977`) is false; with no binding either, `needs_general_form` (`lowering.rs:30664`) is false and the source falls into the `unsupported … unbound identifier 'g'` arm at `lowering.rs:30752`. `lower_identifier_arithmetic_general` is never entered. The replacement satisfies the actual reachability condition — `proven_present == true` via the `var`, and a recorded kind (`String`) that does not match the specialised Number fast path — so it takes the `needs_general_form` branch at `lowering.rs:30689`, reaches `lowering.rs:32211`, and carries `Strictness::Strict` where the tree at `84e782506` wrote `strict: false`. **That is the real MC1 behavioural delta of this landing, and it had no covering trace.** Must throw TypeError; `g` must still be `"a"`. |
 | 14 | ADVERSARIAL MC5: `let n = 0; const a = [{v:1}]; const idx = () => { n++; return 0; }; a[idx()].v += 1;` → `n === 1`, `a[0].v === 2` | **MC5 acceptance** | Trace that the `ReferenceRecord` owns the pin for `a[idx()]` and that `write` consuming the record makes a second emission of `idx()` an **E0382**, not a review comment. |
 | 15 | ADVERSARIAL MC1-unresolvable: `"use strict"; undeclaredXyz = 1;` → ReferenceError | **MC1, PutValue 2.a** | Folds in open ledger item R7. Already handled at `lowering.rs:31099`; the trace confirms S1 does not regress the one site that was correct. |
 
@@ -895,7 +1108,7 @@ without running the conformance suite except where noted.
 5. Neither `lowering.rs:32248` nor `lowering.rs:32871`/`32867` exists in any
    form: `lower_property_reference_update` and `lower_update`'s property branch
    both obtain their record from `lower_reference`.
-6. `carried_strictness` has at least one non-test call site (§4.3).
+6. `carried_put_value_failure` has at least one non-test call site (§4.3).
 7. The six variants of §2.7 carry `strictness: Strictness`; `AssignIdentifier`,
    `CompoundAssignIdentifier`, `UpdateIdentifier`, `PrivateWrite` and
    `OptionalPropertyChain` do **not**.
@@ -905,9 +1118,20 @@ without running the conformance suite except where noted.
 9. `cargo check -p porffor-ir && cargo check -p porffor-aot-wasm` is clean
    (rung 0; 1–5 s and 15–40 s per `batch-workflow.md`).
 10. **Behavioural, and therefore last and elsewhere:** corpus 11 throws, corpus
-    12 does not, corpus 13 throws, corpus 14 reports `n === 1`. These four are
-    the tests ledger entries L1, L4 and L5 leave load-bearing; nothing in the
-    type system can replace them.
+    12 does not, corpus 13 (as corrected) throws, corpus 14 reports `n === 1`.
+    These four are the tests ledger entries L1, L4 and L5 leave load-bearing;
+    nothing in the type system can replace them.
+11. **Added at DISCREPANCY-FIXER stage, and the highest priority of the ten:**
+    `cargo test -p porffor-cli --test cli language::` passes the new fixture
+    pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`. They put a
+    failing strict property write inside a **top-level** `try`, which is the only
+    shape that exercises the runtime strictness guard's `Br` immediate (§4.5.1,
+    ledger L8) — the one item in this area that can emit invalid Wasm.
+12. `grep -rn "base_mut\|ReferencePins::none\|derive(Debug, Default)] *$" crates/porffor-ir/src/reference.rs`
+    returns **0**: the empty pin chain and the whole-base mutable accessor are
+    both gone (§2.2, §2.4).
+13. `grep -rn "strict: bool" crates/porffor-aot-wasm/src/{environments,objects}.rs`
+    returns **0** for the three Reference-consuming emitters of MC2.
 
 Rung G (`emit_golden` + `diff -r`) is **not** applicable: this is feature work
 under `batch-workflow.md`'s rule, and the emitted bytes are supposed to change

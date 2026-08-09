@@ -2,7 +2,7 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use porffor_ir::{
-    AsyncForOfIteratorPlanIr, AsyncForOfPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
+    AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
     ObjectDestructuringPatternIr,
 };
 
@@ -127,6 +127,13 @@ enum PreparedDestructuringTarget {
         key: DestructuringPropertyKeyIr,
         key_payload: Option<u32>,
         key_tag: Option<u32>,
+        /// Carried through from
+        /// [`porffor_ir::DestructuringTargetIr::AssignmentProperty`] so the
+        /// write-back can install it. `put_destructuring_target` matches the
+        /// target with `..` and reads the prepared value instead, so the
+        /// strictness the write uses is the one `prepare_destructuring_target`
+        /// saw on the *same* element.
+        strictness: Strictness,
     },
     Private {
         target_payload: u32,
@@ -1033,10 +1040,6 @@ impl<'a> FunctionBuilder<'a> {
                 async_plan: Some(plan),
                 ..
             } => Some(plan.entry_state),
-            StatementIr::ForOfArray {
-                async_plan: Some(plan),
-                ..
-            } => Some(plan.entry_state),
             StatementIr::ForOfIterator {
                 async_plan: Some(plan),
                 ..
@@ -1069,10 +1072,6 @@ impl<'a> FunctionBuilder<'a> {
                 ..
             }
             | StatementIr::TryCatchFinally {
-                async_plan: Some(plan),
-                ..
-            } => Some(plan.exit_state),
-            StatementIr::ForOfArray {
                 async_plan: Some(plan),
                 ..
             } => Some(plan.exit_state),
@@ -3025,31 +3024,17 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
-                async_plan,
                 ..
             } => {
-                if let Some(async_plan) = async_plan {
-                    self.compile_async_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        async_plan,
-                        &[],
-                        function,
-                    )?;
-                } else {
-                    self.compile_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        &[],
-                        function,
-                    )?;
-                }
+                self.compile_for_of_array(
+                    *mode,
+                    name,
+                    iterable,
+                    body,
+                    lexical_environment.as_ref(),
+                    &[],
+                    function,
+                )?;
             }
             StatementIr::ForOfString {
                 mode,
@@ -3374,31 +3359,17 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
-                async_plan,
                 ..
             } => {
-                if let Some(async_plan) = async_plan {
-                    self.compile_async_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        async_plan,
-                        labels,
-                        function,
-                    )?;
-                } else {
-                    self.compile_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        labels,
-                        function,
-                    )?;
-                }
+                self.compile_for_of_array(
+                    *mode,
+                    name,
+                    iterable,
+                    body,
+                    lexical_environment.as_ref(),
+                    labels,
+                    function,
+                )?;
             }
             StatementIr::ForOfString {
                 mode,
@@ -5286,454 +5257,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    pub(crate) fn compile_async_for_of_array(
-        &mut self,
-        mode: BindingMode,
-        name: &str,
-        iterable: &TypedExpr,
-        body: &StatementIr,
-        lexical_environment: Option<&ForInOfEnvironmentIr>,
-        async_plan: &AsyncForOfPlanIr,
-        labels: &[String],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("for-await-of requires the async function call ABI")
-        })?;
-        let state_local = self.reserve_temp_local();
-        let array_payload_local = self.reserve_temp_local();
-        let array_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let length_payload_local = self.reserve_temp_local();
-        let length_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let continuation_payload_local = self.reserve_temp_local();
-        let continuation_tag_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            state_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            async_plan.continuation_resume_state as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-
-        self.push_scope();
-        let storage_without_environment = if mode == BindingMode::Var {
-            Some(self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in porffor wasm-aot first slice: unbound for-await-of var `{name}`"
-                ))
-            })?)
-        } else if !iteration_environment_owns_binding(lexical_environment, name) {
-            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
-        } else {
-            None
-        };
-        if mode == BindingMode::Var {
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(
-                    name.to_string(),
-                    storage_without_environment.expect("for-await-of var storage must exist"),
-                );
-        }
-        let array_storage = self.allocate_binding(
-            async_plan.iterable_binding.clone(),
-            BindingMode::Let,
-            iterable.kind,
-        );
-        let index_storage = self.allocate_binding(
-            async_plan.index_binding.clone(),
-            BindingMode::Let,
-            ValueKind::Number,
-        );
-        let done_storage = self.allocate_binding(
-            async_plan.done_binding.clone(),
-            BindingMode::Let,
-            ValueKind::Boolean,
-        );
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        if let Some(environment) = lexical_environment {
-            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
-        }
-        self.compile_expr_to_locals(iterable, array_payload_local, array_tag_local, function)?;
-        if let Some(environment) = lexical_environment {
-            self.emit_leave_for_in_of_tdz_scope(environment, function);
-        }
-        self.write_binding_from_locals(
-            array_storage,
-            array_payload_local,
-            array_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        self.write_binding_from_locals(
-            index_storage,
-            index_payload_local,
-            index_tag_local,
-            function,
-        );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
-        self.breakable_stack.push(break_frame);
-        self.push_labels(labels, break_frame, None);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            async_plan.continuation_resume_state as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_KIND_OFFSET,
-            resume_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            u64::from(async_plan.value_resume_state),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(ASYNC_RESUME_KIND_REJECT as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        let rejected_promise_payload_local = self.reserve_temp_local();
-        let rejected_promise_record_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_alloc_promise_with_prototype(
-            self.scratch_local,
-            rejected_promise_payload_local,
-            rejected_promise_record_local,
-            function,
-        )?;
-        self.emit_settle_promise_record(
-            rejected_promise_record_local,
-            PROMISE_STATE_REJECTED,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(rejected_promise_payload_local));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.release_temp_local(rejected_promise_record_local);
-        self.release_temp_local(rejected_promise_payload_local);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_async_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_return_current_completion(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_KIND_OFFSET,
-            resume_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(ASYNC_RESUME_KIND_REJECT as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.read_binding_to_locals(done_storage, done_payload_local, done_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
-
-        if let Some(environment) =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
-        {
-            self.emit_enter_lexical_environment(environment, function)?;
-        }
-        let storage = self
-            .lookup_current_scope_binding(name)
-            .or(storage_without_environment)
-            .expect("for-await-of lexical storage must be allocated before assignment");
-        self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
-        self.mirror_binding_to_global_object(name, storage, function)?;
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
-        self.loop_stack.push(LoopTargets { continue_frame });
-        self.push_labels(labels, break_frame, Some(continue_frame));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_frame = self.push_control(ControlFrameKind::Block);
-        self.finally_stack.push(finally_frame);
-        self.compile_statement(body, function)?;
-        self.finally_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_labels(labels.len());
-        self.loop_stack.pop();
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(saved_aux_local));
-        function.instruction(&Instruction::I64Const(continue_frame.frame as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::LocalSet(saved_completion_local));
-        function.instruction(&Instruction::End);
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            self.emit_leave_lexical_environment(function);
-        }
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.read_binding_to_locals(
-            array_storage,
-            array_payload_local,
-            array_tag_local,
-            function,
-        )?;
-        self.read_binding_to_locals(
-            index_storage,
-            index_payload_local,
-            index_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_array_length(
-            array_payload_local,
-            length_payload_local,
-            length_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(length_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(length_payload_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(length_payload_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_array_read(
-            array_payload_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        self.write_binding_from_locals(
-            index_storage,
-            index_payload_local,
-            index_tag_local,
-            function,
-        );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            u64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_async_from_sync_value_continuation(
-            value_payload_local,
-            value_tag_local,
-            continuation_payload_local,
-            continuation_tag_local,
-            function,
-        )?;
-        self.emit_async_await_reactions(
-            activation_local,
-            continuation_payload_local,
-            continuation_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_return_current_completion(function);
-
-        self.breakable_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            u64::from(async_plan.exit_state),
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
-
-        self.pop_scope();
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
-        self.release_temp_local(resume_kind_local);
-        self.release_temp_local(continuation_tag_local);
-        self.release_temp_local(continuation_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(length_tag_local);
-        self.release_temp_local(length_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(array_tag_local);
-        self.release_temp_local(array_payload_local);
-        self.release_temp_local(state_local);
-        Ok(())
-    }
 
     pub(crate) fn compile_for_of_array(
         &mut self,
@@ -8810,7 +8333,12 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
 
-        let DestructuringTargetIr::AssignmentProperty { target, key } = target else {
+        let DestructuringTargetIr::AssignmentProperty {
+            target,
+            key,
+            strictness,
+        } = target
+        else {
             return Ok(PreparedDestructuringTarget::Direct);
         };
 
@@ -8835,6 +8363,7 @@ impl<'a> FunctionBuilder<'a> {
             key: key.clone(),
             key_payload,
             key_tag,
+            strictness: *strictness,
         })
     }
 
@@ -8894,6 +8423,7 @@ impl<'a> FunctionBuilder<'a> {
                     key,
                     key_payload,
                     key_tag,
+                    strictness,
                 } = prepared
                 else {
                     unreachable!("property destructuring target must be prepared")
@@ -8954,14 +8484,20 @@ impl<'a> FunctionBuilder<'a> {
                     },
                     ExprIr::Identifier(value_name.to_string()),
                 );
-                self.compile_property_write_to_locals(
-                    &target_expr,
-                    &property_key,
-                    &value_expr,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                // 13.15.5.4's PutValue, under *this* Reference's `[[Strict]]`.
+                // Without the scope the write would fall back to
+                // `ambient_object_write_strict_flag_word`, i.e. the mode of the
+                // Wasm function the pattern was emitted into.
+                self.with_reference_strictness(strictness, function, |emitter, function| {
+                    emitter.compile_property_write_to_locals(
+                        &target_expr,
+                        &property_key,
+                        &value_expr,
+                        emitter.scratch_local,
+                        emitter.result_tag_local,
+                        function,
+                    )
+                })?;
                 self.emit_propagate_current_completion_if_throw(function);
                 self.pop_scope();
                 if let Some(key_tag) = key_tag {

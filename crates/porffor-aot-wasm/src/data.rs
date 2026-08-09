@@ -3461,7 +3461,7 @@ impl StringPool {
             | DestructuringTargetIr::AssignmentIdentifier { name, .. } => {
                 self.intern_string(name);
             }
-            DestructuringTargetIr::AssignmentProperty { target: _, key } => {
+            DestructuringTargetIr::AssignmentProperty { key, .. } => {
                 self.collect_destructuring_property_key_strings(key);
             }
             // Private elements are addressed by brand token, not by a pooled

@@ -1345,12 +1345,7 @@ fn reparse_module(source: &SourceUnit) -> Result<(Module, Interner), String> {
         // fragment-table row on its own) and of the runtime half of P6 in
         // `modules::early`'s tests. A local literal drifting from it would
         // leave both checks guarding a string no producer emits. Ledger L6/L8.
-        Ok(Err(err)) => {
-            return Err(format!(
-                "{}{err}",
-                porffor_front::MODULE_REPARSE_PREFIX
-            ))
-        }
+        Ok(Err(err)) => return Err(format!("{}{err}", porffor_front::MODULE_REPARSE_PREFIX)),
         Err(payload) => {
             return Err(format!(
                 "unsupported in porffor wasm-aot first slice: frontend parser aborted while reparsing module source ({})",

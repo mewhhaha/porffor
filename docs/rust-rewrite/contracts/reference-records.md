@@ -70,3 +70,36 @@ is constructed nowhere once §1.5's proof is taken seriously, and `SuperThisValu
 (§2.2, I4) would be constructed at two sites and read by none until S5/MC4b
 wires the receiver through `emit.rs`. Both are recorded in the ledger — MC4b as
 new entry **L6** — rather than shipped as types that hold no invariant.
+
+---
+
+## DISCREPANCY-FIXER stage (dry-run findings applied)
+
+Twelve findings against the encoder's landing, all applied except one that is
+recorded rather than fixed and one that is corrected in the contract only.
+
+| # | Severity | What was wrong | Where it now lives |
+|---|---|---|---|
+| 1 | **blocker** | The scoped override (see the encoder's report above) makes the *runtime* strictness guard live in `main` for every property write. That guard opens one Wasm block the compile-time arm does not, and two sites forwarded `Br` immediates without compensating for it — one of them compensating its sibling branch and not its throw. `"use strict"; try { a.length = 0 } catch (e) {}` at top level branched one label too shallow. | contract §4.5.1, ledger **L8**; `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` in `objects.rs`; new fixture pair + CLI tests |
+| 2 | bug | `carried_strictness` attributed a **TypeError** shape to every strict reference write, including the three global-write variants whose PutValue **2.a** is a **ReferenceError**. That narrowed the `catch` binding of `"use strict"; try { undeclaredXyz = 1 } catch (e) {}` to the wrong error shape. | §2.6; `PutValueFailure`, `carried_put_value_failure`, MC7 |
+| 3 | bug | `GlobalPropertyUpdate` / `GlobalPropertyCompoundAssign` bound `strictness: _` and wrote back through the *unchecked* emitter — a field constructed at 3 sites and read at 0, which is what I9 prohibits. | ledger **L5** (closed); `emit_reference_global_property_write`; `planning.rs` budgets |
+| 4 | bug | Contract choice **C5** asserted the tree already defers `ToPropertyKey` past the RHS. False for the plain-assignment path. | §1.7 C5 (corrected), ledger **L7**. **Recorded, not fixed** — the safe fix splits `PropertyKeyIr`, a shared backend enum; named as a follow-up lane with build access |
+| 5 | bug | Corpus entry 9 was labelled "the canonical single-record trace for I5"; it is a `with`-scope case, and §4.4 excludes Object Environment Records from this lane. | §6 entry 9 (relabelled out of scope) |
+| 6 | bug | Corpus entry 13, "the only proof for the 32187 literal", does not reach `lower_identifier_arithmetic_general` at all. | §6 entry 13 (replaced with a source that satisfies the measured reachability condition) |
+| 7 | polish | `ReferencePins` derived `Default` and exposed `none()`, so `ReferencePins::none().materialize(record.write(..))` compiled and silently discarded the real chain. | §2.4; `ReferenceRecord::pin_operands` is the sole producer; ledger **L3** shrunk |
+| 8 | polish | `base_mut() -> &mut ReferenceBase` permitted whole-value assignment, so a property Reference could be swapped for a global one after its `[[Strict]]` was chosen — a doc comment asserting an invariant the type did not carry. | §2.2; `base_mut` deleted |
+| 9 | polish | MC2's compile error was never built: three emitters still took `strict: bool`, and `i64::from(self.is_current_function_strict())` still sat at the `I64Const` site. | §3 MC2 note; three signatures now take `Strictness`; `ambient_object_write_strict_flag_word` renames the fallback |
+| 10 | polish | `const _: () = assert!(REFERENCE_STRICTNESS_FLAG_LOCALS == 1)` compared a constant to a literal, not to what the emitter reserves — decoration by AGENTS.md's test. | `with_reference_strictness` reserves into `[u32; REFERENCE_STRICTNESS_FLAG_LOCALS]` and destructures it; the const-assert is deleted |
+| 11 | polish | Invariant I7's **AST** half did not exist: `AssignTarget` and `UpdateTarget` were still matched with a catch-all and a `let ... else`. | both are now exhaustive matches over the closed boa enums; `lower_property_access_update` extracted so `lower_update` can match |
+| 12 | polish | `ExprIr::GlobalPropertyWrite.implicit` was reported as read by nobody. | Refuted: its consumer is the `implicit_globals` counter in `ir.rs`'s AST-stat visitor. Field kept, with a doc comment saying so and saying it is not a backend input |
+
+**Open proof obligation I7, restated.** The `ExprIr`-side half was already
+closed (77 variants, no `_`). The AST-side half named in the obligation is now
+closed too (finding 11). What remains open is §2.5's `lower_reference` itself:
+the record is still *recovered from the lowered read* rather than built from
+`AssignTarget`/`UpdateTarget`/`PropertyAccess`. Both catch-alls are gone and both
+domains are exhaustive, so drift on either side is a compile error; the
+AST-derived constructor stays a follow-up lane for the reason the encoder gave.
+
+**Not verified by this stage.** No cargo or rustc command was run: the integrator
+owns the compile gate. Every claim above is from reading the tree.

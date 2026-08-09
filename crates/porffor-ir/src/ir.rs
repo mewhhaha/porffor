@@ -765,6 +765,23 @@ pub enum DestructuringTargetIr {
     AssignmentProperty {
         target: TypedExpr,
         key: DestructuringPropertyKeyIr,
+        /// The `[[Strict]]` of the Reference this destructuring element
+        /// writes through.
+        ///
+        /// 13.15.5.4 DestructuringAssignmentEvaluation routes an
+        /// `AssignmentProperty` whose target is a property access through
+        /// PutValue, exactly as an ordinary `o.x = v` is — so 3.d's TypeError
+        /// on a `[[Set]]` that answered `false` is selected by *this*
+        /// Reference's `[[Strict]]`, not by the mode of the Wasm function the
+        /// pattern happens to be emitted into. The two differ whenever
+        /// lowering hoists the pattern into a generated function.
+        ///
+        /// `AssignmentIdentifier` and `AssignmentPrivate` deliberately carry
+        /// no such field: the first discharges PutValue at branch 4.c
+        /// (SetMutableBinding, whose only mode-dependent step is decided at
+        /// lowering time) and the second at PrivateSet, which throws in both
+        /// modes. See [`crate::reference::carried_put_value_failure`].
+        strictness: Strictness,
     },
     AssignmentPrivate {
         target: TypedExpr,
@@ -826,7 +843,7 @@ fn visit_destructuring_target_expressions(
     visit: &mut impl FnMut(&TypedExpr),
 ) {
     match target {
-        DestructuringTargetIr::AssignmentProperty { target, key } => {
+        DestructuringTargetIr::AssignmentProperty { target, key, .. } => {
             visit(target);
             if let DestructuringPropertyKeyIr::Computed(key) = key {
                 visit(key);
@@ -1381,6 +1398,16 @@ pub enum ExprIr {
     GlobalPropertyWrite {
         name: String,
         value: Box<TypedExpr>,
+        /// The lowerer could not prove the property already exists on the
+        /// global object, so this write may *create* a global binding.
+        ///
+        /// **Not** a backend input, and deliberately so: which of PutValue's
+        /// two branches applies is a runtime fact, and `strictness` alone
+        /// selects the guarded write (`emit_global_property_write_checked`)
+        /// that performs the presence test 2.a needs. Its one consumer is the
+        /// `implicit_globals` counter in this file's AST-stat visitor, which is
+        /// what keeps it from being an unread field — check there before
+        /// deleting it.
         implicit: bool,
         /// The `[[Strict]]` of the Reference this write consumes. PutValue
         /// step 2.a requires a ReferenceError when the Reference is
@@ -1792,17 +1819,6 @@ pub struct ForInOfEnvironmentIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AsyncForOfPlanIr {
-    pub entry_state: u32,
-    pub continuation_resume_state: u32,
-    pub value_resume_state: u32,
-    pub exit_state: u32,
-    pub iterable_binding: String,
-    pub index_binding: String,
-    pub done_binding: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncForOfIteratorPlanIr {
     pub entry_state: u32,
     pub value_resume_state: u32,
@@ -1982,7 +1998,6 @@ pub enum StatementIr {
         /// emitted or assumed away and on which premise. Non-optional and
         /// without a `Default` on purpose.
         protocol: IteratorProtocolWitness,
-        async_plan: Option<AsyncForOfPlanIr>,
     },
     ForOfString {
         mode: BindingMode,

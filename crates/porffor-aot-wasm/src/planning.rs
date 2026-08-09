@@ -7421,14 +7421,20 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::GlobalPropertyWrite { value, .. } => {
             count_expr_temp_locals(value).max(12) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
+        // These two additionally moved their write-back from the *unchecked*
+        // `emit_global_property_write` (3 temps) to
+        // `emit_global_property_write_checked` (4: it also holds
+        // `has_property_local` for PutValue 2.a's presence test), so their base
+        // is one higher than it was as well.
         ExprIr::GlobalPropertyUpdate { return_mode, .. } => {
-            match return_mode {
-                UpdateReturnMode::Prefix => 12,
-                UpdateReturnMode::Postfix => 13,
-            } + REFERENCE_STRICTNESS_FLAG_LOCALS
+            let base = match return_mode {
+                UpdateReturnMode::Prefix => 13,
+                UpdateReturnMode::Postfix => 14,
+            };
+            base + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::GlobalPropertyCompoundAssign { value, .. } => {
-            count_expr_temp_locals(value).max(13) + REFERENCE_STRICTNESS_FLAG_LOCALS
+            count_expr_temp_locals(value).max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::ObjectLiteral(properties) => {
             let child = properties
@@ -7879,13 +7885,23 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                             ArrayDestructuringElementIr::Rest { target } => (target, None, true),
                         };
                         let target_locals = match target {
-                            DestructuringTargetIr::AssignmentProperty { target, key } => {
-                                4 + count_expr_temp_locals(target).max(match key {
-                                    DestructuringPropertyKeyIr::Static(_) => 0,
-                                    DestructuringPropertyKeyIr::Computed(key) => {
-                                        count_expr_temp_locals(key)
-                                    }
-                                })
+                            // The write-back runs under
+                            // `with_reference_strictness`, which reserves the
+                            // carried-`[[Strict]]` flag local, so this budget
+                            // carries the same `REFERENCE_STRICTNESS_FLAG_LOCALS`
+                            // the reference-write expression arms do.
+                            DestructuringTargetIr::AssignmentProperty {
+                                target,
+                                key,
+                                strictness: _,
+                            } => {
+                                4 + REFERENCE_STRICTNESS_FLAG_LOCALS
+                                    + count_expr_temp_locals(target).max(match key {
+                                        DestructuringPropertyKeyIr::Static(_) => 0,
+                                        DestructuringPropertyKeyIr::Computed(key) => {
+                                            count_expr_temp_locals(key)
+                                        }
+                                    })
                             }
                             DestructuringTargetIr::AssignmentPrivate { target, .. } => {
                                 11 + count_expr_temp_locals(target)

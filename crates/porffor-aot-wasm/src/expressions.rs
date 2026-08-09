@@ -37,7 +37,7 @@ impl<'a> FunctionBuilder<'a> {
     /// code generation. A `const _: () = assert!(CONST == 1)` would not have
     /// noticed — it compares the constant to a literal, not to what this
     /// function actually reserves.
-    fn with_reference_strictness(
+    pub(crate) fn with_reference_strictness(
         &mut self,
         strictness: Strictness,
         function: &mut Function,

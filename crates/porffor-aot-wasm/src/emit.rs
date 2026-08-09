@@ -297,8 +297,16 @@ pub(crate) struct FunctionBuilder<'a> {
     /// behavior from the runtime value of `local` (a helper parameter carrying
     /// the calling function's strictness) rather than from the compile-time
     /// `is_current_function_strict()` of the helper body itself (which is a
-    /// fixed, mode-less runtime helper). `None` for inline emission, where the
-    /// compile-time strictness of the enclosing function is authoritative.
+    /// fixed, mode-less runtime helper).
+    ///
+    /// `None` only where **no Reference is in play** — property installation,
+    /// class field definition, internal helper writes — and there
+    /// `ambient_object_write_strict_flag_word` is authoritative. A Reference
+    /// write installs its own carried `[[Strict]]` here through
+    /// `expressions.rs`'s `with_reference_strictness`, inline emission
+    /// included, because PutValue 3.d asks about `V.[[Strict]]` and not about
+    /// the mode of the code being emitted. The two differ whenever lowering
+    /// hoists a write into a generated function.
     pub(crate) object_write_strict_flag_local: Option<u32>,
 }
 
@@ -432,11 +440,7 @@ fn async_generator_contains_suspension(
         // iteration and awaits the iterator close on exit. Only recursing into
         // the body would report a nested for-await as suspension-free and let it
         // through a guard that exists precisely to keep second suspensions out.
-        StatementIr::ForOfArray {
-            async_plan: Some(_),
-            ..
-        }
-        | StatementIr::ForOfIterator {
+        StatementIr::ForOfIterator {
             async_plan: Some(_),
             ..
         } => matches!(suspension, AsyncGeneratorSuspension::Await),
@@ -610,21 +614,6 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         // fail the loop's entry test and skip the loop entirely. So a
         // suspension-free body compiles like any ordinary loop body, and a
         // suspending one is still refused rather than miscompiled.
-        StatementIr::ForOfArray {
-            body,
-            async_plan: Some(_),
-            ..
-        } => {
-            // `compile_async_for_of_array` still gates the loop on the three
-            // states the loop itself owns, so a body suspension would resume
-            // outside that test and skip the loop entirely.
-            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Await)
-                || async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
-            {
-                return Some("for-await iteration with a suspension in the loop body");
-            }
-            None
-        }
         StatementIr::ForOfIterator {
             body,
             lexical_environment,
