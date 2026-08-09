@@ -1,6 +1,6 @@
 use crate::early_error_code::rejection_kind;
 use crate::NativeErrorKind;
-use porffor_front::{EarlyErrorCode, SourceSpan};
+use porffor_front::{EarlyErrorCode, ParseClassified, SourceSpan};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoweringStage {
@@ -115,6 +115,23 @@ impl IrDiagnostic {
             span,
             message: message.into(),
         }
+    }
+
+    /// [`Self::rejected`] for a **parse-stage** producer.
+    ///
+    /// Same derivation, narrower door: the code must be a
+    /// [`ParseClassified`] — one the fragment table can actually yield — so a
+    /// producer that runs while parsing cannot name a link-only condition such
+    /// as `ModuleMissingExport` and have it reported at
+    /// `IrDiagnosticPhase::Resolution` from a `ParseModule` stage. Assertion P7
+    /// makes the *table* agree with `rejection_kind`; this makes the *call
+    /// sites* agree with it, which P7 cannot see.
+    pub fn rejected_at_parse(
+        code: ParseClassified,
+        message: impl Into<String>,
+        span: Option<SourceSpan>,
+    ) -> Self {
+        Self::rejected(code.code(), message, span)
     }
 
     pub fn unsupported(message: impl Into<String>) -> Self {

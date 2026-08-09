@@ -6,8 +6,8 @@ use super::*;
 /// file is traceable to one import. See
 /// `docs/rust-rewrite/contracts/reference-records.md`.
 use crate::ir::reference::{
-    reference_base_of_lowered_read, Composition, ReferenceBase, ReferencePins, ReferenceRecord,
-    UnsupportedTarget,
+    reference_base_of_lowered_read, Composition, ReferenceBase, ReferenceOperand, ReferencePins,
+    ReferenceRecord,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12117,7 +12117,53 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// What an expression can throw, if anything.
+    ///
+    /// A Reference write throws for two independent reasons: something in its
+    /// operands throws, and — PutValue 3.d, `delete` 5.e — the write itself
+    /// reports failure while the Reference's `[[Strict]]` is `Strict`. The
+    /// second reason is a property of the Reference rather than of any
+    /// operand, so it is merged in here, where the carried `[[Strict]]` is
+    /// read as a total function of the node.
+    ///
+    /// This is also the product call site that keeps `carried_put_value_failure`
+    /// honest: the exhaustive match inside it only earns its `E0004` if
+    /// something outside the tests calls it.
+    ///
+    /// The error *type* matters as much as the fact of throwing. PutValue 2.a
+    /// raises a **ReferenceError** and 3.d a **TypeError**, and this info feeds
+    /// `infer_catch_binding_info`, so attributing only a TypeError to
+    /// `"use strict"; try { undeclaredXyz = 1 } catch (e) { … }` would narrow
+    /// `e` to a TypeError-shaped object — complete with
+    /// `prototype: standard_error_prototype_shape(TypeErrorConstructor)` — for
+    /// a value that is a ReferenceError.
     fn infer_expr_throw_info(&self, expr: &TypedExpr) -> Option<ValueInfo> {
+        let strict_put_value_throw = match carried_put_value_failure(&expr.expr) {
+            Some((Strictness::Strict, failure)) => {
+                let type_error =
+                    Self::standard_error_instance_info(StandardBuiltinId::TypeErrorConstructor);
+                Some(match failure {
+                    PutValueFailure::TypeErrorOnly => type_error,
+                    PutValueFailure::TypeErrorOrReferenceError => self.merge_value_infos(
+                        type_error,
+                        Self::standard_error_instance_info(
+                            StandardBuiltinId::ReferenceErrorConstructor,
+                        ),
+                    ),
+                })
+            }
+            Some((Strictness::Sloppy, _)) | None => None,
+        };
+        self.merge_optional_value_info(
+            strict_put_value_throw,
+            self.infer_expr_operand_throw_info(expr),
+        )
+    }
+
+    /// The part of [`Self::infer_expr_throw_info`] that comes from the node's
+    /// own operands. Recursive calls go back through the wrapper, so a nested
+    /// strict Reference write contributes its TypeError too.
+    fn infer_expr_operand_throw_info(&self, expr: &TypedExpr) -> Option<ValueInfo> {
         match &expr.expr {
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
@@ -12299,7 +12345,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            ExprIr::PropertyWrite { target, key, value } => {
+            ExprIr::PropertyWrite {
+                target, key, value, ..
+            } => {
                 let mut info = self.infer_expr_throw_info(target);
                 info =
                     self.merge_optional_value_info(info, self.infer_property_key_throw_info(key));
@@ -28119,9 +28167,8 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_object_literal(&mut self, object: &ObjectLiteral) -> TypedExpr {
         if self.object_literal_has_duplicate_proto_setter(object) {
-            self.diagnostics.push(IrDiagnostic::early_error(
-                "E_OBJECT_DUPLICATE_PROTO",
-                "SyntaxError",
+            self.diagnostics.push(IrDiagnostic::rejected(
+                EarlyErrorCode::ObjectDuplicateProto,
                 "early error: duplicate __proto__ prototype setter in object literal",
                 None,
             ));
@@ -30426,7 +30473,21 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 AssignTarget::Access(access) => self.lower_property_assign(access, rhs),
                 AssignTarget::Pattern(pattern) => self.lower_pattern_assign(pattern, rhs),
-                _ => self.unsupported_expr("non-identifier assignment target"),
+                // Spelled out rather than `_`. `AssignTarget` is a closed
+                // 4-variant boa enum (`boa_ast-0.21.1/src/expression/operator/
+                // assign/mod.rs:126`) and this is invariant I7's AST half: a
+                // fifth production that yields a Reference must be decided
+                // here, as `error[E0004]`, not swallowed as an unsupported
+                // expression with nothing to compile-error about.
+                //
+                // `WebCompatCall` is handled by the early return at the top of
+                // this function — Annex B `f() = v` is a runtime
+                // ReferenceError, not a compiler gap — so it is unreachable
+                // here; it is still named, because `unreachable!()` in its
+                // place would reintroduce a catch-all by another spelling.
+                AssignTarget::WebCompatCall(call) => {
+                    self.lower_web_compat_call_assignment_target(call)
+                }
             },
             AssignOp::Add
             | AssignOp::Sub
@@ -32217,7 +32278,7 @@ impl<'a> ScriptLowerer<'a> {
         // 6.2.5: `[[Strict]]` is populated when the Reference is created, and
         // is carried from here to whichever PutValue consumes it.
         let mut record = ReferenceRecord::create(base, self.reference_strictness());
-        let pins = self.pin_reference_operands(record.base_mut());
+        let pins = self.pin_reference_operands(&mut record);
 
         let read = record.read(read_info.clone());
         let rhs = self.lower_expression(rhs);
@@ -32274,25 +32335,25 @@ impl<'a> ScriptLowerer<'a> {
     /// expression, which does not exist yet at this point. [`ReferencePins`]
     /// is the only value that can produce that chain, and it is `#[must_use]`
     /// and not `Clone`, so the wrap can be neither forgotten nor duplicated.
-    fn pin_reference_operands(&mut self, base: &mut ReferenceBase) -> ReferencePins {
-        let mut pins = ReferencePins::none();
-        if let Some(target) = base.evaluated_base_mut() {
-            if !Self::is_repeatable_operand(&target.expr) {
-                let info = target.value_info();
-                let name = self.alloc_temp_binding_name("compound.assign.target.");
-                let pinned_target = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
-                pins.pin(name, std::mem::replace(target, pinned_target));
+    ///
+    /// The record decides *which* operands are pinnable (exhaustively, over
+    /// [`ReferenceBase`]); this decides which of them actually need pinning and
+    /// what the temporary is called. `ReferenceRecord::pin_operands` is the
+    /// only producer of a [`ReferencePins`] in the workspace, so there is no
+    /// way to reach `materialize` with a chain that belongs to no record.
+    fn pin_reference_operands(&mut self, record: &mut ReferenceRecord) -> ReferencePins {
+        record.pin_operands(|operand, expr| {
+            if Self::is_repeatable_operand(&expr.expr) {
+                return None;
             }
-        }
-        if let Some(key_expr) = base.computed_key_mut() {
-            if !Self::is_repeatable_operand(&key_expr.expr) {
-                let info = key_expr.value_info();
-                let name = self.alloc_temp_binding_name("compound.assign.key.");
-                let pinned_key = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
-                pins.pin(name, std::mem::replace(key_expr, pinned_key));
-            }
-        }
-        pins
+            let info = expr.value_info();
+            let name = self.alloc_temp_binding_name(match operand {
+                ReferenceOperand::Base => "compound.assign.target.",
+                ReferenceOperand::ComputedKey => "compound.assign.key.",
+            });
+            let pinned = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
+            Some((name, std::mem::replace(expr, pinned)))
+        })
     }
 
     /// The lowerer-side bookkeeping a PutValue implies: the recorded shape of
@@ -32780,64 +32841,94 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn lower_update(&mut self, op: UpdateOp, target: &UpdateTarget) -> TypedExpr {
-        if let UpdateTarget::WebCompatCall(call) = target {
-            return self.lower_web_compat_call_assignment_target(call);
-        }
-        if let UpdateTarget::PropertyAccess(access) = target {
-            let read = self.lower_property_access(access);
-            let value_kind = if read
-                .possible_kinds
-                .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
-            {
-                ValueKind::BigInt
-            } else {
-                ValueKind::Number
-            };
-            let (op, return_mode) = match op {
-                UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
-                UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
-                UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
-                UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
-            };
-            let (target, key) = match read.expr {
-                ExprIr::PropertyRead { target, key } => (target, key),
-                ExprIr::SpecOperation {
-                    operation: SpecOperationIr::Get | SpecOperationIr::GetV,
-                    mut operands,
-                } if operands.len() == 2 => {
-                    let property_key = operands.pop().expect("GetV property key operand");
-                    let target = operands.pop().expect("GetV target operand");
-                    let key = match property_key.expr {
-                        ExprIr::String(key) if property_key.kind == ValueKind::String => {
-                            PropertyKeyIr::StaticString(key)
-                        }
-                        _ if property_key.possible_kinds.is_subset_of(
-                            KindSet::from_kind(ValueKind::String)
-                                .union(KindSet::from_kind(ValueKind::Symbol)),
-                        ) =>
-                        {
-                            PropertyKeyIr::StringExpr(Box::new(property_key))
-                        }
-                        _ => return self.unsupported_expr("property update key"),
-                    };
-                    (Box::new(target), key)
-                }
-                _ => return self.unsupported_expr("property update target"),
-            };
-            return TypedExpr::from_info(
+    /// 13.4 `++`/`--` on a property Reference.
+    ///
+    /// Extracted from `lower_update` so that function can match `UpdateTarget`
+    /// exhaustively; the body is unchanged.
+    fn lower_property_access_update(
+        &mut self,
+        op: UpdateOp,
+        access: &PropertyAccess,
+    ) -> TypedExpr {
+        let read = self.lower_property_access(access);
+        let value_kind = if read
+            .possible_kinds
+            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+        {
+            ValueKind::BigInt
+        } else {
+            ValueKind::Number
+        };
+        let (op, return_mode) = match op {
+            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
+            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
+            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
+            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+        };
+        // 13.4: `++`/`--` evaluate the UnaryExpression once and PutValue
+        // through the Reference that evaluation produced. Recovering that
+        // Reference is the same total function the compound-assignment
+        // path uses. The two nested catch-alls this replaces matched 2 of
+        // the 77 `ExprIr` shapes and silently downgraded everything else —
+        // `super.x++`, `#priv++`, and every read the lowering had
+        // specialised — to `unsupported_expr`, with no compile error to
+        // say so.
+        let base = match reference_base_of_lowered_read(read.expr) {
+            Ok(base) => base,
+            Err(unsupported) => return self.unsupported_expr(unsupported.feature()),
+        };
+        let strictness = self.reference_strictness();
+        match base {
+            ReferenceBase::Property { target, key } => TypedExpr::from_info(
                 ValueInfo::new(value_kind),
                 ExprIr::PropertyUpdate {
-                    target,
+                    target: Box::new(target),
                     key,
                     op,
                     return_mode,
                     value_kind,
+                    strictness,
                 },
-            );
+            ),
+            ReferenceBase::Global { name } => TypedExpr::from_info(
+                ValueInfo::new(value_kind),
+                ExprIr::GlobalPropertyUpdate {
+                    name,
+                    op,
+                    return_mode,
+                    value_kind,
+                    strictness,
+                },
+            ),
+            // There is no `PrivateUpdate` or `SuperPropertyUpdate` IR node
+            // yet, so these two still have no lowering. They are named
+            // here rather than swallowed by a `_` arm, so that adding one
+            // is a deliberate edit at this site.
+            ReferenceBase::Private { .. } => {
+                self.unsupported_expr("private field update target")
+            }
+            ReferenceBase::Super { .. } => {
+                self.unsupported_expr("super property update target")
+            }
         }
-        let UpdateTarget::Identifier(identifier) = target else {
-            return self.unsupported_expr("non-identifier update target");
+    }
+
+    fn lower_update(&mut self, op: UpdateOp, target: &UpdateTarget) -> TypedExpr {
+        // `UpdateTarget` is a closed 3-variant boa enum
+        // (`boa_ast-0.21.1/src/expression/operator/update/mod.rs:129`).
+        // Matched exhaustively rather than as two `if let`s and a
+        // `let ... else`, so a fourth production that yields a Reference is
+        // `error[E0004]` here instead of a silent `unsupported_expr`. That is
+        // invariant I7's AST half for update expressions.
+        let identifier = match target {
+            // Annex B `f()++` is a runtime ReferenceError, not a compiler gap.
+            UpdateTarget::WebCompatCall(call) => {
+                return self.lower_web_compat_call_assignment_target(call)
+            }
+            UpdateTarget::PropertyAccess(access) => {
+                return self.lower_property_access_update(op, access)
+            }
+            UpdateTarget::Identifier(identifier) => identifier,
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -32913,6 +33004,7 @@ impl<'a> ScriptLowerer<'a> {
             UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
         };
 
+        let strictness = self.reference_strictness();
         TypedExpr::from_info(
             ValueInfo::new(update_kind),
             if let Some(storage_name) = binding_storage_name {
@@ -32928,6 +33020,7 @@ impl<'a> ScriptLowerer<'a> {
                     op,
                     return_mode,
                     value_kind: update_kind,
+                    strictness,
                 }
             },
         )

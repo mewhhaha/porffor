@@ -1245,19 +1245,27 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Emits `name = value` on the script global object with PutValue's strict
-    /// check (9.1.1.4.5 / 6.2.5.6 step 2.b): in strict code an assignment to a
-    /// name that resolves nowhere is a ReferenceError instead of an implicit
-    /// global. Resolution is only decidable at run time, so the presence of the
-    /// property on the global object is tested here rather than in lowering.
+    /// check (9.1.1.4.5 / 6.2.5.6 step **2.a**): in strict code an assignment
+    /// to a name that resolves nowhere is a ReferenceError instead of an
+    /// implicit global. Resolution is only decidable at run time, so the
+    /// presence of the property on the global object is tested here rather than
+    /// in lowering.
+    ///
+    /// The parameter is the Reference's [`Strictness`], not a `bool`. It used
+    /// to be a `bool`, and `self.is_current_function_strict()` type-checked in
+    /// that slot — which is b361b4815 (the *ambient* mode standing in for the
+    /// Reference's carried `[[Strict]]`) one layer out from where it shipped.
+    /// The conversion now happens inside, so there is nothing at a call site to
+    /// transpose.
     pub(crate) fn emit_global_property_write_checked(
         &mut self,
         name: &str,
         payload_local: u32,
         tag_local: u32,
-        strict: bool,
+        strictness: Strictness,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if !strict {
+        if !strictness.throws_on_failed_set() {
             return self.emit_global_property_write(name, payload_local, tag_local, function);
         }
         let key_local = self.reserve_temp_local();
@@ -1311,11 +1319,14 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `delete globalThis.name` / `delete name`, with 13.5.1.2 step 5.e's
+    /// strict guard. `strictness` is the Reference's carried `[[Strict]]`; see
+    /// [`Self::emit_global_property_write_checked`] for why it is not a `bool`.
     pub(crate) fn emit_global_property_delete(
         &mut self,
         name: &str,
         result_local: u32,
-        strict: bool,
+        strictness: Strictness,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
@@ -1334,10 +1345,10 @@ impl<'a> FunctionBuilder<'a> {
             result_local,
             function,
         )?;
-        // 13.5.1.2 step 5.d: a `false` [[Delete]] result is a TypeError in
+        // 13.5.1.2 step 5.e: a `false` [[Delete]] result is a TypeError in
         // strict code. The generic `delete obj.k` path does this in
         // `compile_delete_property_i32`; the global fast path needs it too.
-        if strict {
+        if strictness.throws_on_failed_set() {
             let error_payload_local = self.reserve_temp_local();
             let error_tag_local = self.reserve_temp_local();
             function.instruction(&Instruction::LocalGet(result_local));

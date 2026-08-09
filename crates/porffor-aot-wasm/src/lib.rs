@@ -15,7 +15,7 @@ use porffor_ir::{
     GeneratorTryPlanIr, HeapShape, HostBuiltinId, JsonStaticValueIr, KindSet, LexicalEnvironmentIr,
     LogicalBinaryOp, NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty, OwnedEnvBindingIr,
     PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptGlobalBindingIr,
-    ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr,
+    ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr, Strictness,
     SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryNumericOp, UpdateReturnMode, ValueInfo,
     ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME,
     BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,

@@ -22,7 +22,7 @@ use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
 #[path = "reference.rs"]
 pub mod reference;
 
-pub use reference::{carried_strictness, Strictness};
+pub use reference::{carried_put_value_failure, PutValueFailure, Strictness};
 
 pub type FunctionId = String;
 

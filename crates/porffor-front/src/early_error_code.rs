@@ -139,8 +139,10 @@ macro_rules! early_error_codes {
             /// The single spelling authority for these codes in this workspace.
             ///
             /// This function's arms are the only `"E_..."` literals in the
-            /// workspace, apart from the one `"E_IR_DIAGNOSTIC"` placeholder in
-            /// `porffor-test262` that names the *absence* of a code.
+            /// workspace, apart from [`NO_EARLY_ERROR_CODE`] — the one
+            /// placeholder that names the *absence* of a code, now spelled in
+            /// this module beside them and proved distinct from all eighteen by
+            /// assertion P5'.
             #[must_use]
             pub const fn wire_name(self) -> &'static str {
                 match self {
@@ -314,10 +316,27 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         ],
     },
     // 6. W5: boa_parser/src/parser/mod.rs:186-191 and :230-235 wrap
-    //    boa_ast/src/scope_analyzer.rs:1783,1793. Reachable from *both* goals:
-    //    `analyze_scope` runs on every successful script and module parse, and
-    //    `"duplicate lexical declaration"` is the only `Err` payload that can
-    //    reach the wrapper.
+    //    boa_ast/src/scope_analyzer.rs:1783,1793.
+    //
+    //    **Measured: unreachable through this crate's entry points.** The only
+    //    payload-carrying `ControlFlow::Break` in `scope_analyzer.rs` is at
+    //    :1220, in `visit_script_mut`, forwarding
+    //    `global_declaration_instantiation`'s `Err` at :1783 and :1793; both
+    //    require `env.has_binding(name)` / `env.has_lex_binding(name)` on the
+    //    scope that was passed in, and both `porffor_front::parse` (lib.rs:239)
+    //    and `porffor_ir::modules::record::reparse_module` (record.rs:1333)
+    //    pass a fresh `Scope::new_global()` whose `bindings` are
+    //    `RefCell::default()` (boa_ast/src/scope.rs:115-128).
+    //    `visit_module_mut` (:1202-1210) has no `Break` at all, so the module
+    //    goal cannot reach it under any scope either.
+    //
+    //    Retained rather than deleted (DR-6 forbids deleting a row on a
+    //    negative reachability result): boa has a *third* producer of this
+    //    wording at scope_analyzer.rs:2364, in
+    //    `eval_declaration_instantiation_scope`, reachable only via
+    //    `analyze_scope_eval`, which this compiler never calls. It matches this
+    //    row and only this row, so an eval path added later classifies
+    //    correctly with no edit here. Ledger L5's confirmed instance.
     ParseFailureRule {
         fragments: &["duplicate lexical declaration"],
         code: EarlyErrorCode::DuplicateLexicalDeclaration,
@@ -394,13 +413,108 @@ const fn rule_matches(rule: &ParseFailureRule, message: &str) -> bool {
 /// The prefix `porffor_ir::modules::record::reparse_module` puts in front of
 /// boa's message before handing it to the classifier.
 ///
-/// Private, and the copy at `porffor-ir/src/modules/record.rs` is the live one;
-/// this constant exists as the *subject of assertion P6*, which proves the
-/// prefix matches no rule on its own — so classifying a prefixed message and a
-/// bare one give the same answer, and the entry path and the dependency path
-/// cannot disagree merely because one of them wraps the text. Single-sourcing
-/// the two copies is deferred to whoever owns `record.rs` (ledger L6).
-const MODULE_REPARSE_PREFIX: &str = "lowering module reparse failed: ";
+/// `pub` because it now has **two** real consumers: assertion P6 here, which
+/// proves the prefix matches no rule on its own (so a prefixed message and a
+/// bare one classify identically), and `record.rs`, which writes it. It used to
+/// exist in three copies — this one, the live literal in `record.rs`, and a
+/// third in the `early.rs` test that is supposed to be P6's runtime half — so a
+/// drift in `record.rs` would have left both checks guarding a string no
+/// producer emits. Ledger L6/L8.
+pub const MODULE_REPARSE_PREFIX: &str = "lowering module reparse failed: ";
+
+/// The failure-detail token that names the **absence** of a code.
+///
+/// Spelled once, here, beside the codes it must never collide with; assertion
+/// P5' proves no `wire_name()` equals it. `porffor-test262` names this constant
+/// rather than re-spelling the literal, so a nineteenth variant spelled
+/// `E_IR_DIAGNOSTIC` fails to build instead of silently merging with the
+/// "no code" bucket in every failure report.
+pub const NO_EARLY_ERROR_CODE: &str = "E_IR_DIAGNOSTIC";
+
+/// A code that the **parse** table can actually produce.
+///
+/// A witness type with no public constructor beyond the two gated ones below.
+/// It exists because the parse-stage producers and the link-stage producers
+/// share one `EarlyErrorCode` domain but *not* one reporting phase: a
+/// `ParseCode::Early(EarlyErrorCode::ModuleMissingExport)` would report a
+/// `resolution`-kind condition at `ParseDiagnosticPhase::Early`, which is one
+/// code under two phases from two paths — the exact mistake class the merged
+/// domain was built to end. Assertion P7 constrains what the *table* can yield;
+/// this type constrains what a *call site* can say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ParseClassified(EarlyErrorCode);
+
+impl ParseClassified {
+    /// The gate. `None` for a code no row of the fragment table carries — i.e.
+    /// for a link-only condition, which a parse-stage producer must not claim.
+    #[must_use]
+    pub const fn from_early(code: EarlyErrorCode) -> Option<Self> {
+        if code.is_parse_classified() {
+            Some(Self(code))
+        } else {
+            None
+        }
+    }
+
+    /// [`Self::from_early`] for a code named as a literal, with `None` turned
+    /// into a **compile error**.
+    ///
+    /// Only meaningful in a `const` initializer; that is the point. The two
+    /// parse-stage producers in `porffor_ir::modules::early` bind their codes to
+    /// `const` items built with this, so naming a link-only code there fails to
+    /// build rather than reporting under the wrong phase.
+    #[must_use]
+    pub const fn from_parse_table(code: EarlyErrorCode) -> Self {
+        match Self::from_early(code) {
+            Some(classified) => classified,
+            None => panic!(
+                "this EarlyErrorCode is not producible by PARSE_FAILURE_RULES, so a parse-stage \
+                 producer must not name it"
+            ),
+        }
+    }
+
+    /// The underlying condition. One-way on purpose: widening back to
+    /// `EarlyErrorCode` is free, narrowing is gated.
+    #[must_use]
+    pub const fn code(self) -> EarlyErrorCode {
+        self.0
+    }
+}
+
+/// Message shapes in which `boa` interpolates **source text** the user wrote.
+///
+/// `boa_parser::Error::Unexpected` renders as
+/// `unexpected token '{found}', {message} at line L, col C`, and
+/// `Error::Expected` as `expected token '{t}', got '{found}' in {ctx} …`;
+/// `TokenKind::StringLiteral` renders as its raw contents
+/// (`boa_parser/src/lexer/token.rs:313`). So
+/// `var x = "illegal break statement" "y";` produces a message that contains a
+/// row's whole fragment set verbatim, and the string oracle would classify an
+/// ordinary syntax error as an early error. On the entry path that is
+/// taxonomy-only (both report `parse`/`SyntaxError`); on the dependency path it
+/// converts an `IrDiagnostic::unsupported` into a spec rejection, which is a
+/// compiler gap wearing a spec claim.
+///
+/// Detected by substring rather than prefix because the dependency path
+/// prepends [`MODULE_REPARSE_PREFIX`]. Assertion P10 proves this guard eats no
+/// witness of any row. Ledger L1.
+const INTERPOLATING_MESSAGE_SHAPES: &[&str] = &[
+    "unexpected token '",
+    "expected token '",
+    "expected one of ",
+];
+
+const fn message_interpolates_source_text(message: &str) -> bool {
+    let mut i = 0;
+    while i < INTERPOLATING_MESSAGE_SHAPES.len() {
+        if contains_sub(message, INTERPOLATING_MESSAGE_SHAPES[i]) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
 
 /// Classifies a `boa` parse failure into the one closed domain.
 ///
@@ -411,12 +525,18 @@ const MODULE_REPARSE_PREFIX: &str = "lowering module reparse failed: ";
 ///
 /// This is the only such function in the workspace. `porffor-ir` calls this one.
 #[must_use]
-pub const fn classify_parse_failure(message: &str) -> Option<EarlyErrorCode> {
+pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
+    // The oracle is a substring test over a message boa built by interpolation.
+    // Refuse to read one of the two shapes that can carry user source text into
+    // it; `Malformed`/`Unsupported` is the honest answer there.
+    if message_interpolates_source_text(message) {
+        return None;
+    }
     let mut i = 0;
     while i < PARSE_FAILURE_RULES.len() {
         let rule = &PARSE_FAILURE_RULES[i];
         if rule_matches(rule, message) {
-            return Some(rule.code);
+            return Some(ParseClassified(rule.code));
         }
         i += 1;
     }
@@ -448,17 +568,37 @@ impl EarlyErrorCode {
 // Const assertions P1-P6. Each names the mistake it makes fail to build.
 // ---------------------------------------------------------------------------
 
-/// P1: no row has an empty `fragments` or `witnesses` list.
+/// P1: no row has an empty `fragments` or `witnesses` list, **and no fragment
+/// or witness is the empty string**.
 ///
-/// An empty `fragments` matches every message, so one row would swallow every
-/// parse failure into a single code. An empty `witnesses` would exempt the row
-/// from P2 and P6 entirely.
+/// An empty `fragments` list matches every message, so one row would swallow
+/// every parse failure into a single code. An empty `witnesses` list would
+/// exempt the row from P2, P6 and P10 entirely. And a single empty *fragment*
+/// has the same effect as an empty list: `contains_sub` returns `true` for an
+/// empty needle (its length guard only rejects a needle **longer** than the
+/// haystack), so `fragments: &[""]` matches every message. That last case was
+/// caught only as a side effect of P2 — i.e. only because other rows happened
+/// to have witnesses that the empty row would then also match.
 const fn every_row_is_populated() -> bool {
     let mut i = 0;
     while i < PARSE_FAILURE_RULES.len() {
         let rule = &PARSE_FAILURE_RULES[i];
         if rule.fragments.is_empty() || rule.witnesses.is_empty() {
             return false;
+        }
+        let mut f = 0;
+        while f < rule.fragments.len() {
+            if rule.fragments[f].is_empty() {
+                return false;
+            }
+            f += 1;
+        }
+        let mut w = 0;
+        while w < rule.witnesses.len() {
+            if rule.witnesses[w].is_empty() {
+                return false;
+            }
+            w += 1;
         }
         i += 1;
     }
@@ -496,6 +636,13 @@ const fn witnesses_select_their_own_row() -> bool {
 const fn found_is(found: Option<EarlyErrorCode>, expected: EarlyErrorCode) -> bool {
     match found {
         Some(code) => code_eq(code, expected),
+        None => false,
+    }
+}
+
+const fn classified_is(found: Option<ParseClassified>, expected: EarlyErrorCode) -> bool {
+    match found {
+        Some(classified) => code_eq(classified.code(), expected),
         None => false,
     }
 }
@@ -565,6 +712,48 @@ const fn wire_names_are_well_formed() -> bool {
     true
 }
 
+/// P5': no code's `wire_name()` collides with [`NO_EARLY_ERROR_CODE`].
+///
+/// That token names the *absence* of a code in every failure-detail string a
+/// coded diagnostic does not produce. A nineteenth variant spelled the same way
+/// would pass P4 and P5 — it is distinct from the other eighteen and
+/// well-formed — and would then be indistinguishable from "no code" in every
+/// report built from the wire name, reintroducing exactly the confusion the
+/// `Option<EarlyErrorCode>` representation was chosen to end.
+const fn no_wire_name_is_the_absence_placeholder() -> bool {
+    let all = EarlyErrorCode::ALL;
+    let mut i = 0;
+    while i < all.len() {
+        if str_eq(all[i].wire_name(), NO_EARLY_ERROR_CODE) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// P10: every witness still classifies, **through the whole classifier**.
+///
+/// P2 checks `rule_matches` row by row; this checks `classify_parse_failure`,
+/// which now also refuses [`INTERPOLATING_MESSAGE_SHAPES`]. Without it, adding
+/// a guard shape that happens to occur inside a real boa wording would silently
+/// take a whole spec condition out of the taxonomy, and P2 would still pass.
+const fn every_witness_classifies_to_its_own_code() -> bool {
+    let mut row = 0;
+    while row < PARSE_FAILURE_RULES.len() {
+        let rule = &PARSE_FAILURE_RULES[row];
+        let mut w = 0;
+        while w < rule.witnesses.len() {
+            if !classified_is(classify_parse_failure(rule.witnesses[w]), rule.code) {
+                return false;
+            }
+            w += 1;
+        }
+        row += 1;
+    }
+    true
+}
+
 /// P6: the dependency-path wrapper prefix matches no rule on its own.
 ///
 /// Without this, a future fragment as innocuous as `"module"` would make *every*
@@ -598,6 +787,14 @@ const _: () = assert!(
     "P5: an EarlyErrorCode wire_name() is not `E_` followed by uppercase ASCII and underscores"
 );
 const _: () = assert!(
+    no_wire_name_is_the_absence_placeholder(),
+    "P5': an EarlyErrorCode wire_name() collides with NO_EARLY_ERROR_CODE, the token that names the absence of a code"
+);
+const _: () = assert!(
     reparse_prefix_matches_no_rule(),
     "P6: MODULE_REPARSE_PREFIX matches a PARSE_FAILURE_RULES row on its own, so every prefixed dependency failure would classify as that row"
+);
+const _: () = assert!(
+    every_witness_classifies_to_its_own_code(),
+    "P10: a PARSE_FAILURE_RULES witness no longer classifies to its own code through classify_parse_failure — most likely an INTERPOLATING_MESSAGE_SHAPES guard now eats it"
 );

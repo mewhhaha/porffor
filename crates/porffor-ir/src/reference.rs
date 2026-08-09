@@ -58,29 +58,80 @@ impl Strictness {
     pub fn throws_on_failed_set(self) -> bool {
         matches!(self, Self::Strict)
     }
+
+    /// The runtime flag word the backend's object-write guards read for
+    /// PutValue 3.d, when the guard has to be selected at run time because the
+    /// write body is shared between callers of both modes.
+    ///
+    /// This is the single named conversion to a machine word. It exists so
+    /// that an `I64Const` at a write site cannot be fed anything else: there
+    /// is no `as` cast and no `repr`, so `strictness as i64` does not compile
+    /// and `i64::from(some_other_bool)` is visibly not this function.
+    #[must_use]
+    pub fn helper_flag_word(self) -> i64 {
+        i64::from(self.throws_on_failed_set())
+    }
 }
 
-/// Which `[[Strict]]` (if any) an IR node carries, as a total function of
-/// `ExprIr`.
+/// Which spec error a *failed* PutValue on this node raises, when the
+/// Reference's `[[Strict]]` is `Strict`.
+///
+/// PutValue has two strict throws and they are **different error types**:
+/// step 2.a raises a **ReferenceError** when the Reference is unresolvable,
+/// and step 3.d a **TypeError** when `[[Set]]` answered `false`. Attributing
+/// one where the other can occur is not a rounding error — it decides the
+/// inferred shape of a `catch` binding, and with it every static answer to
+/// `e.name`, `e.constructor` and a prototype lookup on `e`.
+///
+/// Closed, and matched exhaustively at the consumer, so a third failure mode
+/// has to be given a merge rule rather than defaulting to one of these two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PutValueFailure {
+    /// PutValue 3.d, or `delete` 5.e. The base is resolved, so 2.a is
+    /// unreachable and a TypeError is the only outcome.
+    TypeErrorOnly,
+    /// PutValue 2.a **or** 3.d. [`ReferenceBase::Global`] covers both "the
+    /// global object" and "unresolvable" because the two are not separable at
+    /// compile time — `globalThis.x = 1` can create the binding at run time —
+    /// so a strict failure here is a ReferenceError *or* a TypeError and the
+    /// consumer must admit both.
+    TypeErrorOrReferenceError,
+}
+
+/// Which `[[Strict]]` (if any) an IR node carries, and what its strict failure
+/// raises — as a total function of `ExprIr`.
 ///
 /// This match has no catch-all, and that is its entire purpose: whoever adds a
 /// new reference-shaped variant to [`ExprIr`] gets `E0004` here and has to
-/// decide, at that moment, whether the new node is a PutValue site. A `_` arm
-/// would turn "the new write node has nowhere to record `[[Strict]]`" into a
-/// silently sloppy write.
+/// decide, at that moment, whether the new node is a PutValue site **and which
+/// of PutValue's two strict throws it can reach**. A `_` arm would turn "the
+/// new write node has nowhere to record `[[Strict]]`" into a silently sloppy
+/// write; a bare `Option<Strictness>` return turned "the new global-write node
+/// forgot that 2.a is a ReferenceError" into a wrong catch-binding shape.
 #[must_use]
-pub fn carried_strictness(expr: &ExprIr) -> Option<Strictness> {
+pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueFailure)> {
     match expr {
-        // PutValue 2.a + 3.d, PutValue 3.d, and `delete` 5.e.
+        // PutValue 2.a **and** 3.d: the base is the global object or
+        // unresolvable, and which one is a runtime fact.
         ExprIr::GlobalPropertyWrite { strictness, .. }
         | ExprIr::GlobalPropertyUpdate { strictness, .. }
-        | ExprIr::GlobalPropertyCompoundAssign { strictness, .. }
-        | ExprIr::PropertyWrite { strictness, .. }
+        | ExprIr::GlobalPropertyCompoundAssign { strictness, .. } => {
+            Some((*strictness, PutValueFailure::TypeErrorOrReferenceError))
+        }
+
+        // PutValue 3.d, and `delete` 5.e. `DeleteGlobalProperty` is here and
+        // not above on purpose: `delete` 4.a is an *assertion* that
+        // `[[Strict]]` is false for an unresolvable Reference (13.5.1.1 makes
+        // `delete <identifier>` an early SyntaxError in strict code), so the
+        // ReferenceError branch cannot arise for a delete.
+        ExprIr::PropertyWrite { strictness, .. }
         | ExprIr::PropertyUpdate { strictness, .. }
         | ExprIr::PropertyCompoundAssign { strictness, .. }
         | ExprIr::SuperPropertyWrite { strictness, .. }
         | ExprIr::DeleteProperty { strictness, .. }
-        | ExprIr::DeleteGlobalProperty { strictness, .. } => Some(*strictness),
+        | ExprIr::DeleteGlobalProperty { strictness, .. } => {
+            Some((*strictness, PutValueFailure::TypeErrorOnly))
+        }
 
         // Everything else. `AssignIdentifier`, `CompoundAssignIdentifier` and
         // `UpdateIdentifier` are here on purpose and not by omission: their
@@ -167,7 +218,7 @@ pub fn carried_strictness(expr: &ExprIr) -> Option<Strictness> {
 ///
 /// There is no `Binding` variant. PutValue branch 4 (an Environment Record
 /// base) is discharged before any Reference is reified — see
-/// `carried_strictness`'s second arm — so a variant for it would be
+/// `carried_put_value_failure`'s `None` arm — so a variant for it would be
 /// constructed nowhere and matched everywhere.
 #[derive(Debug)]
 pub(crate) enum ReferenceBase {
@@ -460,10 +511,39 @@ impl ReferenceRecord {
         &self.base
     }
 
-    /// Only for pinning the operands the Reference must not re-evaluate; the
-    /// shape of the base cannot be changed through this, only its operands.
-    pub(crate) fn base_mut(&mut self) -> &mut ReferenceBase {
-        &mut self.base
+    /// Pins the operands PutValue must not re-evaluate (13.15.2 obligation O1),
+    /// and returns the only [`ReferencePins`] that exists for this Reference.
+    ///
+    /// This is the **sole producer** of `ReferencePins`, and it needs a record
+    /// to be called on, so no code path can hold a bare pin chain — which is
+    /// what made `ReferencePins::none().materialize(record.write(..))`
+    /// type-check while silently discarding the real chain. It replaces a
+    /// `base_mut() -> &mut ReferenceBase` accessor whose doc comment claimed
+    /// "the shape of the base cannot be changed through this, only its
+    /// operands" while `*record.base_mut() = ReferenceBase::Global { name }`
+    /// compiled and swapped a property Reference for a global one *after* its
+    /// `[[Strict]]` had been chosen.
+    ///
+    /// `pin` returns `Some((name, value))` when it hoisted the operand into a
+    /// temporary binding, having replaced the operand in place with a reference
+    /// to it. Base before key: 13.3.3.1 evaluates the base, then the key
+    /// expression.
+    pub(crate) fn pin_operands(
+        &mut self,
+        mut pin: impl FnMut(ReferenceOperand, &mut TypedExpr) -> Option<(String, TypedExpr)>,
+    ) -> ReferencePins {
+        let mut pins = ReferencePins(Vec::new());
+        if let Some(target) = self.base.evaluated_base_mut() {
+            if let Some(pinned) = pin(ReferenceOperand::Base, target) {
+                pins.0.push(pinned);
+            }
+        }
+        if let Some(key) = self.base.computed_key_mut() {
+            if let Some(pinned) = pin(ReferenceOperand::ComputedKey, key) {
+                pins.0.push(pinned);
+            }
+        }
+        pins
     }
 
     /// GetValue (6.2.5.5). Borrows: 13.15.2 step 2 reads and step 6 writes the
@@ -507,24 +587,37 @@ impl ReferenceRecord {
 #[must_use = "a pending Reference write must be materialised through its ReferencePins"]
 pub(crate) struct PendingReferenceWrite(TypedExpr);
 
+/// Which operand of a Reference is being pinned.
+///
+/// The record knows *which operands exist* (a super base is loaded from the
+/// home object, a global base is a name, a static key is not an expression);
+/// the caller knows what to name the temporary. Closed, so a third pinnable
+/// operand has to be given a name at the call site rather than reusing one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReferenceOperand {
+    /// `[[Base]]`, when it is an evaluated expression.
+    Base,
+    /// The computed key expression, before `ToPropertyKey`.
+    ComputedKey,
+}
+
 /// The temporaries this Reference's evaluation pinned, innermost last.
 ///
 /// Not `Clone`, and the only consumer is [`Self::materialize`], so a chain
 /// cannot be emitted twice (`E0382`) or dropped on the floor (`#[must_use]`).
-#[derive(Debug, Default)]
+///
+/// No `Default`, no `none()`, and a private field: the only way to obtain one
+/// is [`ReferenceRecord::pin_operands`], which needs the record it belongs to.
+/// `#[derive(Default)]` on a `pub(crate)` type and a public `none()` were both
+/// constructors for an *empty* chain that type-checks in
+/// `ReferencePins::none().materialize(record.write(v, compose))` — leaving the
+/// real chain bound to an unused local, which is a warning at most and not even
+/// that once it is passed anywhere. Ledger L3 shrinks accordingly.
+#[derive(Debug)]
 #[must_use = "unmaterialised pins mean the Reference's base or key is evaluated twice"]
 pub(crate) struct ReferencePins(Vec<(String, TypedExpr)>);
 
 impl ReferencePins {
-    pub(crate) fn none() -> Self {
-        Self(Vec::new())
-    }
-
-    /// Records that `value` was hoisted into the temporary binding `name`.
-    pub(crate) fn pin(&mut self, name: String, value: TypedExpr) {
-        self.0.push((name, value));
-    }
-
     /// The single exit: wraps the write in this Reference's pin chain,
     /// innermost pin last, so the outermost `MaterializeBinding` is the first
     /// operand that was pinned and evaluation order matches 13.3.3.1 (base,

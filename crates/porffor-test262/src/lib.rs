@@ -20797,10 +20797,72 @@ fn wasm_aot_case_should_run_before_cache_misses(case: &TestCase, preludes: &Prel
     }
 }
 
+/// The closed `negative.phase` domain of test262's frontmatter
+/// (INTERPRETING.md: `parse`, `early`, `resolution`, `runtime`).
+///
+/// The field itself stays a `String` because it is parsed out of YAML-ish
+/// frontmatter and a malformed file may say anything; this is the one place
+/// that free text is turned into a decision, and every consumer matches it
+/// exhaustively. Before this existed, the three consumers each spelled their
+/// own `eq_ignore_ascii_case` chain, and they disagreed: `resolution` was a
+/// compile-time rejection to `classify_negative_phase` and a runtime one to
+/// `case_has_compile_only_negative`, so a module link failure never entered the
+/// compile-only path at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NegativePhase {
+    Parse,
+    Early,
+    Resolution,
+    Runtime,
+}
+
+impl NegativePhase {
+    /// The only classifier. Anything outside the three compile-time phases is a
+    /// runtime negative, which is the frontmatter's own default.
+    fn of(negative: &NegativeExpectation) -> Self {
+        if negative.phase.eq_ignore_ascii_case("parse") {
+            Self::Parse
+        } else if negative.phase.eq_ignore_ascii_case("early") {
+            Self::Early
+        } else if negative.phase.eq_ignore_ascii_case("resolution") {
+            Self::Resolution
+        } else {
+            Self::Runtime
+        }
+    }
+
+    /// Is this a rejection the compiler must produce **without executing user
+    /// code**?
+    ///
+    /// `resolution` belongs here: 16.2.1.5 `InnerModuleLinking` /
+    /// 16.2.1.6.4 `ResolveExport` fail before any module body evaluates, and an
+    /// AOT compiler decides them at compile time. Reporting it as a runtime
+    /// negative sent the case down the `detail.contains(&negative.error_type)`
+    /// fallback against a message like `module ./dep.js does not export nope`,
+    /// which contains no error name at all.
+    const fn is_compile_only(self) -> bool {
+        match self {
+            Self::Parse | Self::Early | Self::Resolution => true,
+            Self::Runtime => false,
+        }
+    }
+
+    /// The failure family a mismatch is filed under.
+    const fn failure_kind(self) -> FailureKind {
+        match self {
+            Self::Parse => FailureKind::Parser,
+            // `resolution` negatives are module link failures, which this
+            // compiler reports at compile time alongside early errors.
+            Self::Early | Self::Resolution => FailureKind::EarlyError,
+            Self::Runtime => FailureKind::Runtime,
+        }
+    }
+}
+
 fn case_has_compile_only_negative(case: &TestCase) -> bool {
-    case.negative.as_ref().is_some_and(|negative| {
-        negative.phase.eq_ignore_ascii_case("parse") || negative.phase.eq_ignore_ascii_case("early")
-    })
+    case.negative
+        .as_ref()
+        .is_some_and(|negative| NegativePhase::of(negative).is_compile_only())
 }
 
 fn compile_options_for_case(case: &TestCase) -> CompileOptions {
@@ -21196,7 +21258,7 @@ fn run_one_case_with_wasm_aot_execution(
             && !compile_only_negative;
         if compile_only_negative || spec_exec_negative_preflight {
             let negative = case.negative.as_ref().expect("negative preflight exists");
-            let negative_kind = classify_negative_phase(&negative.phase);
+            let negative_kind = classify_negative_phase(negative);
             let compile_result = if materialized.is_module {
                 engine.compile_module(&materialized.source, compile_options.clone())
             } else {
@@ -21339,7 +21401,7 @@ fn run_one_case_with_wasm_aot_execution(
         };
 
         if let Some(negative) = &case.negative {
-            let negative_kind = classify_negative_phase(&negative.phase);
+            let negative_kind = classify_negative_phase(negative);
             return match run_result {
                 Ok(_) => Err(classify_failure(
                     &case.path,
@@ -21474,30 +21536,50 @@ fn compile_negative_error_matches(
     err: &porffor_engine::EngineError,
     negative: &NegativeExpectation,
 ) -> bool {
+    let expected = NegativePhase::of(negative);
     if let Some(diagnostic) = err.parse_diagnostic() {
-        let phase_matches = match diagnostic.phase() {
-            porffor_front::ParseDiagnosticPhase::Parse => {
-                negative.phase.eq_ignore_ascii_case("parse")
-            }
-            porffor_front::ParseDiagnosticPhase::Early => {
-                negative.phase.eq_ignore_ascii_case("parse")
-                    || negative.phase.eq_ignore_ascii_case("early")
-            }
+        // Both sides are now closed domains, so the cross-product is spelled
+        // out: a new `ParseDiagnosticPhase` or a new `NegativePhase` is E0004
+        // here rather than a silently-false comparison.
+        let phase_matches = match (diagnostic.phase(), expected) {
+            (porffor_front::ParseDiagnosticPhase::Parse, NegativePhase::Parse) => true,
+            (
+                porffor_front::ParseDiagnosticPhase::Early,
+                NegativePhase::Parse | NegativePhase::Early,
+            ) => true,
+            (porffor_front::ParseDiagnosticPhase::Parse, NegativePhase::Early)
+            | (
+                porffor_front::ParseDiagnosticPhase::Parse
+                | porffor_front::ParseDiagnosticPhase::Early,
+                NegativePhase::Resolution | NegativePhase::Runtime,
+            ) => false,
         };
+        // A `None` error type is a compiler gap claiming no spec error, and a
+        // gap must never satisfy a negative expectation (clause 17: an
+        // implementation must not treat other kinds of error as early errors).
         return phase_matches
-            && (negative.error_type.is_empty() || diagnostic.error_type() == negative.error_type);
+            && (negative.error_type.is_empty()
+                || diagnostic
+                    .error_type()
+                    .is_some_and(|kind| kind == negative.error_type));
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
-        let phase_matches = match diagnostic.phase() {
-            IrDiagnosticPhase::Early => {
-                negative.phase.eq_ignore_ascii_case("parse")
-                    || negative.phase.eq_ignore_ascii_case("early")
-            }
+        let phase_matches = match (diagnostic.phase(), expected) {
+            (IrDiagnosticPhase::Early, NegativePhase::Parse | NegativePhase::Early) => true,
             // A module link failure is what test262 spells `phase: resolution`.
             // An AOT compiler catches it at compile time instead of throwing
             // at runtime, which is honest about what this compiler is.
-            IrDiagnosticPhase::Resolution => negative.phase.eq_ignore_ascii_case("resolution"),
-            IrDiagnosticPhase::Lowering => !negative.phase.eq_ignore_ascii_case("parse"),
+            (IrDiagnosticPhase::Resolution, NegativePhase::Resolution) => true,
+            (
+                IrDiagnosticPhase::Lowering,
+                NegativePhase::Early | NegativePhase::Resolution | NegativePhase::Runtime,
+            ) => true,
+            (IrDiagnosticPhase::Early, NegativePhase::Resolution | NegativePhase::Runtime)
+            | (
+                IrDiagnosticPhase::Resolution,
+                NegativePhase::Parse | NegativePhase::Early | NegativePhase::Runtime,
+            )
+            | (IrDiagnosticPhase::Lowering, NegativePhase::Parse) => false,
         };
         // `code().is_some()` is exactly "this is a spec rejection, not a
         // compiler gap" — the same predicate the old two-variant `matches!`
@@ -21521,39 +21603,40 @@ fn compile_negative_error_matches(
 }
 
 fn compile_negative_error_detail(err: &porffor_engine::EngineError) -> String {
+    // `NO_SPEC_ERROR_TYPE` names the *absence* of a spec error type: a compiler
+    // gap (`Unsupported`, `Lowering`, or a caught parser abort), which by clause
+    // 17 must not claim to be an early error.
+    const NO_SPEC_ERROR_TYPE: &str = "-";
     if let Some(diagnostic) = err.parse_diagnostic() {
         return format!(
             "{} {} {}: {}",
             diagnostic.code.wire_name(),
-            diagnostic.error_type(),
+            diagnostic.error_type().unwrap_or(NO_SPEC_ERROR_TYPE),
             diagnostic.message,
             err
         );
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
-        // These two literals name the *absence* of a code and of a spec error
-        // type — an `Unsupported` or `Lowering` diagnostic. They are the only
-        // `E_...` literal and the only error-name literal left outside the two
-        // spelling authorities, and they must stay literals: an
-        // `EarlyErrorCode` variant meaning "no code" would let `Some(_)` mean
-        // "none".
-        let code = diagnostic.code().map_or("E_IR_DIAGNOSTIC", EarlyErrorCode::wire_name);
-        let error_type = diagnostic.error_type().map_or("Error", NativeErrorKind::as_str);
+        // `NO_EARLY_ERROR_CODE` names the *absence* of a code — an `Unsupported`
+        // or `Lowering` diagnostic. It is spelled once, in
+        // `porffor_front::early_error_code`, beside the eighteen codes it must
+        // never collide with; assertion P5' proves no `wire_name()` equals it.
+        // It must stay a distinct token rather than an `EarlyErrorCode`
+        // variant: a code that named the absence of a code would let `Some(_)`
+        // mean "none".
+        let code = diagnostic
+            .code()
+            .map_or(porffor_front::NO_EARLY_ERROR_CODE, EarlyErrorCode::wire_name);
+        let error_type = diagnostic
+            .error_type()
+            .map_or(NO_SPEC_ERROR_TYPE, NativeErrorKind::as_str);
         return format!("{code} {error_type} {}: {err}", diagnostic.message);
     }
     err.message().to_string()
 }
 
-fn classify_negative_phase(phase: &str) -> FailureKind {
-    if phase.eq_ignore_ascii_case("parse") {
-        FailureKind::Parser
-    } else if phase.eq_ignore_ascii_case("early") || phase.eq_ignore_ascii_case("resolution") {
-        // `resolution` negatives are module link failures, which this compiler
-        // reports at compile time alongside early errors.
-        FailureKind::EarlyError
-    } else {
-        FailureKind::Runtime
-    }
+fn classify_negative_phase(negative: &NegativeExpectation) -> FailureKind {
+    NegativePhase::of(negative).failure_kind()
 }
 
 fn summarize_results(results: &[TestResult]) -> RunSummary {

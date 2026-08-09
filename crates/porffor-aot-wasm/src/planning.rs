@@ -2831,7 +2831,9 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                     }
                 })
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
                 || expr_exposes_global_object(value)
@@ -2900,7 +2902,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                 || args.iter().any(expr_exposes_global_object)
         }
         ExprIr::SuperPropertyRead { key } => property_key_exposes_global_object(key),
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             property_key_exposes_global_object(key) || expr_exposes_global_object(value)
         }
         ExprIr::PrivateRead { target, .. } => expr_exposes_global_object(target),
@@ -3286,7 +3288,9 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 }
             }
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
@@ -3463,7 +3467,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             }
         }
         ExprIr::SuperPropertyRead { key } => collect_property_key_global_property_names(key, names),
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             collect_property_key_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
         }
@@ -4748,6 +4752,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             target: object,
             key,
             value,
+            ..
         } => {
             expr_references_function(object, target)
                 || property_key_references_function(key, target)
@@ -4843,7 +4848,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                 || args.iter().any(|arg| expr_references_function(arg, target))
         }
         ExprIr::SuperPropertyRead { key } => property_key_references_function(key, target),
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             property_key_references_function(key, target) || expr_references_function(value, target)
         }
         ExprIr::PrivateRead { target: object, .. } => expr_references_function(object, target),
@@ -6609,7 +6614,9 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             matches!(target.kind, ValueKind::Object)
                 || expr_uses_function_table(target)
                 || expr_uses_function_table(value)
@@ -6809,7 +6816,9 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             expr_uses_calls(target)
                 || expr_uses_calls(value)
                 || match key {
@@ -7382,6 +7391,16 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
         .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)))
 }
 
+/// Temp locals a Reference write holds for its carried `[[Strict]]`.
+///
+/// One, and the same one, at every site that calls
+/// `FunctionBuilder::with_reference_strictness`. Named rather than spelled `1`
+/// so the emitter side and the budget side move together: `reserve_temp_local`
+/// asserts against the budget this function computes, so an emitter that grows
+/// a second flag local and a planner that still says one is a panic in the
+/// middle of code generation, not a compile error.
+pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
+
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => 2,
@@ -7394,12 +7413,23 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         }
         ExprIr::GlobalPropertyRead { .. } => 12,
         ExprIr::GlobalIdentifierRead { .. } => 24,
-        ExprIr::GlobalPropertyWrite { value, .. } => count_expr_temp_locals(value).max(12),
-        ExprIr::GlobalPropertyUpdate { return_mode, .. } => match return_mode {
-            UpdateReturnMode::Prefix => 12,
-            UpdateReturnMode::Postfix => 13,
-        },
-        ExprIr::GlobalPropertyCompoundAssign { value, .. } => count_expr_temp_locals(value).max(13),
+        // The three global-write arms each hold the Reference's carried
+        // `[[Strict]]` in one extra temp local for the duration of the write
+        // (`FunctionBuilder::emit_reference_global_property_write` ->
+        // `with_reference_strictness`), so PutValue 3.d's guard can read it at
+        // run time as well as 2.a's presence test reading it at compile time.
+        ExprIr::GlobalPropertyWrite { value, .. } => {
+            count_expr_temp_locals(value).max(12) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
+        ExprIr::GlobalPropertyUpdate { return_mode, .. } => {
+            match return_mode {
+                UpdateReturnMode::Prefix => 12,
+                UpdateReturnMode::Postfix => 13,
+            } + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
+        ExprIr::GlobalPropertyCompoundAssign { value, .. } => {
+            count_expr_temp_locals(value).max(13) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
         ExprIr::ObjectLiteral(properties) => {
             let child = properties
                 .iter()
@@ -7473,7 +7503,9 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             });
             child.max(12)
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             let child = count_expr_temp_locals(target)
                 .max(count_expr_temp_locals(value))
                 .max(match key {
@@ -7483,7 +7515,12 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         count_expr_temp_locals(expr)
                     }
                 });
-            child.max(96)
+            // +1 for the Reference's carried `[[Strict]]` flag local, held
+            // across the whole write by
+            // `FunctionBuilder::with_reference_strictness`. `reserve_temp_local`
+            // asserts against this budget, so the extra live local has to be
+            // counted here and not discovered as a panic.
+            child.max(96) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::DeleteProperty { target, key, .. } => {
             let child = count_expr_temp_locals(target).max(match key {
@@ -7502,7 +7539,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     count_expr_temp_locals(expr)
                 }
             });
-            child.max(14)
+            child.max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::PropertyCompoundAssign {
             target, key, value, ..
@@ -7515,7 +7552,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         count_expr_temp_locals(expr)
                     }
                 });
-            child.max(96)
+            child.max(96) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,
@@ -7971,14 +8008,14 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 count_expr_temp_locals(expr).max(8)
             }
         },
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             let key_child = match key {
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     count_expr_temp_locals(expr)
                 }
             };
-            count_expr_temp_locals(value).max(key_child).max(10)
+            count_expr_temp_locals(value).max(key_child).max(10) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
         ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)

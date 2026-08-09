@@ -799,6 +799,30 @@ Each entry states why a type cannot carry it.
   no living producer fail to build. Row 6 (`duplicate lexical declaration`) was
   suspected dead and proved live (§0.5); the next one may not be. Enforced by
   review of the `file:line` provenance column, not by the compiler.
+- **L7 — `IrDiagnostic::kind` is still a public field (added at ENCODER stage).**
+  `code` became private, which closes every *construction* path: a struct literal
+  outside `diagnostics.rs` is `error[E0451]`, so `kind` and `code` cannot be
+  paired inconsistently at birth. It does **not** close *mutation*: given a
+  `&mut IrDiagnostic`, `d.kind = IrDiagnosticKind::Unsupported;` compiles and
+  desynchronises `kind` from `code`, and therefore `phase()`/`error_type()` from
+  the condition. Making `kind` private needs a `kind()` accessor at four read
+  sites, two of which — `crates/porffor-aot-wasm/src/emit.rs:313-318` (batch 2's
+  crate, excluded) and `crates/porffor-ir/src/ir.rs:2248-2255` — are outside this
+  lane's `files_owned`. Measured: zero `&mut IrDiagnostic` bindings exist in the
+  workspace today, so nothing exploits it. Close it in the same patch as §2.6's
+  payload-carrying `IrDiagnosticKind`, which removes the field entirely.
+- **L8 — two items are private where §2.1 wrote `pub` (ENCODER deviation).**
+  `EarlyErrorCode::from_wire_name` (§2.1.1) and `MODULE_REPARSE_PREFIX` (§2.1.3)
+  are `pub` in the contract text and **private** in the code. Reason: neither has
+  a product call site — `from_wire_name`'s only consumer is assertion P3 and
+  `MODULE_REPARSE_PREFIX`'s only consumer is assertion P6, both in the same
+  module. `native_error.rs`'s precedent does not carry over: its `from_str` is
+  `pub` because `lowering.rs:34144` calls it. A `pub` item with no call site is
+  the "survival by `pub`" shape AGENTS.md names, and `native_error.rs`'s own
+  module docs record what it cost here. Both should become `pub` in the same
+  patch that gives them a consumer, not before. `EarlyErrorCode::is_parse_classified`
+  *is* `pub` — added at ENCODER stage — because P7 lives in the other crate and
+  the table stays private; that is a real cross-crate consumer.
 - **L6 — the dependency-path message prefix exists twice.** `MODULE_REPARSE_PREFIX`
   and the literal at `crates/porffor-ir/src/modules/record.rs:1343` are two copies
   of `"lowering module reparse failed: "`, because `record.rs` is not in this
@@ -863,6 +887,14 @@ spec-defensible independently (15.2.1 is a lexical-redeclaration rule).
 | MC3 | Write `"SyntaxError"` — or a misspelling — at a diagnostic construction site | compiles; `NativeErrorKind` exists and is bypassed (measured: zero references in `diagnostics.rs` or `modules/*.rs`) | `error_type` is not a field and not a parameter; `IrDiagnosticKind::error_type()` is the sole producer, returning `NativeErrorKind` | `error[E0061]: this function takes 3 arguments but 4 arguments were supplied` on `IrDiagnostic::rejected`; and `error[E0599]` on a misspelled `NativeErrorKind::SyntaxErrror` |
 | MC4 | Report one code under two phases from two paths | four independent fields; held only by convention (measured: zero `IrDiagnostic { … }` literals outside `diagnostics.rs`); **already latent for `E_MODULE_DUPLICATE_EXPORT`** (§0.7) | `phase` is not a field; `code` is private; `rejected` is the only coded constructor; **P7** ties the parse table to `rejection_kind` | `error[E0609]: no field \`phase\` on type \`IrDiagnostic\``; `error[E0451]: field \`code\` of struct \`IrDiagnostic\` is private` for a struct literal outside the module; const-assert failure for a P7 violation |
 | MC4′ | A fifth constructor added *inside* `diagnostics.rs` pairing a `LinkError` kind with a parse-phase code | possible | still possible — **ledger L3** | none; review only |
+| MC4″ | Mutating `kind` on an existing `&mut IrDiagnostic` so it disagrees with `code` | possible | still possible — **ledger L7**, added at ENCODER stage | none; review only. Measured: zero `&mut IrDiagnostic` bindings in the workspace |
+
+**ENCODER-stage status.** MC1, MC1′, MC1″, MC2, MC2′, MC2″, MC3 and MC4 are
+discharged as written: each is now the compile error named in the last column.
+MC4′ and MC4″ are the two residues, both recorded above and both needing §2.6's
+payload-carrying `IrDiagnosticKind`, which is out of this lane's file ownership.
+No type in this lane is decoration: every construct in §3's mapping table has at
+least one mistake class that fails to build without it.
 
 ---
 

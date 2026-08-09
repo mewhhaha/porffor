@@ -16,7 +16,7 @@
 
 use crate::{IrDiagnosticKind, IrDiagnosticPhase};
 
-pub use porffor_front::EarlyErrorCode;
+pub use porffor_front::{EarlyErrorCode, ParseClassified};
 
 /// Which stage rejects a program carrying this code.
 ///

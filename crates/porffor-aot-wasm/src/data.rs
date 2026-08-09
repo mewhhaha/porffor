@@ -2933,7 +2933,9 @@ impl StringPool {
                     }
                 }
             }
-            ExprIr::PropertyWrite { target, key, value } => {
+            ExprIr::PropertyWrite {
+                target, key, value, ..
+            } => {
                 self.uses_heap = true;
                 self.collect_expr(target);
                 self.collect_property_key(key);
@@ -3334,7 +3336,7 @@ impl StringPool {
                 self.uses_heap = true;
                 self.collect_property_key(key);
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite { key, value, .. } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
                 self.collect_expr(value);

@@ -1,5 +1,32 @@
 use super::*;
 
+/// Wasm blocks opened by the **runtime** strictness guard on an object write.
+///
+/// PutValue 3.d asks whether `V.[[Strict]]` is true. When that answer is only
+/// available at run time — inside the outlined write helper, and now inside
+/// every Reference write under `expressions.rs`'s `with_reference_strictness` —
+/// the guard is an `If(BlockType::Empty)` around the throw, which the
+/// compile-time arm does not open. Wasm `Br` immediates are relative to the
+/// label stack, so **every** branch emitted inside the guard is one label
+/// deeper than the same branch in the compile-time arm.
+///
+/// Named once because the two arms of one helper had already disagreed:
+/// `emit_object_write_non_extensible_failure` added `+ 1` to its sloppy
+/// abandon-branch and left its throw's `extra_depth` at the inline value, and
+/// `emit_object_write_set_failure_else` forwarded the caller's `extra_depth`
+/// unchanged into a guard it had just opened. That was invisible while the
+/// `Some` arm was reachable only from emitted helper bodies, where
+/// `emit_throw_runtime_error_to_active_handler` ignores `extra_depth`
+/// (`!is_main()` returns a completion instead of branching). A Reference's
+/// carried `[[Strict]]` makes the `Some` arm live in `main`, where the value is
+/// a real `Br` immediate: `"use strict"; try { a.length = 0 } catch (e) {}`
+/// with a non-writable `length` branched one label too shallow.
+const RUNTIME_STRICT_GUARD_BLOCK_DEPTH: u32 = 1;
+
+/// Depth from the non-extensible failure site to the enclosing write's throw
+/// target, in the compile-time arm. Was a bare `5` written twice.
+const NON_EXTENSIBLE_THROW_EXTRA_DEPTH: u32 = 5;
+
 fn static_array_index_name(name: &str) -> Option<u64> {
     if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
@@ -7637,11 +7664,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
+    /// `delete target[key]`, 13.5.1.2. `strictness` is the Reference's carried
+    /// `[[Strict]]`, which step 5.e consumes; it is not a `bool`, so
+    /// `self.is_current_function_strict()` cannot be passed here by mistake.
     pub(crate) fn compile_delete_property_i32(
         &mut self,
         target: &TypedExpr,
         key: &PropertyKeyIr,
-        strict: bool,
+        strictness: Strictness,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let target_local = self.reserve_temp_local();
@@ -7971,7 +8001,7 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
 
-        if strict {
+        if strictness.throws_on_failed_set() {
             function.instruction(&Instruction::LocalGet(result_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -14678,17 +14708,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalGet(tag_local));
-        // Parameter 5: the calling function's strictness. The shared write helper
-        // is emitted once with a fixed (mode-less) body, so sloppy vs. strict
-        // `[[Set]]` failure behavior must be selected at runtime from this flag.
+        // Parameter 5: the strictness that PutValue 3.d consults. The shared
+        // write helper is emitted once with a fixed (mode-less) body, so sloppy
+        // vs. strict `[[Set]]` failure behavior is selected at run time from
+        // this flag.
         match self.object_write_strict_flag_local {
             Some(strict_override) => {
                 function.instruction(&Instruction::LocalGet(strict_override));
             }
             None => {
-                function.instruction(&Instruction::I64Const(i64::from(
-                    self.is_current_function_strict(),
-                )));
+                function.instruction(&Instruction::I64Const(
+                    self.ambient_object_write_strict_flag_word(),
+                ));
             }
         }
         // Only created-realm standard builtins use a self-backed environment
@@ -14729,14 +14760,35 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The strictness flag word for an object write that is **not** a
+    /// Reference consumption.
+    ///
+    /// Deliberately named for what it is. This is the *ambient* mode of the
+    /// function being emitted — the quantity PutValue 3.d does **not** ask
+    /// about — and it is correct only for writes the spec does not route
+    /// through a Reference Record: property installation, class field
+    /// definition, internal helper writes. Every genuine PutValue site takes
+    /// its flag from `object_write_strict_flag_local`, installed from the
+    /// Reference's carried `[[Strict]]` by
+    /// `expressions.rs`'s `with_reference_strictness`.
+    ///
+    /// The old spelling here was `i64::from(self.is_current_function_strict())`
+    /// — indistinguishable at a glance from
+    /// [`Strictness::helper_flag_word`], which is the *Reference* conversion.
+    /// b361b4815 was exactly that confusion.
+    fn ambient_object_write_strict_flag_word(&self) -> i64 {
+        i64::from(self.is_current_function_strict())
+    }
+
     /// Emits the `Else` branch of an ordinary `[[Set]]` on an existing
     /// non-writable data property / accessor-without-setter. Spec: the write is
     /// a silent no-op in sloppy mode and a `TypeError` only in strict mode.
     ///
     /// When emitted inline the enclosing function's compile-time strictness is
     /// authoritative. When emitted as the shared outlined write helper (a
-    /// fixed, mode-less body) the decision is deferred to the runtime strict
-    /// flag threaded through helper parameter 5.
+    /// fixed, mode-less body) — or under a Reference's carried `[[Strict]]`,
+    /// see `expressions.rs`'s `with_reference_strictness` — the decision is
+    /// deferred to the runtime strict flag.
     pub(crate) fn emit_object_write_set_failure_else(
         &mut self,
         message: &str,
@@ -14755,7 +14807,9 @@ impl<'a> FunctionBuilder<'a> {
                     message,
                     self.result_local,
                     self.result_tag_local,
-                    extra_depth,
+                    // Inside the runtime guard's extra block. See
+                    // `RUNTIME_STRICT_GUARD_BLOCK_DEPTH`.
+                    extra_depth + RUNTIME_STRICT_GUARD_BLOCK_DEPTH,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -14820,9 +14874,9 @@ impl<'a> FunctionBuilder<'a> {
     /// Emits the sloppy/strict-guarded outcome for adding a new property to a
     /// non-extensible object. Spec: strict mode throws a `TypeError`; sloppy
     /// mode silently abandons the write. `sloppy_br_depth` is the branch depth
-    /// used to abandon the write in the inline (compile-time) case; when emitted
-    /// as the outlined helper the runtime guard nests one extra block, so the
-    /// sloppy branch targets `sloppy_br_depth + 1`.
+    /// used to abandon the write in the inline (compile-time) case; the runtime
+    /// guard nests one extra block, so every branch inside it adds
+    /// [`RUNTIME_STRICT_GUARD_BLOCK_DEPTH`].
     fn emit_object_write_non_extensible_failure(
         &mut self,
         sloppy_br_depth: u32,
@@ -14839,11 +14893,17 @@ impl<'a> FunctionBuilder<'a> {
                     "Cannot add property to non-extensible object",
                     self.result_local,
                     self.result_tag_local,
-                    5,
+                    // Both branches below sit inside the guard's extra block:
+                    // the throw's branch to the active handler as much as the
+                    // sloppy abandon branch. Compensating one and not the other
+                    // is what these two numbers used to do.
+                    NON_EXTENSIBLE_THROW_EXTRA_DEPTH + RUNTIME_STRICT_GUARD_BLOCK_DEPTH,
                     function,
                 )?;
                 function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::Br(sloppy_br_depth + 1));
+                function.instruction(&Instruction::Br(
+                    sloppy_br_depth + RUNTIME_STRICT_GUARD_BLOCK_DEPTH,
+                ));
                 function.instruction(&Instruction::End);
             }
             None => {
@@ -14853,7 +14913,7 @@ impl<'a> FunctionBuilder<'a> {
                         "Cannot add property to non-extensible object",
                         self.result_local,
                         self.result_tag_local,
-                        5,
+                        NON_EXTENSIBLE_THROW_EXTRA_DEPTH,
                         function,
                     )?;
                 } else {

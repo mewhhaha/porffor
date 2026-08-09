@@ -10,6 +10,91 @@ fn expression_is_heap_bigint_literal(expr: &TypedExpr) -> bool {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Runs `body` with the object-write failure guards reading *this
+    /// Reference's* `[[Strict]]` instead of the ambient strictness of the
+    /// function being emitted.
+    ///
+    /// PutValue 3.d asks whether `V.[[Strict]]` is true, where `V` is the
+    /// Reference the assignment evaluated — not whether the code currently
+    /// being emitted is strict. The two agree only while Reference creation
+    /// and Reference consumption sit in the same function body, which is
+    /// exactly the assumption that fails for an outlined write helper shared
+    /// by callers of both modes. `object_write_strict_flag_local` already
+    /// exists for that helper; this makes every ordinary write use the same
+    /// mechanism, sourced from the IR node rather than from
+    /// `is_current_function_strict()`.
+    ///
+    /// The flag word comes from [`Strictness::helper_flag_word`], the only
+    /// conversion from the type to a machine word, so no other boolean can
+    /// reach this `I64Const`.
+    ///
+    /// The locals this reserves are held in an array whose **length is**
+    /// `planning::REFERENCE_STRICTNESS_FLAG_LOCALS`, the same constant
+    /// `count_expr_temp_locals` adds to every Reference-write arm's budget.
+    /// That is the tie between the two: growing this guard to a second local
+    /// is `error[E0308]` on the array type *and* on the destructuring below,
+    /// rather than `reserve_temp_local`'s `assert!` firing in the middle of
+    /// code generation. A `const _: () = assert!(CONST == 1)` would not have
+    /// noticed — it compares the constant to a literal, not to what this
+    /// function actually reserves.
+    fn with_reference_strictness(
+        &mut self,
+        strictness: Strictness,
+        function: &mut Function,
+        body: impl FnOnce(&mut Self, &mut Function) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        let reserved: [u32; crate::planning::REFERENCE_STRICTNESS_FLAG_LOCALS] =
+            [self.reserve_temp_local()];
+        let [strict_local] = reserved;
+        function.instruction(&Instruction::I64Const(strictness.helper_flag_word()));
+        function.instruction(&Instruction::LocalSet(strict_local));
+        let previous_strict_local = self.object_write_strict_flag_local;
+        self.object_write_strict_flag_local = Some(strict_local);
+        let result = body(self, function);
+        self.object_write_strict_flag_local = previous_strict_local;
+        self.release_temp_local(strict_local);
+        result
+    }
+
+    /// PutValue (6.2.5.6) for a Reference whose `[[Base]]` is the global object
+    /// or unresolvable — [`porffor_ir::ExprIr::GlobalPropertyWrite`] and the
+    /// write-back halves of `GlobalPropertyUpdate` / `GlobalPropertyCompoundAssign`.
+    ///
+    /// Consumes the carried `[[Strict]]` for **both** of PutValue's strict
+    /// throws, which is why it exists rather than the two halves being spelled
+    /// separately at each arm:
+    ///
+    /// * step 2.a — unresolvable base, ReferenceError — via
+    ///   `emit_global_property_write_checked`'s presence test;
+    /// * step 3.d — `[[Set]]` answered `false`, TypeError — via the runtime
+    ///   strictness guard `with_reference_strictness` installs, which the
+    ///   `emit_object_write` inside the checked write then reads.
+    ///
+    /// `GlobalPropertyUpdate` and `GlobalPropertyCompoundAssign` used to bind
+    /// `strictness: _` and call the *unchecked* `emit_global_property_write`,
+    /// so `"use strict"; delete globalThis.g; g++;` silently created a property
+    /// and `"use strict"; g -= 1;` on a non-writable global silently no-opped.
+    /// A field constructed at three sites and read at none is what invariant I9
+    /// was written to prohibit.
+    fn emit_reference_global_property_write(
+        &mut self,
+        name: &str,
+        payload_local: u32,
+        tag_local: u32,
+        strictness: Strictness,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.with_reference_strictness(strictness, function, |emitter, function| {
+            emitter.emit_global_property_write_checked(
+                name,
+                payload_local,
+                tag_local,
+                strictness,
+                function,
+            )
+        })
+    }
+
     /// Evaluate a super property's key expression without applying
     /// ToPropertyKey yet. SuperProperty evaluation needs this raw value before
     /// GetSuperBase/null checking; coercion is deliberately emitted by the
@@ -323,26 +408,33 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::GlobalPropertyWrite {
                 name,
                 value,
-                strict,
+                strictness,
                 ..
             } => {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.compile_expr_to_locals(value, value_local, tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(value_local, tag_local, function)?;
-                self.emit_global_property_write_checked(
+                self.emit_reference_global_property_write(
                     name,
                     value_local,
                     tag_local,
-                    *strict,
+                    *strictness,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(value_local));
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }
-            ExprIr::PropertyWrite { target, key, value } => {
-                self.compile_property_write_payload(target, key, value, function)?;
+            ExprIr::PropertyWrite {
+                target,
+                key,
+                value,
+                strictness,
+            } => {
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_write_payload(target, key, value, function)
+                })?;
             }
             ExprIr::PropertyUpdate {
                 target,
@@ -350,17 +442,22 @@ impl<'a> FunctionBuilder<'a> {
                 op,
                 return_mode,
                 value_kind,
+                strictness,
             } => {
-                self.compile_property_update_to_locals(
-                    target,
-                    key,
-                    *op,
-                    *return_mode,
-                    *value_kind,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_update_to_locals(
+                        target,
+                        key,
+                        *op,
+                        *return_mode,
+                        *value_kind,
+                        scratch_local,
+                        result_tag_local,
+                        function,
+                    )
+                })?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::PropertyCompoundAssign {
@@ -368,16 +465,21 @@ impl<'a> FunctionBuilder<'a> {
                 key,
                 op,
                 value,
+                strictness,
             } => {
-                self.compile_property_compound_assign_to_locals(
-                    target,
-                    key,
-                    *op,
-                    value,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_compound_assign_to_locals(
+                        target,
+                        key,
+                        *op,
+                        value,
+                        scratch_local,
+                        result_tag_local,
+                        function,
+                    )
+                })?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::UpdateIdentifier {
@@ -567,6 +669,7 @@ impl<'a> FunctionBuilder<'a> {
                 op,
                 return_mode,
                 value_kind,
+                strictness,
             } => {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
@@ -596,10 +699,11 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
                         }
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                        self.emit_global_property_write(
+                        self.emit_reference_global_property_write(
                             name,
                             self.scratch_local,
                             self.result_tag_local,
+                            *strictness,
                             function,
                         )?;
                         function.instruction(&Instruction::LocalGet(self.scratch_local));
@@ -620,7 +724,13 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
                             function.instruction(&Instruction::LocalSet(tag_local));
                         }
-                        self.emit_global_property_write(name, value_local, tag_local, function)?;
+                        self.emit_reference_global_property_write(
+                            name,
+                            value_local,
+                            tag_local,
+                            *strictness,
+                            function,
+                        )?;
                         function.instruction(&Instruction::LocalGet(tag_local));
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         function.instruction(&Instruction::LocalGet(old_value_local));
@@ -630,7 +740,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }
-            ExprIr::GlobalPropertyCompoundAssign { name, op, value } => {
+            ExprIr::GlobalPropertyCompoundAssign {
+                name,
+                op,
+                value,
+                strictness,
+            } => {
                 let temp_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 let rhs_tag_local = self.reserve_temp_local();
@@ -720,7 +835,13 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
-                self.emit_global_property_write(name, self.scratch_local, rhs_tag_local, function)?;
+                self.emit_reference_global_property_write(
+                    name,
+                    self.scratch_local,
+                    rhs_tag_local,
+                    *strictness,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
                 self.release_temp_local(rhs_tag_local);
                 self.release_temp_local(tag_local);
@@ -763,18 +884,18 @@ impl<'a> FunctionBuilder<'a> {
                 };
                 function.instruction(&Instruction::I64Const(value));
             }
-            ExprIr::DeleteGlobalProperty { name, strict } => {
+            ExprIr::DeleteGlobalProperty { name, strictness } => {
                 let result_local = self.reserve_temp_local();
-                self.emit_global_property_delete(name, result_local, *strict, function)?;
+                self.emit_global_property_delete(name, result_local, *strictness, function)?;
                 function.instruction(&Instruction::LocalGet(result_local));
                 self.release_temp_local(result_local);
             }
             ExprIr::DeleteProperty {
                 target,
                 key,
-                strict,
+                strictness,
             } => {
-                self.compile_delete_property_i32(target, key, *strict, function)?;
+                self.compile_delete_property_i32(target, key, *strictness, function)?;
                 function.instruction(&Instruction::I64ExtendI32U);
             }
             ExprIr::TypeOf { expr } => {
@@ -1442,7 +1563,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(super_base_local);
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                value,
+                strictness,
+            } => {
                 let super_base_local = self.reserve_temp_local();
                 let super_base_tag_local = self.reserve_temp_local();
                 self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
@@ -1458,14 +1583,18 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                self.emit_object_write(
-                    super_base_local,
-                    super_base_tag_local,
-                    key_local,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.emit_object_write(
+                        super_base_local,
+                        super_base_tag_local,
+                        key_local,
+                        scratch_local,
+                        result_tag_local,
+                        function,
+                    )
+                })?;
                 self.release_temp_local(key_local);
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
@@ -2679,7 +2808,7 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::GlobalPropertyWrite {
                 name,
                 value,
-                strict,
+                strictness,
                 ..
             } => {
                 self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
@@ -2688,11 +2817,11 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
-                self.emit_global_property_write_checked(
+                self.emit_reference_global_property_write(
                     name,
                     payload_local,
                     tag_local,
-                    *strict,
+                    *strictness,
                     function,
                 )?;
             }
@@ -2714,15 +2843,22 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            ExprIr::PropertyWrite { target, key, value } => {
-                self.compile_property_write_to_locals(
-                    target,
-                    key,
-                    value,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+            ExprIr::PropertyWrite {
+                target,
+                key,
+                value,
+                strictness,
+            } => {
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_write_to_locals(
+                        target,
+                        key,
+                        value,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
             }
             ExprIr::PropertyUpdate {
                 target,
@@ -2730,33 +2866,39 @@ impl<'a> FunctionBuilder<'a> {
                 op,
                 return_mode,
                 value_kind,
+                strictness,
             } => {
-                self.compile_property_update_to_locals(
-                    target,
-                    key,
-                    *op,
-                    *return_mode,
-                    *value_kind,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_update_to_locals(
+                        target,
+                        key,
+                        *op,
+                        *return_mode,
+                        *value_kind,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
             }
             ExprIr::PropertyCompoundAssign {
                 target,
                 key,
                 op,
                 value,
+                strictness,
             } => {
-                self.compile_property_compound_assign_to_locals(
-                    target,
-                    key,
-                    *op,
-                    value,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_compound_assign_to_locals(
+                        target,
+                        key,
+                        *op,
+                        value,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
             }
             ExprIr::SuperConstruct { args } => {
                 let ctor_payload_local = self.reserve_temp_local();
@@ -2859,7 +3001,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                value,
+                strictness,
+            } => {
                 let super_base_local = self.reserve_temp_local();
                 let super_base_tag_local = self.reserve_temp_local();
                 self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
@@ -2870,14 +3016,16 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 let key_local = self.compile_object_key_to_local(key, function)?;
                 self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
-                self.emit_object_write(
-                    super_base_local,
-                    super_base_tag_local,
-                    key_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.emit_object_write(
+                        super_base_local,
+                        super_base_tag_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
                 self.release_temp_local(key_local);
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);

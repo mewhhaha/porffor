@@ -2,7 +2,7 @@ use porffor_aot_wasm::{decode_heap_bigint_decimal, WasmRuntimeValueTag};
 use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
 use porffor_ir::{
     lower, lower_module_graph, lower_script_graph, source_writes_dynamic_import, IrDiagnostic,
-    IrDiagnosticKind, ProgramIr, ValueKind,
+    ProgramIr, ValueKind,
 };
 use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
@@ -1945,10 +1945,19 @@ impl Engine {
         if trace {
             eprintln!("porffor wasm trace: lower: {:?}", lower_started.elapsed());
         }
+        // Every *coded* diagnostic is a pre-evaluation rejection: `code()` is
+        // `Some` exactly for `IrDiagnostic::rejected`, whose kind is derived by
+        // `rejection_kind`. Matching on `kind == EarlyError` instead dropped the
+        // `LinkError` half on the floor — a link failure then fell through to
+        // `porffor_aot_wasm::emit`, was flattened to `EmitError::unsupported`,
+        // and arrived with `ir_diagnostic: None`, so the conformance matcher's
+        // `IrDiagnosticPhase::Resolution` arm was unreachable. This is the same
+        // predicate `porffor-test262` uses (`diagnostic.code().is_some()`), and
+        // the one that survives folding the code into `IrDiagnosticKind`.
         if let Some(diagnostic) = ir
             .diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
+            .find(|diagnostic| diagnostic.code().is_some())
         {
             return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
         }
@@ -4101,7 +4110,7 @@ report;
             porffor_front::ParseDiagnosticKind::MalformedJavaScript
         );
         assert_eq!(diagnostic.phase(), porffor_front::ParseDiagnosticPhase::Parse);
-        assert_eq!(diagnostic.error_type(), "SyntaxError");
+        assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
         assert_eq!(diagnostic.code, porffor_front::ParseCode::Malformed);
         assert!(diagnostic.span.is_some());
     }
@@ -4137,10 +4146,12 @@ report;
             .expect("engine error should retain front-end diagnostic");
         assert_eq!(
             diagnostic.code,
-            porffor_front::ParseCode::Early(porffor_front::EarlyErrorCode::ObjectDuplicateProto)
+            porffor_front::ParseCode::Early(porffor_front::ParseClassified::from_parse_table(
+                porffor_front::EarlyErrorCode::ObjectDuplicateProto
+            ))
         );
         assert_eq!(diagnostic.phase(), porffor_front::ParseDiagnosticPhase::Early);
-        assert_eq!(diagnostic.error_type(), "SyntaxError");
+        assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
         assert!(err.ir_diagnostic().is_none());
     }
 

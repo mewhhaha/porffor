@@ -1340,7 +1340,17 @@ fn reparse_module(source: &SourceUnit) -> Result<(Module, Interner), String> {
         Parser::new(parser_source).parse_module(&scope, &mut interner)
     })) {
         Ok(Ok(module)) => module,
-        Ok(Err(err)) => return Err(format!("lowering module reparse failed: {err}")),
+        // The prefix is `porffor_front::MODULE_REPARSE_PREFIX`, named rather
+        // than re-spelled: it is the subject of assertion P6 (it must match no
+        // fragment-table row on its own) and of the runtime half of P6 in
+        // `modules::early`'s tests. A local literal drifting from it would
+        // leave both checks guarding a string no producer emits. Ledger L6/L8.
+        Ok(Err(err)) => {
+            return Err(format!(
+                "{}{err}",
+                porffor_front::MODULE_REPARSE_PREFIX
+            ))
+        }
         Err(payload) => {
             return Err(format!(
                 "unsupported in porffor wasm-aot first slice: frontend parser aborted while reparsing module source ({})",

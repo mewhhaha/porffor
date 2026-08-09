@@ -57,9 +57,9 @@ mod analysis;
 mod binding_names;
 mod builtins;
 mod diagnostics;
-/// The `EarlyErrorCode` → rejection-stage map. **Unrelated to `early_errors`
-/// below**, despite the adjacency: this is the diagnostic taxonomy, that is
-/// derived-constructor validation over `ExprIr` arms.
+// The `EarlyErrorCode` -> rejection-stage map. UNRELATED to `early_errors`
+// below, despite the adjacency: this is the diagnostic taxonomy, that is
+// derived-constructor validation over `ExprIr` arms.
 mod early_error_code;
 mod early_errors;
 mod ir;
@@ -142,7 +142,7 @@ pub use native_error::NativeErrorKind;
 /// The closed domain of pre-evaluation rejection codes, re-exported from
 /// `porffor-front` so consumers of `IrDiagnostic::code` have one path to it. See
 /// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
-pub use early_error_code::EarlyErrorCode;
+pub use early_error_code::{EarlyErrorCode, ParseClassified};
 pub use well_known::{
     is_symbol_description, shape_namespace_key, SymbolDescription, SymbolMemberName,
     WellKnownSymbol,

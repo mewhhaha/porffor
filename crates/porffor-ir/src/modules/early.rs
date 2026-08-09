@@ -34,6 +34,20 @@
 
 use crate::*;
 
+/// The two conditions this module names directly, as `ParseClassified`
+/// witnesses.
+///
+/// `ParseClassified::from_parse_table` is a `const fn` whose `None` arm is a
+/// `panic!`, so these two `const` items are *evaluated by rustc*: naming a
+/// link-only code here (`ModuleMissingExport`, say) fails to build rather than
+/// reporting a `resolution`-kind condition from a `ParseModule`-stage producer.
+/// That closes the call-site half of MC4 — assertion P7 constrains what the
+/// fragment table can yield, not what a producer can say.
+const DUPLICATE_EXPORT: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateExport);
+const UNDECLARED_EXPORT: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::ModuleUndeclaredExport);
+
 /// Early errors of `Module : ModuleBody` that are decidable from the entry
 /// tables.
 ///
@@ -58,8 +72,8 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
             module: record.id,
             export_name,
         };
-        diagnostics.push(IrDiagnostic::rejected(
-            EarlyErrorCode::ModuleDuplicateExport,
+        diagnostics.push(IrDiagnostic::rejected_at_parse(
+            DUPLICATE_EXPORT,
             error.message(),
             None,
         ));
@@ -91,8 +105,8 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
         {
             continue;
         }
-        diagnostics.push(IrDiagnostic::rejected(
-            EarlyErrorCode::ModuleUndeclaredExport,
+        diagnostics.push(IrDiagnostic::rejected_at_parse(
+            UNDECLARED_EXPORT,
             format!(
                 "exported binding {} is not declared in module {}",
                 entry.local_name.spec_name(),
@@ -121,7 +135,7 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
 /// failed to read would turn a compiler gap into a spec claim.
 pub(crate) fn module_parse_failure_diagnostic(message: &str) -> IrDiagnostic {
     match porffor_front::classify_parse_failure(message) {
-        Some(code) => IrDiagnostic::rejected(code, message, None),
+        Some(code) => IrDiagnostic::rejected_at_parse(code, message, None),
         None => IrDiagnostic::unsupported(message),
     }
 }
@@ -282,7 +296,9 @@ mod tests {
     /// runtime half of that — it checks the real wordings, which no type can.
     #[test]
     fn boa_static_semantics_messages_classify_as_syntax_errors() {
-        const PREFIX: &str = "lowering module reparse failed: ";
+        // Named, not re-spelled: this is P6's runtime half, and a third copy of
+        // the prefix would let `record.rs` drift out from under both halves.
+        const PREFIX: &str = porffor_front::MODULE_REPARSE_PREFIX;
         let cases = [
             (
                 "Duplicate __proto__ fields are not allowed in object literals.",
@@ -364,10 +380,10 @@ mod tests {
     /// for it at all, while the entry path's copy did.
     #[test]
     fn duplicate_proto_in_a_dependency_module_is_a_syntax_error() {
-        let diagnostic = module_parse_failure_diagnostic(
-            "lowering module reparse failed: Duplicate __proto__ fields are not allowed in \
-             object literals.",
-        );
+        let diagnostic = module_parse_failure_diagnostic(&format!(
+            "{}Duplicate __proto__ fields are not allowed in object literals.",
+            porffor_front::MODULE_REPARSE_PREFIX
+        ));
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::ObjectDuplicateProto),
@@ -391,7 +407,8 @@ mod tests {
             "formal parameter `x` declared in lexically declared names",
         ] {
             let diagnostic = module_parse_failure_diagnostic(&format!(
-                "lowering module reparse failed: {boa_message}"
+                "{}{boa_message}",
+                porffor_front::MODULE_REPARSE_PREFIX
             ));
             assert_eq!(
                 diagnostic.code(),
@@ -405,8 +422,10 @@ mod tests {
     fn an_unmodelled_parse_failure_stays_unsupported() {
         // Claiming `SyntaxError` for a failure we do not model would dress a
         // compiler gap up as a spec claim.
-        let diagnostic =
-            module_parse_failure_diagnostic("lowering module reparse failed: unexpected token ')'");
+        let diagnostic = module_parse_failure_diagnostic(&format!(
+            "{}unexpected token ')'",
+            porffor_front::MODULE_REPARSE_PREFIX
+        ));
         assert_eq!(diagnostic.kind, IrDiagnosticKind::Unsupported);
         assert_eq!(diagnostic.code(), None);
         assert_eq!(diagnostic.error_type(), None);

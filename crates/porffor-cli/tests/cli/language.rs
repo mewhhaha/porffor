@@ -1768,3 +1768,58 @@ fn run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer
         "{stdout}"
     );
 }
+
+/// PutValue 6.2.5.6 step 3.d, consumed by a Reference whose `[[Strict]]` is
+/// carried on the IR node rather than read from the ambient strictness of the
+/// function being emitted.
+///
+/// The pair is the whole test: the two fixtures differ only in the directive
+/// prologue, so a strict-only pass would mean the throw was hardcoded and a
+/// sloppy-only pass would mean the carried flag never reaches the guard.
+///
+/// The `try` is not decoration. Inside `main`, the strict guard's throw
+/// branches to the active handler by Wasm label depth, and the runtime form of
+/// the guard opens one block the compile-time form does not; forwarding the
+/// caller's depth unchanged into it either targets the wrong label or fails
+/// validation. Nothing outside a top-level `try` observes that — an emitted
+/// function returns a completion instead of branching.
+#[test]
+fn run_wasm_backend_throws_for_strict_reference_property_write_inside_top_level_try() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_reference_strictness_putvalue_strict.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+/// The sloppy half of the pair above. See its doc comment.
+#[test]
+fn run_wasm_backend_ignores_sloppy_reference_property_write_inside_top_level_try() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_reference_strictness_putvalue_sloppy.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
