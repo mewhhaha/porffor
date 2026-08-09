@@ -767,6 +767,10 @@ impl<'a> FunctionBuilder<'a> {
         let offset_present_local = self.reserve_temp_local();
         let second_local = self.reserve_temp_local();
         let year_local = self.reserve_temp_local();
+        // Last, so the resolver below — which runs before any further
+        // reservation in this function — can release them off the top of the
+        // LIFO temp stack.
+        let era_slots = self.reserve_temporal_era_slots();
 
         function.instruction(&Instruction::I64Const(self.strings.payload("calendar")));
         function.instruction(&Instruction::LocalSet(property_key_local));
@@ -790,18 +794,45 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        for (property, output_local, default, output_present_local) in [
-            ("day", day_local, 0_i64, Some(day_present_local)),
-            ("hour", hour_local, 0, None),
-            ("microsecond", microsecond_local, 0, None),
-            ("millisecond", millisecond_local, 0, None),
-            ("minute", minute_local, 0, None),
-            ("month", month_local, 0, Some(month_present_local)),
+        // `day`, then the era pair, then `hour` .. `month`: the era keys sort
+        // between `day` and `hour`, and a Proxy bag observes the reads in
+        // exactly this order.
+        self.emit_temporal_property_bag_positive_integer(
+            argument_payload_local,
+            argument_tag_local,
+            "day",
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            present_local,
+            day_local,
+            0,
+            "Temporal.ZonedDateTime property bag field must be finite",
+            "Temporal.ZonedDateTime month and day must be positive",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::LocalSet(day_present_local));
+
+        let era = self.emit_temporal_read_era_fields(
+            era_slots,
+            argument_payload_local,
+            argument_tag_local,
+            calendar_payload_local,
+            function,
+        )?;
+
+        for (property, output_local, output_present_local) in [
+            ("hour", hour_local, None),
+            ("microsecond", microsecond_local, None),
+            ("millisecond", millisecond_local, None),
+            ("minute", minute_local, None),
+            ("month", month_local, Some(month_present_local)),
         ] {
-            // `day` and `month` are the only two rows of the calendar field
-            // table whose conversion is `ToPositiveIntegerWithTruncation`; the
+            // `month` is the only remaining row of the calendar field table
+            // whose conversion is `ToPositiveIntegerWithTruncation`; the
             // wall-clock rows accept zero.
-            if matches!(property, "day" | "month") {
+            if property == "month" {
                 self.emit_temporal_property_bag_positive_integer(
                     argument_payload_local,
                     argument_tag_local,
@@ -811,7 +842,7 @@ impl<'a> FunctionBuilder<'a> {
                     value_tag_local,
                     present_local,
                     output_local,
-                    default,
+                    0,
                     "Temporal.ZonedDateTime property bag field must be finite",
                     "Temporal.ZonedDateTime month and day must be positive",
                     function,
@@ -826,7 +857,7 @@ impl<'a> FunctionBuilder<'a> {
                     value_tag_local,
                     present_local,
                     output_local,
-                    default,
+                    0,
                     "Temporal.ZonedDateTime property bag field must be finite",
                     function,
                 )?;
@@ -948,7 +979,14 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.ZonedDateTime property bag field must be finite",
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(present_local));
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
+            year_local,
+            present_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(resolved_year.year_present_local()));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(

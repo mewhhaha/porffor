@@ -84,6 +84,35 @@ pub(crate) enum OrdinarySetDataOnReceiverEmission {
     Outlined,
 }
 
+/// Which of the two OrdinarySet-with-explicit-receiver helpers is being
+/// compiled.
+///
+/// One `compile_ordinary_set_helper` body serves both, and the two things that
+/// distinguish them — the [`RuntimeHelperId`] its body is filed under, and
+/// whether an exotic receiver may fall back to its generic `[[Set]]` — used to
+/// be a `bool` parameter next to a separately written helper id. Carrying them
+/// as one value is what makes "compiled the fallback body, filed it as the
+/// no-fallback helper" unrepresentable rather than a silent index swap at every
+/// `Reflect.set` call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrdinarySetReceiverFallback {
+    Allowed,
+    Denied,
+}
+
+impl OrdinarySetReceiverFallback {
+    const fn helper(self) -> RuntimeHelperId {
+        match self {
+            Self::Allowed => RuntimeHelperId::OrdinarySet,
+            Self::Denied => RuntimeHelperId::OrdinarySetWithoutReceiverFallback,
+        }
+    }
+
+    const fn allows_receiver_generic_write(self) -> bool {
+        matches!(self, Self::Allowed)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionKind {
     Normal,
@@ -1345,7 +1374,7 @@ fn emit_script_with_forced_builtins(
                 plain_object_alloc_function_index,
                 array_alloc_function_index,
             );
-            builder.compile_ordinary_set_helper(true)
+            builder.compile_ordinary_set_helper(OrdinarySetReceiverFallback::Allowed)
         })
         .transpose()?;
     let ordinary_set_without_receiver_fallback_helper_function = uses_heap
@@ -1362,7 +1391,7 @@ fn emit_script_with_forced_builtins(
                 plain_object_alloc_function_index,
                 array_alloc_function_index,
             );
-            builder.compile_ordinary_set_helper(false)
+            builder.compile_ordinary_set_helper(OrdinarySetReceiverFallback::Denied)
         })
         .transpose()?;
     let decimal_to_binary64_helper_function = uses_heap
@@ -1414,6 +1443,40 @@ fn emit_script_with_forced_builtins(
                 array_alloc_function_index,
             );
             builder.compile_json_stringify_value_helper()
+        })
+        .transpose()?;
+    let indexed_element_read_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_indexed_element_read_helper()
+        })
+        .transpose()?;
+    let indexed_element_write_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_indexed_element_write_helper()
         })
         .transpose()?;
     // Both Temporal calendar helpers are emitted whenever the heap is enabled,
@@ -1619,6 +1682,16 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::TemporalCalendarIdentifier,
             temporal_calendar_identifier_helper_function
                 .expect("temporal calendar identifier helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::IndexedElementRead,
+            indexed_element_read_helper_function
+                .expect("indexed element-read helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::IndexedElementWrite,
+            indexed_element_write_helper_function
+                .expect("indexed element-write helper must exist when heap is enabled"),
         );
         if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
             helper_bodies.insert(
@@ -3323,6 +3396,75 @@ impl<'a> FunctionBuilder<'a> {
         Ok(self.finish_function(function))
     }
 
+    /// Starts the body of `helper` and, in the same step, switches that
+    /// helper's own inline seam off for the rest of this builder's life.
+    ///
+    /// The clearing is *derived from the helper id* instead of being written
+    /// out again in every `compile_*_helper`. That matters because the failure
+    /// mode of forgetting it is invisible to every cheap check: a helper whose
+    /// body reaches its own seam emits `call $itself`, which type-checks in
+    /// Rust, encodes to valid Wasm, links, validates, and only diverges when
+    /// the case that reaches it is executed. Twenty compilers each carrying
+    /// their own `self.outline_x = false;` line is twenty chances to omit it;
+    /// this is one place, and the match below is exhaustive with no `_` arm, so
+    /// a new [`RuntimeHelperId`] does not build until it states whether it owns
+    /// a seam.
+    ///
+    /// Eighteen of the thirty-five helpers own a seam. The other seventeen own
+    /// none: their call sites have no inline body to fall back *to* (the six
+    /// allocation helpers are plain free functions, not `FunctionBuilder`
+    /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
+    /// keeps its seam live: nested-value serialization *is* a runtime self-call
+    /// (`emit_json_stringify_value_call`), which is why "the body must never
+    /// name its own index" cannot be a blanket rule.
+    ///
+    /// The six helper bodies compiled outside this file — `bigint.rs`,
+    /// `builtins/{decimal,json,regexp,temporal}.rs` — still build their
+    /// `Function` directly; none of them owns a seam, so nothing is lost today,
+    /// but routing them through here needs edits outside this lane's files.
+    fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
+        match helper {
+            RuntimeHelperId::ObjectRead => self.outline_object_read = false,
+            RuntimeHelperId::ObjectWrite => self.outline_object_write = false,
+            RuntimeHelperId::ObjectDefineData => self.outline_object_define_data = false,
+            RuntimeHelperId::ProxyCall => self.outline_proxy_call = false,
+            RuntimeHelperId::ProxyConstruct => self.outline_proxy_construct = false,
+            RuntimeHelperId::StringEquality => self.outline_string_equality = false,
+            RuntimeHelperId::NumberToString => self.outline_number_to_string = false,
+            RuntimeHelperId::StringToNumber => self.outline_string_to_number = false,
+            RuntimeHelperId::ValueToString => self.outline_value_to_string = false,
+            RuntimeHelperId::ValueToNumber => self.outline_value_to_number = false,
+            RuntimeHelperId::ValueToNumeric => self.outline_value_to_numeric = false,
+            RuntimeHelperId::ObjectGetPrototypeOf => self.outline_object_get_prototype_of = false,
+            RuntimeHelperId::ObjectIsExtensible => self.outline_object_is_extensible = false,
+            RuntimeHelperId::ObjectReadProxy => self.outline_object_read_proxy = false,
+            RuntimeHelperId::FunctionCall => self.outline_function_call = false,
+            RuntimeHelperId::ArrayWrite => self.outline_array_write = false,
+            RuntimeHelperId::IndexedElementRead => self.outline_indexed_element_read = false,
+            RuntimeHelperId::IndexedElementWrite => self.outline_indexed_element_write = false,
+            // No inline seam of their own.
+            RuntimeHelperId::HeapAlloc
+            | RuntimeHelperId::ObjectAppendDataProperty
+            | RuntimeHelperId::ObjectAppendAccessorProperty
+            | RuntimeHelperId::FunctionObjectAlloc
+            | RuntimeHelperId::PlainObjectAlloc
+            | RuntimeHelperId::ArrayAlloc
+            | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::DynamicPropertyRead
+            | RuntimeHelperId::OrdinarySetDataOnReceiver
+            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
+            | RuntimeHelperId::OrdinarySet
+            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
+            | RuntimeHelperId::DecimalToBinary64
+            | RuntimeHelperId::BigIntArithmetic
+            | RuntimeHelperId::TemporalCalendarIsoDateProbe
+            | RuntimeHelperId::TemporalCalendarIdentifier
+            // Deliberately recursive: see above.
+            | RuntimeHelperId::JsonStringifyValue => {}
+        }
+        Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()))
+    }
+
     /// Compiles the shared object-read runtime helper. Rather than inlining the
     /// large ordinary/proxy property-read state machine at every read site, that
     /// sequence is emitted exactly once here and reached with a plain `call`.
@@ -3332,9 +3474,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 3=receiver tag, 4=key payload. Params 5/6 are unused. Results are the
     /// standard `(result, result_tag, completion, completion_aux)` tuple.
     fn compile_object_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_read = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectRead);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3368,9 +3508,7 @@ impl<'a> FunctionBuilder<'a> {
     /// zero). On a setter/proxy throw the thrown value is surfaced through the
     /// `(result, result_tag, completion, completion_aux)` result tuple.
     fn compile_object_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_write = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectWrite);
         self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
         // Helper parameter 5 carries the calling function's strictness (0 sloppy,
         // nonzero strict). Parameter 6 carries a standard builtin's self-backed
@@ -3403,8 +3541,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `(result, result_tag, completion, aux)` tuple; on normal completion the
     /// first result is the boolean success value.
     fn compile_ordinary_set_data_on_receiver_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::OrdinarySetDataOnReceiver);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3437,7 +3574,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
     ) -> Result<Function, EmitError> {
         let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+            self.begin_helper_body(RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3470,9 +3607,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Params: 0=array payload, 1=index, 2=value payload, 3=value tag,
     /// 4=calling realm environment. Params 5/6 are unused.
     fn compile_array_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_array_write = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ArrayWrite);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(4));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3493,10 +3628,9 @@ impl<'a> FunctionBuilder<'a> {
     /// argument vector in params 5/6.
     fn compile_ordinary_set_helper(
         &mut self,
-        allow_receiver_generic_write_fallback: bool,
+        receiver_fallback: OrdinarySetReceiverFallback,
     ) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(receiver_fallback.helper());
         self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
@@ -3543,7 +3677,7 @@ impl<'a> FunctionBuilder<'a> {
             value_payload_local,
             value_tag_local,
             self.result_local,
-            allow_receiver_generic_write_fallback,
+            receiver_fallback.allows_receiver_generic_write(),
             &mut function,
         )?;
         self.object_write_strict_flag_local = None;
@@ -3584,9 +3718,7 @@ impl<'a> FunctionBuilder<'a> {
     /// i64 params, no results). Params: 0=object payload, 1=key payload,
     /// 2=value payload, 3=value tag, 4=writable, 5=enumerable, 6=configurable.
     fn compile_object_define_data_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_define_data = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectDefineData);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_object_define_data_with_flag_locals(0, 1, 2, 3, 4, 5, 6, &mut function)?;
@@ -3602,9 +3734,7 @@ impl<'a> FunctionBuilder<'a> {
     /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
     /// throws are surfaced through the completion rather than propagated.
     fn compile_function_call_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_function_call = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::FunctionCall);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3635,8 +3765,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 5=property-key tag. Param 6 is unused. Results are the standard
     /// `(result, result_tag, completion, aux)` tuple.
     fn compile_dynamic_property_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::DynamicPropertyRead);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3669,9 +3798,7 @@ impl<'a> FunctionBuilder<'a> {
     /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
     /// throws are surfaced through the completion rather than propagated.
     fn compile_proxy_call_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_proxy_call = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ProxyCall);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3703,9 +3830,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Param 6 is unused. Results are the `(result, result_tag, completion,
     /// aux)` tuple.
     fn compile_proxy_construct_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_proxy_construct = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ProxyConstruct);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3741,9 +3866,7 @@ impl<'a> FunctionBuilder<'a> {
     /// standard four-i64 tuple with the comparison result (0 or 1) in the first
     /// slot; the other three are always zero.
     fn compile_string_equality_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_string_equality = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::StringEquality);
         self.push_scope();
         self.emit_string_payload_equality_i32_with_ascii_case_folding(0, 1, Some(2), &mut function);
         function.instruction(&Instruction::I64ExtendI32U);
@@ -3764,9 +3887,7 @@ impl<'a> FunctionBuilder<'a> {
     /// (f64 bits). Params 1-6 are unused. Results are the standard four-i64
     /// tuple with the string payload in the first slot; the rest are zero.
     fn compile_number_to_string_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_number_to_string = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::NumberToString);
         self.push_scope();
         self.emit_number_to_string_payload(0, &mut function)?;
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -3786,9 +3907,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Params 1-6 are unused. Results are the standard four-i64 tuple with the
     /// number payload (f64 bits) in the first slot; the rest are zero.
     fn compile_string_to_number_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_string_to_number = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::StringToNumber);
         self.push_scope();
         self.emit_string_to_number_payload(0, &mut function)?;
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -3810,9 +3929,7 @@ impl<'a> FunctionBuilder<'a> {
     /// tuple: on normal completion the string payload is in the first slot; a
     /// ToPrimitive/Symbol throw is surfaced through the completion slots.
     fn compile_value_to_string_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_value_to_string = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToString);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3862,9 +3979,7 @@ impl<'a> FunctionBuilder<'a> {
     /// first slot with a Number tag; a BigInt/Symbol/ToPrimitive throw is
     /// surfaced through the completion slots.
     fn compile_value_to_number_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_value_to_number = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumber);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3909,9 +4024,7 @@ impl<'a> FunctionBuilder<'a> {
     /// resulting Number-or-BigInt tag and any abrupt completion produced by
     /// ToPrimitive.
     fn compile_value_to_numeric_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_value_to_numeric = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumeric);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3939,9 +4052,7 @@ impl<'a> FunctionBuilder<'a> {
     /// tuple: on normal completion the prototype `(payload, tag)` is in the first
     /// two slots; a proxy-trap throw is surfaced through the completion slots.
     fn compile_object_get_prototype_of_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_get_prototype_of = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectGetPrototypeOf);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3971,9 +4082,7 @@ impl<'a> FunctionBuilder<'a> {
     /// tuple: on normal completion the boolean result (0/1) is in the first slot;
     /// a proxy-trap throw is surfaced through the completion slots.
     fn compile_object_is_extensible_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_is_extensible = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectIsExtensible);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3999,9 +4108,7 @@ impl<'a> FunctionBuilder<'a> {
     /// completion the value `(payload, tag)` is in the first two slots; a
     /// proxy-trap throw is surfaced through the completion slots.
     fn compile_object_read_proxy_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_read_proxy = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectReadProxy);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -4017,6 +4124,74 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared `expr[index]` read composite. The Arguments / Array
+    /// (with prototype walk) / TypedArray-element / ordinary-object dispatch is
+    /// emitted once here and reached with a plain `call`.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
+    /// 1=target tag, 2=integer index. Params 3-6 are unused. Results are the
+    /// standard `(result, result_tag, completion, completion_aux)` tuple: on a
+    /// normal completion the read value is in the first two slots, and a getter
+    /// or proxy-trap throw is surfaced through the completion slots for the
+    /// seam to re-raise.
+    ///
+    /// No realm-environment parameter, matching
+    /// [`Self::compile_object_read_helper`]: the ordinary read this delegates to
+    /// already passes zero for the object-read helper's params 5/6, so a read
+    /// has no realm-dependent behavior to thread.
+    fn compile_indexed_element_read_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_indexed_element_read_helper_body(
+            0,
+            1,
+            2,
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared `expr[index] = value` write composite (TypedArray
+    /// element store versus ordinary `[[Set]]`).
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
+    /// 1=target tag, 2=integer index, 3=key payload (the string form of the
+    /// index, used by the ordinary-object arm), 4=value payload, 5=value tag,
+    /// 6=calling function's strictness (0 sloppy, nonzero strict).
+    ///
+    /// Param 6 exists for the same reason as the object-write helper's param 5:
+    /// this is a single mode-less body, so the sloppy/strict `[[Set]]` failure
+    /// split — silent no-op versus `TypeError` on a non-writable property or a
+    /// non-extensible target — has to be decided from a runtime flag rather
+    /// than from the compile-time strictness of the helper itself. Dropping it
+    /// would turn every strict-mode `a[i] = v` failure into a silent no-op.
+    fn compile_indexed_element_write_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementWrite);
+        self.object_write_strict_flag_local = Some(6);
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_indexed_element_write_helper_body(0, 1, 2, 3, 4, 5, &mut function)?;
+        self.pop_scope();
+        self.object_write_strict_flag_local = None;
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalGet(self.completion_local));

@@ -414,8 +414,10 @@ impl Era {
     }
 
     /// The identifier the `era` accessor reports: the canonical spelling, by
-    /// definition rather than by a second table.
-    pub(crate) const fn code(self) -> &'static str {
+    /// definition rather than by a second table. Adding an alias to
+    /// [`Self::spellings`] therefore cannot change what `era` reports, and
+    /// cannot fail to be accepted by the resolver or interned by `data.rs`.
+    pub(crate) fn code(self) -> &'static str {
         self.spellings()[0]
     }
 

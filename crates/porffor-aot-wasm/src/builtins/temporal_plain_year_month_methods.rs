@@ -8,6 +8,7 @@ use super::super::*;
 use super::temporal_options::{
     ShowCalendarName, TemporalOverflow, TemporalRoundingMode, TemporalUnit, TemporalUnitSlot,
 };
+use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedYear};
 use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
 impl<'a> FunctionBuilder<'a> {
@@ -28,10 +29,12 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    /// `PrepareCalendarFields` for the `« year, month, month-code »` key set,
-    /// in the alphabetical order the spec pins: `calendar`, `month`,
-    /// `monthCode`, `year`. There is deliberately no `day` read — a
-    /// `Temporal.PlainYearMonth` property bag never has one.
+    /// `PrepareCalendarFields` for the `« year, month, month-code »` key set
+    /// plus the era pair, in the alphabetical order the spec pins: `calendar`,
+    /// `era`, `eraYear`, `month`, `monthCode`, `year`. There is deliberately no
+    /// `day` read — a `Temporal.PlainYearMonth` property bag never has one, and
+    /// `intl402/Temporal/PlainYearMonth/from/argument-object.js` hands in a bag
+    /// whose `day` getter throws to prove it.
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_year_month_read_fields(
         &mut self,
@@ -47,7 +50,8 @@ impl<'a> FunctionBuilder<'a> {
         month_code_present_local: u32,
         read_calendar: bool,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<TemporalEraLocals, EmitError> {
+        let era_slots = self.reserve_temporal_era_slots();
         let property_key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
@@ -77,6 +81,14 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
+
+        let era = self.emit_temporal_read_era_fields(
+            era_slots,
+            argument_payload_local,
+            argument_tag_local,
+            calendar_payload_local,
+            function,
+        )?;
 
         self.emit_temporal_property_bag_positive_integer(
             argument_payload_local,
@@ -147,7 +159,7 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.release_temp_local(local);
         }
-        Ok(())
+        Ok(era)
     }
 
     /// `CalendarResolveFields` for the year-month field set, then
@@ -155,8 +167,7 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_year_month_resolve_fields(
         &mut self,
-        year_local: u32,
-        year_present_local: u32,
+        resolved_year: &TemporalResolvedYear,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -165,6 +176,8 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let year_local = resolved_year.year_local();
+        let year_present_local = resolved_year.year_present_local();
         let month_from_code_local = self.reserve_temp_local();
         let expected_payload_local = self.reserve_temp_local();
 
@@ -393,7 +406,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_year_month_read_fields(
+        let era = self.emit_temporal_year_month_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -415,9 +428,15 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        self.emit_temporal_year_month_resolve_fields(
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
             year_local,
             year_present_local,
+            function,
+        )?;
+        self.emit_temporal_year_month_resolve_fields(
+            &resolved_year,
             month_local,
             month_present_local,
             month_code_payload_local,
@@ -1175,7 +1194,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
-        self.emit_temporal_year_month_read_fields(
+        let era = self.emit_temporal_year_month_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -1194,6 +1213,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalGet(month_code_present_local));
         function.instruction(&Instruction::I64Or);
+        for local in era.present_locals() {
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Or);
+        }
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -1212,12 +1235,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        function.instruction(&Instruction::LocalGet(year_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(year_local));
-        function.instruction(&Instruction::LocalSet(new_year_local));
-        function.instruction(&Instruction::End);
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
+            new_year_local,
+            year_present_local,
+            function,
+        )?;
+        self.emit_temporal_resolved_year_default_to(&resolved_year, year_local, function);
         // `CalendarMergeFields` drops the receiver's `monthCode` as soon as the
         // argument supplies either `month` or `monthCode`.
         function.instruction(&Instruction::LocalGet(month_present_local));
@@ -1230,12 +1255,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(month_present_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(year_present_local));
 
         self.emit_temporal_year_month_resolve_fields(
-            new_year_local,
-            year_present_local,
+            &resolved_year,
             new_month_local,
             month_present_local,
             month_code_payload_local,

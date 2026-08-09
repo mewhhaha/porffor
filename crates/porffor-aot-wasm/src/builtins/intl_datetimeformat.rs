@@ -11,9 +11,26 @@
 //! with `AvailableLocales = « "en-US" »` falls back to the default locale for
 //! every request. That is a real answer for `en`/`en-US` and an honest
 //! fallback elsewhere, which is what an implementation with no CLDR data can
-//! say. Calendars other than `gregory`/`gregorian` and `iso8601` — which shares
-//! the proleptic Gregorian arithmetic and differs only in having no eras — are
-//! **rejected** (`RangeError`) rather than accepted and mis-formatted.
+//! say. The calendars this backend has data for are `gregory`/`gregorian` and
+//! `iso8601`, which shares the proleptic Gregorian arithmetic and differs only
+//! in having no eras.
+//!
+//! # Relevant extension keys
+//!
+//! `ca`, `nu` and `hc` are all read from the negotiated locale's `-u-`
+//! extension and all reflected back into `[[Locale]]`, driven by the one
+//! [`IntlDtfRelevantExtensionKey`] table. Two rules there are easy to get
+//! backwards and both are Test262-observable:
+//!
+//! * A calendar or numbering system this backend has **no data for** is not an
+//!   error. ECMA-402 11.1.2 steps 8/10 only reject a value that fails the
+//!   `type` nonterminal; 9.2.7 step 9(i)(iv) then simply drops a well-formed
+//!   value `keyLocaleData` does not contain, so `{ calendar: "invalid" }`
+//!   falls back to `gregory` rather than throwing.
+//! * The keyword survives into `[[Locale]]` when the options value **equals**
+//!   it, and only vanishes when the options value differs. `en-u-ca-iso8601`
+//!   with `{ calendar: "iso8601" }` resolves to `en-u-ca-iso8601`; with
+//!   `{ calendar: "gregory" }` it resolves to plain `en`.
 //!
 //! # Time zones: every offset, no zone database
 //!
@@ -291,10 +308,259 @@ const fn const_str_eq(left: &str, right: &str) -> bool {
 }
 
 /// The `-u-nu` types this implementation answers to.
+///
+/// One row, deliberately. `arab`, `deva` and `hanidec` are *not* here because
+/// this backend has no digit tables: reporting
+/// `resolvedOptions().numberingSystem === "arab"` while `format` still emitted
+/// `0`-`9` would be a spec cheat, and a wrong answer is worse than a missing
+/// one. See the lane note for what shipping them needs.
 const INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS: &[(&str, &str)] = &[(
     INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
     INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
 )];
+
+/// How many values the `hourCycle` option — and therefore the `hc` keyword —
+/// has.
+const INTL_DTF_HOUR_CYCLE_VALUE_COUNT: usize = INTL_DTF_HOUR_CYCLE_OPTION.codes.len();
+
+/// The `-u-hc` types this implementation answers to, **derived** from
+/// [`INTL_DTF_HOUR_CYCLE_OPTION`] rather than written out again.
+///
+/// Before this the four `h11`/`h12`/`h23`/`h24` spellings appeared twice — once
+/// as option codes, once as `-hc-` needles — with nothing tying them together.
+/// Deriving the table also makes it row-aligned with `codes`, which is what
+/// lets [`IntlDtfRelevantExtensionKey::Hc`] turn a row of
+/// [`IntlDtfRelevantExtensionKey::accepted`] back into the record's small code
+/// without a second table to keep in step.
+const INTL_DTF_ACCEPTED_HOUR_CYCLES_TABLE: [(&str, &str); INTL_DTF_HOUR_CYCLE_VALUE_COUNT] = {
+    let mut table = [("", ""); INTL_DTF_HOUR_CYCLE_VALUE_COUNT];
+    let mut index = 0;
+    while index < INTL_DTF_HOUR_CYCLE_VALUE_COUNT {
+        let (spelling, _) = INTL_DTF_HOUR_CYCLE_OPTION.codes[index];
+        table[index] = (spelling, spelling);
+        index += 1;
+    }
+    table
+};
+
+const INTL_DTF_ACCEPTED_HOUR_CYCLES: &[(&str, &str)] = &INTL_DTF_ACCEPTED_HOUR_CYCLES_TABLE;
+
+/// The `-u-` singleton, opened once however many keywords the resolved locale
+/// ends up carrying: `en-u-ca-iso8601-nu-latn`, never
+/// `en-u-ca-iso8601-u-nu-latn`.
+const INTL_DTF_UNICODE_EXTENSION_SINGLETON: &str = "-u";
+
+/// The options-value encoding's `null`, distinct from `undefined` (0) and from
+/// every row of [`IntlDtfRelevantExtensionKey::accepted`] (`1..=n`).
+///
+/// Only `hc` can ever hold it — ECMA-402 11.1.2 step 15 turns a present
+/// `hour12` into a *null* `hourCycle` — and only because `hc`'s
+/// `[[LocaleData]]` list is « null, "h11", "h12", "h23", "h24" » (11.2.3), so
+/// `null` is a value the list *contains* and therefore one that discards the
+/// keyword. For a key whose [`IntlDtfExtensionResolution`] is
+/// `CanonicalString` the list holds no `null`, and handing this value to one
+/// would wrongly drop a keyword the spec keeps.
+const INTL_DTF_EXTENSION_OPTION_NULL: i64 = -1;
+
+/// Where ECMA-402 9.2.7 `result.[[<key>]]` lands, and what shape the value has.
+///
+/// The two shapes are genuinely different and collapsing them would be a lie:
+/// `[[Calendar]]` and `[[NumberingSystem]]` are strings the record stores
+/// verbatim, while `[[HourCycle]]` is the small code of
+/// [`INTL_DTF_HOUR_CYCLE_OPTION`], because 11.1.2 steps 32-35 still have to
+/// compare it against `hour12` and the `en` default *after* `ResolveLocale`
+/// has finished.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntlDtfExtensionResolution {
+    /// `keyLocaleData` is « default, ... » with no `null`, so an options value
+    /// the list does not contain is simply dropped and leaves the keyword
+    /// standing.
+    CanonicalString { default: &'static str },
+    /// `hc`, whose default is `null` — spelled 0 in the record, because steps
+    /// 32-35 then turn it into the `en` default.
+    HourCycleCode,
+}
+
+/// `Intl.DateTimeFormat`'s `[[RelevantExtensionKeys]]` (ECMA-402 11.2.3), in
+/// the order the canonical `-u-` extension spells them. That order is
+/// alphabetical, so it is also the order
+/// `InsertUnicodeExtensionAndCanonicalize` would leave two keywords in, and
+/// one walk of [`Self::ALL`] can both resolve and re-emit them.
+///
+/// This enum is the single declaration of a key's spelling, the options
+/// property it shares a domain with, its accepted values and the record slot it
+/// resolves into. "Read `-u-nu-` but reflect `-u-ca-`", or "accept a spelling
+/// the locale suffix cannot spell back", are compile errors rather than test
+/// failures: the extension reader, the options reader, the resolver, the suffix
+/// loop and the record store all walk this one table, and every `match` over it
+/// is exhaustive with no `_` arm.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntlDtfRelevantExtensionKey {
+    Ca,
+    Hc,
+    Nu,
+}
+
+impl IntlDtfRelevantExtensionKey {
+    pub(crate) const ALL: [Self; 3] = [Self::Ca, Self::Hc, Self::Nu];
+
+    /// The `-u-` key, as it appears both in a requested tag and in the
+    /// resolved `[[Locale]]`.
+    const fn key(self) -> &'static str {
+        match self {
+            Self::Ca => "ca",
+            Self::Hc => "hc",
+            Self::Nu => "nu",
+        }
+    }
+
+    /// The options-bag property whose domain this key shares.
+    const fn option_property(self) -> &'static str {
+        match self {
+            Self::Ca => "calendar",
+            // Not a second spelling: the option table's own property name, so
+            // the `hourCycle` reader and the `hc` keyword cannot drift apart.
+            Self::Hc => INTL_DTF_HOUR_CYCLE_OPTION.property,
+            Self::Nu => "numberingSystem",
+        }
+    }
+
+    /// `keyLocaleData` for this key, as `(spelling, canonical)` rows.
+    const fn accepted(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Ca => INTL_DTF_ACCEPTED_CALENDARS,
+            Self::Hc => INTL_DTF_ACCEPTED_HOUR_CYCLES,
+            Self::Nu => INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS,
+        }
+    }
+
+    const fn resolution(self) -> IntlDtfExtensionResolution {
+        match self {
+            Self::Ca => IntlDtfExtensionResolution::CanonicalString {
+                default: INTL_DTF_RESOLVED_CALENDAR,
+            },
+            Self::Hc => IntlDtfExtensionResolution::HourCycleCode,
+            Self::Nu => IntlDtfExtensionResolution::CanonicalString {
+                default: INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
+            },
+        }
+    }
+
+    /// The record slot `result.[[<key>]]` is stored in.
+    const fn slot_offset(self) -> u64 {
+        match self {
+            Self::Ca => HEAP_INTL_DTF_CALENDAR_OFFSET,
+            Self::Hc => HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
+            Self::Nu => HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
+        }
+    }
+
+    /// The row whose *spelling* is row `index`'s canonical form.
+    ///
+    /// Every reader reports a canonical row, which is what lets 9.2.7 step
+    /// 9(i)(iv) — "if the options value is not the keyword's value" — be an
+    /// integer comparison and still agree with the specification's comparison
+    /// of *values*: `{ calendar: "gregorian" }` and `-u-ca-gregory` are one
+    /// request spelled two ways, and must keep the keyword rather than clear
+    /// it.
+    const fn canonical_row(self, index: usize) -> usize {
+        let accepted = self.accepted();
+        let (_, canonical) = accepted[index];
+        let mut probe = 0;
+        while probe < accepted.len() {
+            let (spelling, _) = accepted[probe];
+            if const_str_eq(spelling, canonical) {
+                return probe;
+            }
+            probe += 1;
+        }
+        panic!("a relevant-extension-key canonical form is not an accepted spelling")
+    }
+}
+
+/// Two properties the resolver depends on, decided at compile time rather than
+/// discovered by a fifteen-hour sweep.
+///
+/// 1. Every accepted `(spelling, canonical)` row's canonical form is itself an
+///    accepted spelling. Without it `-u-ca-gregorian` would resolve to a value
+///    the `-u-<key>-<value>` loop has no row to emit.
+/// 2. A string-valued key's default is itself an accepted value, so
+///    `new Intl.DateTimeFormat("en-u-ca-gregory")` reflects the keyword instead
+///    of silently dropping it.
+///
+/// This is the same shape as the `INTL_DTF_ACCEPTED_CALENDARS`/
+/// `TemporalCalendarId` assertion above, which must keep passing alongside it.
+const _: () = {
+    let mut key_index = 0;
+    while key_index < IntlDtfRelevantExtensionKey::ALL.len() {
+        let key = IntlDtfRelevantExtensionKey::ALL[key_index];
+        let accepted = key.accepted();
+        let mut row = 0;
+        while row < accepted.len() {
+            // `canonical_row` itself panics when the canonical form is
+            // unspellable; this pins down that it found the right row.
+            let canonical_row = key.canonical_row(row);
+            let (spelling, _) = accepted[canonical_row];
+            let (_, canonical) = accepted[row];
+            assert!(
+                const_str_eq(spelling, canonical),
+                "a relevant-extension-key canonical form is not an accepted spelling"
+            );
+            row += 1;
+        }
+        match key.resolution() {
+            IntlDtfExtensionResolution::CanonicalString { default } => {
+                let mut probe = 0;
+                let mut found = false;
+                while probe < accepted.len() {
+                    let (spelling, _) = accepted[probe];
+                    if const_str_eq(spelling, default) {
+                        found = true;
+                    }
+                    probe += 1;
+                }
+                assert!(
+                    found,
+                    "a relevant-extension-key default is not an accepted value"
+                );
+            }
+            IntlDtfExtensionResolution::HourCycleCode => {}
+        }
+        key_index += 1;
+    }
+};
+
+/// A `-<key>-<value>` byte needle for a Unicode extension keyword lookup.
+///
+/// [`FunctionBuilder::emit_intl_dtf_tag_contains`] accepts nothing else, and
+/// the only way to build one is [`Self::keyword`], which is how the
+/// subtag-boundary rule travels with the type instead of with a parameter each
+/// new call site could forget. The scanner that consumes this always requires
+/// the needle to be followed by `-` or by the end of the tag, so `-nu-latn`
+/// cannot match `en-u-nu-latnx` and `-hc-h11` cannot match `en-u-hc-h11x` —
+/// the latter matched before this type existed.
+pub(crate) struct IntlDtfKeywordNeedle {
+    bytes: Vec<i64>,
+}
+
+impl IntlDtfKeywordNeedle {
+    fn keyword(key: IntlDtfRelevantExtensionKey, value: &str) -> Self {
+        Self {
+            bytes: format!("-{}-{}", key.key(), value)
+                .bytes()
+                .map(|byte| byte as i64)
+                .collect(),
+        }
+    }
+
+    fn bytes(&self) -> &[i64] {
+        &self.bytes
+    }
+
+    fn len(&self) -> i64 {
+        self.bytes.len() as i64
+    }
+}
 
 /// An offset from UTC in whole signed minutes.
 ///
@@ -1450,24 +1716,35 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `GetOption(options, prop, string, empty, undefined)` followed by the
-    /// `-u-` key-type well-formedness check of ECMA-402 11.1.2 steps 7 and 10.
+    /// `-u-` key-type well-formedness check of ECMA-402 11.1.2 steps 8 and 10.
     ///
-    /// A Unicode extension type is one or more `alphanum{3,8}` subtags joined
-    /// by `-`; anything else is a `RangeError`. A well-formed type this
-    /// implementation has no data for is a `RangeError` too, rather than a
-    /// silent substitution.
+    /// The two rejections those steps *do* and *do not* make are different
+    /// kinds of thing, and this is the one place the difference is decided:
     ///
-    /// `accepted` pairs each spelling with what it resolves to, and
-    /// `resolved_local` — when given — receives that canonical string, so
-    /// `resolvedOptions()` reports what the request actually became. The
-    /// caller seeds `resolved_local` with the default before calling.
-    fn emit_intl_dtf_unicode_type_option(
+    /// * A value that is not the `type` nonterminal — `alphanum{3,8}` subtags
+    ///   joined by `-` — is a `RangeError`, thrown here. The emitted code
+    ///   returns before it can reach the table walk below, so "ill formed" is
+    ///   not a state `dest_row_local` is able to hold; it is not merely a
+    ///   branch that happens to come first. All 28 strings in
+    ///   `constructor-options-calendar-invalid.js` and
+    ///   `constructor-options-numberingSystem-invalid.js` fail this check.
+    /// * A well-formed value this implementation has no data for is **not** an
+    ///   error. 9.2.7 step 9(i)(iv) only honours an options value that
+    ///   `keyLocaleData` contains and drops every other one, so
+    ///   `{ calendar: "invalid" }` falls back to the default. This emitter used
+    ///   to throw `Unsupported <prop> option` here, which is what made
+    ///   `resolved-calendar-unicode-extensions-and-options.js` a `RangeError`
+    ///   rather than a fallback.
+    ///
+    /// `dest_row_local` receives 0 for both "absent" and "well formed but
+    /// unsupported" — the two cases 9.2.7 treats identically — or the 1-based
+    /// *canonical* row of [`IntlDtfRelevantExtensionKey::accepted`].
+    fn emit_intl_dtf_relevant_extension_key_option(
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
-        property: &str,
-        accepted: &[(&str, &str)],
-        resolved_local: Option<u32>,
+        key: IntlDtfRelevantExtensionKey,
+        dest_row_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
@@ -1475,9 +1752,10 @@ impl<'a> FunctionBuilder<'a> {
         let value_tag_local = self.reserve_temp_local();
         let expected_local = self.reserve_temp_local();
         let ok_local = self.reserve_temp_local();
+        let property = key.option_property();
         let range_message = format!("Invalid {property} option");
-        let unsupported_message = format!("Unsupported {property} option");
 
+        self.emit_dtf_set_const(dest_row_local, 0, function);
         self.emit_dtf_set_string(key_local, property, function);
         self.emit_object_read(
             options_payload_local,
@@ -1509,29 +1787,20 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        // Well formed but not one this implementation has data for.
-        self.emit_dtf_set_const(ok_local, 0, function);
-        for (spelling, canonical) in accepted {
+        // Well formed. A row of `keyLocaleData` reports its canonical row;
+        // anything else leaves `dest_row_local` at 0, which 9.2.7 reads as
+        // "the options bag contributed nothing".
+        for (index, (spelling, _)) in key.accepted().iter().enumerate() {
             self.emit_dtf_set_string(expected_local, spelling, function);
             self.emit_string_payload_equality_i32(value_payload_local, expected_local, function);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_dtf_set_const(ok_local, 1, function);
-            if let Some(resolved_local) = resolved_local {
-                self.emit_dtf_set_string(resolved_local, canonical, function);
-            }
+            self.emit_dtf_set_const(
+                dest_row_local,
+                key.canonical_row(index) as i64 + 1,
+                function,
+            );
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(ok_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            &unsupported_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         for local in [
@@ -2224,12 +2493,18 @@ impl<'a> FunctionBuilder<'a> {
         let options_tag_local = self.reserve_temp_local();
         let locale_local = self.reserve_temp_local();
         let matched_tag_local = self.reserve_temp_local();
-        let extension_hour_cycle_local = self.reserve_temp_local();
+        let extension_value_row_local = self.reserve_temp_local();
+        let extension_addition_row_local = self.reserve_temp_local();
+        let extension_open_local = self.reserve_temp_local();
         let scratch_suffix_local = self.reserve_temp_local();
         let hour12_local = self.reserve_temp_local();
         let hour_cycle_local = self.reserve_temp_local();
+        let hour_cycle_option_row_local = self.reserve_temp_local();
         let time_zone = DtfCanonicalTimeZone::reserve(self);
         let calendar_local = self.reserve_temp_local();
+        let calendar_option_row_local = self.reserve_temp_local();
+        let numbering_system_local = self.reserve_temp_local();
+        let numbering_system_option_row_local = self.reserve_temp_local();
         let explicit_local = self.reserve_temp_local();
         // 1 once a component from `INTL_DTF_NEED_DEFAULTS_COMPONENTS` was
         // requested — the *other* half of `explicit_local`, which also counts
@@ -2301,21 +2576,18 @@ impl<'a> FunctionBuilder<'a> {
             &["lookup", "best fit"],
             function,
         )?;
-        self.emit_dtf_set_string(calendar_local, INTL_DTF_RESOLVED_CALENDAR, function);
-        self.emit_intl_dtf_unicode_type_option(
+        self.emit_intl_dtf_relevant_extension_key_option(
             options_payload_local,
             options_tag_local,
-            "calendar",
-            INTL_DTF_ACCEPTED_CALENDARS,
-            Some(calendar_local),
+            IntlDtfRelevantExtensionKey::Ca,
+            calendar_option_row_local,
             function,
         )?;
-        self.emit_intl_dtf_unicode_type_option(
+        self.emit_intl_dtf_relevant_extension_key_option(
             options_payload_local,
             options_tag_local,
-            "numberingSystem",
-            INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS,
-            None,
+            IntlDtfRelevantExtensionKey::Nu,
+            numbering_system_option_row_local,
             function,
         )?;
 
@@ -2335,42 +2607,144 @@ impl<'a> FunctionBuilder<'a> {
             None,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(hour12_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dtf_set_const(hour_cycle_local, 0, function);
-        function.instruction(&Instruction::End);
-
-        // ResolveLocale: the `hc` keyword of the negotiated locale is used only
-        // when neither `hourCycle` nor `hour12` asked for something, and when
-        // it is used the resolved locale carries it, per 9.2.7 step 12.
-        self.emit_intl_dtf_extension_hour_cycle(
-            matched_tag_local,
-            extension_hour_cycle_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(hour_cycle_local));
-        function.instruction(&Instruction::LocalGet(hour12_local));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(extension_hour_cycle_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(extension_hour_cycle_local));
-        function.instruction(&Instruction::LocalSet(hour_cycle_local));
-        for (spelling, code) in INTL_DTF_HOUR_CYCLE_OPTION.codes {
-            self.emit_dtf_if_code_eq(extension_hour_cycle_local, *code, function);
-            let suffix = self.strings.payload(&format!("-u-hc-{spelling}"));
-            function.instruction(&Instruction::I64Const(suffix));
-            function.instruction(&Instruction::LocalSet(scratch_suffix_local));
-            self.emit_concat_string_payloads_local(locale_local, scratch_suffix_local, function)?;
-            function.instruction(&Instruction::LocalSet(locale_local));
+        // The `hc` options value, as a row of `Hc.accepted()`. Step 15: a
+        // present `hour12` sets `hourCycle` to **null**, not to `undefined`.
+        // The distinction is load-bearing rather than pedantic: `hc`'s
+        // `[[LocaleData]]` list is « null, "h11", "h12", "h23", "h24" »
+        // (11.2.3), so `null` is a value the list *contains*, and step 9(i)(iv)
+        // therefore lets it discard a `-u-hc-` keyword and fall back to the
+        // default. `undefined` — neither option present — leaves the keyword
+        // standing. Both halves are asserted by
+        // `resolvedOptions/resolved-locale-with-hc-unicode.js`.
+        self.emit_dtf_set_const(hour_cycle_option_row_local, 0, function);
+        for (index, (_, code)) in INTL_DTF_HOUR_CYCLE_OPTION.codes.iter().enumerate() {
+            self.emit_dtf_if_code_eq(hour_cycle_local, *code, function);
+            self.emit_dtf_set_const(
+                hour_cycle_option_row_local,
+                IntlDtfRelevantExtensionKey::Hc.canonical_row(index) as i64 + 1,
+                function,
+            );
             function.instruction(&Instruction::End);
         }
+        function.instruction(&Instruction::LocalGet(hour12_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(
+            hour_cycle_option_row_local,
+            INTL_DTF_EXTENSION_OPTION_NULL,
+            function,
+        );
         function.instruction(&Instruction::End);
+
+        // The three relevant-extension-keys, each paired once with the local
+        // its options value arrived in and the local `result.[[<key>]]` has to
+        // land in. Built here and consumed by both the resolution loop below
+        // and the record store further down, so a key cannot be read through
+        // one slot and reflected through another.
+        let extension_key_locals: [(IntlDtfRelevantExtensionKey, u32, u32); 3] =
+            IntlDtfRelevantExtensionKey::ALL.map(|key| {
+                let (option_row_local, dest_local) = match key {
+                    IntlDtfRelevantExtensionKey::Ca => (calendar_option_row_local, calendar_local),
+                    IntlDtfRelevantExtensionKey::Hc => {
+                        (hour_cycle_option_row_local, hour_cycle_local)
+                    }
+                    IntlDtfRelevantExtensionKey::Nu => {
+                        (numbering_system_option_row_local, numbering_system_local)
+                    }
+                };
+                (key, option_row_local, dest_local)
+            });
+
+        // ECMA-402 9.2.7 `ResolveLocale` step 9, once per relevant-extension-key
+        // in `ALL` order. Every options value has already been read in the
+        // observable order the specification prescribes; the extension read
+        // itself touches no user code, so running the three keys together here
+        // is not a reordering a caller can see.
+        self.emit_dtf_set_const(extension_open_local, 0, function);
+        for (key, option_row_local, dest_local) in extension_key_locals.iter().copied() {
+            self.emit_intl_dtf_resolve_extension_key(
+                key,
+                matched_tag_local,
+                option_row_local,
+                extension_value_row_local,
+                extension_addition_row_local,
+                function,
+            );
+            match key.resolution() {
+                IntlDtfExtensionResolution::CanonicalString { default } => {
+                    self.emit_dtf_set_string(dest_local, default, function);
+                    for (index, (_, canonical)) in key.accepted().iter().enumerate() {
+                        // Only canonical rows are reachable: both readers
+                        // report `canonical_row`, so an alias row would be dead
+                        // code that still cost emitted bytes.
+                        if key.canonical_row(index) != index {
+                            continue;
+                        }
+                        self.emit_dtf_if_code_eq(
+                            extension_value_row_local,
+                            index as i64 + 1,
+                            function,
+                        );
+                        self.emit_dtf_set_string(dest_local, canonical, function);
+                        function.instruction(&Instruction::End);
+                    }
+                }
+                IntlDtfExtensionResolution::HourCycleCode => {
+                    // The default is `null`, which the record spells 0; steps
+                    // 32-35 below turn that into the `en` default.
+                    self.emit_dtf_set_const(dest_local, 0, function);
+                    for (index, (_, code)) in INTL_DTF_HOUR_CYCLE_OPTION.codes.iter().enumerate() {
+                        self.emit_dtf_if_code_eq(
+                            extension_value_row_local,
+                            index as i64 + 1,
+                            function,
+                        );
+                        self.emit_dtf_set_const(dest_local, *code, function);
+                        function.instruction(&Instruction::End);
+                    }
+                }
+            }
+            // Step 10 with `InsertUnicodeExtensionAndCanonicalize`: the
+            // keywords that were actually used are spelled back into
+            // `[[Locale]]` under a single `-u-` singleton, in canonical key
+            // order. This is deliberately outside the hourCycle-specific `if`
+            // it used to live in — that placement is what made
+            // `new Intl.DateTimeFormat("en-u-hc-h23", { hourCycle: "h23" })`
+            // report `en`.
+            self.emit_dtf_if_nonzero(extension_addition_row_local, function);
+            function.instruction(&Instruction::LocalGet(extension_open_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_dtf_set_string(
+                scratch_suffix_local,
+                INTL_DTF_UNICODE_EXTENSION_SINGLETON,
+                function,
+            );
+            self.emit_concat_string_payloads_local(locale_local, scratch_suffix_local, function)?;
+            function.instruction(&Instruction::LocalSet(locale_local));
+            self.emit_dtf_set_const(extension_open_local, 1, function);
+            function.instruction(&Instruction::End);
+            for (index, (_, canonical)) in key.accepted().iter().enumerate() {
+                if key.canonical_row(index) != index {
+                    continue;
+                }
+                self.emit_dtf_if_code_eq(extension_addition_row_local, index as i64 + 1, function);
+                self.emit_dtf_set_string(
+                    scratch_suffix_local,
+                    &format!("-{}-{}", key.key(), canonical),
+                    function,
+                );
+                self.emit_concat_string_payloads_local(
+                    locale_local,
+                    scratch_suffix_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(locale_local));
+                function.instruction(&Instruction::End);
+            }
+            function.instruction(&Instruction::End);
+        }
 
         // Steps 29-31: timeZone, as an identifier and an offset together. The
         // reserved triple is consumed here and comes back resolved; there is no
@@ -2507,28 +2881,12 @@ impl<'a> FunctionBuilder<'a> {
             locale_local,
             function,
         );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_INTL_DTF_CALENDAR_OFFSET,
-            calendar_local,
-            function,
-        );
-        {
-            let payload = self.strings.payload(INTL_DTF_RESOLVED_NUMBERING_SYSTEM);
-            self.store_i64_const_at_offset(
-                record_local,
-                HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
-                payload as u64,
-                function,
-            );
+        // `[[Calendar]]`, `[[HourCycle]]` and `[[NumberingSystem]]` land in the
+        // slots their own key names, from the same pairing the resolver used.
+        for (key, _, dest_local) in extension_key_locals.iter().copied() {
+            self.store_i64_local_at_offset(record_local, key.slot_offset(), dest_local, function);
         }
         time_zone.store(self, record_local, function);
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
-            hour_cycle_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             record_local,
             HEAP_INTL_DTF_HOUR12_OFFSET,
@@ -2599,16 +2957,22 @@ impl<'a> FunctionBuilder<'a> {
             need_defaults_local,
             defaults_cleared_local,
             explicit_local,
+            numbering_system_option_row_local,
+            numbering_system_local,
+            calendar_option_row_local,
             calendar_local,
         ] {
             self.release_temp_local(local);
         }
         time_zone.release(self);
         for local in [
+            hour_cycle_option_row_local,
             hour_cycle_local,
             hour12_local,
             scratch_suffix_local,
-            extension_hour_cycle_local,
+            extension_open_local,
+            extension_addition_row_local,
+            extension_value_row_local,
             matched_tag_local,
             locale_local,
             options_tag_local,
@@ -2936,17 +3300,25 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    /// `dest_local = 1` when `needle` occurs as a byte substring of the
-    /// canonicalised tag.
+    /// `dest_local = 1` when `needle` occurs in the canonicalised tag **as a
+    /// whole subtag run** — that is, followed by `-` or by the end of the tag.
     ///
     /// Canonicalisation has already lowercased the tag and normalised its
-    /// separators, so an exact `-<key>-<type>` needle is a sound test for a
-    /// Unicode extension keyword: the only other place those bytes could occur
-    /// is a private-use sequence, which no `Intl` option consults.
+    /// separators (`emit_intl_canonicalize_locale_tag` lowercases every byte in
+    /// pass 1 and re-renders the extension subtags in lower case), so an exact
+    /// `-<key>-<type>` needle is a sound test for a Unicode extension keyword:
+    /// the only other place those bytes could occur is a private-use sequence,
+    /// which no `Intl` option consults. That is also why `-u-nu-lATn` and
+    /// `-u-ca-Gregory` need no second lowercasing pass here.
+    ///
+    /// The terminator is not optional and not a parameter: it is carried by
+    /// [`IntlDtfKeywordNeedle`], the only type this accepts. A bare substring
+    /// search matched `-hc-h11` inside `en-u-hc-h11x`, which was latent only
+    /// because `hc` was the single key that used it.
     fn emit_intl_dtf_tag_contains(
         &mut self,
         tag_local: u32,
-        needle: &str,
+        needle: &IntlDtfKeywordNeedle,
         dest_local: u32,
         function: &mut Function,
     ) {
@@ -2956,8 +3328,8 @@ impl<'a> FunctionBuilder<'a> {
         let inner_local = self.reserve_temp_local();
         let byte_local = self.reserve_temp_local();
         let matched_local = self.reserve_temp_local();
-        let needle_bytes: Vec<i64> = needle.bytes().map(|byte| byte as i64).collect();
-        let needle_len = needle_bytes.len() as i64;
+        let needle_bytes: Vec<i64> = needle.bytes().to_vec();
+        let needle_len = needle.len();
 
         self.emit_unpack_string_payload(tag_local, offset_local, length_local, function);
         self.emit_dtf_set_const(dest_local, 0, function);
@@ -2984,6 +3356,30 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_dtf_set_const(matched_local, 0, function);
             function.instruction(&Instruction::End);
         }
+        // The subtag boundary. The byte after the needle must be `-`, or there
+        // must be no byte after the needle at all. This whole check is
+        // depth-balanced so the `Br(2)` below still names the enclosing Block.
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(needle_len));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(inner_local));
+        function.instruction(&Instruction::LocalGet(inner_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(offset_local, inner_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(matched_local, 0, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(matched_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -3012,36 +3408,93 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    /// The `hc` Unicode extension keyword of the negotiated locale, or 0.
+    /// One relevant-extension-key's keyword in the negotiated locale's `-u-`
+    /// extension, as the 1-based *canonical* row of
+    /// [`IntlDtfRelevantExtensionKey::accepted`], or 0.
     ///
-    /// ECMA-402 9.2.7 `ResolveLocale` only honours a relevant-extension-key
-    /// whose value is one this implementation supports; every other spelling
-    /// is ignored, which falls out of testing only the four legal ones.
-    fn emit_intl_dtf_extension_hour_cycle(
+    /// ECMA-402 9.2.7 step 9(h) only honours a keyword whose value is one this
+    /// implementation has data for; every other spelling is ignored, which
+    /// falls out of testing only the rows that exist.
+    ///
+    /// `tag_local` must be the **matched** tag, never a requested one. For a
+    /// locale `LookupMatcher` rejected there is no negotiated extension to read
+    /// at all, and `matched_tag_local` stays 0 — which is exactly why
+    /// `ignore-invalid-unicode-ext-values.js` sees `ja-JP-u-nu-native` resolve
+    /// identically to `ja-JP`: neither `ja-JP` nor `zh-Hans-CN` nor
+    /// `zh-Hant-TW` matches the two-row available-locale list, so the whole
+    /// extension is discarded before any key is read.
+    fn emit_intl_dtf_extension_value(
         &mut self,
+        key: IntlDtfRelevantExtensionKey,
         tag_local: u32,
-        dest_local: u32,
+        dest_row_local: u32,
         function: &mut Function,
     ) {
         let found_local = self.reserve_temp_local();
-        self.emit_dtf_set_const(dest_local, 0, function);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        for (spelling, code) in INTL_DTF_HOUR_CYCLE_OPTION.codes {
-            self.emit_intl_dtf_tag_contains(
-                tag_local,
-                &format!("-hc-{spelling}"),
-                found_local,
+        self.emit_dtf_set_const(dest_row_local, 0, function);
+        self.emit_dtf_if_nonzero(tag_local, function);
+        for (index, (spelling, _)) in key.accepted().iter().enumerate() {
+            let needle = IntlDtfKeywordNeedle::keyword(key, spelling);
+            self.emit_intl_dtf_tag_contains(tag_local, &needle, found_local, function);
+            self.emit_dtf_if_nonzero(found_local, function);
+            self.emit_dtf_set_const(
+                dest_row_local,
+                key.canonical_row(index) as i64 + 1,
                 function,
             );
-            self.emit_dtf_if_nonzero(found_local, function);
-            self.emit_dtf_set_const(dest_local, *code, function);
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::End);
         self.release_temp_local(found_local);
+    }
+
+    /// ECMA-402 9.2.7 `ResolveLocale` step 9 for one relevant-extension-key.
+    ///
+    /// `option_row_local` is the caller's reading of `options.[[<key>]]`:
+    ///
+    /// * `0` — `undefined`. The option was absent, or was a well-formed `type`
+    ///   value with no data behind it; step 9(i)(iv) drops both, so they are
+    ///   deliberately the same state.
+    /// * `1..=n` — a supported value, as a canonical row of `key.accepted()`.
+    /// * [`INTL_DTF_EXTENSION_OPTION_NULL`] — `null`, which only `hc` can be.
+    ///
+    /// On return `value_row_local` is 0 (the key's default) or a canonical row,
+    /// and `addition_row_local` is 0 or the canonical row the resolved
+    /// `[[Locale]]` must spell back as `-<key>-<value>`.
+    fn emit_intl_dtf_resolve_extension_key(
+        &mut self,
+        key: IntlDtfRelevantExtensionKey,
+        matched_tag_local: u32,
+        option_row_local: u32,
+        value_row_local: u32,
+        addition_row_local: u32,
+        function: &mut Function,
+    ) {
+        // Step 9(h): a supported keyword sets the value *and* the addition.
+        self.emit_intl_dtf_extension_value(key, matched_tag_local, value_row_local, function);
+        function.instruction(&Instruction::LocalGet(value_row_local));
+        function.instruction(&Instruction::LocalSet(addition_row_local));
+        // Step 9(i)(iv): an options value the list contains wins, but only when
+        // it *differs* from the keyword's value. Equality is what keeps
+        // `new Intl.DateTimeFormat("en-u-ca-iso8601", { calendar: "iso8601" })`
+        // reporting `en-u-ca-iso8601` instead of `en`, and it is the case the
+        // previous hourCycle-shaped code got wrong.
+        self.emit_dtf_if_nonzero(option_row_local, function);
+        function.instruction(&Instruction::LocalGet(option_row_local));
+        function.instruction(&Instruction::LocalGet(value_row_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(option_row_local));
+        function.instruction(&Instruction::LocalSet(value_row_local));
+        self.emit_dtf_set_const(addition_row_local, 0, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        // `null` resolves like the default — but only after it has had its
+        // chance above to clear the addition, which is the whole reason
+        // `hour12` drops a `-u-hc-` keyword.
+        self.emit_dtf_if_code_eq(value_row_local, INTL_DTF_EXTENSION_OPTION_NULL, function);
+        self.emit_dtf_set_const(value_row_local, 0, function);
+        function.instruction(&Instruction::End);
     }
 }
 
@@ -5958,13 +6411,21 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
             values.push((*name).to_string());
         }
     }
-    for (spelling, _) in INTL_DTF_HOUR_CYCLE_OPTION.codes {
-        values.push(format!("-hc-{spelling}"));
-        values.push(format!("-u-hc-{spelling}"));
-    }
-    for (spelling, _) in INTL_DTF_HOUR_CYCLE_OPTION.codes {
-        values.push(format!("-hc-{spelling}"));
-        values.push(format!("-u-hc-{spelling}"));
+    // The relevant-extension-key machinery: the `-u-` singleton the resolved
+    // locale opens once, and the `-<key>-<value>` keyword each key can spell
+    // back. Only canonical rows are emitted, because only canonical rows are
+    // reachable — see `IntlDtfRelevantExtensionKey::canonical_row`.
+    values.push(INTL_DTF_UNICODE_EXTENSION_SINGLETON.to_string());
+    for key in IntlDtfRelevantExtensionKey::ALL {
+        values.push(key.option_property().to_string());
+        values.push(format!("Invalid {} option", key.option_property()));
+        for (index, (spelling, canonical)) in key.accepted().iter().enumerate() {
+            values.push((*spelling).to_string());
+            values.push((*canonical).to_string());
+            if key.canonical_row(index) == index {
+                values.push(format!("-{}-{}", key.key(), canonical));
+            }
+        }
     }
     for option in INTL_DTF_COMPONENT_OPTIONS.iter().chain([
         &INTL_DTF_HOUR_CYCLE_OPTION,
@@ -5977,14 +6438,13 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
             values.push((*spelling).to_string());
         }
     }
-    for property in [
-        "localeMatcher",
-        "formatMatcher",
-        "calendar",
-        "numberingSystem",
-    ] {
+    // `localeMatcher` and `formatMatcher` are validated and discarded; the
+    // relevant-extension-key properties contribute their own messages above.
+    // There is no `Unsupported <prop> option` message any more: 9.2.7 step
+    // 9(i)(iv) drops a well-formed value it has no data for instead of
+    // rejecting it.
+    for property in ["localeMatcher", "formatMatcher"] {
         values.push(format!("Invalid {property} option"));
-        values.push(format!("Unsupported {property} option"));
     }
     values.push(INTL_DTF_UNSUPPORTED_TIME_ZONE_MESSAGE.to_string());
     // Every named zone contributes two literals: the identifier the record
@@ -6032,17 +6492,10 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
     ] {
         values.push(value.to_string());
     }
-    // The Temporal spellings the `-u-ca` option accepts, and the one rejection
-    // message each Temporal `toLocaleString` can raise. Both are derived from
-    // the tables the emitters read, so a row added there cannot reference a
-    // string the data section is missing.
-    for (spelling, canonical) in INTL_DTF_ACCEPTED_CALENDARS
-        .iter()
-        .chain(INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS)
-    {
-        values.push((*spelling).to_string());
-        values.push((*canonical).to_string());
-    }
+    // The `-u-ca` and `-u-nu` spellings are contributed by the
+    // relevant-extension-key loop above, which is the same table the emitters
+    // read, so a row added there cannot reference a string the data section is
+    // missing.
     for kind in INTL_DTF_TEMPORAL_KINDS {
         if let Some((property, _)) = kind.rejected_style {
             values.push(intl_dtf_temporal_style_message(kind.type_name, property));

@@ -1373,6 +1373,18 @@ impl StringPool {
             "withCalendar",
             "era",
             "eraYear",
+            // The `era` half of `CalendarResolveFields` is one emitter shared
+            // by `PlainDate`, `PlainDateTime`, `PlainYearMonth`,
+            // `PlainMonthDay` and `ZonedDateTime`, so its messages are not
+            // per-family and cannot sit behind any one family's gate. They
+            // join the unconditional block beside the two property names the
+            // same emitter reads.
+            "Temporal era must be a string",
+            "Temporal eraYear must be finite",
+            "Temporal era and eraYear must be provided together",
+            "Invalid Temporal era for this calendar",
+            "Temporal era and year must agree",
+            "Temporal.PlainMonthDay year is outside the supported range",
             "dayOfWeek",
             "dayOfYear",
             "weekOfYear",

@@ -10,10 +10,23 @@
 
 use super::super::*;
 use super::temporal_options::{ShowCalendarName, TemporalOverflow};
+use super::temporal_plain_date::{MonthDayYearUse, TemporalCalendarId, TemporalResolvedYear};
 use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
 /// `ISO_REFERENCE_YEAR` from the proposal.
 const TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR: i64 = 1972;
+
+/// The `ISOYearMonthWithinLimits` year bounds, which
+/// [`MonthDayYearUse::RangeChecked`] applies to a supplied `year`.
+///
+/// `temporal_plain_year_month.rs` names the same two values privately for its
+/// own limit check. They are restated rather than shared because this file must
+/// not edit a sibling module — the same reason
+/// `TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR` is restated in
+/// `temporal_plain_date_methods.rs`. A lane that owns both files should collapse
+/// the three copies.
+const TEMPORAL_MONTH_DAY_MINIMUM_YEAR: i64 = -271_821;
+const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 
 impl<'a> FunctionBuilder<'a> {
     fn emit_temporal_month_day_overflow_option(
@@ -272,11 +285,16 @@ impl<'a> FunctionBuilder<'a> {
 
     /// `CalendarMonthDayToISOReferenceDate`. The supplied year, if any, decides
     /// how 29 February is constrained; the stored year is always 1972.
+    ///
+    /// For a calendar whose [`TemporalCalendarId::month_day_year_use`] is
+    /// [`MonthDayYearUse::RangeChecked`] the year is *also* bounded, before any
+    /// month information is computed. That fork is real: `iso8601` accepts
+    /// `year: -999999` and `gregory` rejects it. See [`MonthDayYearUse`].
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_month_day_resolve_fields(
         &mut self,
-        year_local: u32,
-        year_present_local: u32,
+        resolved_year: &TemporalResolvedYear,
+        calendar_payload_local: u32,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -286,6 +304,8 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let year_local = resolved_year.year_local();
+        let year_present_local = resolved_year.year_present_local();
         let month_from_code_local = self.reserve_temp_local();
         let expected_payload_local = self.reserve_temp_local();
 
@@ -314,9 +334,57 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+
+        // The non-ISO year bound, before any month information is computed:
+        // `intl402/.../PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js`.
+        // Exhaustive over the calendars, so the ISO exemption cannot be
+        // inherited by a calendar added later — `chinese` and `dangi` have no
+        // eras at all and still range-check, so "has eras" would be the wrong
+        // predicate.
+        for calendar in TemporalCalendarId::ALL {
+            match calendar.month_day_year_use() {
+                MonthDayYearUse::OverflowOnly => {}
+                MonthDayYearUse::RangeChecked => {
+                    function.instruction(&Instruction::I64Const(
+                        self.strings.payload(calendar.canonical()),
+                    ));
+                    function.instruction(&Instruction::LocalSet(expected_payload_local));
+                    self.emit_string_payload_equality_i32(
+                        calendar_payload_local,
+                        expected_payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::LocalGet(year_present_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::I32Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::LocalGet(year_local));
+                    function.instruction(&Instruction::I64Const(TEMPORAL_MONTH_DAY_MINIMUM_YEAR));
+                    function.instruction(&Instruction::I64LtS);
+                    function.instruction(&Instruction::LocalGet(year_local));
+                    function.instruction(&Instruction::I64Const(TEMPORAL_MONTH_DAY_MAXIMUM_YEAR));
+                    function.instruction(&Instruction::I64GtS);
+                    function.instruction(&Instruction::I32Or);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_throw_current_function_realm_range_error(
+                        "Temporal.PlainMonthDay year is outside the supported range",
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                }
+            }
+        }
+
         // The ISO reference year stands in when the bag carries no `year`. A
         // supplied year is only ever used to pick how 29 February constrains -
-        // it is deliberately not range-checked, and never stored.
+        // under `OverflowOnly` it is deliberately not range-checked, and it is
+        // never stored under either.
         function.instruction(&Instruction::LocalGet(year_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -492,7 +560,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_date_read_fields(
+        let era = self.emit_temporal_plain_date_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -517,9 +585,16 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        self.emit_temporal_month_day_resolve_fields(
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
             year_local,
             year_present_local,
+            function,
+        )?;
+        self.emit_temporal_month_day_resolve_fields(
+            &resolved_year,
+            calendar_payload_local,
             month_local,
             month_present_local,
             month_code_payload_local,
@@ -855,7 +930,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
-        self.emit_temporal_plain_date_read_fields(
+        let era = self.emit_temporal_plain_date_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -879,6 +954,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalGet(day_present_local));
         function.instruction(&Instruction::I64Or);
+        for local in era.present_locals() {
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Or);
+        }
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -894,6 +973,17 @@ impl<'a> FunctionBuilder<'a> {
             options_payload_local,
             options_tag_local,
             overflow_local,
+            function,
+        )?;
+
+        // No receiver-year merge here: a `Temporal.PlainMonthDay` has no
+        // observable year, so the reference year stands in when the bag
+        // supplies neither `year` nor an era pair.
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
+            new_year_local,
+            year_present_local,
             function,
         )?;
 
@@ -918,8 +1008,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_temporal_month_day_resolve_fields(
-            new_year_local,
-            year_present_local,
+            &resolved_year,
+            calendar_payload_local,
             new_month_local,
             month_present_local,
             month_code_payload_local,
@@ -1147,6 +1237,18 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        // `PrepareCalendarFields(calendar, item, « year », «», « year »)` picks
+        // up `era`/`eraYear` for a calendar that has them, and they sort before
+        // `year`. `intl402/.../PlainMonthDay/prototype/toPlainDate/infinity-throws-rangeerror.js`
+        // asserts the call log is exactly the `eraYear` coercion.
+        let era_slots = self.reserve_temporal_era_slots();
+        let era = self.emit_temporal_read_era_fields(
+            era_slots,
+            argument_payload_local,
+            argument_tag_local,
+            calendar_payload_local,
+            function,
+        )?;
         self.emit_temporal_property_bag_integer(
             argument_payload_local,
             argument_tag_local,
@@ -1160,7 +1262,14 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.PlainMonthDay year must be finite",
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(present_local));
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
+            year_local,
+            present_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(resolved_year.year_present_local()));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(

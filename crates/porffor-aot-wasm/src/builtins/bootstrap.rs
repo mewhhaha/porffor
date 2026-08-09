@@ -1596,7 +1596,17 @@ impl<'a> FunctionBuilder<'a> {
 
     /// ECMA-402 8: the `Intl` namespace object. Only the properties this
     /// backend actually implements are installed — nothing is stubbed.
-    pub(crate) fn init_intl_object(&mut self, function: &mut Function) -> Result<(), EmitError> {
+    ///
+    /// `members` is a proof, obtainable only from
+    /// `RuntimeBootstrapPlan::intl_namespace_members`, that every member is
+    /// rooted. Holding it is what lets this function install the whole list
+    /// unconditionally; it is also the reason the function cannot be called for
+    /// a program that does not get an `Intl` object at all.
+    pub(crate) fn init_intl_object(
+        &mut self,
+        members: IntlNamespaceMembers,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
         let constructor_local = self.reserve_temp_local();
         let constructor_tag_local = self.reserve_temp_local();
@@ -1635,19 +1645,21 @@ impl<'a> FunctionBuilder<'a> {
         // saw nothing. That is `intl402/DateTimeFormat/prop-desc.js`'s
         // "Expected descriptor to exist".
         //
+        // Unifying the lists closed the drift but left a second divergence
+        // point right here: a per-member `should_initialize_standard_builtin`
+        // check with a `continue`, which reintroduced exactly the same wrong
+        // object whenever the plan under-rooted the namespace. That check is
+        // gone. `members` is the proof that it would have been vacuous, and it
+        // is the only way to reach the list at all, so a partially installed
+        // `Intl` is now unrepresentable rather than untested.
+        //
         // Installation order is `Object.getOwnPropertyNames(Intl)` order, so it
         // is the slice's order and must not be sorted here.
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        for (name, builtin) in INTL_NAMESPACE_CONSTRUCTORS {
-            if !self
-                .runtime_bootstrap_plan
-                .should_initialize_standard_builtin(*builtin)
-            {
-                continue;
-            }
+        for (name, builtin) in members.in_installation_order() {
             let global_index =
-                standard_builtin_constructor_global_index(*builtin).ok_or_else(|| {
+                standard_builtin_constructor_global_index(builtin).ok_or_else(|| {
                     EmitError::unsupported(format!(
                         "unsupported in porffor wasm-aot first slice: \
                          missing Intl constructor global `{}`",
@@ -4577,10 +4589,11 @@ impl<'a> FunctionBuilder<'a> {
         {
             self.init_temporal_object(function)?;
         }
-        if self.runtime_bootstrap_plan.full_standard_globals
-            || self.runtime_bootstrap_plan.intl_object
-        {
-            self.init_intl_object(function)?;
+        // Unlike its five siblings above, the `Intl` gate hands back the member
+        // list rather than a bool: "install `Intl`" and "every member the IR
+        // shape declares is rooted" are one decision, made once in `planning`.
+        if let Some(intl_namespace_members) = self.runtime_bootstrap_plan.intl_namespace_members() {
+            self.init_intl_object(intl_namespace_members, function)?;
         }
         Ok(())
     }

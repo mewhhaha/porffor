@@ -5268,7 +5268,95 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Reads `target[index]` for an integer index, dispatching over the target's
+    /// runtime kind.
+    ///
+    /// This is the seam. The composite it guards measures 72,635 bytes per
+    /// inline copy and has 51 call sites, so by default it emits a `call` into
+    /// the `IndexedElementRead` runtime helper and only falls back to the inline
+    /// body when the helper is unavailable (no heap) or when the helper's own
+    /// body is what is being compiled.
+    ///
+    /// The public name is deliberately unchanged: all 51 call sites keep
+    /// calling it and see only the seam (counted:
+    /// `grep -rn 'self\.emit_typed_array_or_object_index_read_from_locals('`
+    /// over `crates/` — 7 in this file, 11 in `builtins/standard.rs`, 32 in
+    /// `builtins/array.rs`, 1 in `builtins/iterators.rs`).
     pub(crate) fn emit_typed_array_or_object_index_read_from_locals(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if self.outline_indexed_element_read {
+            if let Some(helper) = self.indexed_element_read_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(target_local));
+                function.instruction(&Instruction::LocalGet(target_tag_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::Call(helper));
+                // Same discipline as `emit_object_read_ordinary_via_helper`: the
+                // value (or, on a throw, the thrown value) lands in the caller's
+                // value locals and the completion tuple is adopted; `result_local`
+                // is only touched on a throw, so nothing the caller is holding
+                // across the read is clobbered.
+                self.store_call_results(payload_local, tag_local, function);
+                // Inside the helper a getter/proxy throw has no active handler and
+                // came back as a throw completion. The inline body would have
+                // propagated it from within its own nesting, so propagate here to
+                // keep the seam's contract identical for callers that do not
+                // separately check the read's completion.
+                return self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
+        }
+        self.emit_typed_array_or_object_index_read_from_locals_inner(
+            target_local,
+            target_tag_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    /// Emits the read composite as the body of the `IndexedElementRead` runtime
+    /// helper.
+    ///
+    /// The only crate-visible way to reach the inline body, and the reason the
+    /// body itself is private to this module: after this split the composite has
+    /// exactly two callers — the seam's fallback arm and this — and that is
+    /// stated in the visibility rather than in a comment asking readers not to
+    /// add a third.
+    pub(crate) fn emit_indexed_element_read_helper_body(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_typed_array_or_object_index_read_from_locals_inner(
+            target_local,
+            target_tag_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    fn emit_typed_array_or_object_index_read_from_locals_inner(
         &mut self,
         target_local: u32,
         target_tag_local: u32,
@@ -5919,7 +6007,131 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Writes `target[index] = value`, dispatching between a TypedArray element
+    /// store and an ordinary `[[Set]]`.
+    ///
+    /// This is the seam; the composite it guards measures 174,558 bytes per
+    /// inline copy, across 5 call sites, all in this file. Contract on both
+    /// arms matches
+    /// [`Self::emit_object_write`]: on a throw the thrown value is left in the
+    /// result locals with `completion == Throw` for the caller's own check, and
+    /// on success the caller's result locals are preserved.
     pub(crate) fn emit_typed_array_or_object_index_write_from_locals(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        key_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // The helper body is compiled with `function_id: None`, so the nested
+        // object-write call inside it passes zero for the object-write helper's
+        // realm-environment parameter (param 6). That is exactly what the inline
+        // expansion does for a non-builtin caller — see
+        // `emit_object_write_via_helper` — but *not* what it does for a standard
+        // builtin, which forwards its self-backed realm environment so that e.g.
+        // ArraySetLength raises its RangeError in the right Realm. Rather than
+        // argue that no standard builtin reaches this composite (it does not
+        // today: every call site is user-code property assignment), the seam
+        // declines to outline for such a caller, so a future builtin that does
+        // reach it keeps the inline body instead of silently losing its realm.
+        let caller_forwards_realm_environment = self
+            .function_id
+            .as_ref()
+            .and_then(|function_id| StandardBuiltinId::from_function_id(function_id))
+            .is_some();
+        if self.outline_indexed_element_write && !caller_forwards_realm_environment {
+            if let Some(helper) = self.indexed_element_write_helper_function_index() {
+                let saved_result_local = self.reserve_temp_local();
+                let saved_result_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(self.result_local));
+                function.instruction(&Instruction::LocalSet(saved_result_local));
+                function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                function.instruction(&Instruction::LocalSet(saved_result_tag_local));
+
+                function.instruction(&Instruction::LocalGet(target_local));
+                function.instruction(&Instruction::LocalGet(target_tag_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::LocalGet(key_local));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                // Parameter 6: the calling function's strictness, selected the
+                // same way `emit_object_write_via_helper` selects its parameter 5,
+                // because the helper body is mode-less and the sloppy/strict
+                // `[[Set]]`-failure split has to be decided at run time.
+                match self.object_write_strict_flag_local {
+                    Some(strict_override) => {
+                        function.instruction(&Instruction::LocalGet(strict_override));
+                    }
+                    None => {
+                        function.instruction(&Instruction::I64Const(i64::from(
+                            self.is_current_function_strict(),
+                        )));
+                    }
+                }
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results_to(
+                    self.result_local,
+                    self.result_tag_local,
+                    self.completion_local,
+                    self.completion_aux_local,
+                    function,
+                );
+
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(saved_result_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(saved_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(saved_result_tag_local);
+                self.release_temp_local(saved_result_local);
+                return Ok(());
+            }
+        }
+        self.emit_typed_array_or_object_index_write_from_locals_inner(
+            target_local,
+            target_tag_local,
+            index_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )
+    }
+
+    /// Emits the write composite as the body of the `IndexedElementWrite`
+    /// runtime helper. Counterpart of
+    /// [`Self::emit_indexed_element_read_helper_body`]; same reason for
+    /// existing.
+    pub(crate) fn emit_indexed_element_write_helper_body(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        key_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_typed_array_or_object_index_write_from_locals_inner(
+            target_local,
+            target_tag_local,
+            index_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )
+    }
+
+    fn emit_typed_array_or_object_index_write_from_locals_inner(
         &mut self,
         target_local: u32,
         target_tag_local: u32,
