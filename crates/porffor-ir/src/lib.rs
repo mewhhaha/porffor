@@ -62,8 +62,10 @@ mod lowering;
 mod lowering_helpers;
 mod modules;
 mod names;
+mod native_error;
 mod operations;
 mod regexp;
+mod well_known;
 pub(crate) use analysis::*;
 pub use builtins::{CallableToStringRepresentation, HostBuiltinId, StandardBuiltinId};
 pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, LoweringStage};
@@ -109,6 +111,13 @@ pub use regexp::{
 pub use names::*;
 pub(crate) use names::{
     MAX_ARRAY_INDEX, MAX_STATIC_ARRAY_SHAPE_INDEX, SCRIPT_OWNER_ID, TDZ_BINDING_STORAGE_PREFIX,
+};
+
+/// The two closed spec name domains. See
+/// `docs/rust-rewrite/contracts/closed-name-domains.md`.
+pub use native_error::NativeErrorKind;
+pub use well_known::{
+    is_symbol_description, shape_namespace_key, WellKnownSymbol, SYMBOL_DESCRIPTION_PREFIX,
 };
 
 #[cfg(test)]
@@ -5019,7 +5028,7 @@ target[Symbol.iterator];"#,
                     .as_ref()
                     .map(|init| &init.expr),
                 Some(ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     ..
                 })
             ));
@@ -7148,7 +7157,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             default_init.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -7206,7 +7215,7 @@ target[Symbol.iterator];"#,
                 .as_ref()
                 .map(|init| &init.expr),
             Some(ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             })
         ));
@@ -7273,7 +7282,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             block.params[0].default_init.as_ref().map(|init| &init.expr),
             Some(ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             })
         ));
@@ -8161,7 +8170,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             &init.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -8256,7 +8265,7 @@ target[Symbol.iterator];"#,
         fn has_reference_error_throw(expr: &TypedExpr) -> bool {
             match &expr.expr {
                 ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     ..
                 } => true,
                 ExprIr::ObjectLiteral(properties) => {
@@ -8316,7 +8325,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             value.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -9165,7 +9174,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             rhs.expr,
             ExprIr::RuntimeThrow {
-                name: TYPE_ERROR_NAME,
+                name: NativeErrorKind::TypeError,
                 ..
             }
         ));
@@ -10857,7 +10866,7 @@ target[Symbol.iterator];"#,
             &block.statements[0],
             StatementIr::Expression(TypedExpr {
                 expr: ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     ..
                 },
                 ..
@@ -10896,7 +10905,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             &init.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -10931,7 +10940,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             &condition.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));

@@ -1,3 +1,4 @@
+use crate::native_error::NativeErrorKind;
 use crate::StandardBuiltinId;
 
 pub(crate) const SCRIPT_OWNER_ID: &str = "$script";
@@ -238,15 +239,27 @@ pub const WEAK_SET_NAME: &str = "WeakSet";
 pub const WEAK_REF_NAME: &str = "WeakRef";
 pub const FINALIZATION_REGISTRY_NAME: &str = "FinalizationRegistry";
 pub const SET_NAME: &str = "Set";
-pub const ERROR_NAME: &str = "Error";
-pub const EVAL_ERROR_NAME: &str = "EvalError";
-pub const AGGREGATE_ERROR_NAME: &str = "AggregateError";
-pub const SUPPRESSED_ERROR_NAME: &str = "SuppressedError";
-pub const RANGE_ERROR_NAME: &str = "RangeError";
-pub const SYNTAX_ERROR_NAME: &str = "SyntaxError";
-pub const TYPE_ERROR_NAME: &str = "TypeError";
-pub const URI_ERROR_NAME: &str = "URIError";
-pub const REFERENCE_ERROR_NAME: &str = "ReferenceError";
+// The nine error intrinsic names are a closed domain owned by
+// `crate::native_error::NativeErrorKind`, which is the single spelling
+// authority (contract invariant E2). These consts are *defined from* it rather
+// than repeating its literals, so there is exactly one spelling of each name in
+// the crate and no second list to drift.
+//
+// They survive as `&'static str` because `crates/porffor-aot-wasm` still keys
+// its four error-prototype tables on the name, and one of the files holding
+// those uses is outside this lane. They are structural-match `&str` consts, so
+// they remain legal in the pattern positions those tables use. New code should
+// take a `NativeErrorKind` instead; see
+// `docs/rust-rewrite/contracts/closed-name-domains.md`, ledger entry R4.
+pub const ERROR_NAME: &str = NativeErrorKind::Error.as_str();
+pub const EVAL_ERROR_NAME: &str = NativeErrorKind::EvalError.as_str();
+pub const AGGREGATE_ERROR_NAME: &str = NativeErrorKind::AggregateError.as_str();
+pub const SUPPRESSED_ERROR_NAME: &str = NativeErrorKind::SuppressedError.as_str();
+pub const RANGE_ERROR_NAME: &str = NativeErrorKind::RangeError.as_str();
+pub const SYNTAX_ERROR_NAME: &str = NativeErrorKind::SyntaxError.as_str();
+pub const TYPE_ERROR_NAME: &str = NativeErrorKind::TypeError.as_str();
+pub const URI_ERROR_NAME: &str = NativeErrorKind::URIError.as_str();
+pub const REFERENCE_ERROR_NAME: &str = NativeErrorKind::ReferenceError.as_str();
 pub const BUILTIN_FUNCTION_FUNCTION_ID: &str = "$builtin.Function";
 pub const BUILTIN_FUNCTION_PROTOTYPE_CALL_FUNCTION_ID: &str = "$builtin.Function.prototype.call";
 pub const BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID: &str = "$builtin.Function.prototype.apply";

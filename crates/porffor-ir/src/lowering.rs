@@ -43,6 +43,19 @@ pub(crate) enum LabelTargetKind {
     Loop,
 }
 
+/// One entry of the 7.1.1 ToPrimitive lookup order.
+///
+/// OrdinaryToPrimitive genuinely mixes a symbol key with two ordinary string
+/// method names, so the list cannot be all-`WellKnownSymbol`. It must not be
+/// all-`&str` either: the two kinds resolve against different shape-map
+/// namespaces, and collapsing them is how a bare description ends up being
+/// looked up as if it were a string key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToPrimitiveLookupKey {
+    Symbol(WellKnownSymbol),
+    Method(&'static str),
+}
+
 /// The operator a compound or logical assignment applies to a property
 /// Reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -516,7 +529,14 @@ pub(crate) struct ScriptLowerer<'a> {
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
-    well_known_symbol_prototype_properties: BTreeMap<(String, String), ValueInfo>,
+    /// Per-intrinsic overrides of a well-known-symbol method on a builtin
+    /// prototype, keyed by `(constructor name, symbol)`.
+    ///
+    /// The second component was a description `String` joined to its producer
+    /// ~6,300 lines away by string equality alone. It is the closed domain, so
+    /// it is the enum: a lookup naming a symbol no producer writes is now a
+    /// compile error rather than a permanent miss.
+    well_known_symbol_prototype_properties: BTreeMap<(String, WellKnownSymbol), ValueInfo>,
     /// Facts written by this lowerer (or one of its nested lowerers).
     nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
     /// Script-global facts learned before this lowerer was entered.
@@ -734,7 +754,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("ArrayBuffer")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -799,7 +819,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("SharedArrayBuffer")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1019,7 +1039,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("DataView")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1103,7 +1123,6 @@ impl<'a> ScriptLowerer<'a> {
             ("set", StandardBuiltinId::MapPrototypeSet),
             ("values", StandardBuiltinId::MapPrototypeValues),
             ("entries", StandardBuiltinId::MapPrototypeEntries),
-            ("Symbol.iterator", StandardBuiltinId::MapPrototypeEntries),
         ] {
             properties.insert(
                 name.to_string(),
@@ -1113,6 +1132,16 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             );
         }
+        // 24.1.3.12: `%Map.prototype%[@@iterator]` is the same function object
+        // as `%Map.prototype%.entries`. Lifted out of the string-keyed loop
+        // above because its key is a symbol, not a string.
+        properties.insert(
+            WellKnownSymbol::Iterator.description().to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::MapPrototypeEntries.function_id(),
+                false,
+            )),
+        );
         properties.insert(
             "size".to_string(),
             ObjectShapeProperty::Accessor {
@@ -1203,7 +1232,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("WeakSet")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1240,7 +1269,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("WeakRef")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1288,7 +1317,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("FinalizationRegistry")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1347,7 +1376,6 @@ impl<'a> ScriptLowerer<'a> {
             ("union", StandardBuiltinId::SetPrototypeUnion),
             ("values", StandardBuiltinId::SetPrototypeValues),
             ("keys", StandardBuiltinId::SetPrototypeValues),
-            ("Symbol.iterator", StandardBuiltinId::SetPrototypeValues),
             ("entries", StandardBuiltinId::SetPrototypeEntries),
         ] {
             properties.insert(
@@ -1358,6 +1386,16 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             );
         }
+        // 24.2.4.11: `%Set.prototype%[@@iterator]` is the same function object
+        // as `%Set.prototype%.values`. Lifted out of the string-keyed loop
+        // above because its key is a symbol, not a string.
+        properties.insert(
+            WellKnownSymbol::Iterator.description().to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::SetPrototypeValues.function_id(),
+                false,
+            )),
+        );
         properties.insert(
             "size".to_string(),
             ObjectShapeProperty::Accessor {
@@ -1556,7 +1594,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Instant")),
         );
         properties.insert(
@@ -1633,7 +1671,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Intl.Locale")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1753,7 +1791,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.ZonedDateTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1953,7 +1991,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDate")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2082,7 +2120,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainYearMonth")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2168,7 +2206,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainMonthDay")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2269,7 +2307,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2466,7 +2504,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDateTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2629,7 +2667,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Duration")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2722,35 +2760,35 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.match".to_string(),
+            WellKnownSymbol::Match.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatch.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.matchAll".to_string(),
+            WellKnownSymbol::MatchAll.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.replace".to_string(),
+            WellKnownSymbol::Replace.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolReplace.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.search".to_string(),
+            WellKnownSymbol::Search.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.split".to_string(),
+            WellKnownSymbol::Split.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSplit.function_id(),
                 false,
@@ -2832,7 +2870,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
                     function_id: StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
@@ -2902,7 +2940,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::TypedArrayPrototypeValues,
             )),
@@ -2919,7 +2957,7 @@ impl<'a> ScriptLowerer<'a> {
         let mut shape = Self::function_heap_shape(false);
         if let HeapShape::Object(object) = shape.as_mut() {
             object.properties.insert(
-                "Symbol.species".to_string(),
+                WellKnownSymbol::Species.description().to_string(),
                 ObjectShapeProperty::Accessor {
                     getter: Some(ObjectAccessorShape {
                         function_id: StandardBuiltinId::TypedArraySpeciesGetter.function_id(),
@@ -3004,7 +3042,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayPrototypeValues,
             )),
@@ -3216,7 +3254,7 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
             properties.insert(
-                "Symbol.iterator".to_string(),
+                WellKnownSymbol::Iterator.description().to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::ArrayPrototypeValues,
                 )),
@@ -3267,7 +3305,7 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
             properties.insert(
-                "Symbol.toPrimitive".to_string(),
+                WellKnownSymbol::ToPrimitive.description().to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::SymbolPrototypeToPrimitive,
                 )),
@@ -3480,7 +3518,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::PromiseSpeciesGetter.function_id(),
@@ -3504,7 +3542,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::MapSpeciesGetter.function_id(),
@@ -3553,7 +3591,7 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::SetSpeciesGetter.function_id(),
@@ -3943,7 +3981,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::ArraySpeciesGetter.function_id(),
@@ -3971,7 +4009,7 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                         );
                         object.properties.insert(
-                            "Symbol.species".to_string(),
+                            WellKnownSymbol::Species.description().to_string(),
                             ObjectShapeProperty::Accessor {
                                 getter: Some(ObjectAccessorShape {
                                     function_id: StandardBuiltinId::ArrayBufferSpeciesGetter
@@ -4209,7 +4247,7 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::RegExpSpeciesGetter.function_id(),
@@ -4387,19 +4425,19 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayIteratorIdentity,
             )),
         );
         properties.insert(
-            "Symbol.dispose".to_string(),
+            WellKnownSymbol::Dispose.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::IteratorPrototypeSymbolDispose,
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
                     function_id: StandardBuiltinId::IteratorPrototypeToStringTagGetter
@@ -4500,7 +4538,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(ValueInfo::new(ValueKind::String)),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -4599,7 +4637,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayIteratorIdentity,
             )),
@@ -4828,7 +4866,7 @@ impl<'a> ScriptLowerer<'a> {
     fn json_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info(JSON_NAME)),
         );
         for (name, builtin) in [
@@ -4858,7 +4896,7 @@ impl<'a> ScriptLowerer<'a> {
     fn temporal_now_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Now")),
         );
         for (name, builtin) in [
@@ -4940,7 +4978,7 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
-                "Symbol.toStringTag".to_string(),
+                WellKnownSymbol::ToStringTag.description().to_string(),
                 ObjectShapeProperty::Data(Self::string_value_info(TEMPORAL_NAME)),
             ),
         ]);
@@ -4968,7 +5006,7 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
-                "Symbol.toStringTag".to_string(),
+                WellKnownSymbol::ToStringTag.description().to_string(),
                 ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
             ),
         ]);
@@ -4989,7 +5027,7 @@ impl<'a> ScriptLowerer<'a> {
     fn atomics_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info(ATOMICS_NAME)),
         );
         properties.insert(
@@ -10753,18 +10791,7 @@ impl<'a> ScriptLowerer<'a> {
             return false;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        matches!(
-            name.as_str(),
-            ERROR_NAME
-                | EVAL_ERROR_NAME
-                | AGGREGATE_ERROR_NAME
-                | SUPPRESSED_ERROR_NAME
-                | RANGE_ERROR_NAME
-                | REFERENCE_ERROR_NAME
-                | SYNTAX_ERROR_NAME
-                | TYPE_ERROR_NAME
-                | URI_ERROR_NAME
-        )
+        NativeErrorKind::from_str(&name).is_some()
     }
 
     fn for_in_global_non_enumerable_guard_only(
@@ -12103,16 +12130,17 @@ impl<'a> ScriptLowerer<'a> {
             ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
                 StandardBuiltinId::ReferenceErrorConstructor,
             )),
+            // No match here on purpose. `NativeErrorKind::constructor` is total
+            // over the nine error intrinsics (20.5.1, 20.5.5, 20.5.7 and
+            // Explicit Resource Management), so a tenth kind cannot be omitted
+            // at this call site at all — the exhaustiveness obligation lives in
+            // the one row list that generates it. The six-arm match this
+            // replaced fell through to `ErrorConstructor` for `AggregateError`
+            // and `SuppressedError`, which would have typed both as base
+            // `Error` and made every downstream `instanceof` and shape
+            // inference keyed on the result wrong.
             ExprIr::RuntimeThrow { name, .. } => {
-                Some(Self::standard_error_instance_info(match *name {
-                    RANGE_ERROR_NAME => StandardBuiltinId::RangeErrorConstructor,
-                    TYPE_ERROR_NAME => StandardBuiltinId::TypeErrorConstructor,
-                    SYNTAX_ERROR_NAME => StandardBuiltinId::SyntaxErrorConstructor,
-                    REFERENCE_ERROR_NAME => StandardBuiltinId::ReferenceErrorConstructor,
-                    URI_ERROR_NAME => StandardBuiltinId::URIErrorConstructor,
-                    EVAL_ERROR_NAME => StandardBuiltinId::EvalErrorConstructor,
-                    _ => StandardBuiltinId::ErrorConstructor,
-                }))
+                Some(Self::standard_error_instance_info(name.constructor()))
             }
             ExprIr::ObjectLiteral(properties) => {
                 let mut info = None;
@@ -13248,7 +13276,10 @@ impl<'a> ScriptLowerer<'a> {
             .then_some(self.current_async_resume_state)
             .flatten();
         if for_of.r#await() {
-            for key in ["Symbol.asyncIterator", "Symbol.iterator"] {
+            // 7.4.3 GetIterator tries `@@asyncIterator` first, then falls back
+            // to `@@iterator` wrapped as an async iterator. The order is the
+            // spec obligation.
+            for key in [WellKnownSymbol::AsyncIterator, WellKnownSymbol::Iterator] {
                 let function_targets = self
                     .optional_chain_well_known_symbol_property_info(&iterable.value_info(), key)
                     .map(|method| method.function_targets)
@@ -16462,7 +16493,7 @@ impl<'a> ScriptLowerer<'a> {
                 then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
                     ValueInfo::undefined(),
                     ExprIr::RuntimeThrow {
-                        name: TYPE_ERROR_NAME,
+                        name: NativeErrorKind::TypeError,
                         message: "using declaration resource is not an object",
                     },
                 ))),
@@ -16528,7 +16559,7 @@ impl<'a> ScriptLowerer<'a> {
             then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
                 ValueInfo::undefined(),
                 ExprIr::RuntimeThrow {
-                    name: TYPE_ERROR_NAME,
+                    name: NativeErrorKind::TypeError,
                     message: missing_message,
                 },
             ))),
@@ -16962,7 +16993,7 @@ impl<'a> ScriptLowerer<'a> {
                         function_targets: BTreeSet::new(),
                     },
                     ExprIr::RuntimeThrow {
-                        name: REFERENCE_ERROR_NAME,
+                        name: NativeErrorKind::ReferenceError,
                         message: "lexical binding accessed before initialization",
                     },
                 );
@@ -17088,7 +17119,7 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: BTreeSet::new(),
                 },
                 ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     message: "unbound identifier in with scope",
                 },
             );
@@ -17149,7 +17180,7 @@ impl<'a> ScriptLowerer<'a> {
                 target: Box::new(object),
                 key: PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Symbol),
-                    ExprIr::String("Symbol.unscopables".into()),
+                    ExprIr::String(WellKnownSymbol::Unscopables.description().to_string()),
                 ))),
             },
         );
@@ -20518,7 +20549,7 @@ impl<'a> ScriptLowerer<'a> {
                         return TypedExpr::from_info(
                             ValueInfo::undefined(),
                             ExprIr::RuntimeThrow {
-                                name: RANGE_ERROR_NAME,
+                                name: NativeErrorKind::RangeError,
                                 message: "Number.prototype.toString radix out of range",
                             },
                         );
@@ -20545,7 +20576,7 @@ impl<'a> ScriptLowerer<'a> {
                         return TypedExpr::from_info(
                             ValueInfo::undefined(),
                             ExprIr::RuntimeThrow {
-                                name: RANGE_ERROR_NAME,
+                                name: NativeErrorKind::RangeError,
                                 message:
                                     "Number.prototype.toExponential fraction digits out of range",
                             },
@@ -20603,7 +20634,7 @@ impl<'a> ScriptLowerer<'a> {
                         return TypedExpr::from_info(
                             ValueInfo::undefined(),
                             ExprIr::RuntimeThrow {
-                                name: RANGE_ERROR_NAME,
+                                name: NativeErrorKind::RangeError,
                                 message: "Number.prototype.toFixed fraction digits out of range",
                             },
                         );
@@ -20719,18 +20750,7 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         if field_name == "propertyIsEnumerable"
                             && args.len() == 1
-                            && matches!(
-                                target_name.as_str(),
-                                ERROR_NAME
-                                    | EVAL_ERROR_NAME
-                                    | AGGREGATE_ERROR_NAME
-                                    | SUPPRESSED_ERROR_NAME
-                                    | RANGE_ERROR_NAME
-                                    | REFERENCE_ERROR_NAME
-                                    | SYNTAX_ERROR_NAME
-                                    | TYPE_ERROR_NAME
-                                    | URI_ERROR_NAME
-                            )
+                            && NativeErrorKind::from_str(target_name.as_str()).is_some()
                             && self
                                 .try_static_string_key(&args[0])
                                 .is_some_and(|property| property == "prototype")
@@ -20979,29 +20999,41 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     }
                     if let PropertyAccessField::Expr(expr) = access.field() {
-                        if let Some((symbol_name, symbol_key)) =
+                        if let Some((symbol, symbol_key)) =
                             self.lower_well_known_symbol_property_key(expr)
                         {
-                            let builtin = match symbol_name.as_str() {
-                                "Symbol.iterator" if receiver.kind == ValueKind::String => {
+                            // Contract ledger entry R3. The domain here is
+                            // `WellKnownSymbol x ValueKind`, and most cells
+                            // legitimately have no static fast path, so this
+                            // match keeps a catch-all rather than nine
+                            // information-free `=> None` arms. The symbols that
+                            // deliberately fall through are `asyncIterator`,
+                            // `dispose`, `asyncDispose`, `hasInstance`,
+                            // `isConcatSpreadable`, `species`, `toPrimitive`,
+                            // `toStringTag` and `unscopables`; what the enum
+                            // buys is that the arms above name real variants.
+                            let builtin = match symbol {
+                                WellKnownSymbol::Iterator
+                                    if receiver.kind == ValueKind::String =>
+                                {
                                     Some(StandardBuiltinId::StringPrototypeIterator)
                                 }
-                                "Symbol.iterator" if receiver.kind == ValueKind::Array => {
+                                WellKnownSymbol::Iterator if receiver.kind == ValueKind::Array => {
                                     Some(StandardBuiltinId::ArrayPrototypeValues)
                                 }
-                                "Symbol.match" => {
+                                WellKnownSymbol::Match => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatch)
                                 }
-                                "Symbol.matchAll" => {
+                                WellKnownSymbol::MatchAll => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatchAll)
                                 }
-                                "Symbol.replace" => {
+                                WellKnownSymbol::Replace => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolReplace)
                                 }
-                                "Symbol.search" => {
+                                WellKnownSymbol::Search => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSearch)
                                 }
-                                "Symbol.split" => {
+                                WellKnownSymbol::Split => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSplit)
                                 }
                                 _ => None,
@@ -21213,7 +21245,7 @@ impl<'a> ScriptLowerer<'a> {
                                         return TypedExpr::from_info(
                                             ValueInfo::undefined(),
                                             ExprIr::RuntimeThrow {
-                                                name: TYPE_ERROR_NAME,
+                                                name: NativeErrorKind::TypeError,
                                                 message: "Cannot convert object to primitive value",
                                             },
                                         );
@@ -21396,10 +21428,10 @@ impl<'a> ScriptLowerer<'a> {
                                     self.lower_object_property_key(receiver.clone(), access.field())
                                 }
                             } else if let PropertyAccessField::Expr(expr) = access.field() {
-                                if let Some((symbol_name, symbol_key)) =
+                                if let Some((symbol, symbol_key)) =
                                     self.lower_well_known_symbol_property_key(expr)
                                 {
-                                    if symbol_name == "Symbol.toPrimitive" {
+                                    if symbol == WellKnownSymbol::ToPrimitive {
                                         TypedExpr::from_info(
                                             Self::standard_builtin_value_info(
                                                 StandardBuiltinId::SymbolPrototypeToPrimitive,
@@ -23935,7 +23967,7 @@ impl<'a> ScriptLowerer<'a> {
                     Some(TypedExpr::from_info(
                         ValueInfo::undefined(),
                         ExprIr::RuntimeThrow {
-                            name: TYPE_ERROR_NAME,
+                            name: NativeErrorKind::TypeError,
                             message: "yield star return result must be object",
                         },
                     ))
@@ -23954,7 +23986,7 @@ impl<'a> ScriptLowerer<'a> {
                     Some(TypedExpr::from_info(
                         ValueInfo::undefined(),
                         ExprIr::RuntimeThrow {
-                            name: TYPE_ERROR_NAME,
+                            name: NativeErrorKind::TypeError,
                             message: "yield star throw result must be object",
                         },
                     ))
@@ -25600,8 +25632,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 if let Some(key_arg) = args.get(1) {
                     if let ExprIr::String(key) = &key_arg.expr {
-                        let is_species_symbol =
-                            key_arg.kind == ValueKind::Symbol && key == "Symbol.species";
+                        let is_species_symbol = key_arg.kind == ValueKind::Symbol
+                            && WellKnownSymbol::from_description(key)
+                                == Some(WellKnownSymbol::Species);
                         let species_getter = if is_species_symbol
                             && target
                                 .function_targets
@@ -27464,7 +27497,7 @@ impl<'a> ScriptLowerer<'a> {
         };
         let Some(species_info) = self.read_object_shape(
             &TypedExpr::from_info(constructor_info, ExprIr::Undefined),
-            "Symbol.species",
+            WellKnownSymbol::Species.description(),
         ) else {
             return;
         };
@@ -27525,7 +27558,7 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(constructor_info) = self.read_object_shape(receiver, "constructor") {
             if let Some(species_info) = self.read_object_shape(
                 &TypedExpr::from_info(constructor_info, ExprIr::Undefined),
-                "Symbol.species",
+                WellKnownSymbol::Species.description(),
             ) {
                 if !species_info.possible_kinds.is_subset_of(
                     KindSet::from_kind(ValueKind::Undefined)
@@ -28149,10 +28182,10 @@ impl<'a> ScriptLowerer<'a> {
                             // See the computed data-property case: a
                             // well-known-symbol method is a statically known key,
                             // so it belongs in the tracked shape.
-                            match &well_known_key {
-                                Some(name) => {
+                            match well_known_key {
+                                Some(symbol) => {
                                     shape.properties.insert(
-                                        Self::symbol_shape_property_name(name),
+                                        shape_namespace_key(symbol),
                                         ObjectShapeProperty::Data(function.value_info()),
                                     );
                                 }
@@ -28204,10 +28237,10 @@ impl<'a> ScriptLowerer<'a> {
                     // symbol namespace, so no string-keyed read can reach it —
                     // so ToPrimitive inference sees the hook instead of
                     // concluding the object has no hooks and always stringifies.
-                    match &well_known_key {
-                        Some(name) => {
+                    match well_known_key {
+                        Some(symbol) => {
                             shape.properties.insert(
-                                Self::symbol_shape_property_name(name),
+                                shape_namespace_key(symbol),
                                 ObjectShapeProperty::Data(lowered.value_info()),
                             );
                         }
@@ -28248,10 +28281,9 @@ impl<'a> ScriptLowerer<'a> {
             .is_subset_of(KindSet::from_kind(ValueKind::Symbol))
     }
 
-    /// Shape-map name for a well-known-symbol key such as `Symbol.toPrimitive`.
-    fn symbol_shape_property_name(symbol_name: &str) -> String {
-        format!("{SYMBOL_SHAPE_PROPERTY_PREFIX}{symbol_name}")
-    }
+    // The shape-map name for a well-known-symbol key used to be built here from
+    // a `&str`, so any string at all could be given the symbol namespace. It is
+    // now `well_known::shape_namespace_key`, which takes a `WellKnownSymbol`.
 
     /// Records a *string*-keyed property in a tracked shape. A key inside the
     /// symbol namespace is left untracked rather than written, so it can never
@@ -28321,40 +28353,18 @@ impl<'a> ScriptLowerer<'a> {
                     (access.target(), access.field())
                 {
                     let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    let target_is_builtin_symbol = target_name == "Symbol"
-                        && self.active_with_objects.is_empty()
-                        && self.lookup_binding(&target_name).is_none()
-                        && self
-                            .lookup_global_property_info(&target_name)
-                            .is_some_and(|property| {
-                                property.proven_present
-                                    && property.source == GlobalPropertySource::Builtin
-                            });
-                    let symbol_name = self.interner.resolve_expect(field.sym()).to_string();
-                    if target_is_builtin_symbol
-                        && matches!(
-                            symbol_name.as_str(),
-                            "asyncDispose"
-                                | "asyncIterator"
-                                | "dispose"
-                                | "hasInstance"
-                                | "species"
-                                | "isConcatSpreadable"
-                                | "iterator"
-                                | "match"
-                                | "matchAll"
-                                | "replace"
-                                | "search"
-                                | "split"
-                                | "toStringTag"
-                                | "toPrimitive"
-                                | "unscopables"
-                        )
-                    {
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Symbol),
-                            ExprIr::String(format!("Symbol.{symbol_name}")),
-                        );
+                    let member_name = self.interner.resolve_expect(field.sym()).to_string();
+                    // The runtime encoding of a well-known symbol *value*: its
+                    // 6.1.5.1 Table 1 [[Description]], carried as a string whose
+                    // `ValueKind::Symbol` is what distinguishes it from an
+                    // ordinary string of the same text.
+                    if self.expression_is_builtin_symbol_intrinsic(&target_name) {
+                        if let Some(symbol) = WellKnownSymbol::from_member_name(&member_name) {
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::Symbol),
+                                ExprIr::String(symbol.description().to_string()),
+                            );
+                        }
                     }
                 }
                 let target = self.lower_property_target(access.target());
@@ -28457,10 +28467,10 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                         } else if let PropertyAccessField::Expr(expr) = access.field() {
-                            if let Some((symbol_name, symbol_key)) =
+                            if let Some((symbol, symbol_key)) =
                                 self.lower_well_known_symbol_property_key(expr)
                             {
-                                if symbol_name == "Symbol.toPrimitive" {
+                                if symbol == WellKnownSymbol::ToPrimitive {
                                     TypedExpr::from_info(
                                         Self::standard_builtin_value_info(
                                             StandardBuiltinId::SymbolPrototypeToPrimitive,
@@ -28838,7 +28848,7 @@ impl<'a> ScriptLowerer<'a> {
     fn optional_chain_well_known_symbol_property_info(
         &self,
         receiver: &ValueInfo,
-        key: &str,
+        key: WellKnownSymbol,
     ) -> Option<ValueInfo> {
         let constructor_name = match receiver
             .possible_kinds
@@ -28863,11 +28873,11 @@ impl<'a> ScriptLowerer<'a> {
         };
         if let Some(property) = constructor_name.and_then(|constructor_name| {
             self.well_known_symbol_prototype_properties
-                .get(&(constructor_name.to_string(), key.to_string()))
+                .get(&(constructor_name.to_string(), key))
         }) {
             return Some(property.clone());
         }
-        self.optional_chain_static_property_info(receiver, key)
+        self.optional_chain_static_property_info(receiver, key.description())
     }
 
     fn optional_chain_call_info(
@@ -29154,36 +29164,15 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn is_error_prototype_expr(&self, expr: &TypedExpr) -> bool {
-        [
-            ERROR_NAME,
-            EVAL_ERROR_NAME,
-            AGGREGATE_ERROR_NAME,
-            SUPPRESSED_ERROR_NAME,
-            RANGE_ERROR_NAME,
-            SYNTAX_ERROR_NAME,
-            TYPE_ERROR_NAME,
-            URI_ERROR_NAME,
-            REFERENCE_ERROR_NAME,
-        ]
-        .into_iter()
-        .any(|name| self.is_builtin_property_expr(expr, name, "prototype"))
-    }
+    // `is_error_prototype_expr` used to sit here: a second hand-kept nine-row
+    // list of the same closed domain, with zero call sites anywhere in the
+    // workspace. AGENTS.md: code unreachable from the product path should fail
+    // to build, not merely fail to run. It was deleted rather than migrated.
 
     fn is_error_constructor_expr(&self, expr: &TypedExpr) -> bool {
-        [
-            ERROR_NAME,
-            EVAL_ERROR_NAME,
-            AGGREGATE_ERROR_NAME,
-            SUPPRESSED_ERROR_NAME,
-            RANGE_ERROR_NAME,
-            SYNTAX_ERROR_NAME,
-            TYPE_ERROR_NAME,
-            URI_ERROR_NAME,
-            REFERENCE_ERROR_NAME,
-        ]
-        .into_iter()
-        .any(|name| self.is_builtin_reference_expr(expr, name))
+        NativeErrorKind::ALL
+            .into_iter()
+            .any(|kind| self.is_builtin_reference_expr(expr, kind.as_str()))
     }
 
     fn property_access_field_is_proven_numeric(&self, field: &PropertyAccessField) -> bool {
@@ -29259,7 +29248,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_static_property_key(&mut self, expr: &Expression) -> Option<PropertyKeyIr> {
         let key = self.try_static_string_key(expr)?;
-        if key.starts_with("Symbol.") {
+        if is_symbol_description(&key) {
             let lowered = self.lower_expression(expr);
             if lowered.kind == ValueKind::Symbol {
                 return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
@@ -29271,13 +29260,13 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_well_known_symbol_property_key(
         &mut self,
         expr: &Expression,
-    ) -> Option<(String, PropertyKeyIr)> {
-        let symbol_name = self.try_well_known_symbol_key_name(expr)?;
+    ) -> Option<(WellKnownSymbol, PropertyKeyIr)> {
+        let symbol = self.try_well_known_symbol_key_name(expr)?;
         let lowered = self.lower_expression(expr);
         if lowered.kind != ValueKind::Symbol {
             return None;
         }
-        Some((symbol_name, PropertyKeyIr::StringExpr(Box::new(lowered))))
+        Some((symbol, PropertyKeyIr::StringExpr(Box::new(lowered))))
     }
 
     fn spec_get_v_operand_from_property_key(key: &PropertyKeyIr) -> Option<TypedExpr> {
@@ -30025,7 +30014,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported array dot access");
         };
-        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
@@ -30153,7 +30142,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported string access");
         };
-        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::StringPrototypeIterator),
@@ -30245,7 +30234,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported arguments access");
         };
-        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
@@ -30896,7 +30885,7 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: BTreeSet::new(),
             },
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 message: "function call assignment target",
             },
         )
@@ -30915,7 +30904,7 @@ impl<'a> ScriptLowerer<'a> {
                             function_targets: BTreeSet::new(),
                         },
                         ExprIr::RuntimeThrow {
-                            name: TYPE_ERROR_NAME,
+                            name: NativeErrorKind::TypeError,
                             message: "assignment to immutable class name",
                         },
                     );
@@ -30942,7 +30931,7 @@ impl<'a> ScriptLowerer<'a> {
                         function_targets: BTreeSet::new(),
                     },
                     ExprIr::RuntimeThrow {
-                        name: TYPE_ERROR_NAME,
+                        name: NativeErrorKind::TypeError,
                         message: "assignment to immutable binding",
                     },
                 );
@@ -32684,7 +32673,7 @@ impl<'a> ScriptLowerer<'a> {
                             TypedExpr::from_info(
                                 value.value_info(),
                                 ExprIr::RuntimeThrow {
-                                    name: TYPE_ERROR_NAME,
+                                    name: NativeErrorKind::TypeError,
                                     message: "Cannot create property on symbol",
                                 },
                             )
@@ -33875,20 +33864,34 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let order: &[&str] = match hint {
-            ToPrimitiveHint::String => &["Symbol.toPrimitive", "toString", "valueOf"],
-            ToPrimitiveHint::Default | ToPrimitiveHint::Number => {
-                &["Symbol.toPrimitive", "valueOf", "toString"]
-            }
+        // 7.1.1 ToPrimitive step 2 looks up `@@toPrimitive` first, then
+        // OrdinaryToPrimitive tries the two ordinary method names in a
+        // hint-dependent order. The *order* is the spec obligation and the
+        // *kinds* differ, so the list is typed rather than three bare strings.
+        let order: &[ToPrimitiveLookupKey; 3] = match hint {
+            ToPrimitiveHint::String => &[
+                ToPrimitiveLookupKey::Symbol(WellKnownSymbol::ToPrimitive),
+                ToPrimitiveLookupKey::Method("toString"),
+                ToPrimitiveLookupKey::Method("valueOf"),
+            ],
+            ToPrimitiveHint::Default | ToPrimitiveHint::Number => &[
+                ToPrimitiveLookupKey::Symbol(WellKnownSymbol::ToPrimitive),
+                ToPrimitiveLookupKey::Method("valueOf"),
+                ToPrimitiveLookupKey::Method("toString"),
+            ],
         };
         for key in order {
-            // `Symbol.toPrimitive` is a symbol key: object literals record it in
-            // the symbol namespace, while the intrinsic wrapper shapes still use
-            // the bare name. Accept either spelling.
-            let entry = shape
-                .properties
-                .get(&Self::symbol_shape_property_name(key))
-                .or_else(|| shape.properties.get(*key));
+            let entry = match key {
+                // A symbol key has two spellings in the shape maps: object
+                // literals record it under the symbol namespace, while the
+                // intrinsic wrapper shapes still use the bare description.
+                // Accept either.
+                ToPrimitiveLookupKey::Symbol(symbol) => shape
+                    .properties
+                    .get(&shape_namespace_key(*symbol))
+                    .or_else(|| shape.properties.get(symbol.description())),
+                ToPrimitiveLookupKey::Method(name) => shape.properties.get(*name),
+            };
             let Some(ObjectShapeProperty::Data(info)) = entry else {
                 continue;
             };
@@ -33972,9 +33975,12 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 Some(self.interner.resolve_expect(*sym).to_string())
             }
-            Expression::PropertyAccess(PropertyAccess::Simple(_)) => {
-                self.try_well_known_symbol_key_name(expr)
-            }
+            // A well-known symbol is not a string key, but this compiler encodes
+            // its value as its [[Description]]; `lower_static_property_key` is
+            // what re-separates the two, via `is_symbol_description`.
+            Expression::PropertyAccess(PropertyAccess::Simple(_)) => self
+                .try_well_known_symbol_key_name(expr)
+                .map(|symbol| symbol.description().to_string()),
             _ => None,
         }
     }
@@ -33991,7 +33997,34 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn try_well_known_symbol_key_name(&self, expr: &Expression) -> Option<String> {
+    /// Whether `target_name` names the real builtin `Symbol` intrinsic here.
+    ///
+    /// An active `with` scope, a shadowing lexical binding, or a global that is
+    /// not provably the builtin all make `Symbol.iterator` mean something this
+    /// compiler must not resolve statically. Both well-known-symbol paths ask
+    /// exactly this question; before this helper existed they asked it with two
+    /// byte-identical inline copies of the four clauses, ~5,700 lines apart.
+    fn expression_is_builtin_symbol_intrinsic(&self, target_name: &str) -> bool {
+        target_name == SYMBOL_NAME
+            && self.active_with_objects.is_empty()
+            && self.lookup_binding(target_name).is_none()
+            && self
+                .lookup_global_property_info(target_name)
+                .is_some_and(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                })
+    }
+
+    /// The well-known symbol `expr` denotes, if it is a static `Symbol.x` read
+    /// of the real intrinsic.
+    ///
+    /// This is the only parse of a well-known symbol out of source text.
+    /// `WellKnownSymbol::from_member_name` replaced the fifteen-element
+    /// `matches!` whitelist that used to live here, and the identical one that
+    /// used to live in `lower_property_access`; returning the enum rather than
+    /// an `Option<String>` is what makes a consumer that compares against a
+    /// misspelling `error[E0599]` instead of a silently dead fast path.
+    fn try_well_known_symbol_key_name(&self, expr: &Expression) -> Option<WellKnownSymbol> {
         let Expression::PropertyAccess(PropertyAccess::Simple(access)) = expr else {
             return None;
         };
@@ -33999,42 +34032,14 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-        if target_name != "Symbol"
-            || !self.active_with_objects.is_empty()
-            || self.lookup_binding(&target_name).is_some()
-            || !self
-                .lookup_global_property_info(&target_name)
-                .is_some_and(|property| {
-                    property.proven_present && property.source == GlobalPropertySource::Builtin
-                })
-        {
+        if !self.expression_is_builtin_symbol_intrinsic(&target_name) {
             return None;
         }
         let PropertyAccessField::Const(name) = access.field() else {
             return None;
         };
-        let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
-        if !matches!(
-            symbol_name.as_str(),
-            "asyncDispose"
-                | "asyncIterator"
-                | "dispose"
-                | "hasInstance"
-                | "species"
-                | "isConcatSpreadable"
-                | "iterator"
-                | "match"
-                | "matchAll"
-                | "replace"
-                | "search"
-                | "split"
-                | "toStringTag"
-                | "toPrimitive"
-                | "unscopables"
-        ) {
-            return None;
-        }
-        Some(format!("Symbol.{symbol_name}"))
+        let member_name = self.interner.resolve_expect(name.sym()).to_string();
+        WellKnownSymbol::from_member_name(&member_name)
     }
 
     fn static_parse_float_arg(&self, arg: Option<&Expression>) -> Option<f64> {
@@ -35148,19 +35153,31 @@ impl<'a> ScriptLowerer<'a> {
         }
         if key_is_symbol {
             if let ExprIr::String(symbol_name) = &key.expr {
-                if !symbol_name.starts_with("Symbol.") {
+                // Ledger entry R2, runtime half: a `ValueKind::Symbol` string is
+                // only ever produced by this compiler inside the symbol-value
+                // namespace. The namespace is open, so this cannot be a type;
+                // the three measured producers all emit a Table 1 description.
+                debug_assert!(
+                    is_symbol_description(symbol_name),
+                    "ValueKind::Symbol string outside the symbol-value namespace: {symbol_name}"
+                );
+                // Anything outside the fifteen — including a description this
+                // compiler never produces — takes the conservative branch that
+                // discards everything recorded for this intrinsic, which is
+                // strictly weaker inference and never a wrong answer.
+                let Some(symbol) = WellKnownSymbol::from_description(symbol_name) else {
                     self.well_known_symbol_prototype_properties
                         .retain(|(constructor_name, _), _| constructor_name != &root);
                     return true;
-                }
+                };
                 match value {
                     Some(value) => {
                         self.well_known_symbol_prototype_properties
-                            .insert((root, symbol_name.clone()), value.clone());
+                            .insert((root, symbol), value.clone());
                     }
                     None => {
                         self.well_known_symbol_prototype_properties
-                            .remove(&(root, symbol_name.clone()));
+                            .remove(&(root, symbol));
                     }
                 }
                 return true;
@@ -35958,8 +35975,8 @@ impl<'a> ScriptLowerer<'a> {
         for property in object.properties() {
             match property {
                 PropertyDefinition::Property(PropertyName::Computed(expr), value)
-                    if self.try_well_known_symbol_key_name(expr).as_deref()
-                        == Some("Symbol.iterator") =>
+                    if self.try_well_known_symbol_key_name(expr)
+                        == Some(WellKnownSymbol::Iterator) =>
                 {
                     if !self.is_static_undefined_expr(value)
                         && !matches!(
@@ -36163,7 +36180,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(field_expr) = field else {
             return None;
         };
-        if self.try_well_known_symbol_key_name(field_expr).as_deref() != Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(field_expr) != Some(WellKnownSymbol::Iterator) {
             return None;
         }
         let target_name = self.static_target_identifier_name(target)?;

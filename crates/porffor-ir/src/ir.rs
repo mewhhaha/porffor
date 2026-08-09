@@ -7,9 +7,9 @@ use porffor_front::ParseGoal;
 use crate::{
     ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CallableToStringRepresentation,
     CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp, HostBuiltinId, IrDiagnostic,
-    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NumericUpdateOp, RegExpProgram,
-    RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp,
-    UpdateReturnMode, GLOBAL_THIS_NAME,
+    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NativeErrorKind, NumericUpdateOp,
+    RegExpProgram, RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint,
+    UnaryNumericOp, UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
 
@@ -1557,8 +1557,16 @@ pub enum ExprIr {
         expected: Box<TypedExpr>,
         message: String,
     },
+    /// Throw a fresh instance of an error intrinsic, chosen at compile time.
+    ///
+    /// `name` is a [`NativeErrorKind`] rather than a `&'static str` so that a
+    /// misspelt or invented error name is `error[E0308]` at the construction
+    /// site instead of a value that falls through the backend's
+    /// name-to-prototype table to `%Object.prototype%` — a thrown value for
+    /// which `e instanceof TypeError` is `false` and `e.message` is
+    /// `undefined`, with no diagnostic.
     RuntimeThrow {
-        name: &'static str,
+        name: NativeErrorKind,
         message: &'static str,
     },
     CallIndirect {
