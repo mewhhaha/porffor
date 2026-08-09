@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "intl402/DateTimeFormat/taint-Object-prototype.js",
-      "duration_ms": 100335
+      "duration_ms": 71684
     }
   ],
   "timeout_list": [],
@@ -37,10 +37,10 @@
       "test_path": "intl402/DateTimeFormat/taint-Object-prototype.js",
       "kind": "Runtime",
       "outcome": "Bug",
-      "origin": "unknown",
-      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[32] (3615449 bytes, 154 locals); most locals: wasm[0]::function[33] (146960 bytes, 231 locals)",
-      "detail_hash": 6323532177924219771,
-      "duration_ms": 100335
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@5392904)",
+      "detail_hash": 8411581577757600785,
+      "duration_ms": 71684
     }
   ],
   "completed_paths": [

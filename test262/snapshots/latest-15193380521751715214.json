@@ -28,7 +28,7 @@
   "slowest_tests": [
     {
       "path": "intl402/DateTimeFormat/date-time-options.js",
-      "duration_ms": 172224
+      "duration_ms": 100537
     }
   ],
   "timeout_list": [],
@@ -38,9 +38,9 @@
       "kind": "Runtime",
       "outcome": "Bug",
       "origin": "unknown",
-      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[30] (3615449 bytes, 154 locals); most locals: wasm[0]::function[31] (146960 bytes, 231 locals)",
-      "detail_hash": 11689492932957648534,
-      "duration_ms": 172224
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Function toLocaleString did not return expected string for locales , options undefined; expected one of 1/1/1970, 12:00:00 AM,Thu, 1/1/1970, 12:00:00 AM, got Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time). Expected SameValue(-1, -1) to be false)",
+      "detail_hash": 4497005076457373667,
+      "duration_ms": 100537
     }
   ],
   "completed_paths": [
