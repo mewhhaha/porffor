@@ -32446,12 +32446,14 @@ impl<'a> ScriptLowerer<'a> {
             _ => return self.unsupported_expr("property access on non-object target"),
         };
         self.update_written_shape(access.target(), &key, &value.value_info());
+        let strictness = self.reference_strictness();
         TypedExpr::from_info(
             value.value_info(),
             ExprIr::PropertyWrite {
                 target: Box::new(target),
                 key,
                 value: Box::new(value),
+                strictness,
             },
         )
     }
@@ -32569,12 +32571,14 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         }
                         self.update_written_shape(access.target(), &key, &value.value_info());
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32600,12 +32604,14 @@ impl<'a> ScriptLowerer<'a> {
                             self.array_prototype_mutated = true;
                         }
                         self.update_written_shape(access.target(), &key, &value.value_info());
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32637,12 +32643,14 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         };
                         let value = self.lower_expression(rhs);
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32699,12 +32707,14 @@ impl<'a> ScriptLowerer<'a> {
                             self.number_prototype_split_is_string_split =
                                 self.is_string_prototype_property_expr(rhs, "split");
                         }
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32757,11 +32767,13 @@ impl<'a> ScriptLowerer<'a> {
                     return TypedExpr::undefined();
                 };
                 let value = self.lower_expression(rhs);
+                let strictness = self.reference_strictness();
                 TypedExpr::from_info(
                     value.value_info(),
                     ExprIr::SuperPropertyWrite {
                         key,
                         value: Box::new(value),
+                        strictness,
                     },
                 )
             }
