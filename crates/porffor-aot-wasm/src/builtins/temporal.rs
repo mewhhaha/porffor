@@ -1,6 +1,7 @@
 use super::super::*;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
 use super::temporal_plain_date::TemporalCalendarId;
+use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
 
 /// The three options `Temporal.ZonedDateTime.from` reads, in read order.
 ///
@@ -6819,13 +6820,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_partial_date_rewrite_string(0, true, normalized_local, &mut function)?;
+        self.emit_temporal_partial_date_rewrite_string(
+            0,
+            TemporalPartialDateRewrite::YearMonth,
+            normalized_local,
+            &mut function,
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(1));
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_month_day_rewrite_string(0, normalized_local, &mut function)?;
+        // `None`: this is a calendar *probe*, not `ToTemporalMonthDay`. It
+        // reports the annotation a candidate string carries and its caller
+        // discards a `Throw` completion, so it must not acquire the step (g)
+        // and (k) RangeErrors that depend on `result.[[Year]] is empty`.
+        self.emit_temporal_month_day_rewrite_string(0, normalized_local, None, &mut function)?;
         function.instruction(&Instruction::End);
 
         self.emit_temporal_parse_plain_date_string(

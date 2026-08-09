@@ -65,9 +65,10 @@ pub(crate) use emit::{
     BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder, IteratorCloseOnThrowLocals,
     LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
 };
+pub use emitted_function::EmittedFunctionSummary;
 pub(crate) use emitted_function::{
-    emit_size_report_requested, format_declared_locals, EmittedFunction, FunctionBodyBudget,
-    FunctionBodySize, FunctionIdentity, ModuleCode,
+    emit_size_report_requested, write_size_report_file_if_requested, EmittedFunction,
+    FunctionBodyBudget, FunctionBodySize, FunctionIdentity, ModuleCode,
 };
 use heap::*;
 use intrinsics::*;
@@ -279,6 +280,145 @@ mod tests {
             "{}",
             artifact.debug_dump
         );
+    }
+
+    /// The typed per-function report is populated on every emission, and it
+    /// agrees with the `largest emitted function:` line the golden capture
+    /// already records — because both come from one traversal of
+    /// `ModuleFunctionTable`.
+    ///
+    /// Agreement is the whole assertion. Two independently-maintained size
+    /// reports are how `runtime helper functions: 27` came to disagree with a
+    /// counted 32 + 1, and a report that is merely *present* proves nothing.
+    #[test]
+    fn report_is_written_for_every_emit_path() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+        assert!(
+            !artifact.function_sizes.is_empty(),
+            "every emitted module has at least `porffor::main`"
+        );
+
+        // Independent witness: the number of typed rows must equal the number
+        // of code-section entries actually in the encoded module.
+        let mut code_entries = 0usize;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            if let Payload::CodeSectionEntry(_) = payload.expect("module should parse") {
+                code_entries += 1;
+            }
+        }
+        assert_eq!(artifact.function_sizes.len(), code_entries);
+
+        let largest = artifact
+            .function_sizes
+            .iter()
+            .max_by_key(|summary| summary.body_bytes)
+            .expect("a non-empty report has a largest entry");
+        let line = artifact
+            .debug_dump
+            .lines()
+            .find(|line| line.starts_with("largest emitted function: "))
+            .expect("debug_dump should attribute the largest emitted body");
+        assert!(
+            line.ends_with(&format!(" name={}", largest.name)),
+            "typed report says {} but debug_dump says {line}",
+            largest.name
+        );
+        assert!(
+            line.contains(&format!(" bytes={} ", largest.body_bytes)),
+            "typed report says {} bytes but debug_dump says {line}",
+            largest.body_bytes
+        );
+        assert!(
+            line.contains(&format!(" index={} ", largest.wasm_index)),
+            "typed report says index {} but debug_dump says {line}",
+            largest.wasm_index
+        );
+
+        // The category comes from `FunctionIdentity::category`, an exhaustive
+        // match, so this also pins that a bootstrap module's biggest body is
+        // still classified rather than falling into some unnamed bucket.
+        assert!(
+            [
+                "main",
+                "script",
+                "builtin",
+                "builtin-stub",
+                "host-builtin",
+                "runtime-helper"
+            ]
+            .contains(&largest.category),
+            "unclassified category {}",
+            largest.category
+        );
+    }
+
+    /// A user function that does one dynamic-key property read must not carry a
+    /// six-figure body.
+    ///
+    /// The probe is the exact text measured on this tree on 2026-08-09 with
+    /// `PORFFOR_WASM_DUMP=... porf build wasm` plus a code-section/`name`-section
+    /// read-back. Ablation of that same probe, one line at a time:
+    ///
+    /// | probe body | `js::probe#f0` |
+    /// |---|---|
+    /// | `return 0;` | 2,215 |
+    /// | `var A = k.split('-'); return A.length;` | 14,754 |
+    /// | ... plus `x = A[0];` (static index) | 14,911 |
+    /// | ... plus `x = A[i];` (**this probe**) | **87,101** |
+    /// | ... plus a second `y = A[j];` | 159,811 |
+    ///
+    /// So one dynamic key costs `(159,811 - 14,754) / 2 = 72,528` bytes and the
+    /// floor for this probe once ToPropertyKey/ToPrimitive are outlined is the
+    /// 14,754-byte row plus a call. The budget is set at 30,000: comfortably
+    /// above that floor, less than half of the pre-split 87,101, so it is RED
+    /// before the split and GREEN after without being a tripwire on ordinary
+    /// drift.
+    ///
+    /// It asserts on a **named** function. Asserting on the largest body in the
+    /// module would be vacuous: in any bootstrap-heavy module that is a builtin
+    /// (`builtin::Object.defineProperty`, 375,534 bytes in this very probe),
+    /// which stays green while the user function regresses by an order of
+    /// magnitude.
+    ///
+    /// Note the module contains *two* bodies for this function —
+    /// `js::probe#f0` and `js::probe#f0$exact_helper_context$0` — so the check
+    /// is over every body whose name starts with the function's name, and it
+    /// requires at least one to exist rather than passing on an empty set.
+    #[test]
+    fn emitted_function_bodies_stay_under_budget() {
+        const PROBE: &str = "function probe(k, i, j) {\n  \
+             var A = k.split('-');\n  \
+             var x = '';\n  \
+             x = A[i];\n  \
+             return x;\n\
+             }\n\
+             print(probe('a-b-c', 0, 1));\n";
+        const BUDGET_BYTES: u32 = 30_000;
+
+        let artifact = emit_script(PROBE).expect("probe script should emit");
+        let probe_bodies = artifact
+            .function_sizes
+            .iter()
+            .filter(|summary| summary.name.starts_with("js::probe#"))
+            .collect::<Vec<_>>();
+        assert!(
+            !probe_bodies.is_empty(),
+            "the probe function must be emitted, or this budget is vacuous: {:?}",
+            artifact
+                .function_sizes
+                .iter()
+                .map(|summary| summary.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        for body in probe_bodies {
+            assert!(
+                body.body_bytes <= BUDGET_BYTES,
+                "{} is {} bytes against a budget of {BUDGET_BYTES}; \
+                 one dynamic-key property read should not cost a six-figure body",
+                body.name,
+                body.body_bytes
+            );
+        }
     }
 
     #[test]

@@ -47,6 +47,24 @@ use crate::runtime_helpers::RuntimeHelperId;
 /// module.
 pub(crate) const EMIT_SIZE_REPORT_ENV: &str = "PORFFOR_EMIT_SIZE_REPORT";
 
+/// Environment variable naming a file the *full* per-function size report is
+/// written to, one `emitted function: key=value ...` line per emitted body.
+///
+/// [`EMIT_SIZE_REPORT_ENV`] only appends the report to
+/// `WasmArtifact::debug_dump`, and that string has exactly one printer in the
+/// workspace (`porffor-engine`, gated on `PORFFOR_WASM_TRACE_DUMP`) which for
+/// most of this compiler's life was unreachable from `porf build wasm` and from
+/// the Test262 wasm-aot backend. A caller could therefore set the report
+/// variable, see nothing, and read that as "no large functions" rather than as
+/// "the dump was dropped". This variable is honoured **inside `emit()`**, so no
+/// engine or CLI caller can drop it.
+///
+/// One thing it cannot see: the engine's program-Wasm cache. On a cache hit
+/// `emit()` is never called, so the file still holds the report of the last
+/// *emission*, not of the last run. Delete the file first if that distinction
+/// matters.
+pub(crate) const EMIT_SIZE_REPORT_PATH_ENV: &str = "PORFFOR_EMIT_SIZE_REPORT_PATH";
+
 /// Environment variable holding a per-function body-size budget in bytes.
 ///
 /// Deliberately opt-in. A budget set below the largest body Cranelift accepts
@@ -223,10 +241,106 @@ impl FunctionLocalCount {
 ///
 /// `unknown` rather than `0`, so "the decoder does not understand this body"
 /// cannot be mistaken for "this body declares no locals".
-pub(crate) fn format_declared_locals(locals: Option<FunctionLocalCount>) -> String {
+fn format_declared_locals(locals: Option<u32>) -> String {
     match locals {
-        Some(locals) => locals.count().to_string(),
+        Some(locals) => locals.to_string(),
         None => "unknown".to_string(),
+    }
+}
+
+/// One emitted function, as the size report sees it.
+///
+/// This is the typed form of a `report_lines` row, and it is the *only* form:
+/// `WasmArtifact::function_sizes`, the `largest emitted function:` line, the
+/// `most locals in an emitted function:` line and the full opt-in report are
+/// all rendered from one [`ModuleFunctionTable::summaries`] call, so they
+/// cannot disagree with each other. The precedent for insisting on that is the
+/// `runtime helper functions: 27` literal in `debug_dump`, which had drifted to
+/// a counted truth of 32 + 1 precisely because it was a second copy.
+///
+/// [`Self::category`] is `&'static str` sourced from
+/// [`FunctionIdentity::category`], an exhaustive match with no `_` arm, so a new
+/// class of emitted function fails to build until it is named — the report
+/// cannot silently acquire an `other` bucket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmittedFunctionSummary {
+    pub wasm_index: u32,
+    pub name: String,
+    pub category: &'static str,
+    pub body_bytes: u32,
+    /// `None` when the body's local declaration did not decode; see
+    /// [`FunctionLocalCount::decode`]. Rendered as `unknown`, never as `0`.
+    pub declared_locals: Option<u32>,
+}
+
+impl EmittedFunctionSummary {
+    /// The `key=value` field list shared by every line of the size report.
+    ///
+    /// `name=` is **last** on purpose: emitted names contain spaces
+    /// (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`), so
+    /// a positional layout could not be parsed back. `tests/emit_golden.rs`
+    /// parses exactly these keys out of `debug_dump`.
+    fn fields(&self) -> String {
+        format!(
+            "index={} bytes={} locals={} kind={} name={}",
+            self.wasm_index,
+            self.body_bytes,
+            format_declared_locals(self.declared_locals),
+            self.category,
+            self.name
+        )
+    }
+
+    /// The largest body among `summaries`.
+    ///
+    /// Iterates in code-section order and keeps the *last* maximum, which is
+    /// what `Iterator::max_by_key` does; the ordering is load-bearing only in
+    /// that it must not change, because `debug_dump` is a golden artifact
+    /// (rung G) and a re-ordered tie would show up as a spurious diff.
+    pub(crate) fn largest(summaries: &[Self]) -> Option<&Self> {
+        summaries.iter().max_by_key(|summary| summary.body_bytes)
+    }
+
+    /// The body declaring the most locals.
+    ///
+    /// Reported separately from [`Self::largest`] because they are often
+    /// different functions and it is this one that predicts Cranelift's
+    /// `CodeTooLarge`: the Wasm frontend materialises a value per live local at
+    /// every control-flow join, so virtual-register pressure tracks
+    /// `locals x blocks` rather than encoded size.
+    ///
+    /// `None` sorts below every `Some`, so a body whose declaration did not
+    /// decode can never be reported as the worst offender on the strength of a
+    /// number nobody knows.
+    pub(crate) fn most_locals(summaries: &[Self]) -> Option<&Self> {
+        summaries
+            .iter()
+            .max_by_key(|summary| summary.declared_locals)
+    }
+
+    /// One line per function, largest first, for the opt-in size report.
+    pub(crate) fn report_lines(summaries: &[Self], limit: usize) -> Vec<String> {
+        let mut ranked = summaries.iter().collect::<Vec<_>>();
+        ranked.sort_by(|left, right| {
+            right
+                .body_bytes
+                .cmp(&left.body_bytes)
+                .then(left.wasm_index.cmp(&right.wasm_index))
+        });
+        ranked
+            .into_iter()
+            .take(limit)
+            .map(|summary| format!("emitted function: {}", summary.fields()))
+            .collect()
+    }
+
+    /// The `largest emitted function:` / `most locals in an emitted function:`
+    /// line body, or the `none` fallback when nothing was emitted.
+    pub(crate) fn attribution_line(prefix: &str, summary: Option<&Self>) -> String {
+        match summary {
+            Some(summary) => format!("{prefix}: {}", summary.fields()),
+            None => format!("{prefix}: none"),
+        }
     }
 }
 
@@ -351,28 +465,31 @@ impl ModuleFunctionTable {
         names
     }
 
-    /// The largest body in the module. This is the function a `Code for
-    /// function is too large` failure is almost certainly about, and the whole
-    /// reason the table exists.
-    pub(crate) fn largest(&self) -> Option<&EmittedFunctionRecord> {
-        self.records.iter().max_by_key(|record| record.body_bytes)
-    }
-
-    /// The body declaring the most locals.
+    /// The one traversal.
     ///
-    /// Reported separately from [`Self::largest`] because they can be different
-    /// functions and it is this one that predicts `CodeTooLarge`: Cranelift's
-    /// Wasm frontend materialises a value per live local at every control-flow
-    /// join, so virtual-register pressure tracks `locals x blocks` rather than
-    /// encoded size.
+    /// Every size figure the compiler reports about itself — the typed
+    /// `WasmArtifact::function_sizes`, the two `debug_dump` attribution lines
+    /// and the opt-in full report — is derived from the slice this returns.
+    /// There is deliberately no second accessor that walks `records` for the
+    /// same question: two traversals is how the `runtime helper functions: 27`
+    /// literal came to disagree with the code section by five.
     ///
-    /// A body whose declaration did not decode ranks below every body that did,
-    /// so an undecodable record can never be reported as the worst offender on
-    /// the strength of a number nobody knows.
-    pub(crate) fn most_locals(&self) -> Option<&EmittedFunctionRecord> {
+    /// Order is code-section order, not size order. `report_lines` sorts a
+    /// borrowed view when it needs a ranking, so the stored order stays the one
+    /// that makes `wasm_index` monotonic.
+    pub(crate) fn summaries(&self) -> Vec<EmittedFunctionSummary> {
         self.records
             .iter()
-            .max_by_key(|record| record.declared_locals)
+            .map(|record| EmittedFunctionSummary {
+                wasm_index: record.wasm_index,
+                name: record.identity.wasm_name(),
+                category: record.identity.category(),
+                body_bytes: record.body_bytes.bytes(),
+                declared_locals: record
+                    .declared_locals
+                    .map(FunctionLocalCount::count),
+            })
+            .collect()
     }
 
     pub(crate) fn total_body_bytes(&self) -> u64 {
@@ -390,31 +507,6 @@ impl ModuleFunctionTable {
             .iter()
             .filter(|record| record.identity.is_runtime_helper())
             .count()
-    }
-
-    /// One line per function, largest first, for the opt-in size report.
-    pub(crate) fn report_lines(&self, limit: usize) -> Vec<String> {
-        let mut ranked = self.records.iter().collect::<Vec<_>>();
-        ranked.sort_by(|left, right| {
-            right
-                .body_bytes
-                .cmp(&left.body_bytes)
-                .then(left.wasm_index.cmp(&right.wasm_index))
-        });
-        ranked
-            .into_iter()
-            .take(limit)
-            .map(|record| {
-                format!(
-                    "emitted function: index={} bytes={} locals={} kind={} name={}",
-                    record.wasm_index,
-                    record.body_bytes.bytes(),
-                    format_declared_locals(record.declared_locals),
-                    record.identity.category(),
-                    record.identity.wasm_name()
-                )
-            })
-            .collect()
     }
 
     /// Fails the emission when any body exceeds `budget`.
@@ -481,6 +573,29 @@ pub(crate) fn emit_size_report_requested() -> bool {
     std::env::var_os(EMIT_SIZE_REPORT_ENV).is_some_and(|value| !value.is_empty())
 }
 
+/// Writes the full per-function size report to the file named by
+/// [`EMIT_SIZE_REPORT_PATH_ENV`], if that variable is set to a non-empty value.
+///
+/// Called from `emit()` itself rather than from any caller, which is the whole
+/// point: the `debug_dump` route has one printer several layers up and has been
+/// silently dropped on the two paths that matter most (`porf build wasm` and the
+/// Test262 wasm-aot backend). A failing write panics rather than being ignored —
+/// an empty or absent report file is exactly the ambiguity this exists to
+/// remove.
+pub(crate) fn write_size_report_file_if_requested(summaries: &[EmittedFunctionSummary]) {
+    let Some(path) = std::env::var_os(EMIT_SIZE_REPORT_PATH_ENV) else {
+        return;
+    };
+    if path.is_empty() {
+        return;
+    }
+    let mut report = EmittedFunctionSummary::report_lines(summaries, usize::MAX).join("\n");
+    report.push('\n');
+    std::fs::write(&path, report).unwrap_or_else(|err| {
+        panic!("failed to write the {EMIT_SIZE_REPORT_PATH_ENV} report to {path:?}: {err}")
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,12 +647,57 @@ mod tests {
             body(64),
         ));
         let (_, table) = code.finish();
-        let largest = table.largest().expect("table should not be empty");
+        let summaries = table.summaries();
+        let largest =
+            EmittedFunctionSummary::largest(&summaries).expect("table should not be empty");
+        assert_eq!(largest.name, "helper::object_read");
+        assert_eq!(largest.category, "runtime-helper");
+        assert!(table.total_body_bytes() >= u64::from(largest.body_bytes));
+    }
+
+    /// The typed report and the rendered report are the same traversal, so a
+    /// row can never appear in one and not the other, and the `largest`
+    /// attribution line can never name a function the table does not hold.
+    #[test]
+    fn the_report_and_the_typed_summaries_are_one_traversal() {
+        let mut code = ModuleCode::new(0);
+        code.push(EmittedFunction::new(FunctionIdentity::Main, body(1)));
+        code.push(EmittedFunction::new(
+            FunctionIdentity::RuntimeHelper(RuntimeHelperId::ObjectRead),
+            body(64),
+        ));
+        code.push(EmittedFunction::new(
+            FunctionIdentity::HostBuiltin(HostBuiltinId::Print),
+            body(8),
+        ));
+        let (_, table) = code.finish();
+        let summaries = table.summaries();
+        assert_eq!(summaries.len(), table.records().len());
         assert_eq!(
-            largest.identity,
-            FunctionIdentity::RuntimeHelper(RuntimeHelperId::ObjectRead)
+            summaries
+                .iter()
+                .map(|summary| summary.wasm_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2],
+            "summaries stay in code-section order"
         );
-        assert!(table.total_body_bytes() >= u64::from(largest.body_bytes.bytes()));
+
+        let lines = EmittedFunctionSummary::report_lines(&summaries, usize::MAX);
+        assert_eq!(lines.len(), summaries.len());
+        let largest =
+            EmittedFunctionSummary::largest(&summaries).expect("table should not be empty");
+        assert!(
+            lines[0].contains(&format!("name={}", largest.name)),
+            "the first report row and `largest` must be the same function: {lines:?}"
+        );
+        assert_eq!(
+            EmittedFunctionSummary::attribution_line("largest emitted function", Some(largest)),
+            format!("largest emitted function: {}", &lines[0]["emitted function: ".len()..]),
+        );
+        assert_eq!(
+            EmittedFunctionSummary::attribution_line("largest emitted function", None),
+            "largest emitted function: none"
+        );
     }
 
     #[test]

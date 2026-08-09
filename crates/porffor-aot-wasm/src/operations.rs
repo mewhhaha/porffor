@@ -2586,6 +2586,74 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The four tags whose `ToPrimitive` is more than a copy: everything else
+    /// is already a primitive and the composite's final `else` arm just moves
+    /// it. Leaves an i32 boolean on the stack.
+    fn emit_is_to_primitive_object_tag_i32(&self, tag_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        for kind in [ValueKind::Array, ValueKind::Arguments, ValueKind::Function] {
+            function.instruction(&Instruction::LocalGet(tag_local));
+            function.instruction(&Instruction::I64Const(kind.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+    }
+
+    /// The ToPrimitive seam. Returns `true` when the shared helper was called
+    /// and the caller must emit nothing further.
+    ///
+    /// The primitive fast path stays **inline**, copied from
+    /// `emit_value_to_string_payload`'s string fast path rather than invented:
+    /// only the four object-ish tags pay a call, and an already-primitive value
+    /// takes the same two `local.set`s the inline composite's final `else` arm
+    /// takes. Without that guard the common case at all sixteen call sites
+    /// would start paying a call, and a fixture's emitted bytes could *grow*.
+    ///
+    /// No throw propagation is emitted here, and that is not an omission.
+    /// `emit_tagged_to_primitive_locals` deliberately leaves abrupt completions
+    /// in its output locals for the caller to route — its own comment at the
+    /// ToPropertyKey call site says so — and every call site already follows it
+    /// with `emit_propagate_throw_from_locals_if_needed*` or
+    /// `emit_return_current_completion_if_throw`. `store_call_results` leaves
+    /// exactly the state the inline body leaves on a throw: the thrown value in
+    /// the output locals *and* in `result_local`/`result_tag_local`, with
+    /// `completion_local == THROW`. So the seam adopts the completion tuple,
+    /// needs no `extra_depth` parameter, and emits no branch of its own.
+    fn emit_value_to_primitive_via_helper_if_outlined(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input_payload_local: u32,
+        input_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> bool {
+        if !self.outline_value_to_primitive {
+            return false;
+        }
+        let Some(helper) = self.value_to_primitive_helper_function_index(hint) else {
+            return false;
+        };
+        self.emit_is_to_primitive_object_tag_i32(input_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::LocalGet(input_tag_local));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(payload_local, tag_local, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(input_tag_local));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::End);
+        true
+    }
+
     pub(crate) fn emit_tagged_to_primitive_locals(
         &mut self,
         hint: ToPrimitiveHint,
@@ -2595,6 +2663,16 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_value_to_primitive_via_helper_if_outlined(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        ) {
+            return Ok(());
+        }
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -2651,6 +2729,25 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Shares the ToPrimitive seam with [`Self::emit_tagged_to_primitive_locals`],
+    /// deliberately.
+    ///
+    /// The two inline bodies below are byte-identical today, and that is a
+    /// fact about this file rather than a guess: the only difference is which
+    /// wrapper each names (`emit_object_to_primitive_locals` versus
+    /// `..._without_throw_propagation`, and the same pair for the `Function`
+    /// arm), and each pair of wrappers forwards to
+    /// `emit_object_to_primitive_locals_inner` with *identical arguments*.
+    /// Neither wrapper propagates anything; the `_without_throw_propagation`
+    /// name records an intent the code stopped expressing. Sharing the seam is
+    /// therefore provably behaviour-preserving, and it takes the three call
+    /// sites of this variant (one inside `helper::value_to_numeric`, two in the
+    /// `Map`/`Set` key normalizations) off the inline composite too.
+    ///
+    /// Merging the two functions outright is the right end state and is
+    /// deliberately *not* done here: this lane could run no compiler, and
+    /// deleting a `pub(crate)` entry point is a change whose blast radius is
+    /// worth a `cargo check`.
     pub(crate) fn emit_tagged_to_primitive_locals_without_throw_propagation(
         &mut self,
         hint: ToPrimitiveHint,
@@ -2660,6 +2757,16 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_value_to_primitive_via_helper_if_outlined(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        ) {
+            return Ok(());
+        }
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -4503,6 +4610,51 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // The ToPropertyKey seam. 72,528 bytes per inline site, measured; every
+        // computed member access whose key is not statically a String or a
+        // Symbol reaches it.
+        //
+        // The property-key fast path stays inline, mirroring
+        // `emit_value_to_string_payload`. A String key is already a PropertyKey
+        // and needs nothing; a Symbol key needs only its marker bit, which is
+        // the same `i64.or` the inline body's Symbol arm emits. Everything else
+        // pays one call.
+        //
+        // The propagation is emitted *after* the `end` of the seam's `if`, at
+        // depth 0, so it keeps the `extra_depth = 0` this function has always
+        // passed — the same shape `emit_value_to_number_payload`'s seam uses.
+        if self.outline_value_to_property_key {
+            if let Some(helper) = self.value_to_property_key_helper_function_index() {
+                self.emit_is_property_key_i32(tag_local, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                for _ in 0..5 {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results(payload_local, tag_local, function);
+                function.instruction(&Instruction::End);
+                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                    payload_local,
+                    tag_local,
+                    0,
+                    function,
+                )?;
+                return Ok(());
+            }
+        }
+
         let primitive_payload_local = self.reserve_temp_local();
         let primitive_tag_local = self.reserve_temp_local();
 

@@ -1023,6 +1023,22 @@ pub struct Artifact {
     pub kind: ArtifactKind,
     pub bytes: Vec<u8>,
     pub description: String,
+    /// The backend's self-description for this artifact, empty for backends
+    /// that produce none.
+    ///
+    /// This field exists because dropping it was a real defect, not a
+    /// hypothetical one. `porffor_aot_wasm::emit` returns a `debug_dump`
+    /// carrying the emitted-size attribution (`largest emitted function: ...`
+    /// and, under `PORFFOR_EMIT_SIZE_REPORT`, one line per emitted body);
+    /// `emit_wasm_on_current_thread` used to build an `Artifact` that had
+    /// nowhere to put it and discarded it. The only printer of a dump,
+    /// `PORFFOR_WASM_TRACE_DUMP` in `run_with_wasm_aot_inner`, is reachable
+    /// only from `run_compiled_unit`, while `porf build wasm` and the Test262
+    /// wasm-aot backend both go through this path — so the variable named
+    /// "trace dump" printed nothing on exactly the two commands anyone would
+    /// use it from, and `PORFFOR_EMIT_SIZE_REPORT` silently reported nothing
+    /// for a whole batch of size work.
+    pub debug_dump: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1821,11 +1837,22 @@ impl Engine {
 
     fn emit_wasm_on_current_thread(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
         match porffor_aot_wasm::emit(&unit.ir) {
-            Ok(wasm) => Ok(Artifact {
-                kind: ArtifactKind::Wasm,
-                bytes: wasm.bytes,
-                description: wasm.invariant_note.to_string(),
-            }),
+            Ok(wasm) => {
+                // `porf build wasm` and the Test262 wasm-aot backend both reach
+                // emission through here and never through
+                // `run_with_wasm_aot_inner`, so this is where
+                // `PORFFOR_WASM_TRACE_DUMP` has to be honoured for the variable
+                // to mean what its name says.
+                if std::env::var_os("PORFFOR_WASM_TRACE_DUMP").is_some() {
+                    eprintln!("porffor wasm trace: artifact debug:\n{}", wasm.debug_dump);
+                }
+                Ok(Artifact {
+                    kind: ArtifactKind::Wasm,
+                    bytes: wasm.bytes,
+                    description: wasm.invariant_note.to_string(),
+                    debug_dump: wasm.debug_dump,
+                })
+            }
             Err(err) => Err(EngineError::new(format!(
                 "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
                 err
@@ -1839,6 +1866,8 @@ impl Engine {
                 kind: ArtifactKind::C,
                 bytes: c.source.into_bytes(),
                 description: "shared IR to C artifact".to_string(),
+                // The C backend produces no self-description today.
+                debug_dump: String::new(),
             }),
             Err(err) => Err(EngineError::new(err)),
         })
@@ -1858,6 +1887,8 @@ impl Engine {
                         "native artifact placeholder for {:?}",
                         native.target_triple
                     ),
+                    // The native backend produces no self-description today.
+                    debug_dump: String::new(),
                 }),
                 Err(err) => Err(EngineError::new(err)),
             },

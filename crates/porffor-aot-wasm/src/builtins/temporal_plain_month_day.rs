@@ -28,6 +28,40 @@ const TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR: i64 = 1972;
 const TEMPORAL_MONTH_DAY_MINIMUM_YEAR: i64 = -271_821;
 const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 
+/// The `[[Year]]` half of a `ParseTemporalMonthDayString` result: the parsed ISO
+/// year, plus whether the source actually carried one.
+///
+/// `ToTemporalMonthDay`'s string branch asks two questions of that pair and then
+/// throws the year away:
+///
+/// * step (g) — `result.[[Year]] is empty` and the calendar is not `iso8601` is
+///   a RangeError, which is what rejects `"11-18[u-ca=gregory]"`;
+/// * step (k) — a non-ISO calendar bounds the *parsed* date by
+///   `ISODateWithinLimits`, which is what rejects
+///   `"±999999-01-01[u-ca=gregory]"`.
+///
+/// Only then does step (l) replace the year with
+/// `TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR`. Both facts were previously
+/// unrecoverable by the time the reference year was stored, and both checks were
+/// simply absent; naming the pair is what stops them being droppable again.
+///
+/// The fields are private and there is no other constructor, so
+/// `emit_temporal_parse_month_day_string` is the only thing outside this
+/// module's own body that can produce one — the `ToTemporalCalendarIdentifier`
+/// probe in `temporal.rs` shares the rewrite but cannot mint this. Be precise
+/// about the limit: Rust privacy is per module, so a *third* function added to
+/// this file could still write the literal. What the type buys is that the only
+/// consumer, `emit_temporal_month_day_string_reference_year`, takes it by value
+/// and is also the only thing that stores the reference year. A string path that
+/// skips the checks therefore also skips the reference year and produces a
+/// visibly wrong `[[ISOYear]]`, rather than a correct-looking `PlainMonthDay`
+/// built from a string the spec rejects.
+#[must_use]
+pub(crate) struct TemporalParsedMonthDayYear {
+    year_local: u32,
+    year_present_local: u32,
+}
+
 impl<'a> FunctionBuilder<'a> {
     fn emit_temporal_month_day_overflow_option(
         &mut self,
@@ -624,15 +658,22 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.emit_temporal_parse_month_day_string(
+        let parsed = self.emit_temporal_parse_month_day_string(
             argument_payload_local,
             year_local,
+            year_present_local,
             month_local,
             day_local,
             calendar_payload_local,
             calendar_tag_local,
             function,
         )?;
+        // Step (f). `from/observable-get-overflow-argument-string-invalid.js`
+        // pins that a string the parser rejects reads no option at all, so this
+        // stays after the parse; `from/options-read-before-algorithmic-validation.js`
+        // pins that it happens before any further validation, so it stays before
+        // steps (g) and (k). `equals` arrives with `read_options: false` and
+        // still owes both RangeErrors, which is why they are not inside here.
         if read_options {
             self.emit_temporal_month_day_overflow_option(
                 options_payload_local,
@@ -641,10 +682,13 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
-        ));
-        function.instruction(&Instruction::LocalSet(year_local));
+        self.emit_temporal_month_day_string_reference_year(
+            parsed,
+            calendar_payload_local,
+            month_local,
+            day_local,
+            function,
+        )?;
         function.instruction(&Instruction::End);
 
         for local in [
@@ -718,24 +762,41 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `ParseTemporalMonthDayString`, via the shared bare-form rewrite.
+    ///
+    /// The rewrite prepends `1972` to the four year-less spellings, so after it
+    /// nothing downstream can tell `"--10-01"` from `"1972-10-01"`. That is why
+    /// the rewrite reports `result.[[Year]] is empty` into a slot here rather
+    /// than releasing it, and why this returns a
+    /// [`TemporalParsedMonthDayYear`] instead of `()`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_parse_month_day_string(
         &mut self,
         string_payload_local: u32,
         year_local: u32,
+        year_present_local: u32,
         month_local: u32,
         day_local: u32,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<TemporalParsedMonthDayYear, EmitError> {
         let rewritten_local = self.reserve_temp_local();
+        let year_empty_local = self.reserve_temp_local();
 
         self.emit_temporal_month_day_rewrite_string(
             string_payload_local,
             rewritten_local,
+            Some(year_empty_local),
             function,
         )?;
+        // The rewrite answers "the year is empty"; every consumer downstream
+        // asks "is the year present", the same polarity as the property-bag
+        // `*_present_local` flags. Invert once, here, so no consumer has to
+        // remember which way round the parser reports it.
+        function.instruction(&Instruction::LocalGet(year_empty_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(year_present_local));
         self.emit_temporal_parse_plain_date_string(
             rewritten_local,
             year_local,
@@ -746,7 +807,94 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        self.release_temp_local(year_empty_local);
         self.release_temp_local(rewritten_local);
+        Ok(TemporalParsedMonthDayYear {
+            year_local,
+            year_present_local,
+        })
+    }
+
+    /// `ToTemporalMonthDay` steps (g), (k) and (l) — the three things the string
+    /// branch does with the parsed `[[Year]]` before discarding it.
+    ///
+    /// Emitted in spec order, and the order is observable:
+    ///
+    /// * (g) `result.[[Year]] is empty` with a non-`iso8601` calendar is a
+    ///   RangeError. `"11-18[u-ca=gregory]"` is the case; `"11-18"` and
+    ///   `"--10-01"` are not, because step (i) returns for `iso8601` before this
+    ///   is reached, and that ISO gate is why `plainMonthDayStringsValid()`'s
+    ///   bare forms keep working.
+    /// * (k) a non-`iso8601` calendar bounds the parsed date by
+    ///   `ISODateWithinLimits`. `"±999999-01-01[u-ca=gregory]"` is the case;
+    ///   `"±999999-10-01[u-ca=iso8601]"` is explicitly *valid* and is the proof
+    ///   that this bound must stay behind the same ISO gate.
+    /// * (l) the stored `[[ISOYear]]` becomes the reference year 1972.
+    ///
+    /// Both checks are outside the caller's `if read_options` block: `equals`
+    /// reaches `ToTemporalMonthDay` with no options at all and
+    /// `prototype/equals/argument-string-invalid.js` still requires both
+    /// RangeErrors, while `from/options-read-before-algorithmic-validation.js`
+    /// requires the overflow read to happen first when there are options. The
+    /// caller therefore emits the option read between the parse and this.
+    ///
+    /// Taking the [`TemporalParsedMonthDayYear`] by value is the point: this is
+    /// also the only place the reference year is stored, so a future string path
+    /// that forgets to call this fails loudly on `[[ISOYear]]` instead of
+    /// quietly accepting a string the spec rejects.
+    fn emit_temporal_month_day_string_reference_year(
+        &mut self,
+        parsed: TemporalParsedMonthDayYear,
+        calendar_payload_local: u32,
+        month_local: u32,
+        day_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let TemporalParsedMonthDayYear {
+            year_local,
+            year_present_local,
+        } = parsed;
+
+        // (g) — non-ISO calendar and no year in the source.
+        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalGet(year_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Temporal.PlainMonthDay month-day string with a non-ISO calendar requires a year",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // (k) — non-ISO calendar: the parsed date, not the reference date, is
+        // what has to be representable. `ISODateWithinLimits`, not
+        // `ISOYearMonthWithinLimits`: the latter is the bag path's bound and
+        // disagrees on the two boundary days.
+        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let days_local = self.reserve_temp_local();
+        self.emit_temporal_iso_date_within_limits(
+            year_local,
+            month_local,
+            day_local,
+            days_local,
+            "Temporal.PlainMonthDay is outside the supported date range",
+            function,
+        )?;
+        self.release_temp_local(days_local);
+        function.instruction(&Instruction::End);
+
+        // (l) — the parsed year is never stored.
+        function.instruction(&Instruction::I64Const(
+            TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+        ));
+        function.instruction(&Instruction::LocalSet(year_local));
         Ok(())
     }
 

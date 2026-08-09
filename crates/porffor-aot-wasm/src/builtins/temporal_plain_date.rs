@@ -1565,9 +1565,69 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(adjusted_year_local);
     }
 
+    /// `ISODateWithinLimits`, on its own, as a RangeError carrying `message`.
+    ///
+    /// Extracted from [`Self::emit_temporal_reject_iso_date`] rather than
+    /// written again because `ToTemporalMonthDay` step (k) applies exactly this
+    /// bound to a *parsed* year that the month-day record will never store, and
+    /// a second copy of an epoch-day limit is a copy that drifts. It is
+    /// deliberately not `ISOYearMonthWithinLimits`: that bound is a pair of year
+    /// constants, and it answers wrongly on the two boundary days
+    /// `-271821-04-19` and `+275760-09-13`, which are inside the date range and
+    /// outside no year.
+    ///
+    /// `days_local` is a caller-owned scratch slot rather than one reserved
+    /// here, so that [`Self::emit_temporal_reject_iso_date`] can keep reserving
+    /// it in its original position. `reserve_temp_local` hands out
+    /// `base + depth`, so a reservation moved across the `RejectISODate` half
+    /// would renumber every local that half's nested emitters use — the
+    /// RangeError's own prototype slot among them — and the extraction would
+    /// stop being byte-identical for `Temporal.PlainDate`.
+    pub(crate) fn emit_temporal_iso_date_within_limits(
+        &mut self,
+        year_local: u32,
+        month_local: u32,
+        day_local: u32,
+        days_local: u32,
+        message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_plain_date_epoch_days(
+            year_local,
+            month_local,
+            day_local,
+            days_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(days_local));
+        function.instruction(&Instruction::I64Const(
+            TEMPORAL_PLAIN_DATE_MINIMUM_EPOCH_DAY,
+        ));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::LocalGet(days_local));
+        function.instruction(&Instruction::I64Const(
+            TEMPORAL_PLAIN_DATE_MAXIMUM_EPOCH_DAY,
+        ));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     /// `RejectISODate` followed by the `ISODateWithinLimits` check that
     /// `CreateTemporalDate` performs. Both failures are RangeErrors, so the
     /// two are fused into one guard.
+    ///
+    /// The second half is [`Self::emit_temporal_iso_date_within_limits`], which
+    /// `ToTemporalMonthDay` step (k) reaches without the `RejectISODate` half.
     pub(crate) fn emit_temporal_reject_iso_date(
         &mut self,
         year_local: u32,
@@ -1604,33 +1664,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_temporal_plain_date_epoch_days(
+        self.emit_temporal_iso_date_within_limits(
             year_local,
             month_local,
             day_local,
             days_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_DATE_MINIMUM_EPOCH_DAY,
-        ));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_DATE_MAXIMUM_EPOCH_DAY,
-        ));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
             "Temporal.PlainDate is outside the supported date range",
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.release_temp_local(days_local);
         self.release_temp_local(maximum_day_local);

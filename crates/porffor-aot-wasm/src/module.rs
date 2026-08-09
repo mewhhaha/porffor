@@ -1898,6 +1898,17 @@ pub struct WasmArtifact {
     pub bytes: Vec<u8>,
     pub invariant_note: &'static str,
     pub debug_dump: String,
+    /// Per-function attribution for every body in `bytes`, in code-section
+    /// order, always populated.
+    ///
+    /// Typed rather than parsed back out of `debug_dump`: the dump's full
+    /// report is opt-in behind `PORFFOR_EMIT_SIZE_REPORT` and its only printer
+    /// lives two crates away, so "how big is `js::probe#f0`?" was a question the
+    /// compiler could answer but no test could ask. It is derived from the same
+    /// single [`crate::emitted_function::ModuleFunctionTable::summaries`] call
+    /// that renders the `largest emitted function:` line, so the two cannot
+    /// disagree.
+    pub function_sizes: Vec<EmittedFunctionSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -287,6 +287,36 @@ pub(crate) struct FunctionBuilder<'a> {
     /// ordinary `[[Set]]`) instead of calling the shared helper. Set false only
     /// while compiling that helper itself. 174,558 bytes per inline site.
     pub(crate) outline_indexed_element_write: bool,
+    /// When false, `emit_tagged_to_primitive_locals` (and its
+    /// `_without_throw_propagation` twin) inline the whole ToPrimitive
+    /// composite — the `@@toPrimitive`/`valueOf`/`toString` hook chain plus the
+    /// Array/Arguments/Function arms — instead of calling the shared helper for
+    /// the hint. Set false only while compiling one of those helper bodies.
+    ///
+    /// **One flag for all three hints, deliberately.** Each hint has its own
+    /// body ([`RuntimeHelperId::helper_for`]), but clearing per-hint would let
+    /// the body of one hint's helper emit a call to another's, and this lane
+    /// could not run the compiler to prove that graph acyclic. One flag makes
+    /// "a ToPrimitive helper body contains no ToPrimitive call at all" a
+    /// property of the seam rather than of a call-graph argument; the cost is
+    /// that the three bodies each carry their own inline copy of any nested
+    /// composite, which is bounded because they are emitted once per module.
+    ///
+    /// Measured at 70,072 bytes per inline site (`x + y` on two operands of
+    /// unknown kind costs 140,144), and ~49 copies of it are 98.0% of the
+    /// 3,615,449-byte `js::canonicalizeLanguageTag#f46` body. See
+    /// [`RuntimeHelperId::ValueToPrimitiveDefault`] for the measurement and how
+    /// to reproduce it.
+    pub(crate) outline_value_to_primitive: bool,
+    /// When false, `emit_value_to_property_key_locals` inlines ToPropertyKey
+    /// (ToPrimitive with the string hint, then the symbol-marker/ToString
+    /// split) instead of calling the shared helper. Set false only while
+    /// compiling that helper itself.
+    ///
+    /// 72,528 bytes per inline site, of which the ToPrimitive composite above
+    /// is 70,072; every computed member access whose key is not statically a
+    /// String or a Symbol reaches it.
+    pub(crate) outline_value_to_property_key: bool,
     /// Controls whether the shared object-write helper emits receiver-side
     /// ordinary data writes as calls to their dedicated runtime helper. Other
     /// builders keep these writes inline so only the repeated copies inside the
@@ -1468,6 +1498,54 @@ fn emit_script_with_forced_builtins(
             builder.compile_indexed_element_write_helper()
         })
         .transpose()?;
+    // One ToPrimitive body per hint, built from the closed `ToPrimitiveHint`
+    // domain rather than from three copied blocks, so a fourth hint is a
+    // compile error in `RuntimeHelperId::helper_for` and not a missing body
+    // here. `BTreeMap` keys them by helper id, so the order of this loop does
+    // not decide the order they are written in — `RuntimeHelperId::ALL` does.
+    let mut value_to_primitive_helper_functions: BTreeMap<RuntimeHelperId, Function> =
+        BTreeMap::new();
+    if uses_heap {
+        for hint in [
+            ToPrimitiveHint::Default,
+            ToPrimitiveHint::Number,
+            ToPrimitiveHint::String,
+        ] {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            value_to_primitive_helper_functions.insert(
+                RuntimeHelperId::helper_for(hint),
+                builder.compile_value_to_primitive_helper(hint)?,
+            );
+        }
+    }
+    let value_to_property_key_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_value_to_property_key_helper()
+        })
+        .transpose()?;
     // Both Temporal calendar helpers are emitted whenever the heap is enabled,
     // with a stub body when no calendar-bearing Temporal builtin is compiled,
     // so their fixed function offsets never shift. Order matters: the probe
@@ -1681,6 +1759,24 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::IndexedElementWrite,
             indexed_element_write_helper_function
                 .expect("indexed element-write helper must exist when heap is enabled"),
+        );
+        for hint in [
+            ToPrimitiveHint::Default,
+            ToPrimitiveHint::Number,
+            ToPrimitiveHint::String,
+        ] {
+            let helper = RuntimeHelperId::helper_for(hint);
+            helper_bodies.insert(
+                helper,
+                value_to_primitive_helper_functions
+                    .remove(&helper)
+                    .expect("every ToPrimitive hint helper must exist when heap is enabled"),
+            );
+        }
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToPropertyKey,
+            value_to_property_key_helper_function
+                .expect("to-property-key helper must exist when heap is enabled"),
         );
         if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
             helper_bodies.insert(
@@ -2099,43 +2195,51 @@ fn emit_script_with_forced_builtins(
     // nothing here changes it, and the engine-side attribution is deliberately
     // index-only so that it cannot change it either.)
     //
-    // Both lines use the `key=value` shape `ModuleFunctionTable::report_lines`
+    // Both lines use the `key=value` shape `EmittedFunctionSummary::report_lines`
     // uses, with `name=` **last**. Emitted names contain spaces
     // (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`,
     // `get #private`), so a positional layout cannot be parsed back: putting the
     // free-form name last is what makes it unambiguous without quoting, and
     // `tests/emit_golden.rs` parses exactly these keys.
-    match function_table.largest() {
-        Some(largest) => debug_dump.push(format!(
-            "largest emitted function: index={} bytes={} locals={} kind={} name={}",
-            largest.wasm_index,
-            largest.body_bytes.bytes(),
-            format_declared_locals(largest.declared_locals),
-            largest.identity.category(),
-            largest.identity.wasm_name(),
-        )),
-        None => debug_dump.push("largest emitted function: none".to_string()),
-    }
+    //
+    // One traversal, three consumers. `function_sizes` on the artifact, the two
+    // attribution lines below and the opt-in full report are all rendered from
+    // `summaries`, so no reader can be told two different things about the same
+    // body. The precedent is the `runtime helper functions: 27` line above,
+    // which was a second copy of a fact and had drifted by five.
+    let function_sizes = function_table.summaries();
+    debug_dump.push(EmittedFunctionSummary::attribution_line(
+        "largest emitted function",
+        EmittedFunctionSummary::largest(&function_sizes),
+    ));
     // Reported separately because it is often a different function, and it is
     // the one that predicts Cranelift's virtual-register exhaustion.
-    match function_table.most_locals() {
-        Some(most_locals) => debug_dump.push(format!(
-            "most locals in an emitted function: index={} bytes={} locals={} kind={} name={}",
-            most_locals.wasm_index,
-            most_locals.body_bytes.bytes(),
-            format_declared_locals(most_locals.declared_locals),
-            most_locals.identity.category(),
-            most_locals.identity.wasm_name(),
-        )),
-        None => debug_dump.push("most locals in an emitted function: none".to_string()),
-    }
+    debug_dump.push(EmittedFunctionSummary::attribution_line(
+        "most locals in an emitted function",
+        EmittedFunctionSummary::most_locals(&function_sizes),
+    ));
     debug_dump.push(format!(
         "emitted code bytes: {}",
         function_table.total_body_bytes()
     ));
     if emit_size_report_requested() {
-        debug_dump.extend(function_table.report_lines(usize::MAX));
+        debug_dump.extend(EmittedFunctionSummary::report_lines(
+            &function_sizes,
+            usize::MAX,
+        ));
     }
+    // The same report, written from inside the emitter to a file the caller
+    // names. Unlike `debug_dump` this survives every wrapper between here and
+    // `main`: the dump has exactly one printer, two crates away, and it was
+    // unreachable from `porf build wasm` and from the Test262 wasm-aot backend
+    // for the whole of batch 2 — which is how a size claim went a full batch
+    // without anyone noticing the measurement was silently empty.
+    //
+    // `emit_script` runs this function as a fixpoint over the builtin stub
+    // partitions (2-4 passes), so the file is rewritten once per pass and the
+    // last write is the one that describes the module actually returned. That is
+    // the wanted behaviour, and it is why the sink truncates rather than appends.
+    write_size_report_file_if_requested(&function_sizes);
     if uses_host_print {
         debug_dump.push(format!(
             "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRINT_LINE_UTF8}"
@@ -2293,6 +2397,7 @@ fn emit_script_with_forced_builtins(
             bytes: module.finish(),
             invariant_note: "direct-js-to-wasm module",
             debug_dump: debug_dump.join("\n"),
+            function_sizes,
         },
         touched_stubbed,
     ))
@@ -2632,6 +2737,8 @@ impl<'a> FunctionBuilder<'a> {
             outline_array_write: true,
             outline_indexed_element_read: true,
             outline_indexed_element_write: true,
+            outline_value_to_primitive: true,
+            outline_value_to_property_key: true,
             ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission::Inline,
             object_write_strict_flag_local: None,
         }
@@ -2705,6 +2812,25 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn value_to_numeric_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index
             .map(|base| RuntimeHelperId::ValueToNumeric.index(base))
+    }
+
+    /// Wasm function index of the shared ToPrimitive helper for `hint`.
+    ///
+    /// The hint picks the *callee*, through
+    /// [`RuntimeHelperId::helper_for`]'s exhaustive match, rather than being
+    /// forwarded to one body as data.
+    pub(crate) fn value_to_primitive_helper_function_index(
+        &self,
+        hint: ToPrimitiveHint,
+    ) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::helper_for(hint).index(base))
+    }
+
+    /// Wasm function index of the shared ToPropertyKey helper.
+    pub(crate) fn value_to_property_key_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToPropertyKey.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[GetPrototypeOf]]` helper.
@@ -3399,8 +3525,8 @@ impl<'a> FunctionBuilder<'a> {
     /// a new [`RuntimeHelperId`] does not build until it states whether it owns
     /// a seam.
     ///
-    /// Eighteen of the thirty-five helpers own a seam. The other seventeen own
-    /// none: their call sites have no inline body to fall back *to* (the six
+    /// Twenty-two of the thirty-nine helpers own a seam. The other seventeen
+    /// own none: their call sites have no inline body to fall back *to* (the six
     /// allocation helpers are plain free functions, not `FunctionBuilder`
     /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
     /// keeps its seam live: nested-value serialization *is* a runtime self-call
@@ -3440,6 +3566,14 @@ impl<'a> FunctionBuilder<'a> {
             RuntimeHelperId::ArrayWrite => self.outline_array_write = false,
             RuntimeHelperId::IndexedElementRead => self.outline_indexed_element_read = false,
             RuntimeHelperId::IndexedElementWrite => self.outline_indexed_element_write = false,
+            // All three hints clear the one ToPrimitive seam flag: see
+            // `outline_value_to_primitive` for why it is one flag and not three.
+            RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString => self.outline_value_to_primitive = false,
+            // Only its own seam: the ToPropertyKey body *should* reach the
+            // ToPrimitive helper by call rather than inline it again.
+            RuntimeHelperId::ValueToPropertyKey => self.outline_value_to_property_key = false,
             // No inline seam of their own.
             RuntimeHelperId::HeapAlloc
             | RuntimeHelperId::ObjectAppendDataProperty
@@ -4029,6 +4163,106 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_numeric_locals(0, 1, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(0));
+        function.instruction(&Instruction::LocalGet(1));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles one of the three shared ToPrimitive helpers.
+    ///
+    /// One body per [`ToPrimitiveHint`], selected by
+    /// [`RuntimeHelperId::helper_for`], because the hook order the composite
+    /// emits genuinely differs by hint (`toString` before `valueOf` for the
+    /// string hint, the reverse otherwise). Passing the hint as a runtime `i64`
+    /// parameter to a single body would replace three compile-time-distinct
+    /// callees with one, and a wrong-hint call would then be invisible until a
+    /// Test262 case observed the wrong coercion order.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
+    /// 1=value tag. Params 2-6 are unused. Results are the standard four-i64
+    /// tuple: on normal completion the primitive `(payload, tag)` is in the
+    /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
+    /// surfaced through the completion slots with the thrown value in the first
+    /// two, which is exactly what the inline composite leaves in its output
+    /// locals, so the seam's callers cannot tell the difference.
+    fn compile_value_to_primitive_helper(
+        &mut self,
+        hint: ToPrimitiveHint,
+    ) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::helper_for(hint));
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+        self.emit_tagged_to_primitive_locals(
+            hint,
+            0,
+            1,
+            primitive_payload_local,
+            primitive_tag_local,
+            &mut function,
+        )?;
+        self.pop_scope();
+        // The output locals are returned **unconditionally**, and this is the
+        // one place this helper deliberately does *not* copy
+        // `compile_value_to_string_helper`.
+        //
+        // That helper needs a `completion == THROW` guard because
+        // `emit_value_to_string_payload` hands back a *stack* value which is
+        // meaningless on the throw path, so committing it over
+        // `self.result_local` would overwrite the real error. Here the composite
+        // has no stack result at all: every throw path inside
+        // `emit_object_to_primitive_locals_inner` writes the thrown value into
+        // these same two output locals before setting completion — the
+        // hook-read arm and the `@@toPrimitive` arm both `local.set` them from
+        // the failing value, and `emit_throw_runtime_error` takes them as its
+        // out-params. That is not an inference: it is the contract all sixteen
+        // inline call sites already depend on, since every one of them
+        // propagates with `emit_propagate_throw_from_locals_if_needed(out_payload,
+        // out_tag)`. Returning `self.result_local` instead would be strictly
+        // *worse* than the inline body, because the hook-read throw arm leaves
+        // the error in the output locals without routing it through
+        // `emit_throw_from_locals`.
+        //
+        // The seam's `store_call_results` re-homes the returned pair into
+        // `result_local`/`result_tag_local` on throw, so callers that read the
+        // current completion instead of the output locals (
+        // `emit_return_current_completion_if_throw` in `emit_value_to_bigint_locals`)
+        // see what they saw before.
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::LocalGet(primitive_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared ToPropertyKey helper: ToPrimitive with the string
+    /// hint, then the Symbol-marker / ToString split.
+    ///
+    /// Its body reaches the ToPrimitive *helper* rather than inlining the
+    /// composite again, because `begin_helper_body` clears only this helper's
+    /// own seam. That is the one intended helper-to-helper edge in this pair.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
+    /// 1=value tag, updated in place. Params 2-6 are unused. Results are the
+    /// standard four-i64 tuple. The inline body's own throw propagation is what
+    /// produces the abrupt result: inside a helper there is no active catch
+    /// target, so it becomes a completion return, exactly as in
+    /// `compile_value_to_numeric_helper`.
+    fn compile_value_to_property_key_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToPropertyKey);
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_value_to_property_key_locals(0, 1, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(0));
         function.instruction(&Instruction::LocalGet(1));

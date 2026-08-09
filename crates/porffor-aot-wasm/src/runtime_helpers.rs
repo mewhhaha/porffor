@@ -15,6 +15,8 @@
 //! so adding a helper fails to build until its Wasm type and its emission
 //! condition are both stated.
 
+use porffor_ir::ToPrimitiveHint;
+
 use crate::module::{
     ARRAY_ALLOC_TYPE_INDEX, FUNCTION_OBJECT_ALLOC_TYPE_INDEX, HEAP_ALLOC_TYPE_INDEX,
     JS_FUNCTION_TYPE_INDEX, OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX,
@@ -127,23 +129,77 @@ pub(crate) enum RuntimeHelperId {
     /// The whole `expr[index]` *read* composite: Arguments / Array (with the
     /// prototype walk) / TypedArray element load / ordinary object key read,
     /// including the number→string key materialization for the object arm.
-    /// Measured at 72,635 bytes per inline site, which is what pushed the
-    /// `testIntl.js` `canonicalizeLanguageTag` body to 3,615,449 bytes and past
-    /// wasmtime's per-function code-size limit.
+    ///
+    /// **Retraction, batch 3.** This doc comment used to assert that this
+    /// composite "is what pushed the `testIntl.js` `canonicalizeLanguageTag`
+    /// body to 3,615,449 bytes". The *causal* half of that claim is refuted and
+    /// the correct cause is [`Self::ValueToPrimitiveString`] /
+    /// [`Self::ValueToPropertyKey`]; see the note on those variants for the
+    /// measurement and how to reproduce it. What survives is only that this
+    /// composite is large per inline site; with this helper in place
+    /// `helper::indexed_element_read` is 2,761 bytes, and
+    /// `canonicalizeLanguageTag` was still *exactly* 3,615,449 bytes
+    /// afterwards, which is what falsified the causal claim.
+    ///
+    /// Reproduce (no cargo needed, ~20 s per build):
+    ///
+    /// ```sh
+    /// PORFFOR_WASM_DUMP=/tmp/x.wasm ./target/debug/porf build wasm probe.js
+    /// # then read the code-section body lengths back against the custom
+    /// # `name` section this crate emits.
+    /// ```
     IndexedElementRead = 32,
     /// The whole `expr[index] = value` *write* composite: TypedArray element
     /// store versus ordinary `[[Set]]`. 174,558 bytes per inline site.
     IndexedElementWrite = 33,
+    /// `ToPrimitive(value)` with no hint — the `@@toPrimitive` / `valueOf` /
+    /// `toString` hook chain plus the Array / Arguments / Function arms.
+    ///
+    /// Measured, on this tree, 2026-08-09, with `porf build wasm` +
+    /// `PORFFOR_WASM_DUMP` and the code-section/`name`-section reader described
+    /// on [`Self::IndexedElementRead`]:
+    ///
+    /// | probe function body | bytes |
+    /// |---|---|
+    /// | `var A = k.split('-'); return A.length;` | 14,754 |
+    /// | ... plus `var x = ''; x = A[0];` (static index) | 14,911 |
+    /// | ... plus `var x = ''; x = A[i];` (dynamic key) | 87,101 |
+    /// | ... plus a second `y = A[j];` | 159,811 |
+    ///
+    /// So one dynamic-key site costs `(159,811 - 14,754) / 2 = 72,528` bytes,
+    /// and a `+` on two operands of unknown kind costs `140,144 / 2 = 70,072`
+    /// bytes per operand — the same composite, reached through ToPropertyKey in
+    /// the first case and directly in the second.
+    ///
+    /// The cause claim for `js::canonicalizeLanguageTag#f46` (3,615,449 bytes,
+    /// 154 locals) is *counted*, not estimated: five independent call-count
+    /// ratios against the one-site probe agree on ~49 copies of this composite
+    /// in that one body — `object_define_data 7130/144.5`,
+    /// `string_equality 6352/130`, `plain_object_alloc 3565/72.5`,
+    /// `function_call 1177/24`, `array_alloc 1225/26`. 49 x 72,347 is 98.0% of
+    /// the body.
+    ValueToPrimitiveDefault = 34,
+    /// `ToPrimitive(value, number)`. Separate body rather than a runtime hint
+    /// parameter: the hook order differs (`valueOf` before `toString`), so a
+    /// shared body would have to branch on a value the call site already knows
+    /// at compile time.
+    ValueToPrimitiveNumber = 35,
+    /// `ToPrimitive(value, string)` — `toString` before `valueOf`.
+    ValueToPrimitiveString = 36,
+    /// `ToPropertyKey(value)`: ToPrimitive with the string hint, then the
+    /// symbol-marker/`ToString` split. Reached by every computed member access
+    /// whose key is not statically known to be a String or a Symbol.
+    ValueToPropertyKey = 37,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check,
     /// not a comment.
-    JsonStringifyValue = 34,
+    JsonStringifyValue = 38,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 35] = [
+    pub(crate) const ALL: [Self; 39] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -178,8 +234,28 @@ impl RuntimeHelperId {
         Self::TemporalCalendarIdentifier,
         Self::IndexedElementRead,
         Self::IndexedElementWrite,
+        Self::ValueToPrimitiveDefault,
+        Self::ValueToPrimitiveNumber,
+        Self::ValueToPrimitiveString,
+        Self::ValueToPropertyKey,
         Self::JsonStringifyValue,
     ];
+
+    /// The helper that implements `ToPrimitive` for `hint`.
+    ///
+    /// Exhaustive over the closed [`ToPrimitiveHint`] domain with no `_` arm: a
+    /// fourth hint cannot compile until it names the body that serves it. This
+    /// exists so the hint stays a *compile-time* choice of callee. Passing the
+    /// hint to one shared helper as a bare `i64` would make three bodies whose
+    /// hook order genuinely differs indistinguishable at the call site and move
+    /// a wrong-hint bug from `cargo check` to a Test262 run.
+    pub(crate) const fn helper_for(hint: ToPrimitiveHint) -> Self {
+        match hint {
+            ToPrimitiveHint::Default => Self::ValueToPrimitiveDefault,
+            ToPrimitiveHint::Number => Self::ValueToPrimitiveNumber,
+            ToPrimitiveHint::String => Self::ValueToPrimitiveString,
+        }
+    }
 
     /// The Wasm function index of this helper, given the index of the first
     /// helper (`heap_alloc_function_index`).
@@ -236,6 +312,14 @@ impl RuntimeHelperId {
             // seven-i64/four-i64 shape, so neither needs a new Wasm type.
             | Self::IndexedElementRead
             | Self::IndexedElementWrite
+            // ToPrimitive/ToPropertyKey: 0=value payload, 1=value tag, 2..6
+            // unused. Results are the standard
+            // `(payload, tag, completion, completion_aux)` tuple, so neither
+            // needs a new Wasm type either.
+            | Self::ValueToPrimitiveDefault
+            | Self::ValueToPrimitiveNumber
+            | Self::ValueToPrimitiveString
+            | Self::ValueToPropertyKey
             | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
         }
     }
@@ -279,7 +363,11 @@ impl RuntimeHelperId {
             | Self::TemporalCalendarIsoDateProbe
             | Self::TemporalCalendarIdentifier
             | Self::IndexedElementRead
-            | Self::IndexedElementWrite => true,
+            | Self::IndexedElementWrite
+            | Self::ValueToPrimitiveDefault
+            | Self::ValueToPrimitiveNumber
+            | Self::ValueToPrimitiveString
+            | Self::ValueToPropertyKey => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
@@ -331,6 +419,10 @@ impl RuntimeHelperId {
             Self::TemporalCalendarIdentifier => "temporal_calendar_identifier",
             Self::IndexedElementRead => "indexed_element_read",
             Self::IndexedElementWrite => "indexed_element_write",
+            Self::ValueToPrimitiveDefault => "value_to_primitive_default",
+            Self::ValueToPrimitiveNumber => "value_to_primitive_number",
+            Self::ValueToPrimitiveString => "value_to_primitive_string",
+            Self::ValueToPropertyKey => "value_to_property_key",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -418,7 +510,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 34 unconditional helpers plus JSON.stringify's value helper. The
+        // 38 unconditional helpers plus JSON.stringify's value helper. The
         // `debug_dump` line used to hard-code 27 and had drifted by five.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -432,8 +524,41 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 34);
-        assert_eq!(with_json, 35);
+        assert_eq!(without_json, 38);
+        assert_eq!(with_json, 39);
+    }
+
+    /// Every hint names a distinct body, and every body is a real helper in
+    /// `ALL`. Without the second half a hint could name a variant that the
+    /// function/code sections never write, which would hand every ToPrimitive
+    /// call site an index one past the end of the helper block.
+    #[test]
+    fn every_to_primitive_hint_names_its_own_helper() {
+        let helpers = [
+            ToPrimitiveHint::Default,
+            ToPrimitiveHint::Number,
+            ToPrimitiveHint::String,
+        ]
+        .map(RuntimeHelperId::helper_for);
+        assert_eq!(
+            helpers,
+            [
+                RuntimeHelperId::ValueToPrimitiveDefault,
+                RuntimeHelperId::ValueToPrimitiveNumber,
+                RuntimeHelperId::ValueToPrimitiveString,
+            ]
+        );
+        for helper in helpers {
+            assert!(
+                RuntimeHelperId::ALL.contains(&helper),
+                "{helper:?} is not in ALL, so its body is never emitted"
+            );
+            assert!(
+                helper.is_emitted(RuntimeHelperEmission::NONE),
+                "{helper:?} must be unconditional: the ToPrimitive seam has no \
+                 emission fact to gate on"
+            );
+        }
     }
 
     /// Only `FunctionBuilder::begin_helper_body` may build a helper body.
