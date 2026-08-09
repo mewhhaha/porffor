@@ -54,6 +54,7 @@ use porffor_front::{ParseGoal, SourceUnit};
 use regress::Regex;
 
 mod analysis;
+mod binding_names;
 mod builtins;
 mod diagnostics;
 mod early_errors;
@@ -111,6 +112,14 @@ pub use regexp::{
 pub use names::*;
 pub(crate) use names::{
     MAX_ARRAY_INDEX, MAX_STATIC_ARRAY_SHAPE_INDEX, SCRIPT_OWNER_ID, TDZ_BINDING_STORAGE_PREFIX,
+};
+
+/// The three module binding-name domains. See
+/// `docs/rust-rewrite/contracts/module-binding-names.md`.
+pub use binding_names::*;
+pub(crate) use binding_names::{
+    DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, DEFAULT_KEYWORD,
+    EXPORT_KEYWORD, IMPORT_META_HEAD, IMPORT_META_TAIL,
 };
 
 /// The two closed spec name domains. See

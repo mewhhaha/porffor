@@ -519,6 +519,8 @@ a type; the dry-runner must confirm each reason still holds.
 | **R2** | **M3**, injectivity of `merged` over the graph. | `link.rs:471-504` (`report_cross_unit_binding_collisions`), `link.rs:625-644` (`merged_lexical_names`), `namespace.rs:437-449`. | Injectivity is a property of a *set* of units, not of one name. No per-value type can carry it; a typestate that refused to emit until the whole graph was checked is possible in principle but would have to thread the whole `ModuleGraphIr` through every `MergedName` construction, which is not worth it while the resolution is "report as unsupported" rather than "rename". **This is the invariant that becomes a real typestate obligation when the renaming pass lands**, and the contract records that now so the encoder does not build the wrong thing first. | the existing collision tests in `link.rs`'s `#[cfg(test)]` block; test262 `language/module-code/instn-*` |
 | **R3** | **B1/B2** at run time for a unit id above the cap. | `graph.rs:669`, `let id = ModuleUnitId::try_from(graph.units.len()).unwrap_or(ModuleUnitId::MAX);` | `ModuleUnitId` stays `pub type ModuleUnitId = u32` (§6). Newtyping it with a bounded constructor would ripple into `ir.rs:1345,1349,1353,1846` and `lib.rs:81`, which are not owned by this area. So the cap is enforced at the one place ids are minted, not in the type. **The current line is worse than unchecked**: it *saturates* to `u32::MAX`, whose decimal length is 10, which violates B1 and B2 silently and then fails downstream with a confusing `StripError`. The encoder replaces the `unwrap_or` with a `ModuleLinkErrorIr`-shaped rejection at `> MAX_LINKABLE_MODULE_UNIT_ID`. | one new unit test in `graph.rs` asserting the rejection; V2/V4 carry the *format* half of B1/B2 at compile time |
 | **R4** | boa's `private_name()` accessor means `[[LocalName]]` in `ExportDeclaration::List` and `[[ImportName]]` in `ReExportKind::Named`. | `record.rs:838` vs `record.rs:862`. | The accessor is boa's, on a foreign type; its return is a `Sym`. This contract cannot change boa's naming. **What the retype buys:** the two sites now convert through `SourceName::new(..)` and `ExportName::new(..)` respectively, so the *conversion* names the domain even though the accessor does not, and swapping the two conversions is `E0308` one line later at the struct literal. | trace T3 (§7) |
+| **R5** | **L2's second half**: `SourceName::new` rejecting the *empty* spelling. | `SourceName::new` (`binding_names.rs`). | **Encoder deviation from §2.1, recorded rather than hidden.** §2.1 asked `new` to return `None` for `*default*` *and* for the empty string. Two rejection reasons make `None` ambiguous at a call site, and — decisively — they make the classifier total only by accident: every product conversion site is a BoundNames position, so the classification must be *total*, and `LocalName::from_bound_name` can only be total if `None` means exactly one thing. `new` therefore rejects `*default*` and nothing else, and `from_bound_name` reads that single `None` as "this is the anonymous default". The empty spelling is not a domain question — it is a spellability question, and `is_binding_identifier` already rejects it (its first act is `chars.next()` returning `None`). No product path can produce it: boa's interner never resolves a `BindingIdentifier` to `""`. | `is_binding_identifier`'s empty-name arm; `binding_names.rs`'s `source_name_rejects_only_the_reserved_spelling` |
+| **R6** | **The 24 minting call sites and every field retype are load-bearing for byte-identical output**, and this lane ran no compiler. | whole area. | Not an invariant a type can carry: it is the claim that a mechanical retype changed no emitted byte. Every rewrite in §5.3 is spelling-preserving by construction (`MergedName::minted(u, r)` is `format!("$m{u}${suffix}")`, the same literal the deleted function built), and `merged_in` is `module_binding_reference` verbatim — but "by construction" is an argument, not a measurement. | `cargo check -p porffor-ir`, `cargo test -p porffor-ir --lib`, and **rung G** (`diff -r target/golden/before target/golden/after` empty). §8. |
 
 ---
 
@@ -842,3 +844,92 @@ pure refactor of `porffor-ir`, so `diff -r target/golden/before
 target/golden/after` must be empty. `batch-workflow.md` §"Rung G — the
 refactor gate". Note the untracked-file caveat there: `binding_names.rs` must
 be moved aside, not stashed, when capturing the baseline.
+
+
+---
+
+## 9. Encoder's record
+
+Written by the ENCODER stage. Everything below is what the code now does, and
+where it departs from §2–§6 it says so.
+
+### 9.1 What was built
+
+`crates/porffor-ir/src/binding_names.rs`, declared as `mod binding_names;` next
+to `mod analysis;` in `lib.rs` and re-exported by `pub use binding_names::*;`
+next to `pub use names::*;`. A second, `pub(crate) use binding_names::{…}` line
+carries the seven `pub(crate)` spelling constants to `modules::source` and
+`modules::record`, which is what ties V1/V2/V4/V7 to text those files actually
+match on.
+
+Five types, as §2: `SourceName`, `LocalName`, `ExportName`, `MergedName`,
+`UnitCellRole`. Seven const assertions, V1–V6 as specified plus one addition:
+
+- **V7** ties `IMPORT_META_HEAD` (`"import"`) and `IMPORT_META_TAIL` (`"meta"`)
+  — the two fragments `rewrite_import_meta`'s span guard checks — to
+  `IMPORT_META_TEXT` (`"import.meta"`), whose length V4 budgets against. Without
+  it V4 constrains a constant no product code reads, and the tie §2.6 asks for
+  is nominal. With it, changing the guard to accept a differently-shaped
+  meta-property fails to build.
+
+Two additions to §2's API, both to keep a *total* operation total:
+
+- `LocalName::from_bound_name(name) -> LocalName` — see ledger **R5**. It is
+  the single L2 decision point in the crate.
+- `ExportName::default_export() -> ExportName` — a named constructor for the
+  one `[[ExportName]]` the specification fixes, so the four sites that build it
+  do not each write `ExportName::new(ExportName::DEFAULT)`.
+
+`UserFunctionId` was **not** built, per §4/K8.
+
+### 9.2 What was deleted
+
+All eleven `names.rs` minting functions (`names.rs:29–126`), `ModuleGraphIr::cell_name`,
+`ModuleNamespaceExportIr::cell`, `ModuleNamespaceIr::cell_for`,
+`DynamicComponentIr::completion_cell`, `modules::record::module_binding_reference`
+and `modules::record::import_meta_binding_name`. The two design notes §5.2 asks
+to preserve are now prose in `modules::dynamic`'s and `modules::namespace`'s
+module docs, and both name the `UnitCellRole` variant a future cell would have
+to become.
+
+The ad-hoc re-validation the types replace is gone with them: the `*default*`
+sentinel comparison existed at `record.rs:252`, `record.rs:308`, `record.rs:316`
+and `record.rs:981` and now exists once, inside `SourceName::new`.
+
+### 9.3 Departures from the retrofit map, and why
+
+1. **`is_binding_identifier` keeps its empty-name arm.** §5.4 says only that its
+   `*default*` sentence is deleted, which it is. The arm stays because it is now
+   the only thing standing between an empty spelling and emitted Script text —
+   ledger **R5**.
+2. **`ensure_namespace`'s export filter** was `graph.cell_name(&target)?`, which
+   returned `None` exactly for `Ambiguous`/`NotFound`. With `cell_name` deleted
+   the filter is written as that condition directly
+   (`matches!(&target, ResolvedBindingIr::Resolved { .. })`) rather than through
+   `namespace_target_reference`, which would additionally have dropped
+   unspellable names — a *behaviour change*, since `namespace_object_source`
+   reports those as an unsupported diagnostic rather than silently omitting the
+   key. Preserving the old partition is what keeps rung G honest.
+3. **A new `ModuleLinkErrorIr` variant, `TooManyUnits`,** carries ledger **R3**'s
+   rejection. `ModuleLinkErrorIr::code` and `::message` are exhaustive matches
+   with no catch-all, so the variant forced both to be updated — which is the
+   reason it is a variant rather than a bare `IrDiagnostic`.
+4. **`ModuleUnitId` stays `pub type … = u32`,** as §6 requires.
+
+### 9.4 Mistake classes: discharged or moved
+
+| # | Outcome |
+|---|---|
+| **K1** | **Discharged.** `MergedName` has no `From<String>` and no constructor taking a `LocalName` or a `MergedName`. `format!("{prefix}{name}")` over a merged name cannot be written because `module_storage_prefix` no longer exists. |
+| **K2** | **Discharged.** `LocalExportEntryIr`'s two fields are different types; `push_local_export` converts its one `&str` twice. |
+| **K3** | **Discharged.** `resolve_export(&self, ModuleUnitId, &ExportName)`; `early.rs`'s check is `LocalName == LocalName`. |
+| **K4** | **Discharged.** One `format!`, one closed role enum, V3 and V5. |
+| **K5** | **Discharged** by V2, now tied to `DEFAULT_BINDING_LET` / `DEFAULT_BINDING_ASSIGN` / `EXPORT_KEYWORD` / `DEFAULT_KEYWORD`, the constants `modules::source` matches on. |
+| **K6** | **Discharged** by V4, tied through V7 to the fragments `rewrite_import_meta` checks. |
+| **K7** | **Discharged by deletion.** No function in the crate returns a `$m{unit}$`-prefixed local name. |
+| **K8** | **Not applicable**, as §4 predicted; the three functions are deleted and no `UserFunctionId` was built. |
+| **K9** | **Partial**, as §4 states. `UnitCellRole::ALL` is one enumeration point; prelude-assembly ordering is a different area. |
+
+Nothing was moved from the mistake-class table to the ledger. Two *new* ledger
+entries were added (**R5**, **R6**) for obligations the encoder found rather
+than inherited.

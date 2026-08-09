@@ -99,7 +99,13 @@ pub enum ImportNameIr {
     /// Produced by `import * as ns from "m"` and `export * as ns from "m"`.
     Namespace,
     /// A named export of the requested module.
-    Name(String),
+    ///
+    /// An [`ExportName`], not a [`LocalName`]: 16.2.1.4 defines `[[ImportName]]`
+    /// as "the name under which the desired binding is exported by the module
+    /// identified by `[[ModuleRequest]]`", and `ResolveExport` takes it as its
+    /// `exportName` argument. It is the requested module's D2, read from this
+    /// side.
+    Name(ExportName),
 }
 
 /// An `ImportEntry` Record (16.2.2.3).
@@ -110,21 +116,30 @@ pub struct ImportEntryIr {
     /// `[[ImportName]]`.
     pub import_name: ImportNameIr,
     /// `[[LocalName]]`, the immutable indirect binding the import creates.
-    pub local_name: String,
+    pub local_name: LocalName,
     /// Span of the declaration, for diagnostics.
     pub span: Option<SourceSpan>,
 }
 
 /// A `LocalExportEntry` Record.
+///
+/// The two fields are the whole reason this area has a contract: 16.2.1.5 gives
+/// them different definitions and `export { a as b }` makes them differ, yet
+/// `export let x` makes them coincide — which is exactly the case that hides a
+/// swap. They are different types, so the swap is `E0308`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalExportEntryIr {
-    /// `[[LocalName]]`; `*default*` for an anonymous `export default`.
-    pub local_name: String,
+    /// `[[LocalName]]`; [`LocalName::AnonymousDefault`] for an anonymous
+    /// `export default`.
+    pub local_name: LocalName,
     /// `[[ExportName]]`.
-    pub export_name: String,
+    pub export_name: ExportName,
 }
 
 /// An `IndirectExportEntry` Record.
+///
+/// Carries no `[[LocalName]]` at all: `export { x } from "m"` binds nothing in
+/// this module, which is why ExportedBindings excludes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndirectExportEntryIr {
     /// `[[ModuleRequest]]`.
@@ -132,7 +147,7 @@ pub struct IndirectExportEntryIr {
     /// `[[ImportName]]`.
     pub import_name: ImportNameIr,
     /// `[[ExportName]]`.
-    pub export_name: String,
+    pub export_name: ExportName,
 }
 
 /// A `StarExportEntry` Record: `export * from "m"`.
@@ -162,8 +177,9 @@ pub enum ModuleBindingKindIr {
 /// One binding of the module `[[Environment]]` (9.1.1.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleEnvBindingIr {
-    /// Spec binding name (`*default*` for an anonymous `export default`).
-    pub name: String,
+    /// Spec binding name ([`LocalName::AnonymousDefault`] for an anonymous
+    /// `export default`).
+    pub name: LocalName,
     /// How the binding was declared.
     pub kind: ModuleBindingKindIr,
     /// `false` for `const` and for import bindings.
@@ -243,19 +259,6 @@ pub enum DefaultExportFormIr {
     },
 }
 
-/// Merged-scope spelling of module `unit`'s binding `name`.
-///
-/// The identity everywhere except for the one name 8.2.2 mints unspellable:
-/// see [`module_default_binding_name`].
-#[must_use]
-pub fn module_binding_reference(unit: ModuleUnitId, name: &str) -> String {
-    if name == MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME {
-        module_default_binding_name(unit)
-    } else {
-        name.to_string()
-    }
-}
-
 impl SourceTextModuleRecordIr {
     /// Number of `import.meta` references in the module body.
     ///
@@ -269,7 +272,7 @@ impl SourceTextModuleRecordIr {
 
     /// Export names declared without consulting the graph (no `export *`).
     #[must_use]
-    pub fn own_exported_names(&self) -> Vec<String> {
+    pub fn own_exported_names(&self) -> Vec<ExportName> {
         let mut names = Vec::new();
         for entry in &self.local_export_entries {
             push_unique_name(&mut names, &entry.export_name);
@@ -294,18 +297,23 @@ impl SourceTextModuleRecordIr {
     /// `export default function f() {}` and `export default class C {}` do, so
     /// deleting the two keywords leaves a declaration that binds exactly what
     /// the export entry names. Every other form has `[[LocalName]]`
-    /// [`MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME`], which nothing can spell, so the
+    /// [`LocalName::AnonymousDefault`], which nothing can spell, so the
     /// keywords have to become a declaration of a minted name instead.
+    ///
+    /// The `[[ExportName]]` test and the `[[LocalName]]` test below are asked
+    /// of different types, because they are different domains: `default` is
+    /// spellable from source (`export { x as default }`) while `*default*`
+    /// never is.
     #[must_use]
     pub fn default_export_form(&self) -> DefaultExportFormIr {
         let Some(entry) = self
             .local_export_entries
             .iter()
-            .find(|entry| entry.export_name == MODULE_DEFAULT_EXPORT_NAME)
+            .find(|entry| entry.export_name.is_default())
         else {
             return DefaultExportFormIr::Absent;
         };
-        if entry.local_name != MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME {
+        if entry.local_name != LocalName::AnonymousDefault {
             return DefaultExportFormIr::Named;
         }
         // A hoistable declaration is initialized before the body runs, so it
@@ -313,14 +321,14 @@ impl SourceTextModuleRecordIr {
         let hoisted = self
             .environment
             .iter()
-            .find(|binding| binding.name == MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME)
+            .find(|binding| binding.name == LocalName::AnonymousDefault)
             .is_some_and(|binding| binding.kind == ModuleBindingKindIr::Function);
         DefaultExportFormIr::Anonymous { hoisted }
     }
 
     /// Duplicate `[[ExportName]]`s, which are an early error (16.2.3.1).
     #[must_use]
-    pub fn duplicate_export_names(&self) -> Vec<String> {
+    pub fn duplicate_export_names(&self) -> Vec<ExportName> {
         let mut seen = BTreeSet::new();
         let mut duplicates = Vec::new();
         let names = self
@@ -370,21 +378,17 @@ impl SourceTextModuleRecordIr {
 pub struct ImportMetaBindingIr {
     /// Binding that holds the object, and that every rewritten `import.meta`
     /// in this unit reads.
-    pub name: String,
+    ///
+    /// A [`MergedName`] minted for [`UnitCellRole::ImportMeta`], so it cannot
+    /// collide with another unit's meta object, with a namespace cell, or with
+    /// an ordinary top-level binding of the merged scope — and so its byte
+    /// length is bounded by const assertion V4, which is what
+    /// [`rewrite_import_meta`] depends on.
+    pub name: MergedName,
     /// The declaration that creates it, terminated by `;`.
     ///
     /// The linker emits this once, before any unit body runs.
     pub declaration: String,
-}
-
-/// Binding name holding module `unit`'s `import.meta` object.
-///
-/// Shares [`module_storage_prefix`], so it cannot collide with another unit's
-/// meta object, with a namespace cell, or with an ordinary top-level binding of
-/// the merged scope.
-#[must_use]
-pub fn import_meta_binding_name(unit: ModuleUnitId) -> String {
-    format!("{}meta", module_storage_prefix(unit))
 }
 
 /// Module `unit`'s `import.meta` object, with the host properties 16.2.1.9
@@ -395,14 +399,15 @@ pub fn import_meta_binding_name(unit: ModuleUnitId) -> String {
 /// it.
 #[must_use]
 pub fn import_meta_binding(unit: ModuleUnitId, meta_url: &str) -> ImportMetaBindingIr {
-    let name = import_meta_binding_name(unit);
+    let name = MergedName::minted(unit, UnitCellRole::ImportMeta);
     // `__proto__:` in an object literal is the prototype setter (13.2.5.5), and
     // the lowerer recognises a `null` value as "no prototype"
     // (`lowering::lower_object_literal`), so this is `OrdinaryObjectCreate(null)`
     // without needing `Object.create` — which a unit could have shadowed by
     // declaring its own top-level `Object`.
     let declaration = format!(
-        "const {name} = {{ __proto__: null, url: {} }};",
+        "const {} = {{ __proto__: null, url: {} }};",
+        name.as_str(),
         js_string_literal(meta_url)
     );
     ImportMetaBindingIr { name, declaration }
@@ -424,7 +429,7 @@ impl ImportMetaRewriteError {
 }
 
 /// Replaces every `import.meta` in `source` with a read of module `record.id`'s
-/// [`import_meta_binding_name`].
+/// [`UnitCellRole::ImportMeta`] cell.
 ///
 /// Script text cannot spell `import.meta` at all — boa rejects it outright
 /// outside a module — so a linker that merges units into one Script *must*
@@ -449,6 +454,12 @@ impl ImportMetaRewriteError {
 /// Returns [`ImportMetaRewriteError`] when a site does not address the text it
 /// is supposed to (which would mean `source` is not this unit's), or when the
 /// binding name does not fit in the span it replaces.
+///
+/// The second failure is unreachable for any unit the graph will admit: the
+/// narrowest `import.meta` span is 11 bytes, const
+/// assertion V4 holds `MergedName::minted(u, ImportMeta)` to that width for
+/// every `u <= MAX_LINKABLE_MODULE_UNIT_ID`, and `build_graph` mints no larger
+/// id. It stays checked because the *span* is data from boa, not a constant.
 pub fn rewrite_import_meta(
     source: &str,
     record: &SourceTextModuleRecordIr,
@@ -457,7 +468,8 @@ pub fn rewrite_import_meta(
         return Ok(source.to_string());
     }
 
-    let name = import_meta_binding_name(record.id);
+    let cell = MergedName::minted(record.id, UnitCellRole::ImportMeta);
+    let name = cell.as_str();
     let mut rewritten = String::with_capacity(source.len());
     let mut cursor = 0usize;
     for site in &record.import_meta_sites {
@@ -473,14 +485,14 @@ pub fn rewrite_import_meta(
         // A cheap proof that the span really is the meta-property and not some
         // unrelated range: the rewrite destroys whatever it covers, so it is
         // worth refusing rather than silently mangling a body.
-        if !replaced.starts_with("import") || !replaced.ends_with("meta") {
+        if !replaced.starts_with(IMPORT_META_HEAD) || !replaced.ends_with(IMPORT_META_TAIL) {
             return Err(ImportMetaRewriteError::new(format!(
                 "`import.meta` span {}..{} covers `{replaced}`",
                 site.start, site.end
             )));
         }
         rewritten.push_str(&source[cursor..site.start]);
-        rewritten.push_str(&name);
+        rewritten.push_str(name);
         rewritten.push_str(&padding_for(replaced, name.len()).ok_or_else(|| {
             ImportMetaRewriteError::new(format!(
                 "`import.meta` binding `{name}` does not fit the {} bytes it replaces",
@@ -548,9 +560,14 @@ fn js_string_literal(value: &str) -> String {
 }
 
 /// Appends `name` to `names` unless it is already present.
-pub(crate) fn push_unique_name(names: &mut Vec<String>, name: &str) {
+///
+/// D2 only. Every one of its call sites — here and in `modules::graph`'s
+/// `GetExportedNames` walk — is building an `ExportedNames` list, so a
+/// `[[LocalName]]` reaching one is `E0308` rather than a namespace object with
+/// a wrong key.
+pub(crate) fn push_unique_name(names: &mut Vec<ExportName>, name: &ExportName) {
     if !names.iter().any(|existing| existing == name) {
-        names.push(name.to_string());
+        names.push(name.clone());
     }
 }
 
@@ -562,6 +579,29 @@ fn push_unique_request(requests: &mut Vec<ModuleRequestIr>, request: &ModuleRequ
 
 fn resolved_name(interner: &Interner, name: Sym) -> String {
     interner.resolve_expect(name).to_string()
+}
+
+/// `[[LocalName]]` of a `BindingIdentifier` boa resolved out of the interner.
+///
+/// Every caller is a BoundNames position, so the classification
+/// [`LocalName::from_bound_name`] performs is the right one and is total: only
+/// `*default*` is not a source-spelled name, and only boa's own
+/// anonymous-default marker can produce it.
+fn resolved_local_name(interner: &Interner, name: Sym) -> LocalName {
+    LocalName::from_bound_name(resolved_name(interner, name))
+}
+
+/// `[[ExportName]]` / `[[ImportName]]` boa resolved out of the interner.
+///
+/// A separate function from [`resolved_local_name`] on purpose: the two
+/// accessors boa offers for a `ModuleExportName` pair are called
+/// `private_name()` and `alias()` on both `ReExportKind::Named` and
+/// `ExportDeclaration::List`, yet `private_name()` means `[[ImportName]]` in the
+/// first and `[[LocalName]]` in the second. The conversion names the domain
+/// where boa's accessor does not, and swapping the two conversions is `E0308`
+/// one line later at the struct literal.
+fn resolved_export_name(interner: &Interner, name: Sym) -> ExportName {
+    ExportName::new(resolved_name(interner, name))
 }
 
 /// Byte offset of the start of every line, so boa's `(line, column)` positions
@@ -756,8 +796,8 @@ fn build_module_record(
         if let Some(default) = import.default() {
             record.import_entries.push(ImportEntryIr {
                 request: request.clone(),
-                import_name: ImportNameIr::Name(MODULE_DEFAULT_EXPORT_NAME.to_string()),
-                local_name: resolved_name(interner, default.sym()),
+                import_name: ImportNameIr::Name(ExportName::default_export()),
+                local_name: resolved_local_name(interner, default.sym()),
                 span: Some(lines.source_span(text, default.span())),
             });
         }
@@ -767,19 +807,22 @@ fn build_module_record(
                 record.import_entries.push(ImportEntryIr {
                     request: request.clone(),
                     import_name: ImportNameIr::Namespace,
-                    local_name: resolved_name(interner, binding.sym()),
+                    local_name: resolved_local_name(interner, binding.sym()),
                     span: Some(lines.source_span(text, binding.span())),
                 });
             }
             ImportKind::Named { names } => {
                 for name in names.iter() {
+                    // `import { a as b }`: `export_name()` is the exporter's D2
+                    // and `binding()` is this module's D1. Two domains, two
+                    // conversions.
                     record.import_entries.push(ImportEntryIr {
                         request: request.clone(),
-                        import_name: ImportNameIr::Name(resolved_name(
+                        import_name: ImportNameIr::Name(resolved_export_name(
                             interner,
                             name.export_name(),
                         )),
-                        local_name: resolved_name(interner, name.binding().sym()),
+                        local_name: resolved_local_name(interner, name.binding().sym()),
                         span: Some(lines.source_span(text, name.binding().span())),
                     });
                 }
@@ -788,7 +831,7 @@ fn build_module_record(
     }
 
     // 16.2.3.2 ExportEntries.
-    let mut default_local: Option<String> = None;
+    let mut default_local: Option<LocalName> = None;
     for item in items {
         let ModuleItem::ExportDeclaration(export) = item else {
             continue;
@@ -822,7 +865,7 @@ fn build_module_record(
                         record.indirect_export_entries.push(IndirectExportEntryIr {
                             request,
                             import_name: ImportNameIr::Namespace,
-                            export_name: resolved_name(interner, *name),
+                            export_name: resolved_export_name(interner, *name),
                         });
                     }
                     ReExportKind::Namespaced { name: None } => {
@@ -832,13 +875,19 @@ fn build_module_record(
                     }
                     ReExportKind::Named { names } => {
                         for entry in names.iter() {
+                            // Both sides are D2 here. boa calls the first
+                            // accessor `private_name()`, but for a re-export it
+                            // is the *requested* module's `[[ExportName]]` —
+                            // the entry binds nothing locally at all. Contrast
+                            // `ExportDeclaration::List` below, where the same
+                            // accessor is a `[[LocalName]]`.
                             record.indirect_export_entries.push(IndirectExportEntryIr {
                                 request: request.clone(),
-                                import_name: ImportNameIr::Name(resolved_name(
+                                import_name: ImportNameIr::Name(resolved_export_name(
                                     interner,
                                     entry.private_name(),
                                 )),
-                                export_name: resolved_name(interner, entry.alias()),
+                                export_name: resolved_export_name(interner, entry.alias()),
                             });
                         }
                     }
@@ -846,8 +895,12 @@ fn build_module_record(
             }
             ExportDeclaration::List(names) => {
                 for entry in names.iter() {
-                    let local = resolved_name(interner, entry.private_name());
-                    let export_name = resolved_name(interner, entry.alias());
+                    // Here `private_name()` really is a `[[LocalName]]`: the
+                    // clause names a binding of *this* module. The two
+                    // conversions differ, which is what makes swapping them a
+                    // type error at the struct literals below.
+                    let local = resolved_local_name(interner, entry.private_name());
+                    let export_name = resolved_export_name(interner, entry.alias());
                     // ParseModule step 12. An `export { x }` clause has a null
                     // `[[ModuleRequest]]` at ExportEntries time; ParseModule
                     // then rewrites it against `[[ImportEntries]]`:
@@ -896,6 +949,9 @@ fn build_module_record(
                     push_local_export(&mut record, &resolved_name(interner, name));
                 }
             }
+            // The five default *declaration* forms all route through
+            // `push_default_export`, which is the one place boa's `default`
+            // marker is turned into `LocalName::AnonymousDefault`.
             ExportDeclaration::DefaultFunctionDeclaration(function) => {
                 push_default_export(
                     &resolved_name(interner, function.name().sym()),
@@ -933,15 +989,15 @@ fn build_module_record(
             }
             ExportDeclaration::DefaultAssignmentExpression(_) => {
                 record.local_export_entries.push(LocalExportEntryIr {
-                    local_name: MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME.to_string(),
-                    export_name: MODULE_DEFAULT_EXPORT_NAME.to_string(),
+                    local_name: LocalName::AnonymousDefault,
+                    export_name: ExportName::default_export(),
                 });
-                default_local = Some(MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME.to_string());
+                default_local = Some(LocalName::AnonymousDefault);
             }
         }
     }
 
-    record.environment = module_environment(item_list, interner, &record, default_local.as_deref());
+    record.environment = module_environment(item_list, interner, &record, default_local.as_ref());
 
     let mut scan = ModuleBodyScan {
         interner: Some(interner),
@@ -961,10 +1017,18 @@ fn build_module_record(
     record
 }
 
+/// `export let x` / `export var x` / `export function x`: the coincident case,
+/// where the `[[LocalName]]` and the `[[ExportName]]` happen to be the same
+/// text.
+///
+/// The one `&str` is therefore converted **twice**, through the two different
+/// constructors. That is not redundancy — it is the whole point. A single
+/// shared conversion no longer type-checks, so the case that used to hide a
+/// `local_name`/`export_name` swap now cannot.
 fn push_local_export(record: &mut SourceTextModuleRecordIr, name: &str) {
     record.local_export_entries.push(LocalExportEntryIr {
-        local_name: name.to_string(),
-        export_name: name.to_string(),
+        local_name: LocalName::from_bound_name(name),
+        export_name: ExportName::new(name),
     });
 }
 
@@ -972,20 +1036,21 @@ fn push_local_export(record: &mut SourceTextModuleRecordIr, name: &str) {
 ///
 /// boa names an anonymous default declaration `default`, which is a reserved
 /// word and therefore unambiguous: any other name is a real
-/// `BindingIdentifier`.
+/// `BindingIdentifier`. This is the one place that marker is read, and the one
+/// place a `[[LocalName]]` is decided from anything other than BoundNames.
 fn push_default_export(
     declared_name: &str,
     record: &mut SourceTextModuleRecordIr,
-    default_local: &mut Option<String>,
+    default_local: &mut Option<LocalName>,
 ) {
-    let local_name = if declared_name == MODULE_DEFAULT_EXPORT_NAME {
-        MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME.to_string()
+    let local_name = if declared_name == ExportName::DEFAULT {
+        LocalName::AnonymousDefault
     } else {
-        declared_name.to_string()
+        LocalName::from_bound_name(declared_name)
     };
     record.local_export_entries.push(LocalExportEntryIr {
         local_name: local_name.clone(),
-        export_name: MODULE_DEFAULT_EXPORT_NAME.to_string(),
+        export_name: ExportName::default_export(),
     });
     *default_local = Some(local_name);
 }
@@ -995,7 +1060,7 @@ fn module_environment(
     item_list: &boa_ast::ModuleItemList,
     interner: &Interner,
     record: &SourceTextModuleRecordIr,
-    default_local: Option<&str>,
+    default_local: Option<&LocalName>,
 ) -> Vec<ModuleEnvBindingIr> {
     let items = item_list.items();
     let mut environment = Vec::new();
@@ -1079,7 +1144,7 @@ fn module_environment(
     // module body; those are module-environment bindings too.
     let mut nested = BTreeSet::new();
     for name in var_declared_names(item_list) {
-        nested.insert(resolved_name(interner, name));
+        nested.insert(resolved_local_name(interner, name));
     }
     for name in nested {
         if declared.insert(name.clone()) {
@@ -1101,7 +1166,7 @@ fn push_declaration_bindings(
     declaration: &Declaration,
     interner: &Interner,
     environment: &mut Vec<ModuleEnvBindingIr>,
-    declared: &mut BTreeSet<String>,
+    declared: &mut BTreeSet<LocalName>,
 ) {
     let kind = match declaration {
         Declaration::FunctionDeclaration(_)
@@ -1113,7 +1178,7 @@ fn push_declaration_bindings(
         Declaration::Lexical(_) => ModuleBindingKindIr::Let,
     };
     for name in bound_names(declaration) {
-        let name = resolved_name(interner, name);
+        let name = resolved_local_name(interner, name);
         if declared.insert(name.clone()) {
             environment.push(ModuleEnvBindingIr {
                 name,
@@ -1131,10 +1196,10 @@ fn push_var_bindings(
     var: &VarDeclaration,
     interner: &Interner,
     environment: &mut Vec<ModuleEnvBindingIr>,
-    declared: &mut BTreeSet<String>,
+    declared: &mut BTreeSet<LocalName>,
 ) {
     for name in bound_names(var) {
-        let name = resolved_name(interner, name);
+        let name = resolved_local_name(interner, name);
         if declared.insert(name.clone()) {
             environment.push(ModuleEnvBindingIr {
                 name,
@@ -1149,17 +1214,17 @@ fn push_var_bindings(
 }
 
 fn push_default_binding(
-    default_local: Option<&str>,
+    default_local: Option<&LocalName>,
     kind: ModuleBindingKindIr,
     environment: &mut Vec<ModuleEnvBindingIr>,
-    declared: &mut BTreeSet<String>,
+    declared: &mut BTreeSet<LocalName>,
 ) {
     let Some(name) = default_local else {
         return;
     };
-    if declared.insert(name.to_string()) {
+    if declared.insert(name.clone()) {
         environment.push(ModuleEnvBindingIr {
-            name: name.to_string(),
+            name: name.clone(),
             kind,
             mutable: true,
             initialized_before_evaluation: kind == ModuleBindingKindIr::Function,
@@ -1330,23 +1395,31 @@ mod tests {
             .collect()
     }
 
+    /// A `[[LocalName]]`, spelled the way the module's own text spells it.
+    fn local(name: &str) -> LocalName {
+        LocalName::from_bound_name(name)
+    }
+
     fn import(specifier: &str, import_name: ImportNameIr, local_name: &str) -> ImportEntryIr {
         ImportEntryIr {
             request: ModuleRequestIr::plain(specifier),
             import_name,
-            local_name: local_name.to_string(),
+            local_name: local(local_name),
             span: None,
         }
     }
 
     fn named(name: &str) -> ImportNameIr {
-        ImportNameIr::Name(name.to_string())
+        ImportNameIr::Name(ExportName::new(name))
     }
 
+    /// The compile-time witness for the coincident case: the two arguments go
+    /// through two *different* constructors, so this helper cannot be written
+    /// with one shared conversion and cannot silently swap its arguments.
     fn local_export(local_name: &str, export_name: &str) -> LocalExportEntryIr {
         LocalExportEntryIr {
-            local_name: local_name.to_string(),
-            export_name: export_name.to_string(),
+            local_name: local(local_name),
+            export_name: ExportName::new(export_name),
         }
     }
 
@@ -1358,7 +1431,7 @@ mod tests {
         IndirectExportEntryIr {
             request: ModuleRequestIr::plain(specifier),
             import_name,
-            export_name: export_name.to_string(),
+            export_name: ExportName::new(export_name),
         }
     }
 
@@ -1593,7 +1666,7 @@ mod tests {
             assert_eq!(
                 record.environment,
                 vec![ModuleEnvBindingIr {
-                    name: MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME.to_string(),
+                    name: LocalName::AnonymousDefault,
                     kind,
                     mutable: true,
                     initialized_before_evaluation: kind == ModuleBindingKindIr::Function,
@@ -1626,7 +1699,7 @@ mod tests {
             record.environment,
             vec![
                 ModuleEnvBindingIr {
-                    name: "imported".to_string(),
+                    name: local("imported"),
                     kind: ModuleBindingKindIr::Import,
                     mutable: false,
                     initialized_before_evaluation: true,
@@ -1634,7 +1707,7 @@ mod tests {
                     indirect: Some((ModuleRequestIr::plain("./m.mjs"), named("imported"))),
                 },
                 ModuleEnvBindingIr {
-                    name: "v".to_string(),
+                    name: local("v"),
                     kind: ModuleBindingKindIr::Var,
                     mutable: true,
                     initialized_before_evaluation: true,
@@ -1642,7 +1715,7 @@ mod tests {
                     indirect: None,
                 },
                 ModuleEnvBindingIr {
-                    name: "l".to_string(),
+                    name: local("l"),
                     kind: ModuleBindingKindIr::Let,
                     mutable: true,
                     initialized_before_evaluation: false,
@@ -1650,7 +1723,7 @@ mod tests {
                     indirect: None,
                 },
                 ModuleEnvBindingIr {
-                    name: "c".to_string(),
+                    name: local("c"),
                     kind: ModuleBindingKindIr::Const,
                     mutable: false,
                     initialized_before_evaluation: false,
@@ -1658,7 +1731,7 @@ mod tests {
                     indirect: None,
                 },
                 ModuleEnvBindingIr {
-                    name: "f".to_string(),
+                    name: local("f"),
                     kind: ModuleBindingKindIr::Function,
                     mutable: true,
                     initialized_before_evaluation: true,
@@ -1666,7 +1739,7 @@ mod tests {
                     indirect: None,
                 },
                 ModuleEnvBindingIr {
-                    name: "K".to_string(),
+                    name: local("K"),
                     kind: ModuleBindingKindIr::Class,
                     mutable: true,
                     initialized_before_evaluation: false,
@@ -1677,7 +1750,7 @@ mod tests {
                 // module-environment bindings too, and they are appended after
                 // the source-order walk.
                 ModuleEnvBindingIr {
-                    name: "nested".to_string(),
+                    name: local("nested"),
                     kind: ModuleBindingKindIr::Var,
                     mutable: true,
                     initialized_before_evaluation: true,
@@ -1802,8 +1875,8 @@ mod tests {
         let record = record_with_id(source, 7);
         let rewritten = rewrite_import_meta(source, &record).expect("rewrite should succeed");
 
-        let name = import_meta_binding_name(7);
-        assert_eq!(name, "$m7$meta");
+        let name = MergedName::minted(7, UnitCellRole::ImportMeta);
+        assert_eq!(name.as_str(), "$m7$meta");
         assert!(
             !rewritten.contains("import"),
             "no `import.meta` may survive into Script text, got: {rewritten}"
@@ -1815,7 +1888,10 @@ mod tests {
 
     #[test]
     fn two_units_get_two_distinct_import_meta_objects() {
-        assert_ne!(import_meta_binding_name(0), import_meta_binding_name(1));
+        assert_ne!(
+            MergedName::minted(0, UnitCellRole::ImportMeta),
+            MergedName::minted(1, UnitCellRole::ImportMeta)
+        );
         assert_ne!(
             import_meta_binding(0, "file:///a.mjs").declaration,
             import_meta_binding(1, "file:///a.mjs").declaration
@@ -1847,7 +1923,7 @@ mod tests {
             binding.declaration,
             "const $m0$meta = { __proto__: null, url: \"file:///root/a.mjs\" };"
         );
-        assert_eq!(binding.name, import_meta_binding_name(0));
+        assert_eq!(binding.name, MergedName::minted(0, UnitCellRole::ImportMeta));
     }
 
     #[test]

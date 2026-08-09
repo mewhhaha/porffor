@@ -27,6 +27,21 @@
 //! repeated `import * as ns` and repeated `import()` of the same module observe
 //! the same object.
 //!
+//! # The one name domain that is *not* here
+//!
+//! A backend that emitted a real per-unit Environment Record would address an
+//! export through a `$m{unit}$`-prefixed spelling of the exporter's
+//! `[[LocalName]]`. That is a distinct name domain, and this file used to carry
+//! one such value on every namespace export, written by `ModuleGraphIr::cell_name`
+//! and read only by a test. Both are deleted: the source-text linker names an
+//! exporter's binding exactly as the exporter spells it, so a prefixed name in
+//! generated Script text would bind nothing.
+//!
+//! If that backend is built, the name it needs must be a **different type** from
+//! [`MergedName`] — it is a name in a different scope — and must not be spelled
+//! as one. Reintroducing it as a `String` field beside a `MergedName` is the
+//! mistake this arrangement exists to prevent.
+//!
 //! # How one is actually materialized
 //!
 //! [`link`] merges a graph on *source text*: every unit's body is concatenated,
@@ -89,24 +104,17 @@
 
 use crate::*;
 
-use super::record::module_binding_reference;
-
 /// One entry of a module namespace object's export table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleNamespaceExportIr {
     /// The exported name, as seen through the namespace object.
-    pub export_name: String,
+    pub export_name: ExportName,
     /// What `ResolveExport` produced for it.
-    pub target: ResolvedBindingIr,
-    /// Storage name of the exporter's cell. Reads are live; writes are
-    /// rejected.
     ///
-    /// This is the *IR-level* cell name (`$m0$value`), which is what a future
-    /// backend that emits per-unit environments would address. The source-text
-    /// linker in use today names the exporter's binding as the exporter itself
-    /// spells it, so the generated namespace source reads [`Self::target`]
-    /// through `namespace_target_reference` and never this field.
-    pub cell: String,
+    /// The single source of the cell a read of this key reaches:
+    /// [`namespace_target_reference`] maps it to the merged name, and there is
+    /// no second, precomputed spelling of the same thing to drift from it.
+    pub target: ResolvedBindingIr,
 }
 
 /// A module namespace exotic object.
@@ -121,9 +129,9 @@ pub struct ModuleNamespaceIr {
     ///
     /// Under the source-text linker this doubles as the merged script's binding
     /// name for the object, which is safe because
-    /// [`module_namespace_cell_name`] mints it from the unit id rather than
-    /// from source.
-    pub cell: String,
+    /// [`MergedName::minted`] mints it from the unit id and a
+    /// [`UnitCellRole`] rather than from source.
+    pub cell: MergedName,
     /// `true` when this is a *Deferred* Module Namespace: the module is only
     /// reached through `import defer`, so reading any export of this object
     /// evaluates the module first.
@@ -148,31 +156,19 @@ impl ModuleNamespaceIr {
     /// `[[OwnPropertyKeys]]`, string keys only, already in UTF-16 code-unit
     /// order. `@@toStringTag` follows them.
     #[must_use]
-    pub fn own_property_keys(&self) -> Vec<&str> {
+    pub fn own_property_keys(&self) -> Vec<&ExportName> {
         self.exports
             .iter()
-            .map(|export| export.export_name.as_str())
+            .map(|export| &export.export_name)
             .collect()
-    }
-
-    /// Cell a namespace read of `export_name` resolves to.
-    ///
-    /// `None` means the name is not an own property of this namespace, which is
-    /// what `[[Get]]` reports as `undefined` and `[[HasProperty]]` as `false`.
-    #[must_use]
-    pub fn cell_for(&self, export_name: &str) -> Option<&str> {
-        self.exports
-            .iter()
-            .find(|export| export.export_name == export_name)
-            .map(|export| export.cell.as_str())
     }
 }
 
 /// Sort key giving UTF-16 code-unit order, which is what `[[OwnPropertyKeys]]`
 /// requires and what `String` `Ord` (UTF-8 byte order) does *not* give for
 /// astral-plane and some BMP names.
-fn utf16_sort_key(name: &str) -> Vec<u16> {
-    name.encode_utf16().collect()
+fn utf16_sort_key(name: &ExportName) -> Vec<u16> {
+    name.as_str().encode_utf16().collect()
 }
 
 /// Appends `value` as a double-quoted JavaScript string literal.
@@ -205,11 +201,20 @@ fn push_js_string_literal(out: &mut String, value: &str) {
 /// script.
 ///
 /// The generated source names a binding directly, so a name it cannot spell has
-/// to be reported rather than emitted. The one such name the module system mints
-/// is [`MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME`] (`*default*`), which 8.2.2 chose
-/// precisely because no `BindingIdentifier` can spell it.
-fn is_binding_identifier(name: &str) -> bool {
-    let mut chars = name.chars();
+/// to be reported rather than emitted.
+///
+/// This is a *spellability* predicate, not a domain test, and it stays a runtime
+/// predicate on purpose — contract ledger R1. Its inputs are merged names, so
+/// the one name 8.2.2 makes unspellable can no longer reach it:
+/// [`LocalName::merged_in`] has already replaced `*default*` with a minted
+/// `$d{unit}$` before this is asked. What remains are source-spelled
+/// identifiers that boa has already accepted as `BindingIdentifier`s, which is
+/// *nearly* always enough — a `\u`-escaped identifier and an astral-plane
+/// identifier both parse and neither is ASCII-spellable by the current emitter.
+/// Encoding that in a type would mean duplicating boa's `IdentifierPart` scan in
+/// a constructor; the honest operation is this predicate.
+fn is_binding_identifier(name: &MergedName) -> bool {
+    let mut chars = name.as_str().chars();
     let Some(first) = chars.next() else {
         return false;
     };
@@ -221,27 +226,31 @@ fn is_binding_identifier(name: &str) -> bool {
 
 /// Expression the merged script evaluates to read a resolved binding.
 ///
+/// The single authority for what a `ResolvedBinding` Record reads as in the
+/// merged scope, and the only D1 -> D3 crossing on the emitter's path.
+///
 /// `None` means the binding cannot be named as Script text: an ambiguous or
 /// missing export (which 16.2.1.10 already excludes from the namespace), or a
 /// local name no `IdentifierReference` can spell.
 #[must_use]
-pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<String> {
+pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedName> {
     match target {
         ResolvedBindingIr::Resolved {
             module,
             binding: ModuleBindingNameIr::Namespace,
-        } => Some(module_namespace_cell_name(*module)),
+        } => Some(MergedName::minted(*module, UnitCellRole::Namespace)),
         ResolvedBindingIr::Resolved {
             module,
             binding: ModuleBindingNameIr::ModuleSource,
-        } => Some(module_source_cell_name(*module)),
+        } => Some(MergedName::minted(*module, UnitCellRole::ModuleSource)),
         ResolvedBindingIr::Resolved {
             module,
             binding: ModuleBindingNameIr::Name(name),
         } => {
             // `*default*` is the one `[[LocalName]]` no source text can spell,
-            // and the merged script declares it under a minted name instead.
-            let reference = module_binding_reference(*module, name);
+            // and `merged_in` is where the merged script's minted name for it
+            // comes from. Applied exactly once, here.
+            let reference = name.merged_in(*module);
             is_binding_identifier(&reference).then_some(reference)
         }
         ResolvedBindingIr::Ambiguous | ResolvedBindingIr::NotFound => None,
@@ -257,6 +266,7 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<String> 
 /// non-extensible object refuses new properties.
 fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, String> {
     let binding = namespace.cell.as_str();
+    let defer_evaluate = MergedName::minted(namespace.module, UnitCellRole::DeferEvaluate);
     let mut text = String::new();
 
     text.push_str("const ");
@@ -269,14 +279,14 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
         let reference = namespace_target_reference(&export.target).ok_or_else(|| {
             format!(
                 "export `{}` resolves to a binding the merged script cannot name",
-                export.export_name
+                export.export_name.as_str()
             )
         })?;
         text.push_str(OBJECT_NAME);
         text.push_str(".defineProperty(");
         text.push_str(binding);
         text.push_str(", ");
-        push_js_string_literal(&mut text, &export.export_name);
+        push_js_string_literal(&mut text, export.export_name.as_str());
         // An accessor, not a data property: see the module docs. No setter, so
         // `[[Set]]` throws in the strict code every module unit is.
         text.push_str(", { get: () => ");
@@ -285,12 +295,12 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
             // the merged one, so the getter goes through the export table the
             // thunk publishes — and calling the thunk is what makes the first
             // read of any export evaluate the module.
-            text.push_str(&module_defer_evaluate_function_name(namespace.module));
+            text.push_str(defer_evaluate.as_str());
             text.push_str("()[");
-            push_js_string_literal(&mut text, &export.export_name);
+            push_js_string_literal(&mut text, export.export_name.as_str());
             text.push_str("]()");
         } else {
-            text.push_str(&reference);
+            text.push_str(reference.as_str());
         }
         text.push_str(", enumerable: true, configurable: false });\n");
     }
@@ -375,9 +385,9 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
     }
     for (local, object) in aliases.iter().chain(source_aliases.iter()) {
         text.push_str("const ");
-        text.push_str(local);
+        text.push_str(local.as_str());
         text.push_str(" = ");
-        text.push_str(object);
+        text.push_str(object.as_str());
         text.push_str(";\n");
     }
 
@@ -408,13 +418,18 @@ fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Ve
             .environment
             .iter()
             .filter(|binding| binding.kind != ModuleBindingKindIr::Import)
-            .filter(|binding| matches!(binding.name.as_str(), OBJECT_NAME | SYMBOL_NAME))
         {
+            // The merged spelling, because that is the name the prelude's own
+            // `Object.` / `Symbol.` reads would resolve against.
+            let merged = shadowed.name.merged_in(unit.record.id);
+            if !matches!(merged.as_str(), OBJECT_NAME | SYMBOL_NAME) {
+                continue;
+            }
             diagnostics.push(namespace_unsupported(
                 &unit.record.key,
                 &format!(
                     "namespace objects are built from `{}`, which this module shadows at top level",
-                    shadowed.name
+                    merged.as_str()
                 ),
             ));
         }
@@ -431,11 +446,13 @@ fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Ve
 fn collect_namespace_aliases(
     graph: &ModuleGraphIr,
     diagnostics: &mut Vec<IrDiagnostic>,
-) -> Vec<(String, String)> {
-    // Every top-level name a unit owns outright. Import bindings are excluded
+) -> Vec<(MergedName, MergedName)> {
+    // Every top-level name a unit owns outright, in the *merged* spelling —
+    // this map is compared against alias names, which are declared into the
+    // merged scope, so both sides have to be D3. Import bindings are excluded
     // for the same reason `check_linkable` excludes them: they are deliberately
     // the exporting unit's cell.
-    let mut declared: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut declared: BTreeMap<MergedName, &str> = BTreeMap::new();
     for unit in &graph.units {
         // Same reason as `report_shadowed_namespace_globals`: only an eagerly
         // evaluated unit puts its top-level bindings in the merged scope.
@@ -444,20 +461,27 @@ fn collect_namespace_aliases(
         }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
-                declared.insert(binding.name.as_str(), unit.record.key.as_str());
+                declared.insert(
+                    binding.name.merged_in(unit.record.id),
+                    unit.record.key.as_str(),
+                );
             }
         }
     }
 
     let mut aliases = Vec::new();
-    let mut owners: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut owners: BTreeMap<MergedName, &str> = BTreeMap::new();
     for unit in &graph.units {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
             if entry.import_name != ImportNameIr::Namespace {
                 continue;
             }
-            let local = entry.local_name.as_str();
+            // The alias is emitted as a real `const` in the merged scope, so
+            // the name that matters here is the merged one — the same domain
+            // as the `declared` map it is checked against below.
+            let merged = entry.local_name.merged_in(unit.record.id);
+            let local = merged.as_str();
             let Some(ResolvedBindingIr::Resolved {
                 module,
                 binding: ModuleBindingNameIr::Namespace,
@@ -469,7 +493,7 @@ fn collect_namespace_aliases(
                 ));
                 continue;
             };
-            if !is_binding_identifier(local) {
+            if !is_binding_identifier(&merged) {
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!("namespace binding `{local}` is not spellable"),
@@ -488,12 +512,12 @@ fn collect_namespace_aliases(
                         "namespace objects are built from `{local}`, which this module binds as a namespace alias"
                     ),
                 ));
-            } else if let Some(previous) = owners.insert(local, key) {
+            } else if let Some(previous) = owners.insert(merged.clone(), key) {
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!("namespace binding `{local}` is already bound by module {previous}"),
                 ));
-            } else if let Some(owner) = declared.get(local) {
+            } else if let Some(owner) = declared.get(&merged) {
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!(
@@ -501,7 +525,10 @@ fn collect_namespace_aliases(
                     ),
                 ));
             } else {
-                aliases.push((local.to_string(), module_namespace_cell_name(*module)));
+                aliases.push((
+                    merged.clone(),
+                    MergedName::minted(*module, UnitCellRole::Namespace),
+                ));
             }
         }
     }
@@ -555,8 +582,9 @@ pub(crate) fn deferred_body_source(
     module: ModuleUnitId,
     body: &str,
 ) -> Result<String, String> {
-    let cells = module_defer_cells_cell_name(module);
-    let evaluate = module_defer_evaluate_function_name(module);
+    let cells = MergedName::minted(module, UnitCellRole::DeferCells);
+    let cells = cells.as_str();
+    let evaluate = MergedName::minted(module, UnitCellRole::DeferEvaluate);
     // Never `unwrap_or_default`: an empty table would compile to a namespace
     // whose every export reads `undefined` instead of saying what went wrong.
     // `collect_observed_namespaces` always builds one for a deferred module,
@@ -572,31 +600,31 @@ pub(crate) fn deferred_body_source(
 
     let mut text = String::new();
     text.push_str("function ");
-    text.push_str(&evaluate);
+    text.push_str(evaluate.as_str());
     text.push_str("() {\n");
     text.push_str("if (");
-    text.push_str(&cells);
+    text.push_str(cells);
     text.push_str(" !== undefined) return ");
-    text.push_str(&cells);
+    text.push_str(cells);
     text.push_str(";\n");
-    text.push_str(&cells);
+    text.push_str(cells);
     text.push_str(" = { __proto__: null");
     for export in exports {
         let reference = namespace_target_reference(&export.target).ok_or_else(|| {
             format!(
                 "deferred export `{}` resolves to a binding the merged script cannot name",
-                export.export_name
+                export.export_name.as_str()
             )
         })?;
         text.push_str(", [");
-        push_js_string_literal(&mut text, &export.export_name);
+        push_js_string_literal(&mut text, export.export_name.as_str());
         text.push_str("]: () => ");
-        text.push_str(&reference);
+        text.push_str(reference.as_str());
     }
     text.push_str(" };\n");
     text.push_str(body);
     text.push_str("\n;\nreturn ");
-    text.push_str(&cells);
+    text.push_str(cells);
     text.push_str(";\n}\n");
     Ok(text)
 }
@@ -609,7 +637,10 @@ pub(crate) fn deferred_body_source(
 /// declaration that can sit wherever the unit's body would have gone.
 #[must_use]
 pub(crate) fn deferred_cells_declaration(module: ModuleUnitId) -> String {
-    format!("let {};\n", module_defer_cells_cell_name(module))
+    format!(
+        "let {};\n",
+        MergedName::minted(module, UnitCellRole::DeferCells).as_str()
+    )
 }
 
 /// Merged-script statements building one module source object, and the
@@ -627,16 +658,17 @@ pub(crate) fn deferred_cells_declaration(module: ModuleUnitId) -> String {
 /// the proposal that is observable from the module system — and it is *not* a
 /// spec-shaped `AbstractModuleSource`.
 fn module_source_object_source(module: ModuleUnitId) -> String {
-    let binding = module_source_cell_name(module);
+    let cell = MergedName::minted(module, UnitCellRole::ModuleSource);
+    let binding = cell.as_str();
     let mut text = String::new();
     text.push_str("const ");
-    text.push_str(&binding);
+    text.push_str(binding);
     text.push_str(" = ");
     text.push_str(OBJECT_NAME);
     text.push_str(".create(null);\n");
     text.push_str(OBJECT_NAME);
     text.push_str(".defineProperty(");
-    text.push_str(&binding);
+    text.push_str(binding);
     text.push_str(", ");
     text.push_str(SYMBOL_NAME);
     text.push_str(".toStringTag, { value: ");
@@ -644,7 +676,7 @@ fn module_source_object_source(module: ModuleUnitId) -> String {
     text.push_str(", writable: false, enumerable: false, configurable: false });\n");
     text.push_str(OBJECT_NAME);
     text.push_str(".preventExtensions(");
-    text.push_str(&binding);
+    text.push_str(binding);
     text.push_str(");\n");
     text
 }
@@ -662,7 +694,7 @@ pub const MODULE_SOURCE_TO_STRING_TAG: &str = "Module Source";
 fn collect_module_source_aliases(
     graph: &ModuleGraphIr,
     diagnostics: &mut Vec<IrDiagnostic>,
-) -> (BTreeSet<ModuleUnitId>, Vec<(String, String)>) {
+) -> (BTreeSet<ModuleUnitId>, Vec<(MergedName, MergedName)>) {
     let mut modules = BTreeSet::new();
     let mut aliases = Vec::new();
     for unit in &graph.units {
@@ -671,7 +703,10 @@ fn collect_module_source_aliases(
             if entry.request.phase != ImportPhaseIr::Source {
                 continue;
             }
-            let local = entry.local_name.as_str();
+            // As in `collect_namespace_aliases`: the binding is emitted as a
+            // `const` of the merged scope, so it is a D3 name.
+            let merged = entry.local_name.merged_in(unit.record.id);
+            let local = merged.as_str();
             let Some(ResolvedBindingIr::Resolved {
                 module,
                 binding: ModuleBindingNameIr::ModuleSource,
@@ -683,7 +718,7 @@ fn collect_module_source_aliases(
                 ));
                 continue;
             };
-            if !is_binding_identifier(local) {
+            if !is_binding_identifier(&merged) {
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!("module source binding `{local}` is not spellable"),
@@ -700,7 +735,10 @@ fn collect_module_source_aliases(
                 continue;
             }
             modules.insert(*module);
-            aliases.push((local.to_string(), module_source_cell_name(*module)));
+            aliases.push((
+                merged.clone(),
+                MergedName::minted(*module, UnitCellRole::ModuleSource),
+            ));
         }
     }
     (modules, aliases)
@@ -717,8 +755,8 @@ fn namespace_unsupported(key: &str, reason: &str) -> IrDiagnostic {
 /// Returns the storage name of the cell holding the identity-cached namespace
 /// object, so repeated `import * as ns` and `import()` of the same module
 /// observe the same object.
-pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) -> String {
-    let cell = module_namespace_cell_name(module);
+pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) -> MergedName {
+    let cell = MergedName::minted(module, UnitCellRole::Namespace);
     let Some(index) = usize::try_from(module)
         .ok()
         .filter(|index| *index < graph.units.len())
@@ -734,13 +772,18 @@ pub(crate) fn ensure_namespace(graph: &mut ModuleGraphIr, module: ModuleUnitId) 
         .into_iter()
         .filter_map(|export_name| {
             let target = graph.resolve_export(module, &export_name);
-            // Ambiguous and unresolvable names are excluded from the namespace.
-            let cell = graph.cell_name(&target)?;
-            Some(ModuleNamespaceExportIr {
-                export_name,
-                target,
-                cell,
-            })
+            // 16.2.1.10 step 2.a: ambiguous and unresolvable names are excluded
+            // from the namespace, so they are not own properties at all. The
+            // match is exhaustive over `ResolvedBindingIr` with no catch-all, so
+            // a new resolution shape has to answer this question rather than
+            // inherit an answer.
+            match target {
+                ResolvedBindingIr::Resolved { .. } => Some(ModuleNamespaceExportIr {
+                    export_name,
+                    target,
+                }),
+                ResolvedBindingIr::Ambiguous | ResolvedBindingIr::NotFound => None,
+            }
         })
         .collect();
     exports.sort_by(|left, right| {
@@ -769,7 +812,7 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
     let mut observed = BTreeSet::new();
     for unit in &graph.units {
         // `import * as ns from "m"`, and `export * as ns from "m"` re-exported
-        // onward. Both hand `module_namespace_cell_name(m)` to a reader, so
+        // onward. Both hand `m`'s `UnitCellRole::Namespace` cell to a reader, so
         // both make `m`'s namespace object observable.
         for binding in unit
             .resolved_imports
@@ -871,22 +914,25 @@ mod tests {
         // sorts *before* U+FF3A even though its UTF-8 bytes sort after.
         let surrogate = keys
             .iter()
-            .position(|key| key.chars().next() == Some('\u{10000}'));
+            .position(|key| key.as_str().chars().next() == Some('\u{10000}'));
         let fullwidth = keys
             .iter()
-            .position(|key| key.chars().next() == Some('\u{FF3A}'));
+            .position(|key| key.as_str().chars().next() == Some('\u{FF3A}'));
         assert!(
             surrogate < fullwidth,
             "UTF-16 order puts a surrogate pair before U+FF3A: {keys:?}"
         );
         // A space sorts before an ASCII letter.
         assert!(
-            keys.iter().position(|key| *key == "a b") < keys.iter().position(|key| *key == "b")
+            keys.iter().position(|key| key.as_str() == "a b")
+                < keys.iter().position(|key| key.as_str() == "b")
         );
     }
 
-    /// Every export of the namespace names the *exporter's* cell, so a read is
-    /// live rather than a snapshot taken when the object was created.
+    /// Every export of the namespace names the *exporter's own* binding, so a
+    /// read is live rather than a snapshot taken when the object was created —
+    /// and it is named with no `$m{unit}$` prefix, because the merged scope
+    /// shares the exporter's cell with its importers by name.
     #[test]
     fn namespace_entries_point_at_the_exporter_cell() {
         let mut graph = graph_of(&[("m", "export let value = 1;")]);
@@ -895,9 +941,19 @@ mod tests {
             .namespace
             .as_ref()
             .expect("namespace should exist");
+        let export = namespace
+            .exports
+            .iter()
+            .find(|export| export.export_name.as_str() == "value")
+            .expect("`value` is an own key of the namespace");
         assert_eq!(
-            namespace.cell_for("value"),
-            Some(format!("{}value", module_storage_prefix(0)).as_str())
+            namespace_target_reference(&export.target),
+            Some(LocalName::from_bound_name("value").merged_in(0))
+        );
+        assert_eq!(
+            namespace_target_reference(&export.target)
+                .map(|name| name.as_str().to_string()),
+            Some("value".to_string())
         );
     }
 
@@ -909,10 +965,10 @@ mod tests {
         let first = ensure_namespace(&mut graph, 0);
         let second = ensure_namespace(&mut graph, 0);
         assert_eq!(first, second);
-        assert_eq!(first, module_namespace_cell_name(0));
+        assert_eq!(first, MergedName::minted(0, UnitCellRole::Namespace));
         assert_eq!(
-            graph.units[0].namespace.as_ref().map(|ns| ns.cell.as_str()),
-            Some(first.as_str())
+            graph.units[0].namespace.as_ref().map(|ns| ns.cell.clone()),
+            Some(first)
         );
     }
 
@@ -928,7 +984,7 @@ mod tests {
             .expect("namespace should exist");
         assert!(!namespace
             .own_property_keys()
-            .contains(&MODULE_DEFAULT_EXPORT_NAME));
+            .contains(&&ExportName::default_export()));
     }
 
     fn plain(specifier: &str) -> ModuleRequestIr {
@@ -984,7 +1040,8 @@ mod tests {
         let mut graph = graph_of(&[("m", "export const value = 41;")]);
         ensure_namespace(&mut graph, 0);
         let source = source_of(&graph, 0);
-        let binding = module_namespace_cell_name(0);
+        let binding = MergedName::minted(0, UnitCellRole::Namespace);
+        let binding = binding.as_str();
 
         assert!(
             source.starts_with(&format!("const {binding} = Object.create(null);\n")),
@@ -1003,8 +1060,9 @@ mod tests {
     }
 
     /// The getter names the *exporter's own* binding, which is what makes the
-    /// read live. The IR-level `cell` name (`$m0$value`) belongs to a different,
-    /// not-yet-built backend and must not leak into the merged source.
+    /// read live. The per-unit-environment name (`$m0$value`) belongs to a
+    /// different, not-yet-built backend and must not leak into the merged
+    /// source — and no longer can, since nothing mints one.
     #[test]
     fn namespace_source_reads_the_exporter_binding_rather_than_a_snapshot() {
         let mut graph = graph_of(&[("m", "export let value = 41;")]);
@@ -1012,13 +1070,17 @@ mod tests {
         let source = source_of(&graph, 0);
 
         assert!(source.contains("get: () => value,"), "got {source}");
-        // The *export* cell (`$m0$value`) must not appear. The namespace
-        // object's own binding (`$m0$namespace`) shares the same prefix by
-        // construction (`module_namespace_cell_name`), so asserting the prefix
-        // is absent would be unsatisfiable rather than strict.
+        // The per-unit-environment cell name (`$m0$value`) must not appear. It
+        // no longer *can*: nothing in the crate produces such a name since
+        // `ModuleGraphIr::cell_name` was deleted. This assertion is the
+        // regression guard for that, and it is now a statement about what is
+        // constructible rather than about what happened to be chosen. The
+        // namespace object's own binding (`$m0$namespace`) shares the same
+        // prefix by construction, so asserting the prefix is absent would be
+        // unsatisfiable rather than strict.
         assert!(
-            !source.contains(&format!("{}value", module_storage_prefix(0))),
-            "the IR cell naming scheme must not reach the merged source: {source}"
+            !source.contains("$m0$value"),
+            "the per-unit-environment cell naming scheme must not reach the merged source: {source}"
         );
     }
 
@@ -1101,14 +1163,13 @@ mod tests {
         ModuleNamespaceIr {
             module,
             exports: vec![ModuleNamespaceExportIr {
-                export_name: MODULE_DEFAULT_EXPORT_NAME.to_string(),
+                export_name: ExportName::default_export(),
                 target: ResolvedBindingIr::Resolved {
                     module,
-                    binding: ModuleBindingNameIr::Name(local.to_string()),
+                    binding: ModuleBindingNameIr::Name(LocalName::from_bound_name(local)),
                 },
-                cell: module_namespace_cell_name(module),
             }],
-            cell: module_namespace_cell_name(module),
+            cell: MergedName::minted(module, UnitCellRole::Namespace),
             deferred: false,
             source: Ok(String::new()),
         }
@@ -1122,7 +1183,10 @@ mod tests {
         let namespace = namespace_of_one_local(2, MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME);
         let source = namespace_object_source(&namespace).expect("`*default*` has a merged name");
         assert!(
-            source.contains(&format!("get: () => {}", module_default_binding_name(2))),
+            source.contains(&format!(
+                "get: () => {}",
+                LocalName::AnonymousDefault.merged_in(2).as_str()
+            )),
             "got {source}"
         );
     }
@@ -1149,7 +1213,8 @@ mod tests {
         );
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
 
-        let binding = module_namespace_cell_name(0);
+        let binding = MergedName::minted(0, UnitCellRole::Namespace);
+        let binding = binding.as_str();
         assert!(
             prelude.contains(&format!("const {binding} = Object.create(null);")),
             "got {prelude}"
@@ -1299,13 +1364,16 @@ mod tests {
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
 
         assert!(
-            prelude.contains(&format!("let {};", module_defer_cells_cell_name(0))),
+            prelude.contains(&format!(
+                "let {};",
+                MergedName::minted(0, UnitCellRole::DeferCells).as_str()
+            )),
             "got {prelude}"
         );
         assert!(
             prelude.contains(&format!(
                 "get: () => {}()[\"value\"]()",
-                module_defer_evaluate_function_name(0)
+                MergedName::minted(0, UnitCellRole::DeferEvaluate).as_str()
             )),
             "got {prelude}"
         );
@@ -1340,7 +1408,8 @@ mod tests {
         let thunk = deferred_body_source(&graph, 0, "const value = 41;")
             .expect("the deferred body should be expressible");
 
-        let cells = module_defer_cells_cell_name(0);
+        let cells = MergedName::minted(0, UnitCellRole::DeferCells);
+        let cells = cells.as_str();
         assert!(
             thunk.contains(&format!("if ({cells} !== undefined) return {cells};")),
             "got {thunk}"
@@ -1381,7 +1450,8 @@ mod tests {
         );
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
 
-        let cell = module_source_cell_name(0);
+        let cell = MergedName::minted(0, UnitCellRole::ModuleSource);
+        let cell = cell.as_str();
         assert!(
             prelude.contains(&format!("const {cell} = Object.create(null);")),
             "got {prelude}"
@@ -1422,7 +1492,7 @@ mod tests {
         assert!(
             prelude.contains(&format!(
                 "\"inner\", {{ get: () => {},",
-                module_namespace_cell_name(0)
+                MergedName::minted(0, UnitCellRole::Namespace).as_str()
             )),
             "got {prelude}"
         );

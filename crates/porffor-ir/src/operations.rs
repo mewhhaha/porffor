@@ -1,3 +1,19 @@
+//! Spec-operation vocabulary and the catalog of ECMAScript abstract operations.
+//!
+//! The catalog is **evidence**, not documentation. A row that claims an
+//! operation is implemented can only be produced from something that implements
+//! it: either a [`SpecOperationIr`] variant (which the shared emitter arm in
+//! `porffor-aot-wasm/src/operations.rs` must handle, or the match there fails to
+//! build), or an [`EmissionSite`] naming a statement-shaped emitter arm (which
+//! `porffor-aot-wasm/src/emission_sites.rs` joins to a real function path).
+//! Everything else is a [`TrackedGapRow`], whose type has no field capable of
+//! holding an implementation status.
+//!
+//! See `docs/rust-rewrite/contracts/Spec-operation catalog evidence and the
+//! iterator-protocol obligation witness.md`.
+
+use crate::iterator_obligations::EmissionSite;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingMode {
     Let,
@@ -124,436 +140,103 @@ impl EcmaLanguageType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AbstractRelationalComparisonResult {
-    True,
-    False,
-    Undefined,
-}
+// ---------------------------------------------------------------------------
+// Iterator Records (7.4)
+// ---------------------------------------------------------------------------
 
-impl AbstractRelationalComparisonResult {
-    pub const fn from_bool(value: bool) -> Self {
-        if value {
-            Self::True
-        } else {
-            Self::False
-        }
-    }
-
-    pub const fn as_bool(self) -> Option<bool> {
-        match self {
-            Self::True => Some(true),
-            Self::False => Some(false),
-            Self::Undefined => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum IntegerIndexedElementType {
-    Int8,
-    Uint8,
-    Uint8Clamped,
-    Int16,
-    Uint16,
-    Int32,
-    Uint32,
-    BigInt64,
-    BigUint64,
-    Float16,
-    Float32,
-    Float64,
-}
-
-impl IntegerIndexedElementType {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Int8 => "Int8",
-            Self::Uint8 => "Uint8",
-            Self::Uint8Clamped => "Uint8Clamped",
-            Self::Int16 => "Int16",
-            Self::Uint16 => "Uint16",
-            Self::Int32 => "Int32",
-            Self::Uint32 => "Uint32",
-            Self::BigInt64 => "BigInt64",
-            Self::BigUint64 => "BigUint64",
-            Self::Float16 => "Float16",
-            Self::Float32 => "Float32",
-            Self::Float64 => "Float64",
-        }
-    }
-
-    pub const fn uses_bigint_conversion(self) -> bool {
-        matches!(self, Self::BigInt64 | Self::BigUint64)
-    }
-
-    pub const fn uses_number_conversion(self) -> bool {
-        !self.uses_bigint_conversion()
-    }
-
-    pub const fn is_clamped(self) -> bool {
-        matches!(self, Self::Uint8Clamped)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IntegerIndexedConversionIr {
-    pub element_type: IntegerIndexedElementType,
-}
-
-impl IntegerIndexedConversionIr {
-    pub const fn new(element_type: IntegerIndexedElementType) -> Self {
-        Self { element_type }
-    }
-
-    pub const fn requires_bigint_input(self) -> bool {
-        self.element_type.uses_bigint_conversion()
-    }
-
-    pub const fn requires_number_input(self) -> bool {
-        self.element_type.uses_number_conversion()
-    }
-
-    pub const fn clamps_result(self) -> bool {
-        self.element_type.is_clamped()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum IteratorRecordKind {
-    Sync,
-    Async,
-}
-
+/// `[[Iterator]]` — the name of the binding holding the iterator object.
+///
+/// The three slots of an Iterator Record are all binding names, i.e. all
+/// `String`. Spelling them as three distinct newtypes is what makes transposing
+/// two of them `E0308` instead of a `for await` that compiles and miscompiles.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IteratorRecordIr<T> {
-    pub iterator: T,
-    pub next_method: T,
-    pub done: bool,
-    pub kind: IteratorRecordKind,
+pub struct IteratorSlot(String);
+
+/// `[[NextMethod]]` — the name of the binding holding the once-read `next`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NextMethodSlot(String);
+
+/// `[[Done]]` — the name of the suspension slot holding the done flag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DoneSlot(String);
+
+impl IteratorSlot {
+    pub fn new(binding: String) -> Self {
+        Self(binding)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
-impl<T> IteratorRecordIr<T> {
-    pub const fn sync(iterator: T, next_method: T) -> Self {
+impl NextMethodSlot {
+    pub fn new(binding: String) -> Self {
+        Self(binding)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl DoneSlot {
+    pub fn new(binding: String) -> Self {
+        Self(binding)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// An Iterator Record (7.4): `{ [[Iterator]], [[NextMethod]], [[Done]] }`.
+///
+/// `[[Done]]` at IR level is the *name of a suspension slot*, not a
+/// compile-time boolean: the compiler never knows whether an iterator is
+/// exhausted, only where the emitted code keeps that flag. There is therefore
+/// no `is_done`/`mark_done` here, and there is no type parameter — the only
+/// thing an IR-level record can hold is binding names.
+///
+/// There is also no `kind: Sync | Async`. The contract proposed one on the
+/// grounds that "`kind` and the plan's existence cannot disagree", but a field
+/// set by the single reachable constructor is a constant, and a constant cannot
+/// disagree with anything — it is decoration by the same argument the contract
+/// uses to delete `OperationLoweringStatus::SharedRustModel`. The sync/async
+/// distinction is carried by *which plan owns the record*; reintroduce the
+/// enum in the patch that gives the sync for-of path a record of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IteratorRecordIr {
+    iterator: IteratorSlot,
+    next_method: NextMethodSlot,
+    done: DoneSlot,
+}
+
+impl IteratorRecordIr {
+    pub fn new(iterator: IteratorSlot, next_method: NextMethodSlot, done: DoneSlot) -> Self {
         Self {
             iterator,
             next_method,
-            done: false,
-            kind: IteratorRecordKind::Sync,
+            done,
         }
     }
 
-    pub const fn async_(iterator: T, next_method: T) -> Self {
-        Self {
-            iterator,
-            next_method,
-            done: false,
-            kind: IteratorRecordKind::Async,
-        }
+    pub fn iterator(&self) -> &IteratorSlot {
+        &self.iterator
     }
 
-    pub const fn is_done(&self) -> bool {
-        self.done
+    pub fn next_method(&self) -> &NextMethodSlot {
+        &self.next_method
     }
 
-    pub fn mark_done(&mut self) {
-        self.done = true;
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> IteratorRecordIr<U> {
-        IteratorRecordIr {
-            iterator: map(self.iterator),
-            next_method: map(self.next_method),
-            done: self.done,
-            kind: self.kind,
-        }
+    pub fn done(&self) -> &DoneSlot {
+        &self.done
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PropertyDescriptorKind {
-    Data,
-    Accessor,
-    Generic,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PropertyDescriptorIr<T> {
-    Data {
-        value: Option<T>,
-        writable: Option<bool>,
-        enumerable: Option<bool>,
-        configurable: Option<bool>,
-    },
-    Accessor {
-        get: Option<T>,
-        set: Option<T>,
-        enumerable: Option<bool>,
-        configurable: Option<bool>,
-    },
-    Generic {
-        enumerable: Option<bool>,
-        configurable: Option<bool>,
-    },
-}
-
-impl<T> PropertyDescriptorIr<T> {
-    pub const fn data(
-        value: Option<T>,
-        writable: Option<bool>,
-        enumerable: Option<bool>,
-        configurable: Option<bool>,
-    ) -> Self {
-        Self::Data {
-            value,
-            writable,
-            enumerable,
-            configurable,
-        }
-    }
-
-    pub const fn accessor(
-        get: Option<T>,
-        set: Option<T>,
-        enumerable: Option<bool>,
-        configurable: Option<bool>,
-    ) -> Self {
-        Self::Accessor {
-            get,
-            set,
-            enumerable,
-            configurable,
-        }
-    }
-
-    pub const fn generic(enumerable: Option<bool>, configurable: Option<bool>) -> Self {
-        Self::Generic {
-            enumerable,
-            configurable,
-        }
-    }
-
-    pub const fn kind(&self) -> PropertyDescriptorKind {
-        match self {
-            Self::Data { .. } => PropertyDescriptorKind::Data,
-            Self::Accessor { .. } => PropertyDescriptorKind::Accessor,
-            Self::Generic { .. } => PropertyDescriptorKind::Generic,
-        }
-    }
-
-    pub const fn is_data_descriptor(&self) -> bool {
-        matches!(self, Self::Data { .. })
-    }
-
-    pub const fn is_accessor_descriptor(&self) -> bool {
-        matches!(self, Self::Accessor { .. })
-    }
-
-    pub const fn is_generic_descriptor(&self) -> bool {
-        matches!(self, Self::Generic { .. })
-    }
-
-    pub const fn enumerable(&self) -> Option<bool> {
-        match self {
-            Self::Data { enumerable, .. }
-            | Self::Accessor { enumerable, .. }
-            | Self::Generic { enumerable, .. } => *enumerable,
-        }
-    }
-
-    pub const fn configurable(&self) -> Option<bool> {
-        match self {
-            Self::Data { configurable, .. }
-            | Self::Accessor { configurable, .. }
-            | Self::Generic { configurable, .. } => *configurable,
-        }
-    }
-
-    pub fn complete(self, default_value: T) -> Self
-    where
-        T: Clone,
-    {
-        match self {
-            Self::Data {
-                value,
-                writable,
-                enumerable,
-                configurable,
-            } => Self::Data {
-                value: value.or(Some(default_value)),
-                writable: Some(writable.unwrap_or(false)),
-                enumerable: Some(enumerable.unwrap_or(false)),
-                configurable: Some(configurable.unwrap_or(false)),
-            },
-            Self::Generic {
-                enumerable,
-                configurable,
-            } => Self::Data {
-                value: Some(default_value),
-                writable: Some(false),
-                enumerable: Some(enumerable.unwrap_or(false)),
-                configurable: Some(configurable.unwrap_or(false)),
-            },
-            Self::Accessor {
-                get,
-                set,
-                enumerable,
-                configurable,
-            } => Self::Accessor {
-                get: get.or(Some(default_value.clone())),
-                set: set.or(Some(default_value)),
-                enumerable: Some(enumerable.unwrap_or(false)),
-                configurable: Some(configurable.unwrap_or(false)),
-            },
-        }
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> PropertyDescriptorIr<U> {
-        match self {
-            Self::Data {
-                value,
-                writable,
-                enumerable,
-                configurable,
-            } => PropertyDescriptorIr::Data {
-                value: value.map(&mut map),
-                writable,
-                enumerable,
-                configurable,
-            },
-            Self::Accessor {
-                get,
-                set,
-                enumerable,
-                configurable,
-            } => PropertyDescriptorIr::Accessor {
-                get: get.map(&mut map),
-                set: set.map(&mut map),
-                enumerable,
-                configurable,
-            },
-            Self::Generic {
-                enumerable,
-                configurable,
-            } => PropertyDescriptorIr::Generic {
-                enumerable,
-                configurable,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateDataPropertyIr<T> {
-    pub target: T,
-    pub key: T,
-    pub value: T,
-}
-
-impl<T> CreateDataPropertyIr<T> {
-    pub const fn new(target: T, key: T, value: T) -> Self {
-        Self { target, key, value }
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> CreateDataPropertyIr<U> {
-        CreateDataPropertyIr {
-            target: map(self.target),
-            key: map(self.key),
-            value: map(self.value),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DefinePropertyIr<T> {
-    pub target: T,
-    pub key: T,
-    pub descriptor: PropertyDescriptorIr<T>,
-}
-
-impl<T> DefinePropertyIr<T> {
-    pub const fn new(target: T, key: T, descriptor: PropertyDescriptorIr<T>) -> Self {
-        Self {
-            target,
-            key,
-            descriptor,
-        }
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> DefinePropertyIr<U> {
-        DefinePropertyIr {
-            target: map(self.target),
-            key: map(self.key),
-            descriptor: self.descriptor.map_value(map),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OrdinaryCreateFromConstructorIr<T> {
-    pub constructor: T,
-    pub intrinsic_default_proto: &'static str,
-}
-
-impl<T> OrdinaryCreateFromConstructorIr<T> {
-    pub const fn new(constructor: T, intrinsic_default_proto: &'static str) -> Self {
-        Self {
-            constructor,
-            intrinsic_default_proto,
-        }
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> OrdinaryCreateFromConstructorIr<U> {
-        OrdinaryCreateFromConstructorIr {
-            constructor: map(self.constructor),
-            intrinsic_default_proto: self.intrinsic_default_proto,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpeciesConstructorIr<T> {
-    pub object: T,
-    pub default_constructor: T,
-}
-
-impl<T> SpeciesConstructorIr<T> {
-    pub const fn new(object: T, default_constructor: T) -> Self {
-        Self {
-            object,
-            default_constructor,
-        }
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> SpeciesConstructorIr<U> {
-        SpeciesConstructorIr {
-            object: map(self.object),
-            default_constructor: map(self.default_constructor),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArraySpeciesCreateIr<T> {
-    pub original_array: T,
-    pub length: T,
-}
-
-impl<T> ArraySpeciesCreateIr<T> {
-    pub const fn new(original_array: T, length: T) -> Self {
-        Self {
-            original_array,
-            length,
-        }
-    }
-
-    pub fn map_value<U>(self, mut map: impl FnMut(T) -> U) -> ArraySpeciesCreateIr<U> {
-        ArraySpeciesCreateIr {
-            original_array: map(self.original_array),
-            length: map(self.length),
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Completion Records (6.2.4)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompletionAbruptKind {
@@ -774,12 +457,152 @@ impl<T> CompletionRecordIr<T> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Part A — the catalog as evidence
+// ---------------------------------------------------------------------------
+
+/// Proof that a [`SpecOperationIr`] variant stands behind a catalog row.
+///
+/// The field is private and there is no public constructor: outside this module
+/// the only way to obtain one is [`SpecOperationIr::emitter_evidence`], so
+/// `OperationLoweringStatus::SharedWasmEmitter(..)` cannot be forged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmitterEvidence {
+    operation: SpecOperationIr,
+}
+
+impl EmitterEvidence {
+    pub const fn operation(self) -> SpecOperationIr {
+        self.operation
+    }
+}
+
+/// Why an operation has no implementation. Closed; no free text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrackedGapReason {
+    /// No `SpecOperationIr` variant and no emitter arm implements it.
+    NoImplementation,
+    /// A Rust model type exists in `porffor-ir` but nothing on the product path
+    /// constructs it.
+    ModelWithoutCallSite,
+}
+
+impl TrackedGapReason {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NoImplementation => "no implementation",
+            Self::ModelWithoutCallSite => "model without call site",
+        }
+    }
+}
+
+/// A backlog task id. The only constructor validates, in `const`, so a
+/// malformed owner is a compile error rather than an assertion in a test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct OwnerTaskId(&'static str);
+
+impl OwnerTaskId {
+    pub const fn new(id: &'static str) -> Self {
+        let bytes = id.as_bytes();
+        assert!(bytes.len() == 3, "owner task id must be T + two digits");
+        assert!(bytes[0] == b'T', "owner task id must start with T");
+        assert!(
+            matches!(bytes[1], b'0'..=b'9'),
+            "owner task id must be T + two digits"
+        );
+        assert!(
+            matches!(bytes[2], b'0'..=b'9'),
+            "owner task id must be T + two digits"
+        );
+        Self(id)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+/// How an operation reaches emitted Wasm — or the honest statement that it does
+/// not.
+///
+/// Three variants, and both implementation-claiming variants carry evidence
+/// that cannot be produced by hand:
+///
+/// - `SharedWasmEmitter` needs an [`EmitterEvidence`], whose only constructor is
+///   [`SpecOperationIr::emitter_evidence`].
+/// - `StatementEmission` needs an [`EmissionSite`], every variant of which is
+///   joined to a real function path by
+///   `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`.
+///
+/// There is deliberately no `CatalogOnly` (a variant whose only semantics was
+/// "must never occur" — that is a missing variant, not a runtime check) and no
+/// `SharedRustModel` (measured: zero rows for which it is true; reintroduce it
+/// in the same patch that gives some model type its first product call site).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationLoweringStatus {
-    CatalogOnly,
-    SharedRustModel,
-    SharedWasmEmitter,
-    TrackedGap(&'static str),
+    SharedWasmEmitter(EmitterEvidence),
+    StatementEmission(EmissionSite),
+    TrackedGap {
+        reason: TrackedGapReason,
+        owner: OwnerTaskId,
+    },
+}
+
+/// The normal codomain of an abstract operation. Closed: exactly the shapes the
+/// catalog's rows use.
+///
+/// This exists so that the old `assert!(!entry.normal_result.is_empty())` has
+/// nothing to check — emptiness is unrepresentable — and so that a typo in a
+/// codomain is `E0599` rather than a string nobody reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NormalResult {
+    Unused,
+    Boolean,
+    BooleanOrUndefined,
+    String,
+    Number,
+    NumberOrBigInt,
+    BigInt,
+    Integer,
+    Object,
+    ObjectOrUndefined,
+    ObjectOrFalse,
+    Array,
+    Constructor,
+    CallableOrUndefined,
+    PropertyKey,
+    PropertyDescriptor,
+    LanguageValue,
+    LanguageType,
+    IteratorRecord,
+    CompletionRecord,
+}
+
+impl NormalResult {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Unused => "Unused",
+            Self::Boolean => "Boolean",
+            Self::BooleanOrUndefined => "Boolean or Undefined",
+            Self::String => "String",
+            Self::Number => "Number",
+            Self::NumberOrBigInt => "Number or BigInt",
+            Self::BigInt => "BigInt",
+            Self::Integer => "Integer",
+            Self::Object => "Object",
+            Self::ObjectOrUndefined => "Object or Undefined",
+            Self::ObjectOrFalse => "Object or false",
+            Self::Array => "Array",
+            Self::Constructor => "Constructor",
+            Self::CallableOrUndefined => "Callable or Undefined",
+            Self::PropertyKey => "PropertyKey",
+            Self::PropertyDescriptor => "PropertyDescriptor",
+            Self::LanguageValue => "ECMAScript language value",
+            Self::LanguageType => "Type",
+            Self::IteratorRecord => "IteratorRecord",
+            Self::CompletionRecord => "Completion Record",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -815,7 +638,54 @@ pub enum SpecOperationIr {
     Construct,
 }
 
+const NO_ABRUPT: &[CompletionAbruptKind] = &[];
+const MAY_THROW: &[CompletionAbruptKind] = &[CompletionAbruptKind::Throw];
+const CONTROL_COMPLETIONS: &[CompletionAbruptKind] = &[
+    CompletionAbruptKind::Throw,
+    CompletionAbruptKind::Return,
+    CompletionAbruptKind::Break,
+    CompletionAbruptKind::Continue,
+];
+
 impl SpecOperationIr {
+    /// Every variant, in catalog order. See ledger **L1**: stable Rust has no
+    /// `variant_count`, so "you added a variant and forgot to list it here" is
+    /// the one drift this area cannot make a compile error. It is bounded —
+    /// rows are *derived*, so a missing entry yields an incomplete enumeration,
+    /// never a false claim — and is covered by
+    /// `spec_operation_all_is_complete_and_dense`.
+    pub const ALL: &'static [SpecOperationIr] = &[
+        Self::IsCallable,
+        Self::IsConstructor,
+        Self::IsPropertyKey,
+        Self::ToPrimitive(ToPrimitiveHint::Default),
+        Self::ToBoolean,
+        Self::ToNumeric,
+        Self::ToNumber,
+        Self::ToBigInt,
+        Self::ToString,
+        Self::ToObject,
+        Self::ToPropertyKey,
+        Self::ToIntegerOrInfinity,
+        Self::ToLength,
+        Self::ToIndex,
+        Self::SameValue,
+        Self::SameValueZero,
+        Self::StrictEqualityComparison,
+        Self::IsLooselyEqual,
+        Self::Get,
+        Self::GetV,
+        Self::Set,
+        Self::HasProperty,
+        Self::HasOwnProperty,
+        Self::DeletePropertyOrThrow,
+        Self::CreateDataPropertyOrThrow,
+        Self::CopyDataProperties,
+        Self::GetMethod,
+        Self::Call,
+        Self::Construct,
+    ];
+
     pub const fn name(self) -> &'static str {
         match self {
             Self::IsCallable => "IsCallable",
@@ -849,369 +719,510 @@ impl SpecOperationIr {
             Self::Construct => "Construct",
         }
     }
+
+    pub const fn family(self) -> SpecOperationFamily {
+        match self {
+            Self::IsCallable | Self::IsConstructor | Self::IsPropertyKey => {
+                SpecOperationFamily::TypeQuery
+            }
+            Self::ToPrimitive(_)
+            | Self::ToBoolean
+            | Self::ToNumeric
+            | Self::ToNumber
+            | Self::ToBigInt
+            | Self::ToString
+            | Self::ToObject
+            | Self::ToPropertyKey
+            | Self::ToIntegerOrInfinity
+            | Self::ToLength
+            | Self::ToIndex => SpecOperationFamily::Conversion,
+            Self::SameValue
+            | Self::SameValueZero
+            | Self::StrictEqualityComparison
+            | Self::IsLooselyEqual => SpecOperationFamily::Comparison,
+            Self::Get
+            | Self::GetV
+            | Self::Set
+            | Self::HasProperty
+            | Self::HasOwnProperty
+            | Self::DeletePropertyOrThrow
+            | Self::CreateDataPropertyOrThrow
+            | Self::CopyDataProperties => SpecOperationFamily::Object,
+            Self::GetMethod | Self::Call | Self::Construct => SpecOperationFamily::Invocation,
+        }
+    }
+
+    pub const fn normal_result(self) -> NormalResult {
+        match self {
+            Self::IsCallable
+            | Self::IsConstructor
+            | Self::IsPropertyKey
+            | Self::ToBoolean
+            | Self::SameValue
+            | Self::SameValueZero
+            | Self::StrictEqualityComparison
+            | Self::IsLooselyEqual
+            | Self::Set
+            | Self::HasProperty
+            | Self::HasOwnProperty
+            | Self::DeletePropertyOrThrow => NormalResult::Boolean,
+            Self::ToPrimitive(_) | Self::Get | Self::GetV | Self::Call => {
+                NormalResult::LanguageValue
+            }
+            Self::ToNumeric => NormalResult::NumberOrBigInt,
+            Self::ToNumber | Self::ToIntegerOrInfinity => NormalResult::Number,
+            Self::ToBigInt => NormalResult::BigInt,
+            Self::ToString => NormalResult::String,
+            Self::ToObject | Self::Construct => NormalResult::Object,
+            Self::ToPropertyKey => NormalResult::PropertyKey,
+            Self::ToLength | Self::ToIndex => NormalResult::Integer,
+            Self::CreateDataPropertyOrThrow | Self::CopyDataProperties => NormalResult::Unused,
+            Self::GetMethod => NormalResult::CallableOrUndefined,
+        }
+    }
+
+    /// The abrupt completions this operation may return.
+    ///
+    /// This is a **total function of the variant**, not a per-row argument.
+    /// Commit `ca09433c1` (ToPrimitive abrupt completions compiled as if they
+    /// could not escape) is the shape of the defect a free `abrupt` field
+    /// allows; here there is no parameter to get wrong.
+    ///
+    /// Whether these sets agree with what the emitter arms actually emit is
+    /// **ledger L2** — `porffor-ir` cannot see `porffor-aot-wasm`.
+    pub const fn abrupt(self) -> &'static [CompletionAbruptKind] {
+        match self {
+            Self::IsCallable
+            | Self::IsConstructor
+            | Self::IsPropertyKey
+            | Self::ToBoolean
+            | Self::SameValue
+            | Self::SameValueZero
+            | Self::StrictEqualityComparison => NO_ABRUPT,
+            Self::ToPrimitive(_)
+            | Self::ToNumeric
+            | Self::ToNumber
+            | Self::ToBigInt
+            | Self::ToString
+            | Self::ToObject
+            | Self::ToPropertyKey
+            | Self::ToIntegerOrInfinity
+            | Self::ToLength
+            | Self::ToIndex
+            | Self::IsLooselyEqual
+            | Self::Get
+            | Self::GetV
+            | Self::Set
+            | Self::HasProperty
+            | Self::HasOwnProperty
+            | Self::DeletePropertyOrThrow
+            | Self::CreateDataPropertyOrThrow
+            | Self::CopyDataProperties
+            | Self::GetMethod
+            | Self::Call
+            | Self::Construct => MAY_THROW,
+        }
+    }
+
+    /// Position of this operation's row in [`SPEC_OPERATION_CATALOG`]. Exists
+    /// for the density const assert (J3), not for lookup.
+    pub const fn catalog_index(self) -> usize {
+        match self {
+            Self::IsCallable => 0,
+            Self::IsConstructor => 1,
+            Self::IsPropertyKey => 2,
+            Self::ToPrimitive(_) => 3,
+            Self::ToBoolean => 4,
+            Self::ToNumeric => 5,
+            Self::ToNumber => 6,
+            Self::ToBigInt => 7,
+            Self::ToString => 8,
+            Self::ToObject => 9,
+            Self::ToPropertyKey => 10,
+            Self::ToIntegerOrInfinity => 11,
+            Self::ToLength => 12,
+            Self::ToIndex => 13,
+            Self::SameValue => 14,
+            Self::SameValueZero => 15,
+            Self::StrictEqualityComparison => 16,
+            Self::IsLooselyEqual => 17,
+            Self::Get => 18,
+            Self::GetV => 19,
+            Self::Set => 20,
+            Self::HasProperty => 21,
+            Self::HasOwnProperty => 22,
+            Self::DeletePropertyOrThrow => 23,
+            Self::CreateDataPropertyOrThrow => 24,
+            Self::CopyDataProperties => 25,
+            Self::GetMethod => 26,
+            Self::Call => 27,
+            Self::Construct => 28,
+        }
+    }
+
+    /// The only constructor of [`EmitterEvidence`].
+    pub const fn emitter_evidence(self) -> EmitterEvidence {
+        EmitterEvidence { operation: self }
+    }
+
+    /// The row. Not a table entry that happens to match the variant — the row
+    /// *is* the variant, so a variant without a row is not expressible, and a
+    /// row whose signature disagrees with the variant is not expressible
+    /// either.
+    pub const fn catalog_entry(self) -> SpecOperationCatalogEntry {
+        SpecOperationCatalogEntry {
+            name: self.name(),
+            family: self.family(),
+            normal_result: self.normal_result(),
+            abrupt: self.abrupt(),
+            lowering_status: OperationLoweringStatus::SharedWasmEmitter(self.emitter_evidence()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpecOperationCatalogEntry {
     pub name: &'static str,
     pub family: SpecOperationFamily,
-    pub normal_result: &'static str,
+    pub normal_result: NormalResult,
     pub abrupt: &'static [CompletionAbruptKind],
     pub lowering_status: OperationLoweringStatus,
 }
 
-const NO_ABRUPT: &[CompletionAbruptKind] = &[];
-const MAY_THROW: &[CompletionAbruptKind] = &[CompletionAbruptKind::Throw];
-const CONTROL_COMPLETIONS: &[CompletionAbruptKind] = &[
-    CompletionAbruptKind::Throw,
-    CompletionAbruptKind::Return,
-    CompletionAbruptKind::Break,
-    CompletionAbruptKind::Continue,
-];
+/// A row for an operation emitted by a statement-shaped emitter arm rather than
+/// by a `SpecOperationIr` arm.
+///
+/// It cannot claim the shared emitter: there is no field that can hold an
+/// [`EmitterEvidence`]. What it *can* claim is that a named function emits it,
+/// and that name is checked by
+/// `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatementEmissionRow {
+    pub name: &'static str,
+    pub family: SpecOperationFamily,
+    pub normal_result: NormalResult,
+    pub abrupt: &'static [CompletionAbruptKind],
+    pub site: EmissionSite,
+}
 
-pub const SPEC_OPERATION_CATALOG: &[SpecOperationCatalogEntry] = &[
-    lowered_op(
-        "Type",
-        SpecOperationFamily::TypeQuery,
-        "Type",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "IsCallable",
-        SpecOperationFamily::TypeQuery,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "IsConstructor",
-        SpecOperationFamily::TypeQuery,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "IsPropertyKey",
-        SpecOperationFamily::TypeQuery,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToPrimitive",
-        SpecOperationFamily::Conversion,
-        "ECMAScript language value",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToBoolean",
-        SpecOperationFamily::Conversion,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToNumeric",
-        SpecOperationFamily::Conversion,
-        "Number or BigInt",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToNumber",
-        SpecOperationFamily::Conversion,
-        "Number",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToBigInt",
-        SpecOperationFamily::Conversion,
-        "BigInt",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToString",
-        SpecOperationFamily::Conversion,
-        "String",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToObject",
-        SpecOperationFamily::Conversion,
-        "Object",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToPropertyKey",
-        SpecOperationFamily::Conversion,
-        "PropertyKey",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToIntegerOrInfinity",
-        SpecOperationFamily::Conversion,
-        "Number",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToLength",
-        SpecOperationFamily::Conversion,
-        "Integer",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "ToIndex",
-        SpecOperationFamily::Conversion,
-        "Integer",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "IntegerIndexedConversion",
-        SpecOperationFamily::Conversion,
-        "Integer",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "SameValue",
-        SpecOperationFamily::Comparison,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "SameValueZero",
-        SpecOperationFamily::Comparison,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "StrictEqualityComparison",
-        SpecOperationFamily::Comparison,
-        "Boolean",
-        NO_ABRUPT,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "IsLooselyEqual",
-        SpecOperationFamily::Comparison,
-        "Boolean",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "IsLessThan",
-        SpecOperationFamily::Comparison,
-        "Boolean or Undefined",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "Get",
-        SpecOperationFamily::Object,
-        "ECMAScript language value",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "GetV",
-        SpecOperationFamily::Object,
-        "ECMAScript language value",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "Set",
-        SpecOperationFamily::Object,
-        "Boolean",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "HasProperty",
-        SpecOperationFamily::Object,
-        "Boolean",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "HasOwnProperty",
-        SpecOperationFamily::Object,
-        "Boolean",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "DeletePropertyOrThrow",
-        SpecOperationFamily::Object,
-        "Boolean",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "CreateDataProperty",
-        SpecOperationFamily::Object,
-        "Boolean",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "CreateDataPropertyOrThrow",
-        SpecOperationFamily::Object,
-        "Unused",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "CopyDataProperties",
-        SpecOperationFamily::Object,
-        "Unused",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "DefinePropertyOrThrow",
-        SpecOperationFamily::Object,
-        "Unused",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "ToPropertyDescriptor",
-        SpecOperationFamily::Object,
-        "PropertyDescriptor",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "FromPropertyDescriptor",
-        SpecOperationFamily::Object,
-        "Object or Undefined",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "GetMethod",
-        SpecOperationFamily::Invocation,
-        "Callable or Undefined",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "Call",
-        SpecOperationFamily::Invocation,
-        "ECMAScript language value",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "Construct",
-        SpecOperationFamily::Invocation,
-        "Object",
-        MAY_THROW,
-        OperationLoweringStatus::SharedWasmEmitter,
-    ),
-    lowered_op(
-        "OrdinaryCreateFromConstructor",
-        SpecOperationFamily::Invocation,
-        "Object",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "SpeciesConstructor",
-        SpecOperationFamily::Invocation,
-        "Constructor",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "ArraySpeciesCreate",
-        SpecOperationFamily::Invocation,
-        "Array",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "GetIterator",
-        SpecOperationFamily::Iterator,
-        "IteratorRecord",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "IteratorStep",
-        SpecOperationFamily::Iterator,
-        "Object or false",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "IteratorValue",
-        SpecOperationFamily::Iterator,
-        "ECMAScript language value",
-        MAY_THROW,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "IteratorClose",
-        SpecOperationFamily::Iterator,
-        "Completion",
-        CONTROL_COMPLETIONS,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "AsyncIteratorClose",
-        SpecOperationFamily::Iterator,
-        "Completion",
-        CONTROL_COMPLETIONS,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "Completion",
-        SpecOperationFamily::Completion,
-        "Completion Record",
-        CONTROL_COMPLETIONS,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-    lowered_op(
-        "UpdateEmpty",
-        SpecOperationFamily::Completion,
-        "Completion Record",
-        CONTROL_COMPLETIONS,
-        OperationLoweringStatus::SharedRustModel,
-    ),
-];
-
-const fn lowered_op(
-    name: &'static str,
-    family: SpecOperationFamily,
-    normal_result: &'static str,
-    abrupt: &'static [CompletionAbruptKind],
-    lowering_status: OperationLoweringStatus,
-) -> SpecOperationCatalogEntry {
-    SpecOperationCatalogEntry {
-        name,
-        family,
-        normal_result,
-        abrupt,
-        lowering_status,
+impl StatementEmissionRow {
+    pub const fn into_entry(self) -> SpecOperationCatalogEntry {
+        SpecOperationCatalogEntry {
+            name: self.name,
+            family: self.family,
+            normal_result: self.normal_result,
+            abrupt: self.abrupt,
+            lowering_status: OperationLoweringStatus::StatementEmission(self.site),
+        }
     }
 }
 
+/// A row for an operation we have *not* implemented. By construction it cannot
+/// carry `SharedWasmEmitter` or `StatementEmission`: there is no field for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrackedGapRow {
+    pub name: &'static str,
+    pub family: SpecOperationFamily,
+    pub normal_result: NormalResult,
+    pub abrupt: &'static [CompletionAbruptKind],
+    pub reason: TrackedGapReason,
+    pub owner: OwnerTaskId,
+}
+
+impl TrackedGapRow {
+    pub const fn into_entry(self) -> SpecOperationCatalogEntry {
+        SpecOperationCatalogEntry {
+            name: self.name,
+            family: self.family,
+            normal_result: self.normal_result,
+            abrupt: self.abrupt,
+            lowering_status: OperationLoweringStatus::TrackedGap {
+                reason: self.reason,
+                owner: self.owner,
+            },
+        }
+    }
+}
+
+const T04: OwnerTaskId = OwnerTaskId::new("T04");
+
+/// The four 7.4 obligations plus `AsyncIteratorClose`, emitted by the for-of
+/// statement arms rather than by a `SpecOperationIr` arm.
+///
+/// Evidence, read rather than assumed: `compile_for_of_iterator`
+/// (`control_flow.rs:7422`) emits the `@@iterator` `Get`, the `Call`, the
+/// once-only `Get` of `"next"`, the per-step `next()` call and the
+/// `"done"`/`"value"` reads, and routes exits through
+/// `emit_iterator_close_condition_i32` into `emit_iterator_close` or
+/// `emit_iterator_close_preserving_current_throw`.
+/// `compile_async_for_of_iterator` (`control_flow.rs:6078`) open-codes the async
+/// close.
+pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
+    StatementEmissionRow {
+        name: "GetIterator",
+        family: SpecOperationFamily::Iterator,
+        normal_result: NormalResult::IteratorRecord,
+        abrupt: MAY_THROW,
+        site: EmissionSite::SyncForOfIterator,
+    },
+    StatementEmissionRow {
+        name: "IteratorStep",
+        family: SpecOperationFamily::Iterator,
+        normal_result: NormalResult::ObjectOrFalse,
+        abrupt: MAY_THROW,
+        site: EmissionSite::SyncForOfIterator,
+    },
+    StatementEmissionRow {
+        name: "IteratorValue",
+        family: SpecOperationFamily::Iterator,
+        normal_result: NormalResult::LanguageValue,
+        abrupt: MAY_THROW,
+        site: EmissionSite::SyncForOfIterator,
+    },
+    StatementEmissionRow {
+        name: "IteratorClose",
+        family: SpecOperationFamily::Iterator,
+        normal_result: NormalResult::CompletionRecord,
+        abrupt: CONTROL_COMPLETIONS,
+        site: EmissionSite::SyncForOfIterator,
+    },
+    StatementEmissionRow {
+        name: "AsyncIteratorClose",
+        family: SpecOperationFamily::Iterator,
+        normal_result: NormalResult::CompletionRecord,
+        abrupt: CONTROL_COMPLETIONS,
+        site: EmissionSite::AsyncForOfIterator,
+    },
+];
+
+/// Operations with no implementation on the product path.
+///
+/// `ModelWithoutCallSite` marks the three whose Rust model exists and is
+/// correct but has zero product call sites (measured); `NoImplementation` marks
+/// the nine whose model type was deleted along with the false row, because a
+/// type with no call site is a claim and this area exists because claims were
+/// being read as implementations.
+pub const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
+    TrackedGapRow {
+        name: "Type",
+        family: SpecOperationFamily::TypeQuery,
+        normal_result: NormalResult::LanguageType,
+        abrupt: NO_ABRUPT,
+        reason: TrackedGapReason::ModelWithoutCallSite,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "IntegerIndexedConversion",
+        family: SpecOperationFamily::Conversion,
+        normal_result: NormalResult::Integer,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "IsLessThan",
+        family: SpecOperationFamily::Comparison,
+        normal_result: NormalResult::BooleanOrUndefined,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "CreateDataProperty",
+        family: SpecOperationFamily::Object,
+        normal_result: NormalResult::Boolean,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "DefinePropertyOrThrow",
+        family: SpecOperationFamily::Object,
+        normal_result: NormalResult::Unused,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "ToPropertyDescriptor",
+        family: SpecOperationFamily::Object,
+        normal_result: NormalResult::PropertyDescriptor,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "FromPropertyDescriptor",
+        family: SpecOperationFamily::Object,
+        normal_result: NormalResult::ObjectOrUndefined,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "OrdinaryCreateFromConstructor",
+        family: SpecOperationFamily::Invocation,
+        normal_result: NormalResult::Object,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "SpeciesConstructor",
+        family: SpecOperationFamily::Invocation,
+        normal_result: NormalResult::Constructor,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "ArraySpeciesCreate",
+        family: SpecOperationFamily::Invocation,
+        normal_result: NormalResult::Array,
+        abrupt: MAY_THROW,
+        reason: TrackedGapReason::NoImplementation,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "Completion",
+        family: SpecOperationFamily::Completion,
+        normal_result: NormalResult::CompletionRecord,
+        abrupt: CONTROL_COMPLETIONS,
+        reason: TrackedGapReason::ModelWithoutCallSite,
+        owner: T04,
+    },
+    TrackedGapRow {
+        name: "UpdateEmpty",
+        family: SpecOperationFamily::Completion,
+        normal_result: NormalResult::CompletionRecord,
+        abrupt: CONTROL_COMPLETIONS,
+        reason: TrackedGapReason::ModelWithoutCallSite,
+        owner: T04,
+    },
+];
+
+pub const SPEC_OPERATION_ROW_COUNT: usize =
+    SpecOperationIr::ALL.len() + STATEMENT_EMISSION_ROWS.len() + TRACKED_GAP_ROWS.len();
+
+const CATALOG_PLACEHOLDER: SpecOperationCatalogEntry = SpecOperationIr::IsCallable.catalog_entry();
+
+const fn build_catalog() -> [SpecOperationCatalogEntry; SPEC_OPERATION_ROW_COUNT] {
+    let mut rows = [CATALOG_PLACEHOLDER; SPEC_OPERATION_ROW_COUNT];
+    let mut next = 0;
+
+    let mut i = 0;
+    while i < SpecOperationIr::ALL.len() {
+        rows[next] = SpecOperationIr::ALL[i].catalog_entry();
+        next += 1;
+        i += 1;
+    }
+
+    let mut j = 0;
+    while j < STATEMENT_EMISSION_ROWS.len() {
+        rows[next] = STATEMENT_EMISSION_ROWS[j].into_entry();
+        next += 1;
+        j += 1;
+    }
+
+    let mut k = 0;
+    while k < TRACKED_GAP_ROWS.len() {
+        rows[next] = TRACKED_GAP_ROWS[k].into_entry();
+        next += 1;
+        k += 1;
+    }
+
+    rows
+}
+
+const CATALOG: [SpecOperationCatalogEntry; SPEC_OPERATION_ROW_COUNT] = build_catalog();
+
+/// The catalog. A `static` rather than a `const` so that `.iter()` yields
+/// `&'static` entries; `CATALOG` is the `const` the assertions below evaluate.
+pub static SPEC_OPERATION_CATALOG: [SpecOperationCatalogEntry; SPEC_OPERATION_ROW_COUNT] = CATALOG;
+
+/// Byte-wise `str` equality, usable in `const`.
+const fn str_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+// (J1) Every catalog name is distinct. Replaces the runtime test
+//      `operations_catalog_names_are_unique`. Because emitter rows are derived
+//      from `SpecOperationIr` and every hand-written row is a
+//      `StatementEmissionRow` or `TrackedGapRow`, this also subsumes (J2): a
+//      gap row can never shadow an implemented operation.
+const _: () = {
+    let mut i = 0;
+    while i < SPEC_OPERATION_ROW_COUNT {
+        let mut j = i + 1;
+        while j < SPEC_OPERATION_ROW_COUNT {
+            assert!(
+                !str_eq(CATALOG[i].name, CATALOG[j].name),
+                "duplicate spec operation name"
+            );
+            j += 1;
+        }
+        i += 1;
+    }
+};
+
+// (J3) `SpecOperationIr::ALL` is dense and duplicate-free under
+//      `catalog_index`, so the derived rows occupy exactly slots 0..ALL.len().
+const _: () = {
+    let mut seen = [false; SPEC_OPERATION_ROW_COUNT];
+    let mut i = 0;
+    while i < SpecOperationIr::ALL.len() {
+        let idx = SpecOperationIr::ALL[i].catalog_index();
+        assert!(!seen[idx], "duplicate catalog_index");
+        seen[idx] = true;
+        i += 1;
+    }
+    let mut j = 0;
+    while j < SpecOperationIr::ALL.len() {
+        assert!(seen[j], "catalog_index is not dense over SpecOperationIr::ALL");
+        j += 1;
+    }
+};
+
+// (J4) The census the contract states, tied to the tables that produce it:
+//      29 shared-emitter rows + 5 statement-emission rows + 12 tracked gaps.
+//      Changing any of the three tables without restating the census here is a
+//      compile error, which is the point — the row counts are the claim this
+//      area exists to keep honest.
+const _: () = {
+    assert!(SpecOperationIr::ALL.len() == 29);
+    assert!(STATEMENT_EMISSION_ROWS.len() == 5);
+    assert!(TRACKED_GAP_ROWS.len() == 12);
+    assert!(SPEC_OPERATION_ROW_COUNT == 46);
+};
+
+// (J5) Row order: the derived rows come first, so `catalog_index` addresses the
+//      catalog directly.
+const _: () = {
+    let mut i = 0;
+    while i < SpecOperationIr::ALL.len() {
+        let operation = SpecOperationIr::ALL[i];
+        assert!(
+            str_eq(CATALOG[operation.catalog_index()].name, operation.name()),
+            "catalog_index does not address the operation's own row"
+        );
+        i += 1;
+    }
+};
+
 pub fn spec_operation_catalog() -> &'static [SpecOperationCatalogEntry] {
-    SPEC_OPERATION_CATALOG
+    &SPEC_OPERATION_CATALOG
 }
 
 pub fn find_spec_operation(name: &str) -> Option<&'static SpecOperationCatalogEntry> {
@@ -1231,368 +1242,59 @@ pub fn find_completion_abi_slot(kind: CompletionKindIr) -> Option<&'static Compl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
 
-    const REQUIRED_T04_OPERATIONS: &[&str] = &[
-        "Type",
-        "IsCallable",
-        "IsConstructor",
-        "IsPropertyKey",
-        "ToPrimitive",
-        "ToBoolean",
-        "ToNumeric",
-        "ToNumber",
-        "ToBigInt",
-        "ToString",
-        "ToObject",
-        "ToPropertyKey",
-        "ToIntegerOrInfinity",
-        "ToLength",
-        "ToIndex",
-        "IntegerIndexedConversion",
-        "SameValue",
-        "SameValueZero",
-        "StrictEqualityComparison",
-        "IsLooselyEqual",
-        "IsLessThan",
-        "Get",
-        "GetV",
-        "Set",
-        "HasProperty",
-        "HasOwnProperty",
-        "DeletePropertyOrThrow",
-        "CreateDataProperty",
-        "CreateDataPropertyOrThrow",
-        "CopyDataProperties",
-        "DefinePropertyOrThrow",
-        "ToPropertyDescriptor",
-        "FromPropertyDescriptor",
-        "GetMethod",
-        "Call",
-        "Construct",
-        "OrdinaryCreateFromConstructor",
-        "SpeciesConstructor",
-        "ArraySpeciesCreate",
-        "GetIterator",
-        "IteratorStep",
-        "IteratorValue",
-        "IteratorClose",
-        "AsyncIteratorClose",
-        "Completion",
-        "UpdateEmpty",
-    ];
-
+    /// Ledger **L1**. This is the only surviving catalog test, and it is not
+    /// vacuous: it checks the *assembly* (that `ALL` enumerates every variant
+    /// and that the assembled catalog has the shape the const asserts assume),
+    /// not the table's own contents. Stable Rust has no `variant_count`, so a
+    /// variant absent from `ALL` is invisible to every const expression.
     #[test]
-    fn operations_catalog_covers_t04_required_operations() {
-        for required in REQUIRED_T04_OPERATIONS {
-            assert!(
-                find_spec_operation(required).is_some(),
-                "missing T04 operation catalog entry: {required}"
+    fn spec_operation_all_is_complete_and_dense() {
+        assert_eq!(
+            SPEC_OPERATION_CATALOG.len(),
+            SPEC_OPERATION_ROW_COUNT,
+            "assembled catalog length disagrees with SPEC_OPERATION_ROW_COUNT"
+        );
+
+        for (index, operation) in SpecOperationIr::ALL.iter().enumerate() {
+            assert_eq!(
+                operation.catalog_index(),
+                index,
+                "SpecOperationIr::ALL order disagrees with catalog_index for {}; \
+                 if you added a variant, add it to SpecOperationIr::ALL",
+                operation.name()
+            );
+            assert_eq!(
+                SPEC_OPERATION_CATALOG[index].name,
+                operation.name(),
+                "SpecOperationIr::ALL does not address its own catalog row"
             );
         }
-    }
 
-    #[test]
-    fn operations_catalog_names_are_unique() {
-        let mut names = BTreeSet::new();
-        for entry in SPEC_OPERATION_CATALOG {
-            assert!(
-                names.insert(entry.name),
-                "duplicate operation {}",
-                entry.name
-            );
-        }
-    }
-
-    #[test]
-    fn operations_catalog_tracks_every_gap_or_shared_lowering() {
-        let mut lowered = BTreeSet::new();
-        let mut rust_modeled = BTreeSet::new();
-        for entry in SPEC_OPERATION_CATALOG {
-            assert!(!entry.normal_result.is_empty(), "{} result", entry.name);
-            match entry.lowering_status {
-                OperationLoweringStatus::SharedWasmEmitter => {
-                    lowered.insert(entry.name);
-                }
-                OperationLoweringStatus::SharedRustModel => {
-                    rust_modeled.insert(entry.name);
-                }
-                OperationLoweringStatus::TrackedGap(task) => {
-                    assert_eq!(task, "T04", "{} owner", entry.name);
-                }
-                OperationLoweringStatus::CatalogOnly => {
-                    panic!(
-                        "{} must be explicitly tracked before implementation",
-                        entry.name
-                    );
-                }
-            }
-        }
-        assert!(lowered.contains("IsCallable"));
-        assert!(lowered.contains("IsPropertyKey"));
-        assert!(lowered.contains("ToPrimitive"));
-        assert!(lowered.contains("ToBoolean"));
-        assert!(lowered.contains("ToNumeric"));
-        assert!(lowered.contains("IsConstructor"));
-        assert!(lowered.contains("ToNumber"));
-        assert!(lowered.contains("ToBigInt"));
-        assert!(lowered.contains("ToString"));
-        assert!(lowered.contains("ToObject"));
-        assert!(lowered.contains("ToPropertyKey"));
-        assert!(lowered.contains("ToIntegerOrInfinity"));
-        assert!(lowered.contains("ToLength"));
-        assert!(lowered.contains("ToIndex"));
-        assert!(lowered.contains("SameValue"));
-        assert!(lowered.contains("SameValueZero"));
-        assert!(lowered.contains("StrictEqualityComparison"));
-        assert!(lowered.contains("IsLooselyEqual"));
-        assert!(lowered.contains("Get"));
-        assert!(lowered.contains("GetV"));
-        assert!(lowered.contains("Set"));
-        assert!(lowered.contains("HasProperty"));
-        assert!(lowered.contains("HasOwnProperty"));
-        assert!(lowered.contains("DeletePropertyOrThrow"));
-        assert!(lowered.contains("CreateDataPropertyOrThrow"));
-        assert!(lowered.contains("CopyDataProperties"));
-        assert!(lowered.contains("GetMethod"));
-        assert!(lowered.contains("Call"));
-        assert!(lowered.contains("Construct"));
-        assert!(rust_modeled.contains("Type"));
-        assert!(rust_modeled.contains("IntegerIndexedConversion"));
-        assert!(rust_modeled.contains("IsLessThan"));
-        assert!(rust_modeled.contains("CreateDataProperty"));
-        assert!(rust_modeled.contains("DefinePropertyOrThrow"));
-        assert!(rust_modeled.contains("ToPropertyDescriptor"));
-        assert!(rust_modeled.contains("FromPropertyDescriptor"));
-        assert!(rust_modeled.contains("OrdinaryCreateFromConstructor"));
-        assert!(rust_modeled.contains("SpeciesConstructor"));
-        assert!(rust_modeled.contains("ArraySpeciesCreate"));
-        assert!(rust_modeled.contains("GetIterator"));
-        assert!(rust_modeled.contains("IteratorStep"));
-        assert!(rust_modeled.contains("IteratorValue"));
-        assert!(rust_modeled.contains("IteratorClose"));
-        assert!(rust_modeled.contains("AsyncIteratorClose"));
-        assert!(rust_modeled.contains("Completion"));
-        assert!(rust_modeled.contains("UpdateEmpty"));
-    }
-
-    #[test]
-    fn operations_iterator_record_tracks_kind_and_done_state() {
-        let mut sync = IteratorRecordIr::sync("iterator", "next");
-        assert_eq!(sync.kind, IteratorRecordKind::Sync);
-        assert_eq!(sync.iterator, "iterator");
-        assert_eq!(sync.next_method, "next");
-        assert!(!sync.is_done());
-
-        sync.mark_done();
-        assert!(sync.is_done());
-
-        let async_record = IteratorRecordIr::async_("async_iterator", "async_next");
-        assert_eq!(async_record.kind, IteratorRecordKind::Async);
-        assert!(!async_record.is_done());
-    }
-
-    #[test]
-    fn operations_abstract_relational_comparison_result_preserves_undefined() {
+        // A variant missing from `ALL` shows up here as a hole in the index
+        // space: `catalog_index` hands out 0..=28, so `ALL` must have 29 rows.
         assert_eq!(
-            AbstractRelationalComparisonResult::from_bool(true),
-            AbstractRelationalComparisonResult::True
-        );
-        assert_eq!(
-            AbstractRelationalComparisonResult::from_bool(false),
-            AbstractRelationalComparisonResult::False
-        );
-        assert_eq!(
-            AbstractRelationalComparisonResult::True.as_bool(),
-            Some(true)
-        );
-        assert_eq!(
-            AbstractRelationalComparisonResult::False.as_bool(),
-            Some(false)
-        );
-        assert_eq!(
-            AbstractRelationalComparisonResult::Undefined.as_bool(),
-            None
+            SpecOperationIr::ALL.len(),
+            29,
+            "SpecOperationIr::ALL is missing a variant"
         );
     }
 
+    /// Not a test of the type's own contents: it pins that each slot reads back
+    /// through its own accessor, which is the property a transposition at the
+    /// construction site would break. The transposition itself is `E0308` and
+    /// therefore has no test.
     #[test]
-    fn operations_integer_indexed_conversion_tracks_element_conversion_contract() {
-        let number = IntegerIndexedConversionIr::new(IntegerIndexedElementType::Int16);
-        let clamped = IntegerIndexedConversionIr::new(IntegerIndexedElementType::Uint8Clamped);
-        let bigint = IntegerIndexedConversionIr::new(IntegerIndexedElementType::BigUint64);
-
-        assert_eq!(number.element_type.name(), "Int16");
-        assert!(number.requires_number_input());
-        assert!(!number.requires_bigint_input());
-        assert!(!number.clamps_result());
-
-        assert!(clamped.requires_number_input());
-        assert!(clamped.clamps_result());
-
-        assert!(bigint.requires_bigint_input());
-        assert!(!bigint.requires_number_input());
-        assert!(!bigint.clamps_result());
-    }
-
-    #[test]
-    fn operations_iterator_record_map_value_preserves_metadata() {
-        let mut record = IteratorRecordIr::sync("iter".to_string(), "next".to_string());
-        record.mark_done();
-
-        let lengths = record.map_value(|value| value.len());
-
-        assert_eq!(lengths.iterator, 4);
-        assert_eq!(lengths.next_method, 4);
-        assert_eq!(lengths.kind, IteratorRecordKind::Sync);
-        assert!(lengths.is_done());
-    }
-
-    #[test]
-    fn operations_property_descriptor_reports_descriptor_kind_and_flags() {
-        let data = PropertyDescriptorIr::data(Some("value"), Some(true), Some(false), Some(true));
-        assert_eq!(data.kind(), PropertyDescriptorKind::Data);
-        assert!(data.is_data_descriptor());
-        assert!(!data.is_accessor_descriptor());
-        assert!(!data.is_generic_descriptor());
-        assert_eq!(data.enumerable(), Some(false));
-        assert_eq!(data.configurable(), Some(true));
-
-        let accessor = PropertyDescriptorIr::accessor(Some("get"), None::<&str>, None, None);
-        assert_eq!(accessor.kind(), PropertyDescriptorKind::Accessor);
-        assert!(accessor.is_accessor_descriptor());
-
-        let generic = PropertyDescriptorIr::<&str>::generic(Some(true), None);
-        assert_eq!(generic.kind(), PropertyDescriptorKind::Generic);
-        assert!(generic.is_generic_descriptor());
-        assert_eq!(generic.enumerable(), Some(true));
-        assert_eq!(generic.configurable(), None);
-    }
-
-    #[test]
-    fn operations_property_descriptor_complete_applies_spec_defaults() {
-        let data = PropertyDescriptorIr::data(None, None, Some(true), None).complete("undefined");
-        assert_eq!(
-            data,
-            PropertyDescriptorIr::Data {
-                value: Some("undefined"),
-                writable: Some(false),
-                enumerable: Some(true),
-                configurable: Some(false),
-            }
+    fn operations_iterator_record_slots_read_back_through_their_own_accessor() {
+        let record = IteratorRecordIr::new(
+            IteratorSlot::new("async.forof.iterator.0".to_string()),
+            NextMethodSlot::new("async.forof.next.0".to_string()),
+            DoneSlot::new("async.forof.done.0".to_string()),
         );
 
-        let generic = PropertyDescriptorIr::generic(None, Some(true)).complete("undefined");
-        assert_eq!(
-            generic,
-            PropertyDescriptorIr::Data {
-                value: Some("undefined"),
-                writable: Some(false),
-                enumerable: Some(false),
-                configurable: Some(true),
-            }
-        );
-
-        let accessor =
-            PropertyDescriptorIr::accessor(Some("getter"), None, None, None).complete("undefined");
-        assert_eq!(
-            accessor,
-            PropertyDescriptorIr::Accessor {
-                get: Some("getter"),
-                set: Some("undefined"),
-                enumerable: Some(false),
-                configurable: Some(false),
-            }
-        );
-    }
-
-    #[test]
-    fn operations_property_descriptor_map_value_preserves_attributes() {
-        let descriptor = PropertyDescriptorIr::accessor(
-            Some("getter".to_string()),
-            Some("setter".to_string()),
-            Some(true),
-            None,
-        );
-        let lengths = descriptor.map_value(|value| value.len());
-
-        assert_eq!(
-            lengths,
-            PropertyDescriptorIr::Accessor {
-                get: Some(6),
-                set: Some(6),
-                enumerable: Some(true),
-                configurable: None,
-            }
-        );
-    }
-
-    #[test]
-    fn operations_create_data_property_record_preserves_target_key_and_value() {
-        let record =
-            CreateDataPropertyIr::new("target".to_string(), "key".to_string(), "value".to_string());
-        let lengths = record.map_value(|value| value.len());
-
-        assert_eq!(
-            lengths,
-            CreateDataPropertyIr {
-                target: 6,
-                key: 3,
-                value: 5,
-            }
-        );
-    }
-
-    #[test]
-    fn operations_define_property_record_preserves_descriptor_attributes() {
-        let descriptor =
-            PropertyDescriptorIr::data(Some("value".to_string()), Some(true), None, Some(false));
-        let record = DefinePropertyIr::new("target".to_string(), "key".to_string(), descriptor);
-        let lengths = record.map_value(|value| value.len());
-
-        assert_eq!(lengths.target, 6);
-        assert_eq!(lengths.key, 3);
-        assert_eq!(
-            lengths.descriptor,
-            PropertyDescriptorIr::Data {
-                value: Some(5),
-                writable: Some(true),
-                enumerable: None,
-                configurable: Some(false),
-            }
-        );
-    }
-
-    #[test]
-    fn operations_constructor_species_records_preserve_defaults() {
-        let ordinary =
-            OrdinaryCreateFromConstructorIr::new("ctor".to_string(), "%Array.prototype%");
-        let ordinary_lengths = ordinary.map_value(|value| value.len());
-        assert_eq!(ordinary_lengths.constructor, 4);
-        assert_eq!(
-            ordinary_lengths.intrinsic_default_proto,
-            "%Array.prototype%"
-        );
-
-        let species = SpeciesConstructorIr::new("object".to_string(), "default".to_string())
-            .map_value(|value| value.len());
-        assert_eq!(
-            species,
-            SpeciesConstructorIr {
-                object: 6,
-                default_constructor: 7,
-            }
-        );
-
-        let array_species = ArraySpeciesCreateIr::new("array".to_string(), "length".to_string())
-            .map_value(|value| value.len());
-        assert_eq!(
-            array_species,
-            ArraySpeciesCreateIr {
-                original_array: 5,
-                length: 6,
-            }
-        );
+        assert_eq!(record.iterator().as_str(), "async.forof.iterator.0");
+        assert_eq!(record.next_method().as_str(), "async.forof.next.0");
+        assert_eq!(record.done().as_str(), "async.forof.done.0");
     }
 
     #[test]
@@ -1612,19 +1314,6 @@ mod tests {
 
         assert_eq!(EcmaLanguageType::Object.name(), "Object");
         assert!(!EcmaLanguageType::Object.is_primitive());
-    }
-
-    #[test]
-    fn operations_catalog_marks_abrupt_capable_operations() {
-        for name in ["ToPrimitive", "Get", "Call", "IteratorClose", "Completion"] {
-            let entry = find_spec_operation(name).expect("operation should exist");
-            assert!(
-                !entry.abrupt.is_empty(),
-                "{name} must document possible abrupt completions"
-            );
-        }
-        let same_value = find_spec_operation("SameValue").expect("SameValue should exist");
-        assert!(same_value.abrupt.is_empty());
     }
 
     #[test]

@@ -21,6 +21,11 @@
 //! same line structure as the original. Positions therefore stay comparable
 //! with the record's spans.
 
+use crate::{
+    MergedName, DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, DEFAULT_KEYWORD,
+    EXPORT_KEYWORD,
+};
+
 /// Module syntax the linker cannot express as Script text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StripError {
@@ -40,8 +45,13 @@ impl StripError {
 /// record rather than re-derived from the text.
 ///
 /// The two keywords are 14 bytes with a single separating space, which is the
-/// whole budget the anonymous form has to spend on a declaration head — see
-/// [`module_default_binding_name`](crate::module_default_binding_name).
+/// whole budget the anonymous form has to spend on a declaration head. That
+/// budget is invariant B1, and const assertion V2 in `crate::binding_names`
+/// holds `MergedName::anonymous_default` to it at compile time using the very
+/// constants this scanner matches on — [`EXPORT_KEYWORD`], [`DEFAULT_KEYWORD`],
+/// [`DEFAULT_BINDING_LET`] and [`DEFAULT_BINDING_ASSIGN`]. The runtime check in
+/// `Scanner::rewrite_default_keywords` therefore only has to catch a *span*
+/// wider than the minimum, never a name that outgrew its budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DefaultExportRewrite<'a> {
     /// No `export default` in this unit; one found anyway is a disagreement
@@ -53,7 +63,12 @@ pub(crate) enum DefaultExportRewrite<'a> {
     /// `var <name> =` or `let <name> =`.
     Bind {
         /// Merged-scope name to declare.
-        name: &'a str,
+        ///
+        /// A [`MergedName`], so the only thing that can be written here is a
+        /// name of the scope the declaration lands in. A `[[LocalName]]` — in
+        /// particular the `*default*` this rewrite exists to replace — is
+        /// `E0308`.
+        name: &'a MergedName,
         /// Use `var` rather than `let`, for a hoistable declaration.
         hoisted: bool,
     },
@@ -272,7 +287,7 @@ impl<'a> Scanner<'a> {
                         return Ok(());
                     }
                 }
-                "export" => {
+                EXPORT_KEYWORD => {
                     let (end, replacement) = self.scan_export_prefix(start)?;
                     self.deletions.push((start, end, replacement));
                     self.index = end;
@@ -382,8 +397,8 @@ impl<'a> Scanner<'a> {
                 }
                 Ok((self.consume_optional_semicolon(end)?, None))
             }
-            _ if self.word_at(cursor, "default") => {
-                self.rewrite_default_keywords(start, cursor + "default".len())
+            _ if self.word_at(cursor, DEFAULT_KEYWORD) => {
+                self.rewrite_default_keywords(start, cursor + DEFAULT_KEYWORD.len())
             }
             Some(_) => Ok((after_keyword, None)),
             None => Err(StripError::new("`export` at end of source")),
@@ -419,8 +434,13 @@ impl<'a> Scanner<'a> {
                 "`export default` split across lines is not linked yet",
             ));
         }
-        let keyword = if hoisted { "var " } else { "let " };
-        let head = keyword.len() + name.len() + 1;
+        let keyword = if hoisted {
+            DEFAULT_BINDING_VAR
+        } else {
+            DEFAULT_BINDING_LET
+        };
+        let name = name.as_str();
+        let head = keyword.len() + name.len() + DEFAULT_BINDING_ASSIGN.len();
         let width = end - start;
         let Some(padding) = width.checked_sub(head) else {
             return Err(StripError::new(format!(
@@ -429,7 +449,10 @@ impl<'a> Scanner<'a> {
         };
         Ok((
             end,
-            Some(format!("{keyword}{name}{}=", " ".repeat(padding))),
+            Some(format!(
+                "{keyword}{name}{}{DEFAULT_BINDING_ASSIGN}",
+                " ".repeat(padding)
+            )),
         ))
     }
 
@@ -712,6 +735,8 @@ fn is_reserved_word(word: &str) -> bool {
 mod tests {
     use super::*;
 
+    use crate::LocalName;
+
     fn strip(source: &str) -> String {
         strip_module_syntax(source, DefaultExportRewrite::None).expect("source should strip")
     }
@@ -793,7 +818,7 @@ mod tests {
         let stripped = strip_module_syntax(
             source,
             DefaultExportRewrite::Bind {
-                name: "$d0$",
+                name: &LocalName::AnonymousDefault.merged_in(0),
                 hoisted: false,
             },
         )
@@ -809,7 +834,7 @@ mod tests {
         let stripped = strip_module_syntax(
             "export default function () {}",
             DefaultExportRewrite::Bind {
-                name: "$d3$",
+                name: &LocalName::AnonymousDefault.merged_in(3),
                 hoisted: true,
             },
         )
@@ -828,14 +853,23 @@ mod tests {
         assert_eq!(stripped, "               function f() {}\n");
     }
 
-    /// A minted name too long for the keywords it replaces is reported rather
-    /// than emitted at the wrong length.
+    /// A name too long for the keywords it replaces is reported rather than
+    /// emitted at the wrong length.
+    ///
+    /// Reaching this needs a unit id past
+    /// [`MAX_LINKABLE_MODULE_UNIT_ID`](crate::MAX_LINKABLE_MODULE_UNIT_ID),
+    /// which `build_graph` refuses to mint (ledger R3) and which const
+    /// assertion V2 pins the format side of. The check stays because the *span*
+    /// is data — `export  default` with two spaces is wider than the minimum,
+    /// and a hypothetical narrower one would be caught here rather than
+    /// silently emitted at the wrong length.
     #[test]
     fn a_default_binding_that_does_not_fit_is_reported() {
+        let over_cap = LocalName::AnonymousDefault.merged_in(1_234_567_890);
         let error = strip_module_syntax(
             "export default 1;",
             DefaultExportRewrite::Bind {
-                name: "$d1234567890$",
+                name: &over_cap,
                 hoisted: false,
             },
         )

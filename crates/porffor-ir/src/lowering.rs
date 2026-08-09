@@ -21013,9 +21013,7 @@ impl<'a> ScriptLowerer<'a> {
                             // `toStringTag` and `unscopables`; what the enum
                             // buys is that the arms above name real variants.
                             let builtin = match symbol {
-                                WellKnownSymbol::Iterator
-                                    if receiver.kind == ValueKind::String =>
-                                {
+                                WellKnownSymbol::Iterator if receiver.kind == ValueKind::String => {
                                     Some(StandardBuiltinId::StringPrototypeIterator)
                                 }
                                 WellKnownSymbol::Iterator if receiver.kind == ValueKind::Array => {

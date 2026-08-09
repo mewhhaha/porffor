@@ -948,3 +948,93 @@ Each row: the mistake, what happens today, and the exact compile error after.
 Rung G matters here specifically because every change in this contract is a
 pure refactor except the one declared in §6.5, and `batch-workflow.md` names
 rung G as the gate for exactly that case.
+
+---
+
+## 10. Encoder record
+
+Stage: ENCODER, appended after implementation. Nothing above was rewritten;
+this section states what was actually built, where it differs from §§2–8, and
+which mistake classes came out weaker than promised.
+
+No cargo or rustc command was run (batch 2 holds the build lock). The only
+check performed was `rustfmt --edition 2021 --check` on copies of the touched
+files in a scratchpad: they parse and are rustfmt-clean. That proves syntax and
+proves nothing about types. Integration instructions, including the three
+required `porffor-aot-wasm` edits this lane did not make, are in
+`target/lane-notes/Closed spec name domains: NativeErrorKind and WellKnownSymbol-theory-integration.md`.
+
+### 10.1 Mistake classes discharged as compile errors
+
+| # | Promised | Delivered |
+|---|---|---|
+| **M1** | `E0599` on a misspelt consumer comparison | as promised. The five `== Some("Symbol.iterator")` sites are `== Some(WellKnownSymbol::Iterator)`; the seven-arm receiver-specialization match, the two `== "Symbol.toPrimitive"` sites, the `Symbol.species` descriptor check and the two `try_static_array_iterator_override`-family sites all compare enum values. |
+| **M2** | `E0599` on a misspelt shape producer | as promised. All 42 producers are `WellKnownSymbol::X.description().to_string()`. |
+| **M3** | unrepresentable | as promised, and stronger than expected: both fifteen-element whitelists *and* both copies of the four-clause "is this the real builtin `Symbol`?" guard are gone. The guard is now one `expression_is_builtin_symbol_intrinsic`; the parse is one `WellKnownSymbol::from_member_name`. |
+| **M4** | `E0004` on a variant without a row | **unrepresentable instead.** The variants *are* generated from the rows, so a variant without a row cannot be written. |
+| **M7** | unrepresentable in `porffor-ir`; open in `porffor-aot-wasm` (R4) | as promised. Five `porffor-ir` tables collapsed: `infer_expr_throw_info` now calls `constructor()` and enumerates nothing; `for_in_known_empty_target` and the `propertyIsEnumerable` guard call `from_str`; `is_error_constructor_expr` walks `ALL`; `is_error_prototype_expr` was deleted. R4 unchanged. |
+| **M8** | `E0004` in three generated matches | **unrepresentable instead**, same reason as M4. |
+| **M9** | `E0080` on N6 | as promised. `all_is_ordered_and_round_trips` includes the `from_constructor(constructor(k)) == Some(k)` round trip. |
+| **M10** | `E0080` on N5 | as promised (`spellings_are_distinct`). |
+| **M11** | `E0080` on N7 | as promised (`native_error_subset_agrees`), with the caveat in §10.3. |
+| **M12** | `E0308` at the producer | as promised. `ExprIr::RuntimeThrow.name` is `NativeErrorKind`; all 14 constructions and 11 test patterns retyped. The consumer side stays open — R4, §5.4. |
+
+### 10.2 Mistake classes delivered with a different error, or as a stronger property
+
+| # | Promised | Delivered | Why |
+|---|---|---|---|
+| **M5** | `E0080` on W1 (`ALL.len() == 15`) or W3 | `E0308`, plus `E0080` on W3 | `ALL`, `TABLE_1`, `EXPLICIT_RESOURCE_MANAGEMENT` and `NATIVE_ERRORS` declare their length in the *type* (`[WellKnownSymbol; 15]` etc.), so a sixteenth row is `error[E0308]: expected an array with a fixed size of 15 elements, found one with 16`. Given that, assertions **N1** and **W1** would have been tautologies, and AGENTS.md's test rejects a check that cannot fail. They were **not written**. The *content* half of **W2** — that `TABLE_1 ++ EXPLICIT_RESOURCE_MANAGEMENT` really is `ALL`, in order — is not implied by the lengths and **is** asserted. |
+| **M6** | `E0080` on W6 (`description == "Symbol." ++ member_name`) | **unrepresentable** | `description()` is generated as `concat!("Symbol.", $member)` from the same row. A row cannot express a drifting description, so S2 is definitional rather than checked. **W6 was not written**; `SYMBOL_DESCRIPTION_PREFIX` is still tied to the generated descriptions by **W8**. |
+
+Assertions actually emitted: `native_error.rs` — `all_is_ordered_and_round_trips`
+(N3, N4, N6), `spellings_are_distinct` (N5), `native_error_subset_agrees`
+(N2, N7). `well_known.rs` — `all_is_ordered_and_round_trips` (W3, W4, W5, W8),
+`spellings_are_distinct` (W7, extended to descriptions as well as member
+names), `partition_covers_all` (W2's content half). Not written, with reasons
+above: N1, W1, W6.
+
+### 10.3 Added to the runtime-checked ledger
+
+| # | Invariant | Where | Why no type carries it | What must check it |
+|---|---|---|---|---|
+| **R5** | `NativeErrorKind::NATIVE_ERRORS`, `is_native_error()` and `from_constructor()` have **no product call site**. | `native_error.rs` | Their only consumers are the const assertions that tie them (N6, N7) — i.e. the mistake they make into a compile error is a mistake *in themselves*. Nothing in the compiler currently needs the §20.5.5 six, and nothing needs the reverse constructor map. By AGENTS.md's test this is the closest thing in this area to decoration, and saying so is better than pretending otherwise. They were kept because E5 is real ECMA-262 structure (§20.5.6's template applies to exactly six) that this codebase represents nowhere else, and because M9 and M11 are genuine defect shapes. **If a reviewer disagrees, deleting all three plus `native_error_subset_agrees` is self-contained and costs the product path nothing.** | nothing at runtime; this row exists so the next reader does not mistake them for load-bearing. |
+| **R6** | A sixteenth well-known symbol silently gets no receiver-specialization fast path. | `lowering.rs`, the `match symbol` with `_ => None` (ledger **R3**'s site) | Unchanged from R3: the domain is `WellKnownSymbol × ValueKind` and most cells legitimately have no fast path. The arm now carries a comment naming all nine symbols that deliberately fall through, so the omission is at least written down. | rung 1 `cargo test -p porffor-ir`; the CLI iterator/regexp area suites. |
+
+`R1`, `R2`, `R3` and `R4` are unchanged and were all honoured:
+`ObjectShape::properties` keeps its `String` key (R1); the two
+`starts_with("Symbol.")` sites became `is_symbol_description(..)` and the
+producer gained the specified `debug_assert!` (R2); the specialization match
+kept its `_ => None` with a naming comment (R3); the four `porffor-aot-wasm`
+tables and `emit_throw_runtime_error`'s `name: &str` were not touched (R4).
+
+### 10.4 Deviations from the retrofit map
+
+1. **§4.4 item 3 / obligation D6 — confirmed and executed.**
+   `grep -rn is_error_prototype_expr crates/ --include=*.rs` returns one hit,
+   the definition. It was deleted, not migrated, with a comment left at the
+   site recording why.
+2. **§6.3, the `Symbol.species` rows.** `read_object_shape` was **not** retyped
+   to take a `WellKnownSymbol`: it is a general helper with 14 call sites over
+   arbitrary string keys, so a closed key type there would be false. Both sites
+   pass `WellKnownSymbol::Species.description()`. The literal is gone and the
+   join to the producer runs through the enum, which is the property §6.3 was
+   after. `optional_chain_well_known_symbol_property_info` — which genuinely
+   only ever takes a well-known key — *was* retyped.
+3. **§6.3, the two table-driven shape producers (`Map`/`Set` prototypes).** The
+   slices mix ordinary string method names with one symbol key, so the first
+   element cannot become `WellKnownSymbol`. The `("Symbol.iterator", …)` row was
+   lifted out of each loop into its own `properties.insert`. `ObjectShape::properties`
+   is a `BTreeMap`, so insertion order does not affect the resulting map; this
+   is byte-neutral.
+4. **§6.3, the ToPrimitive lookup.** Implemented as specified —
+   `enum ToPrimitiveLookupKey { Symbol(WellKnownSymbol), Method(&'static str) }`,
+   two `&[ToPrimitiveLookupKey; 3]` arrays, dispatch on the variant. One
+   incidental consequence: the `Method` arm no longer also probes the `@@`
+   namespace for `"toString"`/`"valueOf"`. Nothing writes `@@toString` — every
+   `@@` key is built from a `description()`, which always begins `"Symbol."` —
+   so this is behaviour-preserving. §7.1.1's lookup order is unchanged for both
+   hints.
+5. **§6.5.** Implemented as specified, including the declared behaviour change
+   and the `debug_assert!`. Obligation **D8** stands: the rung-G diff must be
+   empty, and a non-empty diff means a fourth `ValueKind::Symbol` string
+   producer exists that this contract did not find.

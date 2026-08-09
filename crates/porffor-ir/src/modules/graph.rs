@@ -70,7 +70,12 @@ pub enum ModuleBindingNameIr {
     /// `namespace`, produced by `export * as ns from "m"`.
     Namespace,
     /// A concrete binding of the resolved module's environment.
-    Name(String),
+    ///
+    /// A `[[LocalName]]` **of the resolving module**, not of the module that
+    /// asked: 16.2.1.6.2 step 4.a.i takes it from `e.[[LocalName]]` of whichever
+    /// module the recursion ended in, which is why
+    /// [`ResolvedBindingIr::Resolved`] carries the module alongside it.
+    Name(LocalName),
     /// The module source object of the resolved module.
     ///
     /// Produced only by `import source x from "m"`. Not a binding of `m` at
@@ -113,26 +118,40 @@ pub enum ModuleLinkErrorIr {
         /// The request.
         request: ModuleRequestIr,
         /// Name that could not be resolved.
-        import_name: String,
+        ///
+        /// An `[[ImportName]]`, which is the requested module's
+        /// `[[ExportName]]` read from this side — the same domain, so the same
+        /// type. Filling this from a `[[LocalName]]` is `E0308`.
+        import_name: ExportName,
     },
     /// Two `export *` paths reached different bindings for one name.
     AmbiguousExport {
         /// Module whose export is ambiguous.
         module: ModuleUnitId,
         /// The ambiguous export name.
-        export_name: String,
+        export_name: ExportName,
     },
     /// The same `[[ExportName]]` is declared twice (16.2.3.1, an early error).
     DuplicateExport {
         /// Module declaring the duplicate.
         module: ModuleUnitId,
         /// The duplicated export name.
-        export_name: String,
+        export_name: ExportName,
     },
     /// One key was loaded twice with different source text.
     InconsistentLoad {
         /// The key loaded inconsistently.
         key: String,
+    },
+    /// The closure holds more units than the source-text linker can name.
+    ///
+    /// Unit ids are spelled into two in-place rewrites whose replacements must
+    /// not change a unit's byte length, which caps the decimal width of an id at
+    /// four digits — see [`MAX_LINKABLE_MODULE_UNIT_ID`]. This is the runtime
+    /// half of budgets B1/B2; const assertions V2 and V4 carry the format half.
+    TooManyUnits {
+        /// Number of module sources the host handed over.
+        count: usize,
     },
     /// A phased request this stage cannot link, with the reason.
     ///
@@ -161,6 +180,7 @@ impl ModuleLinkErrorIr {
             Self::DuplicateExport { .. } => "E_MODULE_DUPLICATE_EXPORT",
             Self::InconsistentLoad { .. } => "E_MODULE_INCONSISTENT_LOAD",
             Self::UnsupportedPhase { .. } => "E_MODULE_UNSUPPORTED_PHASE",
+            Self::TooManyUnits { .. } => "E_MODULE_TOO_MANY_UNITS",
         }
     }
 
@@ -175,12 +195,16 @@ impl ModuleLinkErrorIr {
                 request,
                 import_name,
                 ..
-            } => format!("module {} does not export {import_name}", request.specifier),
+            } => format!(
+                "module {} does not export {}",
+                request.specifier,
+                import_name.as_str()
+            ),
             Self::AmbiguousExport { export_name, .. } => {
-                format!("ambiguous export name: {export_name}")
+                format!("ambiguous export name: {}", export_name.as_str())
             }
             Self::DuplicateExport { export_name, .. } => {
-                format!("duplicate export name: {export_name}")
+                format!("duplicate export name: {}", export_name.as_str())
             }
             Self::InconsistentLoad { key } => {
                 format!("module loaded inconsistently: {key}")
@@ -188,6 +212,10 @@ impl ModuleLinkErrorIr {
             Self::UnsupportedPhase { phase, reason, .. } => format!(
                 "unsupported in porffor wasm-aot: {} phase module request: {reason}",
                 phase.as_str()
+            ),
+            Self::TooManyUnits { count } => format!(
+                "unsupported in porffor wasm-aot: module graph has {count} units; the source-text \
+                 linker can name unit ids up to {MAX_LINKABLE_MODULE_UNIT_ID}"
             ),
         }
     }
@@ -495,7 +523,7 @@ impl ModuleGraphIr {
     /// `GetExportedNames` (16.2.1.6.2). Source order, as the spec defines it;
     /// namespace `[[OwnPropertyKeys]]` sorting happens in `namespace.rs`.
     #[must_use]
-    pub fn exported_names(&self, module: ModuleUnitId) -> Vec<String> {
+    pub fn exported_names(&self, module: ModuleUnitId) -> Vec<ExportName> {
         let mut export_star_set = BTreeSet::new();
         let mut names = Vec::new();
         self.collect_exported_names(module, &mut export_star_set, &mut names);
@@ -506,7 +534,7 @@ impl ModuleGraphIr {
         &self,
         module: ModuleUnitId,
         export_star_set: &mut BTreeSet<ModuleUnitId>,
-        names: &mut Vec<String>,
+        names: &mut Vec<ExportName>,
     ) {
         // 1-2. A module already on the star path contributes nothing more.
         if !export_star_set.insert(module) {
@@ -529,7 +557,7 @@ impl ModuleGraphIr {
             self.collect_exported_names(target, export_star_set, &mut star_names);
             for name in star_names {
                 // `export *` never re-exports `default`.
-                if name != MODULE_DEFAULT_EXPORT_NAME {
+                if !name.is_default() {
                     push_unique_name(names, &name);
                 }
             }
@@ -537,8 +565,17 @@ impl ModuleGraphIr {
     }
 
     /// `ResolveExport` (16.2.1.6.3).
+    ///
+    /// The lookup key is a D2 name, always: the specification matches it against
+    /// `e.[[ExportName]]`, and the `[[ImportName]]` an importer passes in is the
+    /// requested module's D2 read from the other side. Passing a `[[LocalName]]`
+    /// is `E0308`.
     #[must_use]
-    pub fn resolve_export(&self, module: ModuleUnitId, export_name: &str) -> ResolvedBindingIr {
+    pub fn resolve_export(
+        &self,
+        module: ModuleUnitId,
+        export_name: &ExportName,
+    ) -> ResolvedBindingIr {
         let mut resolve_set = Vec::new();
         self.resolve_export_inner(module, export_name, &mut resolve_set)
     }
@@ -546,8 +583,8 @@ impl ModuleGraphIr {
     fn resolve_export_inner(
         &self,
         module: ModuleUnitId,
-        export_name: &str,
-        resolve_set: &mut Vec<(ModuleUnitId, String)>,
+        export_name: &ExportName,
+        resolve_set: &mut Vec<(ModuleUnitId, ExportName)>,
     ) -> ResolvedBindingIr {
         // 1. A repeated (module, exportName) pair is a circular request.
         if resolve_set
@@ -556,15 +593,17 @@ impl ModuleGraphIr {
         {
             return ResolvedBindingIr::NotFound;
         }
-        resolve_set.push((module, export_name.to_string()));
+        resolve_set.push((module, export_name.clone()));
 
         let Some(unit) = self.units.get(module as usize) else {
             return ResolvedBindingIr::NotFound;
         };
 
         // 4. Local exports resolve to this module.
+        // The match is D2 = D2 and the result is D1: the whole shape of
+        // 16.2.1.6.2 step 4.a, and the one place the two domains meet.
         for entry in &unit.record.local_export_entries {
-            if entry.export_name == export_name {
+            if &entry.export_name == export_name {
                 return ResolvedBindingIr::Resolved {
                     module,
                     binding: ModuleBindingNameIr::Name(entry.local_name.clone()),
@@ -574,7 +613,7 @@ impl ModuleGraphIr {
 
         // 5. Indirect exports delegate to the requested module.
         for entry in &unit.record.indirect_export_entries {
-            if entry.export_name != export_name {
+            if &entry.export_name != export_name {
                 continue;
             }
             let Some(target) = self.resolve_request(module, &entry.request) else {
@@ -590,7 +629,7 @@ impl ModuleGraphIr {
         }
 
         // 6. `default` is never provided by `export *`.
-        if export_name == MODULE_DEFAULT_EXPORT_NAME {
+        if export_name.is_default() {
             return ResolvedBindingIr::NotFound;
         }
 
@@ -615,25 +654,19 @@ impl ModuleGraphIr {
         star_resolution
     }
 
-    /// Storage name of the cell backing a resolved binding.
-    ///
-    /// The single authority for cross-module cell naming: the merged script
-    /// holds every module's top-level bindings in one activation environment,
-    /// so an import read is an ordinary read of the exporter's cell and live
-    /// bindings need no runtime indirection.
-    #[must_use]
-    pub fn cell_name(&self, binding: &ResolvedBindingIr) -> Option<String> {
-        match binding {
-            ResolvedBindingIr::Resolved { module, binding } => match binding {
-                ModuleBindingNameIr::Namespace => Some(module_namespace_cell_name(*module)),
-                ModuleBindingNameIr::ModuleSource => Some(module_source_cell_name(*module)),
-                ModuleBindingNameIr::Name(name) => {
-                    Some(format!("{}{name}", module_storage_prefix(*module)))
-                }
-            },
-            ResolvedBindingIr::Ambiguous | ResolvedBindingIr::NotFound => None,
-        }
-    }
+    // `cell_name` used to live here. It was the sole producer of a *fourth*
+    // name domain — `$m{unit}$` prefixed onto a `[[LocalName]]` — which a
+    // per-unit-environment backend would need and which the source-text linker
+    // in use today must never emit, because the merged scope names an
+    // exporter's binding exactly as the exporter spells it. Its one caller
+    // filled `ModuleNamespaceExportIr::cell`, whose only reader was a test.
+    //
+    // Nothing produces such a name now, so nothing can leak one into generated
+    // Script text. `modules::namespace::namespace_target_reference` is the
+    // single authority for what a resolved binding reads as, and it returns a
+    // `MergedName`. If a per-unit-environment backend is ever built, the name
+    // it needs is a *different* type from `MergedName` and must be spelled as
+    // one — see `modules::namespace`'s module docs.
 }
 
 /// Builds the graph from an already-loaded closure: parses every source into a
@@ -666,7 +699,23 @@ pub(crate) fn build_graph(
             remap.push(existing);
             continue;
         }
-        let id = ModuleUnitId::try_from(graph.units.len()).unwrap_or(ModuleUnitId::MAX);
+        // The one place a unit id is minted, and therefore the one place the
+        // byte budgets B1/B2 can be enforced at run time (contract ledger R3).
+        // The previous `unwrap_or(ModuleUnitId::MAX)` was worse than unchecked:
+        // it saturated to a ten-digit id, which violates both budgets silently
+        // and then fails downstream as a confusing `StripError`.
+        let Some(id) = ModuleUnitId::try_from(graph.units.len())
+            .ok()
+            .filter(|id| *id <= MAX_LINKABLE_MODULE_UNIT_ID)
+        else {
+            diagnostics.push(
+                ModuleLinkErrorIr::TooManyUnits {
+                    count: sources.modules.len(),
+                }
+                .to_diagnostic(),
+            );
+            return Err(diagnostics);
+        };
         let unit_source = SourceUnit {
             goal: ParseGoal::Module,
             filename: Some(source.key.clone()),
@@ -1013,9 +1062,14 @@ fn report_unlinkable_phases(graph: &mut ModuleGraphIr) {
 }
 
 /// `[[ImportName]]` as it reads in a diagnostic.
-fn import_name_text(import_name: &ImportNameIr) -> String {
+///
+/// The `Namespace` arm has no `[[ExportName]]` behind it — `import * as ns`
+/// resolves to a namespace object, not to an export — so `"*"` here is a
+/// diagnostic spelling standing in for one, and is deliberately not a name any
+/// module could have exported under.
+fn import_name_text(import_name: &ImportNameIr) -> ExportName {
     match import_name {
-        ImportNameIr::Namespace => "*".to_string(),
+        ImportNameIr::Namespace => ExportName::new("*"),
         ImportNameIr::Name(name) => name.clone(),
     }
 }
@@ -1147,6 +1201,10 @@ fn compute_evaluation_order(graph: &mut ModuleGraphIr) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The single authority for what a resolved binding reads as in the merged
+    // scope, now that this file mints no cell name of its own.
+    use super::super::namespace::namespace_target_reference;
 
     /// Last path segment, which is what the test loader resolves on.
     fn last_segment(text: &str) -> &str {
@@ -1295,8 +1353,8 @@ mod tests {
             }]
         );
         assert_eq!(
-            graph.cell_name(&graph.units[0].resolved_imports[0]),
-            Some(module_source_cell_name(target))
+            namespace_target_reference(&graph.units[0].resolved_imports[0]),
+            Some(MergedName::minted(target, UnitCellRole::ModuleSource))
         );
     }
 
@@ -1505,7 +1563,7 @@ mod tests {
             graph.units[0].resolved_imports,
             vec![ResolvedBindingIr::Resolved {
                 module: 0,
-                binding: ModuleBindingNameIr::Name("x".to_string()),
+                binding: ModuleBindingNameIr::Name(LocalName::from_bound_name("x")),
             }]
         );
     }
@@ -1547,7 +1605,7 @@ mod tests {
         let c = unit_of(&graph, "/root/c.js");
         let resolved = ResolvedBindingIr::Resolved {
             module: c,
-            binding: ModuleBindingNameIr::Name("x".to_string()),
+            binding: ModuleBindingNameIr::Name(LocalName::from_bound_name("x")),
         };
         assert_eq!(graph.units[0].resolved_imports, vec![resolved.clone()]);
         // Every link of the chain points at the one declaring cell.
@@ -1556,9 +1614,16 @@ mod tests {
             graph.unit(a).resolved_indirect_exports,
             vec![resolved.clone()]
         );
+        // The merged scope names the exporter's binding exactly as the
+        // exporter spells it — no `$m{unit}$` prefix — which is what makes an
+        // importer's read a read of the exporter's own cell.
         assert_eq!(
-            graph.cell_name(&resolved),
-            Some(format!("{}x", module_storage_prefix(c)))
+            namespace_target_reference(&resolved),
+            Some(LocalName::from_bound_name("x").merged_in(c))
+        );
+        assert_eq!(
+            namespace_target_reference(&resolved).map(|name| name.as_str().to_string()),
+            Some("x".to_string())
         );
     }
 
@@ -1576,7 +1641,7 @@ mod tests {
             vec![ModuleLinkErrorIr::MissingExport {
                 referrer: a,
                 request: ModuleRequestIr::plain("./b.js"),
-                import_name: "nope".to_string(),
+                import_name: ExportName::new("nope"),
             }]
         );
     }
@@ -1597,10 +1662,13 @@ mod tests {
             graph.link_errors,
             vec![ModuleLinkErrorIr::AmbiguousExport {
                 module: a,
-                export_name: "x".to_string(),
+                export_name: ExportName::new("x"),
             }]
         );
-        assert_eq!(graph.resolve_export(a, "x"), ResolvedBindingIr::Ambiguous);
+        assert_eq!(
+            graph.resolve_export(a, &ExportName::new("x")),
+            ResolvedBindingIr::Ambiguous
+        );
     }
 
     #[test]
@@ -1621,7 +1689,7 @@ mod tests {
             graph.units[0].resolved_imports,
             vec![ResolvedBindingIr::Resolved {
                 module: d,
-                binding: ModuleBindingNameIr::Name("x".to_string()),
+                binding: ModuleBindingNameIr::Name(LocalName::from_bound_name("x")),
             }]
         );
     }
@@ -1637,7 +1705,7 @@ mod tests {
         let a = unit_of(&graph, "/root/a.js");
         let mut names = graph.exported_names(a);
         names.sort();
-        assert_eq!(names, vec!["x".to_string(), "y".to_string()]);
+        assert_eq!(names, vec![ExportName::new("x"), ExportName::new("y")]);
     }
 
     #[test]
@@ -1648,9 +1716,9 @@ mod tests {
             ("/root/b.js", "export default 1;\nexport const z = 3;"),
         ]);
         let a = unit_of(&graph, "/root/a.js");
-        assert_eq!(graph.exported_names(a), vec!["z".to_string()]);
+        assert_eq!(graph.exported_names(a), vec![ExportName::new("z")]);
         assert_eq!(
-            graph.resolve_export(a, MODULE_DEFAULT_EXPORT_NAME),
+            graph.resolve_export(a, &ExportName::default_export()),
             ResolvedBindingIr::NotFound
         );
         assert_eq!(
@@ -1658,7 +1726,7 @@ mod tests {
             vec![ModuleLinkErrorIr::MissingExport {
                 referrer: 0,
                 request: ModuleRequestIr::plain("./a.js"),
-                import_name: MODULE_DEFAULT_EXPORT_NAME.to_string(),
+                import_name: ExportName::default_export(),
             }]
         );
     }
@@ -1677,8 +1745,46 @@ mod tests {
         };
         assert_eq!(graph.units[0].resolved_imports, vec![binding.clone()]);
         assert_eq!(
-            graph.cell_name(&binding),
-            Some(module_namespace_cell_name(a))
+            namespace_target_reference(&binding),
+            Some(MergedName::minted(a, UnitCellRole::Namespace))
         );
+    }
+
+    /// Ledger R3: unit ids are spelled into two length-preserving rewrites, so
+    /// a graph the linker cannot name is rejected where the id is minted rather
+    /// than saturated into a ten-digit id that violates both byte budgets and
+    /// fails later with a confusing message.
+    #[test]
+    fn a_graph_larger_than_the_unit_id_cap_is_rejected_at_the_mint_site() {
+        let over_cap = usize::try_from(MAX_LINKABLE_MODULE_UNIT_ID).expect("cap fits") + 2;
+        let modules: Vec<ModuleSourceIr> = (0..over_cap)
+            .map(|index| ModuleSourceIr {
+                key: format!("/root/m{index}.js"),
+                source_text: String::new(),
+                meta_url: format!("file:///root/m{index}.js"),
+            })
+            .collect();
+        let sources = ModuleGraphSources {
+            modules,
+            entry: 0,
+            resolutions: Vec::new(),
+        };
+        let diagnostics = build_graph(&sources).expect_err("the graph exceeds the unit-id cap");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some("E_MODULE_TOO_MANY_UNITS")),
+            "{diagnostics:?}"
+        );
+    }
+
+    /// The cap admits everything up to and including itself, so the rejection
+    /// above is not off by one.
+    #[test]
+    fn the_unit_id_cap_is_inclusive() {
+        assert!(ModuleUnitId::try_from(
+            usize::try_from(MAX_LINKABLE_MODULE_UNIT_ID).expect("cap fits")
+        )
+        .is_ok_and(|id| id <= MAX_LINKABLE_MODULE_UNIT_ID));
     }
 }

@@ -67,6 +67,11 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
     // Only *local* export entries carry a `[[LocalName]]`. `export { x } from
     // "m"` and `export * from "m"` bind nothing in this module, and
     // ExportedBindings excludes them for that reason.
+    //
+    // The comparison is `[[LocalName]]` against `[[LocalName]]`, in one domain.
+    // Writing `entry.export_name` here compiled before this area was typed and
+    // produced a spurious `SyntaxError` for `export { x as y }`; it is now
+    // `E0308: expected LocalName, found ExportName`.
     for entry in &record.local_export_entries {
         if record
             .environment
@@ -80,7 +85,8 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
             "SyntaxError",
             format!(
                 "exported binding {} is not declared in module {}",
-                entry.local_name, record.key
+                entry.local_name.spec_name(),
+                record.key
             ),
             None,
         ));
@@ -189,7 +195,7 @@ mod tests {
 
     fn binding(name: &str, kind: ModuleBindingKindIr) -> ModuleEnvBindingIr {
         ModuleEnvBindingIr {
-            name: name.to_string(),
+            name: LocalName::from_bound_name(name),
             kind,
             mutable: kind != ModuleBindingKindIr::Const,
             initialized_before_evaluation: kind == ModuleBindingKindIr::Function,
@@ -222,13 +228,13 @@ mod tests {
             .environment
             .push(binding("x", ModuleBindingKindIr::Let));
         record.local_export_entries.push(LocalExportEntryIr {
-            local_name: "x".to_string(),
-            export_name: "x".to_string(),
+            local_name: LocalName::from_bound_name("x"),
+            export_name: ExportName::new("x"),
         });
         record.indirect_export_entries.push(IndirectExportEntryIr {
             request: ModuleRequestIr::plain("./dep.mjs"),
-            import_name: ImportNameIr::Name("y".to_string()),
-            export_name: "y".to_string(),
+            import_name: ImportNameIr::Name(ExportName::new("y")),
+            export_name: ExportName::new("y"),
         });
         assert_eq!(module_early_errors(&record), Vec::new());
     }
@@ -240,13 +246,13 @@ mod tests {
             .environment
             .push(binding("x", ModuleBindingKindIr::Let));
         record.local_export_entries.push(LocalExportEntryIr {
-            local_name: "x".to_string(),
-            export_name: "shared".to_string(),
+            local_name: LocalName::from_bound_name("x"),
+            export_name: ExportName::new("shared"),
         });
         record.indirect_export_entries.push(IndirectExportEntryIr {
             request: ModuleRequestIr::plain("./dep.mjs"),
-            import_name: ImportNameIr::Name("y".to_string()),
-            export_name: "shared".to_string(),
+            import_name: ImportNameIr::Name(ExportName::new("y")),
+            export_name: ExportName::new("shared"),
         });
 
         let diagnostics = module_early_errors(&record);
@@ -276,8 +282,8 @@ mod tests {
     fn exported_binding_without_a_declaration_is_an_early_error() {
         let mut record = record();
         record.local_export_entries.push(LocalExportEntryIr {
-            local_name: "missing".to_string(),
-            export_name: "missing".to_string(),
+            local_name: LocalName::from_bound_name("missing"),
+            export_name: ExportName::new("missing"),
         });
 
         let diagnostics = module_early_errors(&record);
@@ -293,7 +299,7 @@ mod tests {
         // local name is only ever declared by the import.
         let mut record = record();
         record.environment.push(ModuleEnvBindingIr {
-            name: "ns".to_string(),
+            name: LocalName::from_bound_name("ns"),
             kind: ModuleBindingKindIr::Import,
             mutable: false,
             initialized_before_evaluation: true,
@@ -301,8 +307,8 @@ mod tests {
             indirect: Some((ModuleRequestIr::plain("./m.mjs"), ImportNameIr::Namespace)),
         });
         record.local_export_entries.push(LocalExportEntryIr {
-            local_name: "ns".to_string(),
-            export_name: "ns".to_string(),
+            local_name: LocalName::from_bound_name("ns"),
+            export_name: ExportName::new("ns"),
         });
         assert_eq!(module_early_errors(&record), Vec::new());
     }
@@ -312,8 +318,8 @@ mod tests {
         let mut record = record();
         record.indirect_export_entries.push(IndirectExportEntryIr {
             request: ModuleRequestIr::plain("./dep.mjs"),
-            import_name: ImportNameIr::Name("nothing-local".to_string()),
-            export_name: "nothing-local".to_string(),
+            import_name: ImportNameIr::Name(ExportName::new("nothing-local")),
+            export_name: ExportName::new("nothing-local"),
         });
         assert_eq!(module_early_errors(&record), Vec::new());
     }

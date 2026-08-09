@@ -26,104 +26,30 @@ pub const MODULE_DEFAULT_EXPORT_NAME: &str = "default";
 /// name from source.
 pub const MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME: &str = "*default*";
 
-/// Storage-name prefix for module `unit`'s own top-level bindings.
-///
-/// Every module's top-level bindings live in the one merged activation
-/// environment, so their names must not collide. `$` is not a legal start for
-/// a source-spelled binding the module system mints, so this prefix is unique
-/// by construction.
-#[must_use]
-pub fn module_storage_prefix(unit: u32) -> String {
-    format!("$m{unit}$")
-}
+// The eleven module name-minting functions that used to live here are gone.
+//
+// Five of them had no product call site at all (`module_function_id`,
+// `module_function_id_prefix`, `is_user_function_id`,
+// `module_import_meta_cell_name`, and `module_component_completion_cell_name`,
+// whose one caller wrote a field nothing read); two of those five could not
+// have worked, because their names contained a `.` and so were not
+// `IdentifierReference`s. The remaining six returned a bare `String` from a
+// bare `u32` with no relation to each other and no relation to the byte budgets
+// their spellings had to respect.
+//
+// They are replaced by `crate::binding_names`, which spells the same names
+// through `LocalName::merged_in` and `MergedName::minted(unit, UnitCellRole)` —
+// one `format!` for the whole crate, a closed role set, and const assertions
+// tying the two length budgets to the constants `modules::source` and
+// `modules::record` actually match on. See
+// `docs/rust-rewrite/contracts/Module binding-name domains: [[LocalName]] vs
+// [[ExportName]] vs merged storage name.md`.
+//
+// No `FunctionId` is module-qualified anywhere, which is why the three
+// `FunctionId` helpers had no callers: `modules::link` merges unit bodies on
+// source text before lowering, so every span-derived `FunctionId` is unique by
+// construction and needs no per-unit prefix.
 
-/// Merged-scope spelling of module `unit`'s *anonymous* `export default`.
-///
-/// 8.2.2 names such a binding `*default*` precisely so that no source text can
-/// spell it — which is exactly what the source-text merge needs it to do, since
-/// the merged script has to *declare* it. This is the shortest per-unit name
-/// that still cannot be spelled by accident: it starts with `$`, which
-/// [`module_storage_prefix`] already reserves for the module system.
-///
-/// It is deliberately short. `modules::source` rewrites the two keywords
-/// `export default` in place, and that rewrite must not change the byte length
-/// of the unit's text, so the whole declaration head has to fit in 14 bytes.
-#[must_use]
-pub fn module_default_binding_name(unit: u32) -> String {
-    format!("$d{unit}$")
-}
-
-/// `FunctionId` prefix for module `unit`'s functions.
-///
-/// `FunctionId`s are minted from source byte offsets, so two modules collide
-/// without this.
-#[must_use]
-pub fn module_function_id_prefix(unit: u32) -> String {
-    format!("$m{unit}/")
-}
-
-/// Cell holding module `unit`'s identity-cached namespace exotic object.
-#[must_use]
-pub fn module_namespace_cell_name(unit: u32) -> String {
-    format!("{}namespace", module_storage_prefix(unit))
-}
-
-/// Cell holding module `unit`'s deferred export table (`import defer`).
-///
-/// `undefined` until the module has begun evaluating, which is what
-/// [`module_defer_evaluate_function_name`] tests to make evaluation happen at
-/// most once.
-#[must_use]
-pub fn module_defer_cells_cell_name(unit: u32) -> String {
-    format!("{}defer$cells", module_storage_prefix(unit))
-}
-
-/// Function that evaluates module `unit`'s body on first touch of its deferred
-/// namespace, and returns its export table.
-#[must_use]
-pub fn module_defer_evaluate_function_name(unit: u32) -> String {
-    format!("{}defer$evaluate", module_storage_prefix(unit))
-}
-
-/// Cell holding module `unit`'s module source object (`import source`).
-#[must_use]
-pub fn module_source_cell_name(unit: u32) -> String {
-    format!("{}source", module_storage_prefix(unit))
-}
-
-/// Cell holding module `unit`'s `import.meta` object.
-#[must_use]
-pub fn module_import_meta_cell_name(unit: u32) -> String {
-    format!("{}import.meta", module_storage_prefix(unit))
-}
-
-/// Cell memoising module `unit`'s *evaluation completion* for `import()`.
-///
-/// Not a promise: `import()` hands out a fresh promise on every call
-/// (`always-create-new-promise.js`), while the module evaluates at most once.
-#[must_use]
-pub fn module_component_completion_cell_name(unit: u32) -> String {
-    format!("{}component.completion", module_storage_prefix(unit))
-}
-
-/// `true` for ids minted from user source, `false` for builtin and host ids.
-///
-/// The single authority for whether a `FunctionId` may be module-prefixed:
-/// builtin and host ids are shared across the whole artifact and must not be.
-#[must_use]
-pub fn is_user_function_id(id: &str) -> bool {
-    !id.starts_with("$builtin.") && !id.starts_with("$host.")
-}
-
-/// Module-qualified `FunctionId`, leaving builtin and host ids alone.
-#[must_use]
-pub fn module_function_id(unit: u32, id: &str) -> String {
-    if is_user_function_id(id) {
-        format!("{}{id}", module_function_id_prefix(unit))
-    } else {
-        id.to_string()
-    }
-}
 pub const GLOBAL_THIS_NAME: &str = "globalThis";
 pub const MATH_NAME: &str = "Math";
 pub const PRINT_NAME: &str = "print";

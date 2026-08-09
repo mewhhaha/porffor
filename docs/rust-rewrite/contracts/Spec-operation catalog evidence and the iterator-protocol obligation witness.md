@@ -1152,3 +1152,61 @@ Stated plainly, because the area's value depends on not overselling it.
 - `KindSet::EMPTY` still satisfies "is definitely an Array" (ledger L5).
 - Zero abstract operations were newly emitted. The catalog is more honest by 17
   rows; the compiler is not more capable by one.
+
+---
+
+## 12. Encoder addendum (as built)
+
+Written by the encoder after implementing §3–§7. The full integration patch for
+files outside the encoder's ownership is
+`target/lane-notes/Spec-operation catalog evidence and the iterator-protocol obligation witness-theory-integration.md`.
+**No cargo command was run in this lane** (batch 2 holds the build lock); the
+integrator runs the gate.
+
+### 12.1 Landed in the owned files
+
+- `crates/porffor-ir/src/operations.rs` — Part A in full: `NormalResult`,
+  `TrackedGapReason`, `OwnerTaskId`, `EmitterEvidence`, the three-variant
+  `OperationLoweringStatus`, `StatementEmissionRow`, `TrackedGapRow`, `str_eq`,
+  the five exhaustive `const fn`s on `SpecOperationIr` (`family`,
+  `normal_result`, `abrupt`, `catalog_index`, plus `name`), `ALL`,
+  `catalog_entry`, `build_catalog`, `SPEC_OPERATION_CATALOG`, const asserts
+  J1/J3/J4/J5. Plus B5's `IteratorRecordIr` retrofit. Eight types and thirteen
+  tests deleted; three tests remain plus L1 and the record test.
+- `crates/porffor-ir/src/iterator_obligations.rs` — Part B in full.
+
+### 12.2 Deviations, each strictly stricter or a correction
+
+- **D1.** `SPEC_OPERATION_CATALOG` is a `static` (with a private `const CATALOG`
+  behind it for the const asserts). A `const` array is an rvalue at each use, so
+  `.iter()` on it cannot produce the `&'static` that `find_spec_operation`
+  returns.
+- **D2.** The current table uses **21** distinct `normal_result` strings, not 20:
+  `"Completion"` and `"Completion Record"` are both present. The contract's
+  20-variant `NormalResult` is shipped as written, collapsing both to
+  `"Completion Record"`. Rendering-only; nothing consumes the field.
+- **D3.** `IteratorRecordIr` ships without `kind` and without the `sync`/`async_`
+  pair. A field written by the single reachable constructor is a constant, and
+  `sync()` would be a constructor with no call site — the defect §8 deletes eight
+  types for. `IteratorRecordKind` is deleted. Reintroduce both when the sync
+  for-of path gains a record.
+- **D4.** `IteratorProtocolWitness::new` and the four discharge constructors are
+  module-private. §4 B3's sentence "these four constants are the only values
+  `lowering.rs` may use" thereby becomes a property of the type rather than a
+  rule in a document.
+
+### 12.3 Additions to the mistake-class table
+
+| # | Plausible mistake | After |
+|---|---|---|
+| 14 | Invent a fifth witness inline at a `StatementIr` construction site instead of using a named constant. | **`E0603`** — `IteratorProtocolWitness::new` is private to `iterator_obligations`. The author must add a constant next to the premises it claims. (D4.) |
+| 15 | Change one of the three catalog tables and leave the contract's "29 + 5 + 12 = 46" census standing. | **Compile error** — const assert J4 states the census. |
+| 16 | Give `catalog_index` two variants the same slot, or a slot that addresses another operation's row. | **Compile error** — const asserts J3 and J5. |
+
+### 12.4 Additions to the runtime-checked ledger (§5)
+
+| id | Invariant | Why no type can carry it | The check |
+|---|---|---|---|
+| **L6** | `EmissionSite::ArrayDestructuring` has zero construction sites: no row and no witness names it. | Its value is the R7 match arm, which pins `compile_array_destructure_from_value_locals` to something real and forces a new variant to name something real. A variant that is only *matched* still breaks the build when its function disappears, which a merely-defined type does not. | None. Recorded so a later lane either finds the anchor persuasive or deletes variant and arm together. |
+| **L7** | `NormalResult::name`, `TrackedGapReason::name`, `IntactnessPremise::name` have no caller (the other two renderers are used by test failure messages). | `pub` suppresses dead-code detection — the exact "survival by `pub`" this area names. Kept because the catalog's only consumer is a human reader, and a row that cannot be rendered cannot be reviewed. | None. Recorded rather than hidden. |
+| **L8** | `STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` still state `family` / `normal_result` / `abrupt` by hand, and a `StatementEmissionRow` can name an arm that does not in fact emit it. | These operations have no `SpecOperationIr` variant to derive from — that is what makes them gaps. Inventing variants for unimplemented operations would recreate the false-claim defect one level down. R7 proves the named function exists, not what it emits (same boundary as L2). | Nothing. Bounded: a wrong signature on a row that also says "not implemented" cannot be read as an implementation claim. |

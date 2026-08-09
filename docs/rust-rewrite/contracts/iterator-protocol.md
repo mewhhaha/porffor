@@ -8,3 +8,8 @@ This area's contract lives in one document, because the iterator obligations'
 
 Start at §1.2–§1.4 (spec basis) and §4 (type mapping, Part B) for the iterator
 half. §9 holds the dry-run corpus and the three corrections to the area brief.
+
+As built: `crates/porffor-ir/src/iterator_obligations.rs`, with the
+`EmissionSite` → real-function join in
+`crates/porffor-aot-wasm/src/emission_sites.rs`. §12 (encoder addendum) records
+the deviations; D3 and D4 are the two that touch this half.
