@@ -241,6 +241,23 @@ pub(crate) struct FunctionBuilder<'a> {
     /// outlining it is the dominant code-size win for realm modules.
     pub(crate) outline_object_read_proxy: bool,
     pub(crate) outline_array_write: bool,
+    /// When false, `emit_typed_array_or_object_index_read_from_locals` inlines
+    /// the whole `expr[index]` read composite (Arguments / Array-with-prototype
+    /// / TypedArray element load / ordinary object key read, including the
+    /// number→string key materialization) instead of calling the shared helper.
+    /// Set false only while compiling that helper itself.
+    ///
+    /// Measured at 72,635 bytes per inline site. The 26 bracket reads in
+    /// `testIntl.js`'s `canonicalizeLanguageTag` alone accounted for 1,671,288
+    /// of that function's 3,615,449 bytes — 51.0% — which is what tripped
+    /// wasmtime's `Code for function is too large` in the 17
+    /// `intl402/DateTimeFormat` cases that `include: [testIntl.js]`.
+    pub(crate) outline_indexed_element_read: bool,
+    /// When false, `emit_typed_array_or_object_index_write_from_locals` inlines
+    /// the `expr[index] = value` composite (TypedArray element store versus
+    /// ordinary `[[Set]]`) instead of calling the shared helper. Set false only
+    /// while compiling that helper itself. 174,558 bytes per inline site.
+    pub(crate) outline_indexed_element_write: bool,
     /// Controls whether the shared object-write helper emits receiver-side
     /// ordinary data writes as calls to their dedicated runtime helper. Other
     /// builders keep these writes inline so only the repeated copies inside the

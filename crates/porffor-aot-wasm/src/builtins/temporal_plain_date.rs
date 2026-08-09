@@ -24,11 +24,16 @@
 //! * `until`/`since` refuse a calendar mismatch —
 //!   [`FunctionBuilder::emit_temporal_require_same_calendar`].
 //!
-//! Not implemented, and deliberately: resolving a `gregory` property bag from
-//! `{ era, eraYear }` instead of `{ year }`. That is a `CalendarResolveFields`
-//! feature, not an identifier feature, and every test for it is under
-//! `intl402/Temporal`. See [`TemporalCalendarId::Gregory`] for the five
-//! currently-passing files that gap knowingly costs.
+//! Resolving a `gregory` property bag from `{ era, eraYear }` instead of
+//! `{ year }` is the *fourth* difference, and it lives here too, in the three
+//! emitters [`FunctionBuilder::emit_temporal_calendar_has_eras_i32`],
+//! [`FunctionBuilder::emit_temporal_read_era_fields`] and
+//! [`FunctionBuilder::emit_temporal_resolve_era_to_year`]. Between them they
+//! are the only place any era rule is decided; the five `PrepareCalendarFields`
+//! copies keep their own read order and share that one decision point. The
+//! three-step type chain [`TemporalEraSlots`] -> [`TemporalEraLocals`] ->
+//! [`TemporalResolvedYear`] is what makes "read a bag and forgot the era half"
+//! a compile error rather than a wrong `TypeError` at run time.
 //!
 //! # What the enum does *not* protect
 //!
@@ -68,40 +73,11 @@ pub(crate) enum TemporalCalendarId {
     /// Proleptic Gregorian. Identical arithmetic to [`Self::Iso8601`]; it adds
     /// the `ce`/`bce` era pair and is always annotated under `auto`.
     ///
-    /// # Known gap: `CalendarResolveFields` does not read `era`/`eraYear`
-    ///
-    /// The `era`/`eraYear` *accessors* are implemented (see
-    /// [`FunctionBuilder::emit_temporal_gregorian_era_field`]), but nothing on
-    /// the property-bag `from()` paths reads them back: the shared field
-    /// resolvers take a `year`/`year_present` pair and know nothing about eras.
-    /// So `{ era, eraYear }` is silently ignored as a year source, and the
-    /// spec's `era`-half of `CalendarResolveFields` — unknown era is a
-    /// `RangeError`, exactly one of the pair present is a `TypeError`, an
-    /// `eraYear` disagreeing with an explicit `year` is a `RangeError` — is
-    /// absent.
-    ///
-    /// Accepting `gregory` therefore knowingly turns five `intl402/Temporal`
-    /// files from vacuous passes (they threw `RangeError` only because the
-    /// identifier itself was rejected) into real failures:
-    ///
-    /// * `PlainDate/from/calendar-invalid-era-with-era-year.js`
-    /// * `PlainDateTime/from/calendar-invalid-era-with-era-year.js`
-    /// * `ZonedDateTime/from/calendar-invalid-era-with-era-year.js`
-    ///   — all three now reach "fields require year" and give `TypeError`
-    ///   where `RangeError` is asserted.
-    /// * `PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js`
-    ///   — `PlainMonthDay` deliberately neither range-checks nor stores a
-    ///   supplied `year` (see `emit_temporal_month_day_resolve_fields`), so all
-    ///   four `gregory` rows now succeed instead of throwing.
-    /// * `PlainMonthDay/from/fields-overspecified.js`
-    ///   — its `eraYear`/`year` disagreement case is simply a valid bag here.
-    ///
-    /// This is an accepted, recorded regression, not an oversight: the fix is
-    /// the `era` half of `CalendarResolveFields` plus a `PlainMonthDay` year
-    /// range check, which is its own lane. Do not "fix" it by making an
-    /// unsupported `era` throw — that would be a right answer for a wrong
-    /// reason, and would reject the conforming `{ era: "ce", eraYear: 2024 }`
-    /// bag along with the malformed ones.
+    /// Both halves of the era feature are implemented: the accessors
+    /// ([`FunctionBuilder::emit_temporal_gregorian_era_field`]) and the
+    /// property-bag direction ([`FunctionBuilder::emit_temporal_resolve_era_to_year`]),
+    /// which is what makes `{ era: "bce", eraYear: 1 }` a year source and an
+    /// unknown era a RangeError.
     Gregory,
 }
 
@@ -140,7 +116,133 @@ impl TemporalCalendarId {
             Self::Gregory => &["gregory", "gregorian"],
         }
     }
+
+    /// Every [`Era`] this calendar recognises, in no observable order.
+    ///
+    /// Exhaustive with no catch-all, and that is the whole point: era *codes*
+    /// are not globally unique, so "is this era valid" is only answerable per
+    /// calendar. Test262's `harness/temporalHelpers.js` `CalendarEras` table
+    /// shows `japanese` reusing `bce`/`ce` alongside `meiji`..`reiwa`, and
+    /// `roc`'s `broc` counting backwards from a different epoch entirely. A
+    /// third calendar therefore cannot compile until it states its own set,
+    /// and cannot silently inherit `gregory`'s answers.
+    ///
+    /// An empty set is load-bearing rather than a degenerate case: it is
+    /// simultaneously what makes `era`/`eraYear` report `undefined` and what
+    /// makes the two property-bag keys go *unread*. Those are the same fact
+    /// derived from one predicate, which matters because
+    /// `TemporalHelpers.propertyBagObserver` is a Proxy that logs every `get`
+    /// — an unconditional `fields.era` read is observable and would break all
+    /// 63 `built-ins/Temporal/**/order-of-operations.js` files.
+    pub(crate) const fn eras(self) -> &'static [Era] {
+        match self {
+            Self::Iso8601 => &[],
+            Self::Gregory => Era::GREGORY,
+        }
+    }
+
+    /// What a `Temporal.PlainMonthDay` property bag does with a supplied
+    /// `year`. See [`MonthDayYearUse`].
+    pub(crate) const fn month_day_year_use(self) -> MonthDayYearUse {
+        match self {
+            Self::Iso8601 => MonthDayYearUse::OverflowOnly,
+            Self::Gregory => MonthDayYearUse::RangeChecked,
+        }
+    }
 }
+
+/// Constant-time `&str` equality, because `str::eq` is not `const fn` and the
+/// era tables below are checked at compile time.
+const fn const_str_eq(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// [`Era::calendar`] and [`TemporalCalendarId::eras`] must agree in both
+/// directions, so an era filed under the wrong calendar is a build failure
+/// rather than a wrong `RangeError` for a bag that named the other calendar.
+const _: () = {
+    let mut calendar_index = 0;
+    while calendar_index < TemporalCalendarId::ALL.len() {
+        let calendar = TemporalCalendarId::ALL[calendar_index];
+        let eras = calendar.eras();
+        let mut era_index = 0;
+        while era_index < eras.len() {
+            assert!(
+                eras[era_index].calendar() as u8 == calendar as u8,
+                "an era listed in TemporalCalendarId::eras must report that calendar"
+            );
+            era_index += 1;
+        }
+        calendar_index += 1;
+    }
+
+    let mut index = 0;
+    while index < Era::ALL.len() {
+        let era = Era::ALL[index];
+        let eras = era.calendar().eras();
+        let mut found = false;
+        let mut era_index = 0;
+        while era_index < eras.len() {
+            if eras[era_index].same(era) {
+                found = true;
+            }
+            era_index += 1;
+        }
+        assert!(
+            found,
+            "every Era must appear in its own calendar's TemporalCalendarId::eras"
+        );
+        index += 1;
+    }
+};
+
+/// No spelling may repeat inside one calendar: the resolver takes the first
+/// match, so two eras sharing a spelling would make one of them unreachable
+/// and the choice between them positional.
+const _: () = {
+    let mut calendar_index = 0;
+    while calendar_index < TemporalCalendarId::ALL.len() {
+        let eras = TemporalCalendarId::ALL[calendar_index].eras();
+        let mut left = 0;
+        while left < eras.len() {
+            let left_spellings = eras[left].spellings();
+            let mut left_spelling = 0;
+            while left_spelling < left_spellings.len() {
+                let mut right = 0;
+                while right < eras.len() {
+                    let right_spellings = eras[right].spellings();
+                    let mut right_spelling = 0;
+                    while right_spelling < right_spellings.len() {
+                        assert!(
+                            (left == right && left_spelling == right_spelling)
+                                || !const_str_eq(
+                                    left_spellings[left_spelling],
+                                    right_spellings[right_spelling]
+                                ),
+                            "an era spelling is repeated inside one calendar"
+                        );
+                        right_spelling += 1;
+                    }
+                    right += 1;
+                }
+                left_spelling += 1;
+            }
+            left += 1;
+        }
+        calendar_index += 1;
+    }
+};
 
 /// Which half of the `era`/`eraYear` accessor pair an emitter is producing.
 ///
@@ -152,23 +254,87 @@ pub(crate) enum TemporalEraField {
     EraYear,
 }
 
+/// Which way an era's year counts relative to the ISO year.
+///
+/// Both variants are *involutions*, so one function serves both directions of
+/// the conversion: `isoYear -> eraYear` for the accessor and
+/// `eraYear -> isoYear` for the resolver are literally the same code and cannot
+/// drift apart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EraDirection {
+    /// The era year is the ISO year: `ce` 1 is ISO 1.
+    Forward,
+    /// The era year counts backwards from ISO year 1: proleptic year 0 is
+    /// `bce` 1, ISO -1 is `bce` 2.
+    Backward,
+}
+
+impl EraDirection {
+    pub(crate) const ALL: [Self; 2] = [Self::Forward, Self::Backward];
+
+    /// The involution, as a value. `Forward` is the identity; `Backward` is
+    /// `y |-> 1 - y`.
+    ///
+    /// Non-positive era years are *remapped*, never rejected:
+    /// `intl402/Temporal/PlainDate/from/era-boundary-gregory.js` pins `ce` 0 to
+    /// ISO 0 (reported back as `bce` 1) and `ce` -1 to ISO -1 (`bce` 2).
+    pub(crate) const fn convert(self, year: i64) -> i64 {
+        match self {
+            Self::Forward => year,
+            Self::Backward => 1 - year,
+        }
+    }
+
+    /// [`Self::convert`] as Wasm: leaves `convert(year_local)` on the stack.
+    ///
+    /// The two coefficients are *read out of* [`Self::convert`] rather than
+    /// written again, so the emitted arithmetic cannot disagree with the model
+    /// the `const` assertion below checks. `convert` is affine in `year` for
+    /// every direction, which that assertion also pins.
+    fn emit_convert(self, year_local: u32, function: &mut Function) {
+        let constant = self.convert(0);
+        let slope = self.convert(1) - self.convert(0);
+        function.instruction(&Instruction::I64Const(constant));
+        function.instruction(&Instruction::LocalGet(year_local));
+        function.instruction(&Instruction::I64Const(slope));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+    }
+}
+
+/// The two properties [`EraDirection::emit_convert`] relies on: `convert` is
+/// affine (so its two coefficients determine it exactly), and it is an
+/// involution (so one function serves both directions).
+const _: () = {
+    let mut index = 0;
+    while index < EraDirection::ALL.len() {
+        let direction = EraDirection::ALL[index];
+        let constant = direction.convert(0);
+        let slope = direction.convert(1) - direction.convert(0);
+        let mut year = -4_i64;
+        while year <= 4 {
+            assert!(
+                direction.convert(year) == constant + year * slope,
+                "EraDirection::convert must be affine for emit_convert to reproduce it"
+            );
+            assert!(
+                direction.convert(direction.convert(year)) == year,
+                "EraDirection::convert must be an involution"
+            );
+            year += 1;
+        }
+        index += 1;
+    }
+};
+
 /// The two eras of the proleptic Gregorian calendar.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Era {
+pub(crate) enum GregoryEra {
     Ce,
     Bce,
 }
 
-impl Era {
-    /// The identifier `era` reports. Lowercase, per the CLDR era codes the
-    /// proposal adopted (`"ce"`/`"bce"`, not `"AD"`/`"BC"`).
-    pub(crate) const fn code(self) -> &'static str {
-        match self {
-            Self::Ce => "ce",
-            Self::Bce => "bce",
-        }
-    }
-
+impl GregoryEra {
     /// Both eras, ordered by the sign of the ISO year that selects them:
     /// positive first.
     ///
@@ -178,17 +344,188 @@ impl Era {
     /// the branch where `eraYear` counts backwards;
     /// [`FunctionBuilder::emit_temporal_gregorian_era_field`] instead
     /// destructures this one array for both and keys the arithmetic on the
-    /// `Era` value rather than on branch position, so the pair cannot disagree
+    /// era value rather than on branch position, so the pair cannot disagree
     /// about which side of year 0 it is on. The boundary is: ISO year 1 is
     /// `ce` 1, ISO year 0 is `bce` 1, ISO year -1 is `bce` 2.
-    ///
-    /// It is also the set the string pool derives the era codes from, so an
-    /// era added here cannot be missing from the pool.
     ///
     /// `Intl.DateTimeFormat` encodes the same boundary independently (see the
     /// `display_year` computation in `builtins/intl_datetimeformat.rs`); the
     /// integration note records that duplication.
     pub(crate) const ALL: [Self; 2] = [Self::Ce, Self::Bce];
+
+    const fn direction(self) -> EraDirection {
+        match self {
+            Self::Ce => EraDirection::Forward,
+            Self::Bce => EraDirection::Backward,
+        }
+    }
+
+    /// Every spelling `CalendarResolveFields` accepts for this era, canonical
+    /// first. `ad`/`bc` are the CLDR aliases of `ce`/`bce`, and
+    /// `intl402/Temporal/PlainDate/from/canonicalize-era-codes.js` and its two
+    /// siblings pin both.
+    const fn spellings(self) -> &'static [&'static str] {
+        match self {
+            Self::Ce => &["ce", "ad"],
+            Self::Bce => &["bce", "bc"],
+        }
+    }
+
+    const fn same(self, other: Self) -> bool {
+        self as u8 == other as u8
+    }
+}
+
+/// One era of one calendar.
+///
+/// The calendar is part of the value because era codes are *not* globally
+/// unique — `japanese` also has `ce`/`bce`, and `roc`'s `broc` counts backwards
+/// on a different epoch — so an era only means something once you know which
+/// calendar asked. Wrapping the flat per-calendar enum is what keeps a future
+/// calendar from reusing `gregory`'s answers by accident.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Era {
+    Gregory(GregoryEra),
+}
+
+impl Era {
+    /// The `gregory` era set, as [`TemporalCalendarId::eras`] hands it out.
+    pub(crate) const GREGORY: &'static [Self] =
+        &[Self::Gregory(GregoryEra::Ce), Self::Gregory(GregoryEra::Bce)];
+
+    /// Every era of every calendar. `data.rs` interns this table's
+    /// [`Self::spellings`], so an alias added there cannot be missing from the
+    /// string pool.
+    pub(crate) const ALL: &'static [Self] = Self::GREGORY;
+
+    /// The calendar this era belongs to. Pinned against
+    /// [`TemporalCalendarId::eras`] by a `const` assertion above.
+    pub(crate) const fn calendar(self) -> TemporalCalendarId {
+        match self {
+            Self::Gregory(_) => TemporalCalendarId::Gregory,
+        }
+    }
+
+    /// Every accepted spelling, canonical first.
+    pub(crate) const fn spellings(self) -> &'static [&'static str] {
+        match self {
+            Self::Gregory(era) => era.spellings(),
+        }
+    }
+
+    /// The identifier the `era` accessor reports: the canonical spelling, by
+    /// definition rather than by a second table.
+    pub(crate) const fn code(self) -> &'static str {
+        self.spellings()[0]
+    }
+
+    pub(crate) const fn direction(self) -> EraDirection {
+        match self {
+            Self::Gregory(era) => era.direction(),
+        }
+    }
+
+    /// `PartialEq` is not `const fn`, and the tables above are checked at
+    /// compile time. Adding a second calendar makes this match non-exhaustive,
+    /// which is the intended prompt to decide what cross-calendar equality
+    /// means before anything can compile.
+    const fn same(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Gregory(left), Self::Gregory(right)) => left.same(right),
+        }
+    }
+}
+
+/// What a `Temporal.PlainMonthDay` property bag does with a supplied `year`.
+///
+/// A real fork, not a formality.
+/// `built-ins/Temporal/PlainMonthDay/{from,prototype/with}/iso-year-used-only-for-overflow.js`
+/// pin that `year: -999999` *succeeds* for `iso8601` — the year only decides
+/// how 29 February constrains, and is never stored — while
+/// `intl402/Temporal/PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js`
+/// pins a RangeError for `gregory`. The predicate is "non-ISO", not "has eras":
+/// `chinese` and `dangi` have no eras and still range-check, so a calendar
+/// added later must re-decide this rather than inherit the exemption.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MonthDayYearUse {
+    /// The year picks the overflow behaviour and is then discarded unchecked.
+    OverflowOnly,
+    /// The year must be inside `ISOYearMonthWithinLimits` before any month
+    /// information is computed.
+    RangeChecked,
+}
+
+/// Four reserved-but-unwritten locals for an `era`/`eraYear` pair.
+///
+/// The first link of a three-step chain that exists so a bag path cannot skip
+/// era resolution and silently answer "fields require year":
+///
+/// 1. [`FunctionBuilder::reserve_temporal_era_slots`] mints this,
+/// 2. [`FunctionBuilder::emit_temporal_read_era_fields`] consumes it *by value*
+///    and returns [`TemporalEraLocals`],
+/// 3. [`FunctionBuilder::emit_temporal_resolve_era_to_year`] consumes that by
+///    value and returns [`TemporalResolvedYear`],
+/// 4. every `*_resolve_fields` emitter takes a [`TemporalResolvedYear`] instead
+///    of a bare `(year, year-present)` pair.
+///
+/// Nothing else accepts either type and neither is `Copy`, so a step skipped in
+/// the middle is a type error at the *next* step, not a wrong answer at run
+/// time. The split into two types is deliberate: reserving and reading are
+/// separate because the locals must be reserved before the caller's scratch
+/// locals (`reserve_temp_local` is a strict LIFO stack) while the reads must be
+/// emitted in the middle of the alphabetical sweep.
+#[must_use]
+pub(crate) struct TemporalEraSlots {
+    era_payload_local: u32,
+    era_present_local: u32,
+    era_year_local: u32,
+    era_year_present_local: u32,
+}
+
+/// An `era`/`eraYear` pair that has been read from a property bag.
+///
+/// See [`TemporalEraSlots`] for the chain this sits in. Consumed by value by
+/// [`FunctionBuilder::emit_temporal_resolve_era_to_year`], which also releases
+/// the four locals, so reading without resolving cannot compile and resolving
+/// twice cannot either.
+#[must_use]
+pub(crate) struct TemporalEraLocals {
+    era_payload_local: u32,
+    era_present_local: u32,
+    era_year_local: u32,
+    era_year_present_local: u32,
+}
+
+impl TemporalEraLocals {
+    /// The two `present` flags, for the `with` paths whose "requires at least
+    /// one field" TypeError has to count `era`/`eraYear` as fields before the
+    /// resolver consumes the bag.
+    pub(crate) const fn present_locals(&self) -> [u32; 2] {
+        [self.era_present_local, self.era_year_present_local]
+    }
+}
+
+/// A `(year, year-present)` local pair that has been through
+/// [`FunctionBuilder::emit_temporal_resolve_era_to_year`].
+///
+/// The fields are private and there is deliberately no second constructor, so
+/// the resolver is the only thing in the crate that can mint one. Every
+/// `*_resolve_fields` emitter takes this instead of two bare `u32`s, which is
+/// what makes "read a bag and forgot the era half" fail to typecheck.
+#[must_use]
+pub(crate) struct TemporalResolvedYear {
+    year_local: u32,
+    year_present_local: u32,
+}
+
+impl TemporalResolvedYear {
+    pub(crate) const fn year_local(&self) -> u32 {
+        self.year_local
+    }
+
+    pub(crate) const fn year_present_local(&self) -> u32 {
+        self.year_present_local
+    }
 }
 
 /// The five branded Temporal types the specification gives a `[[Calendar]]`
@@ -602,7 +939,7 @@ impl<'a> FunctionBuilder<'a> {
         field: TemporalEraField,
         function: &mut Function,
     ) {
-        let [positive_year_era, non_positive_year_era] = Era::ALL;
+        let [positive_year_era, non_positive_year_era] = GregoryEra::ALL;
         function.instruction(&Instruction::LocalGet(iso_year_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GtS);
@@ -635,34 +972,376 @@ impl<'a> FunctionBuilder<'a> {
     /// One arm of [`Self::emit_temporal_gregorian_era_field`]: leaves either the
     /// era's interned code or its era-year on the stack as an `i64`.
     ///
-    /// The era-year arithmetic is keyed on the [`Era`], not on which branch
+    /// The era-year arithmetic is keyed on the era value, not on which branch
     /// this is, which is what makes swapping the two arms swap both answers
-    /// together instead of producing `ce` counting backwards.
+    /// together instead of producing `ce` counting backwards. It goes through
+    /// [`EraDirection::emit_convert`] — the same emitter
+    /// [`Self::emit_temporal_resolve_era_to_year`] uses for the opposite
+    /// direction, which is exactly why the accessor and the resolver cannot
+    /// disagree about where the year-0 boundary falls.
     fn emit_temporal_gregorian_era_arm(
         &self,
         iso_year_local: u32,
-        era: Era,
+        era: GregoryEra,
         field: TemporalEraField,
         function: &mut Function,
     ) {
+        let era = Era::Gregory(era);
         match field {
             TemporalEraField::Era => {
                 function.instruction(&Instruction::I64Const(self.strings.payload(era.code())));
             }
-            TemporalEraField::EraYear => match era {
-                // `ce` 1 is ISO year 1, and it counts up with it.
-                Era::Ce => {
-                    function.instruction(&Instruction::LocalGet(iso_year_local));
-                }
-                // Proleptic year 0 is 1 bce, so the era year counts backwards
-                // from 1: `1 - isoYear`.
-                Era::Bce => {
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalGet(iso_year_local));
-                    function.instruction(&Instruction::I64Sub);
-                }
-            },
+            TemporalEraField::EraYear => {
+                era.direction().emit_convert(iso_year_local, function);
+            }
         }
+    }
+
+    /// Leaves an `i32` on the stack: 1 when the calendar payload names a
+    /// calendar with a non-empty [`TemporalCalendarId::eras`].
+    ///
+    /// A plain payload compare is enough with no case folding: every
+    /// `[[Calendar]]` slot and every property-bag `calendar` value has already
+    /// been through [`Self::emit_temporal_canonicalize_calendar`] exactly once,
+    /// so only the canonical spelling can reach here.
+    pub(crate) fn emit_temporal_calendar_has_eras_i32(
+        &mut self,
+        calendar_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let expected_payload_local = self.reserve_temp_local();
+        let matched_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(matched_local));
+        for calendar in TemporalCalendarId::ALL {
+            if calendar.eras().is_empty() {
+                continue;
+            }
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(calendar.canonical()),
+            ));
+            function.instruction(&Instruction::LocalSet(expected_payload_local));
+            self.emit_string_payload_equality_i32(
+                calendar_payload_local,
+                expected_payload_local,
+                function,
+            );
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(matched_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        self.release_temp_local(matched_local);
+        self.release_temp_local(expected_payload_local);
+    }
+
+    /// Step 1 of the era chain: four locals, nothing emitted.
+    ///
+    /// Separate from the read because `reserve_temp_local` is a strict LIFO
+    /// stack: a `PrepareCalendarFields` sweep reserves its own scratch locals
+    /// first and releases them at the end, so an era bag reserved *inside* the
+    /// sweep could not outlive it. Callers therefore reserve here, before their
+    /// scratch, and read in the middle of the sweep.
+    pub(crate) fn reserve_temporal_era_slots(&mut self) -> TemporalEraSlots {
+        TemporalEraSlots {
+            era_payload_local: self.reserve_temp_local(),
+            era_present_local: self.reserve_temp_local(),
+            era_year_local: self.reserve_temp_local(),
+            era_year_present_local: self.reserve_temp_local(),
+        }
+    }
+
+    /// Step 2: `PrepareCalendarFields`' `era` and `eraYear` rows, in that
+    /// (alphabetical) order, and only for a calendar that has eras.
+    ///
+    /// The gate is load-bearing rather than an optimisation. The reads
+    /// themselves are observable — `TemporalHelpers.propertyBagObserver` is a
+    /// Proxy that logs every `get` — so an unconditional `fields.era` breaks
+    /// all 63 `built-ins/Temporal/**/order-of-operations.js` files, and
+    /// `built-ins/Temporal/PlainDate/prototype/with/time-units-ignored.js`
+    /// hands `{ day: 30, era: 'BC' }` to an `iso8601` receiver and requires it
+    /// ignored.
+    ///
+    /// `era` is `ToString`; `eraYear` is `ToIntegerWithTruncation`, which must
+    /// accept `0` and negatives (they are remapped, not rejected) and must
+    /// RangeError on the infinities after fetching the primitive — the call log
+    /// `["get eraYear.valueOf", "call eraYear.valueOf"]` that the 13
+    /// `infinity-throws-rangeerror.js` targets assert.
+    pub(crate) fn emit_temporal_read_era_fields(
+        &mut self,
+        slots: TemporalEraSlots,
+        argument_payload_local: u32,
+        argument_tag_local: u32,
+        calendar_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<TemporalEraLocals, EmitError> {
+        let TemporalEraSlots {
+            era_payload_local,
+            era_present_local,
+            era_year_local,
+            era_year_present_local,
+        } = slots;
+        let property_key_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+        let present_local = self.reserve_temp_local();
+
+        for local in [
+            era_payload_local,
+            era_present_local,
+            era_year_local,
+            era_year_present_local,
+        ] {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(local));
+        }
+
+        self.emit_temporal_calendar_has_eras_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("era")));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_read(
+            argument_payload_local,
+            argument_tag_local,
+            argument_payload_local,
+            argument_tag_local,
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(value_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(era_present_local));
+        self.emit_temporal_property_bag_string(
+            value_payload_local,
+            value_tag_local,
+            "Temporal era must be a string",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(value_payload_local));
+        function.instruction(&Instruction::LocalSet(era_payload_local));
+
+        self.emit_temporal_property_bag_integer(
+            argument_payload_local,
+            argument_tag_local,
+            "eraYear",
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            present_local,
+            era_year_local,
+            0,
+            "Temporal eraYear must be finite",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::LocalSet(era_year_present_local));
+
+        function.instruction(&Instruction::End);
+
+        for local in [
+            present_local,
+            value_tag_local,
+            value_payload_local,
+            property_key_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(TemporalEraLocals {
+            era_payload_local,
+            era_present_local,
+            era_year_local,
+            era_year_present_local,
+        })
+    }
+
+    /// Step 3: the `era` half of `CalendarResolveFields`, and the only place in
+    /// the backend where any era rule is decided.
+    ///
+    /// In order:
+    ///
+    /// * a calendar with no eras does nothing at all — the two locals are still
+    ///   zero because the read above was skipped;
+    /// * exactly one of the pair present is a **TypeError**
+    ///   (`.../from/one-of-era-erayear-undefined.js` and the `with`
+    ///   `mutually-exclusive-fields-gregory.js` files), and it must beat every
+    ///   RangeError below, which is what
+    ///   `PlainDate/prototype/with/calendarresolvefields-error-ordering-gregory.js`
+    ///   asserts;
+    /// * an era matching no spelling of any era *of this calendar* is a
+    ///   **RangeError**, whether or not `year` is also present —
+    ///   `PlainDate/from/calendar-invalid-era.js` supplies `year: 2025` beside
+    ///   `era: "xyz"` and still wants one, while the three
+    ///   `calendar-invalid-era-with-era-year.js` files omit `year` entirely;
+    /// * the ISO year is `direction().convert(eraYear)`, and disagreeing with
+    ///   an explicit `year` is a **RangeError**
+    ///   (`PlainMonthDay/from/fields-overspecified.js`).
+    ///
+    /// Callers must place this *after* their overflow-option read:
+    /// `built-ins/Temporal/PlainDate/from/options-read-before-algorithmic-validation.js`
+    /// pins that every option is read and cast before any algorithmic
+    /// validation throws.
+    pub(crate) fn emit_temporal_resolve_era_to_year(
+        &mut self,
+        era: TemporalEraLocals,
+        calendar_payload_local: u32,
+        year_local: u32,
+        year_present_local: u32,
+        function: &mut Function,
+    ) -> Result<TemporalResolvedYear, EmitError> {
+        let TemporalEraLocals {
+            era_payload_local,
+            era_present_local,
+            era_year_local,
+            era_year_present_local,
+        } = era;
+        let expected_payload_local = self.reserve_temp_local();
+        let iso_year_local = self.reserve_temp_local();
+        let matched_local = self.reserve_temp_local();
+
+        self.emit_temporal_calendar_has_eras_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+
+        function.instruction(&Instruction::LocalGet(era_present_local));
+        function.instruction(&Instruction::LocalGet(era_year_present_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Temporal era and eraYear must be provided together",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(era_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(matched_local));
+        for calendar in TemporalCalendarId::ALL {
+            for &candidate in calendar.eras() {
+                // The calendar gate is not redundant with `has_eras`: era codes
+                // are only unique *within* a calendar, so `bce` may not be
+                // allowed to select `gregory`'s arithmetic for some future
+                // calendar that spells the same code differently.
+                function.instruction(&Instruction::I64Const(
+                    self.strings.payload(calendar.canonical()),
+                ));
+                function.instruction(&Instruction::LocalSet(expected_payload_local));
+                self.emit_string_payload_equality_i32(
+                    calendar_payload_local,
+                    expected_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                for &spelling in candidate.spellings() {
+                    function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                    function.instruction(&Instruction::LocalSet(expected_payload_local));
+                    self.emit_string_payload_equality_i32(
+                        era_payload_local,
+                        expected_payload_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(matched_local));
+                    candidate.direction().emit_convert(era_year_local, function);
+                    function.instruction(&Instruction::LocalSet(iso_year_local));
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Invalid Temporal era for this calendar",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(year_present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(year_local));
+        function.instruction(&Instruction::LocalGet(iso_year_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Temporal era and year must agree",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(iso_year_local));
+        function.instruction(&Instruction::LocalSet(year_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(year_present_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::End);
+
+        for local in [matched_local, iso_year_local, expected_payload_local] {
+            self.release_temp_local(local);
+        }
+        for local in [
+            era_year_present_local,
+            era_year_local,
+            era_present_local,
+            era_payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(TemporalResolvedYear {
+            year_local,
+            year_present_local,
+        })
+    }
+
+    /// `CalendarMergeFields` for the year slot on the three `with` paths: when
+    /// the bag resolved no year of its own, the receiver's ISO year stands in,
+    /// and the merged bag always has one.
+    ///
+    /// This runs *after* [`Self::emit_temporal_resolve_era_to_year`] on
+    /// purpose. `{ era, eraYear, year }` is one mutually-exclusive group in
+    /// `NonISOFieldKeysToIgnore`, so a bag supplying the era pair must exclude
+    /// the receiver's year rather than be checked against it — the "era and
+    /// eraYear together exclude year" row of the three
+    /// `with/mutually-exclusive-fields-gregory.js` files.
+    pub(crate) fn emit_temporal_resolved_year_default_to(
+        &mut self,
+        resolved: &TemporalResolvedYear,
+        receiver_year_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(resolved.year_present_local()));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(receiver_year_local));
+        function.instruction(&Instruction::LocalSet(resolved.year_local()));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(resolved.year_present_local()));
     }
 
     /// `ToTemporalCalendarIdentifier` — the property-bag / `withCalendar` form,

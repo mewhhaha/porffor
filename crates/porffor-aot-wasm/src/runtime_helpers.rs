@@ -1,12 +1,12 @@
 //! The ordered registry of shared runtime-helper functions.
 //!
-//! Before this module the same 33-element list existed four times: once in the
+//! Before this module the same list existed four times: once in the
 //! `FunctionSection` (emission of the type index), once in the `CodeSection`
 //! (emission of the body), once as 27 hand-written `base + N` accessors on
 //! [`FunctionBuilder`](crate::emit::FunctionBuilder), and once as a literal
 //! `27` in `debug_dump`. The literal had already drifted — the counted truth is
-//! 32 unconditional helpers plus one conditional one — because nothing forced
-//! the four copies to agree.
+//! now 34 unconditional helpers plus one conditional one — because nothing
+//! forced the four copies to agree.
 //!
 //! Now the enum *is* the order. `RuntimeHelperId as u32` is the offset from the
 //! first helper's Wasm function index, [`RuntimeHelperId::ALL`] is asserted at
@@ -124,16 +124,26 @@ pub(crate) enum RuntimeHelperId {
     BigIntArithmetic = 29,
     TemporalCalendarIsoDateProbe = 30,
     TemporalCalendarIdentifier = 31,
+    /// The whole `expr[index]` *read* composite: Arguments / Array (with the
+    /// prototype walk) / TypedArray element load / ordinary object key read,
+    /// including the number→string key materialization for the object arm.
+    /// Measured at 72,635 bytes per inline site, which is what pushed the
+    /// `testIntl.js` `canonicalizeLanguageTag` body to 3,615,449 bytes and past
+    /// wasmtime's per-function code-size limit.
+    IndexedElementRead = 32,
+    /// The whole `expr[index] = value` *write* composite: TypedArray element
+    /// store versus ordinary `[[Set]]`. 174,558 bytes per inline site.
+    IndexedElementWrite = 33,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check,
     /// not a comment.
-    JsonStringifyValue = 32,
+    JsonStringifyValue = 34,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 33] = [
+    pub(crate) const ALL: [Self; 35] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -166,6 +176,8 @@ impl RuntimeHelperId {
         Self::BigIntArithmetic,
         Self::TemporalCalendarIsoDateProbe,
         Self::TemporalCalendarIdentifier,
+        Self::IndexedElementRead,
+        Self::IndexedElementWrite,
         Self::JsonStringifyValue,
     ];
 
@@ -218,6 +230,12 @@ impl RuntimeHelperId {
             | Self::BigIntArithmetic
             | Self::TemporalCalendarIsoDateProbe
             | Self::TemporalCalendarIdentifier
+            // Read: 0=target payload, 1=target tag, 2=index. Write:
+            // 0=target payload, 1=target tag, 2=index, 3=key payload,
+            // 4=value payload, 5=value tag, 6=caller strictness. Both fit the
+            // seven-i64/four-i64 shape, so neither needs a new Wasm type.
+            | Self::IndexedElementRead
+            | Self::IndexedElementWrite
             | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
         }
     }
@@ -259,7 +277,9 @@ impl RuntimeHelperId {
             | Self::DecimalToBinary64
             | Self::BigIntArithmetic
             | Self::TemporalCalendarIsoDateProbe
-            | Self::TemporalCalendarIdentifier => true,
+            | Self::TemporalCalendarIdentifier
+            | Self::IndexedElementRead
+            | Self::IndexedElementWrite => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
@@ -309,6 +329,8 @@ impl RuntimeHelperId {
             Self::BigIntArithmetic => "bigint_arithmetic",
             Self::TemporalCalendarIsoDateProbe => "temporal_calendar_iso_date_probe",
             Self::TemporalCalendarIdentifier => "temporal_calendar_identifier",
+            Self::IndexedElementRead => "indexed_element_read",
+            Self::IndexedElementWrite => "indexed_element_write",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -396,7 +418,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 32 unconditional helpers plus JSON.stringify's value helper. The
+        // 34 unconditional helpers plus JSON.stringify's value helper. The
         // `debug_dump` line used to hard-code 27 and had drifted by five.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -410,8 +432,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 32);
-        assert_eq!(with_json, 33);
+        assert_eq!(without_json, 34);
+        assert_eq!(with_json, 35);
     }
 
     /// `NONE` is the input `is_conditional` is defined against, so "no fact
