@@ -436,6 +436,68 @@ mod tests {
         assert_eq!(with_json, 35);
     }
 
+    /// Only `FunctionBuilder::begin_helper_body` may build a helper body.
+    ///
+    /// A `FunctionBuilder` body is a `Function` with one `i64` local per
+    /// `local_count()`. Exactly three places in the crate build one:
+    /// `FunctionBuilder::compile` (user functions), `compile_builtin`
+    /// (standard/host builtin bodies), and `begin_helper_body` — and only the
+    /// last is a helper. `begin_helper_body` is what derives, from the
+    /// [`RuntimeHelperId`] it is handed, the clearing of that helper's own
+    /// inline seam.
+    ///
+    /// Nothing in the type system can forbid a fourth site: `Function` comes
+    /// from `wasm_encoder` and anyone may construct one. But the failure mode
+    /// of a new `compile_x_helper` that copies the constructor instead of
+    /// calling `begin_helper_body` is invisible to every cheap check — the
+    /// helper's body reaches its own seam and emits `call $itself`, which
+    /// type-checks in Rust, encodes to valid Wasm, links, and validates,
+    /// diverging only when a case that reaches it is executed under the full
+    /// suite. So the ban is enforced here instead, at rung 1 rather than at
+    /// rung 5.
+    ///
+    /// The needle is assembled at run time rather than written out, so that
+    /// this file does not match itself.
+    #[test]
+    fn only_three_places_build_a_function_builder_body() {
+        let needle = format!(
+            "Function::new_with_locals_types(std::iter::repeat_n({},{}))",
+            "ValType::I64", "self.local_count()"
+        );
+        let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut sites: Vec<String> = Vec::new();
+        let mut pending = vec![source_root.clone()];
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(&directory).expect("crate `src` directory is readable") {
+                let path = entry.expect("readable directory entry").path();
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("source file is readable");
+                let dense: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+                let relative = path
+                    .strip_prefix(&source_root)
+                    .expect("scanned path is under `src`")
+                    .display()
+                    .to_string();
+                sites.extend(std::iter::repeat_n(relative, dense.matches(&needle).count()));
+            }
+        }
+        sites.sort();
+        assert_eq!(
+            sites,
+            vec!["emit.rs".to_string(); 3],
+            "a `FunctionBuilder` body was built outside `compile`, `compile_builtin` and \
+             `begin_helper_body`. If it is a helper body, call `begin_helper_body` so the \
+             helper's own inline seam is cleared from its id; if it is not, this assertion \
+             needs updating together with an explanation of what the fourth body shape is."
+        );
+    }
+
     /// `NONE` is the input `is_conditional` is defined against, so "no fact
     /// holds in it" is what makes a conditional helper detectable at all.
     #[test]

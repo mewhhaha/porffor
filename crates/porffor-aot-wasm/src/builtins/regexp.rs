@@ -33,8 +33,7 @@ impl<'a> FunctionBuilder<'a> {
     /// low-surrogate state). Results are found, match start, match end, and
     /// status (1 for a corrupt program, 2 for matcher resource exhaustion).
     pub(crate) fn compile_regexp_matcher_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::RegExpMatcher);
         let input_offset = self.reserve_temp_local();
         let program_ptr = self.reserve_temp_local();
         let named_group_table_ptr = self.reserve_temp_local();

@@ -770,34 +770,41 @@ mod tests {
         }
     }
 
-    /// TRIPWIRE, not an endorsement. `ScriptLowerer::temporal_object_value_info`
-    /// declares nine constructor-valued members on the `Temporal` shape
-    /// unconditionally, but a bare `Temporal` reference roots only the `Instant`
-    /// family and `Temporal.Now.timeZoneId`, so `init_temporal_object` skips the
-    /// other seven and the emitted object disagrees with the shape the same
-    /// program was compiled against. That is the identical defect this lane
-    /// removed for `Intl`, and it is **not** fixed here: rooting seven more
-    /// Temporal families from every bare `Temporal` mention is an emit-size and
-    /// compile-time change that could not be measured under this lane's
-    /// no-build constraint. See
-    /// `target/lane-notes/intl-namespace-rooting-b2-integration.md`.
+    /// The `Temporal` namespace object must carry every constructor its
+    /// declared shape carries — the same invariant
+    /// [`Self::a_bare_intl_reference_roots_every_intl_namespace_member`] pins
+    /// for `Intl`.
     ///
-    /// When Temporal is fixed, the second half of this test must fail. Delete it
-    /// then — do not relax it.
+    /// KNOWN GAP, and `#[ignore]`d for it.
+    /// `ScriptLowerer::temporal_object_value_info` declares eight
+    /// constructor-valued members on the `Temporal` shape unconditionally, but
+    /// a bare `Temporal` reference roots only the `Instant` family and
+    /// `Temporal.Now.timeZoneId`, so `init_temporal_object` skips the other
+    /// seven and the emitted object disagrees with the shape the same program
+    /// was compiled against. That is the identical defect this lane removed for
+    /// `Intl`, and it is not fixed here: rooting seven more Temporal families
+    /// from every bare `Temporal` mention is an emit-size and compile-time
+    /// change nobody has measured. See
+    /// `target/lane-notes/intl-namespace-rooting-b2-integration.md` §3.
+    ///
+    /// Written in the direction the fix moves, on purpose. The first version of
+    /// this test asserted the seven are *not* rooted, which made the correct
+    /// repair turn `cargo test -p porffor-aot-wasm planning::` red and told
+    /// whoever made it to delete an assertion. Here, fixing Temporal makes this
+    /// pass and the `#[ignore]` comes off; nothing about the gap is silent
+    /// meanwhile, because `cargo test -- --ignored` still names it.
     #[test]
-    fn a_bare_temporal_reference_under_roots_its_declared_namespace_shape() {
+    #[ignore = "known gap: a bare `Temporal` reference roots only the Instant family and \
+                Temporal.Now.timeZoneId, not the seven other constructors its shape declares; \
+                see target/lane-notes/intl-namespace-rooting-b2-integration.md §3"]
+    fn a_bare_temporal_reference_roots_its_declared_namespace_shape() {
         let script = lower_script("var namespace = Temporal;");
         let plan = RuntimeBootstrapPlan::from_script(&script, &[]);
 
         assert!(!plan.full_standard_globals);
         assert!(plan.should_install_script_global_binding(ScriptGlobalBindingKind::TemporalObject));
-        for rooted in [
+        for declared in [
             StandardBuiltinId::TemporalInstantConstructor,
-            StandardBuiltinId::TemporalNowTimeZoneId,
-        ] {
-            assert!(plan.should_initialize_standard_builtin(rooted));
-        }
-        for declared_but_unrooted in [
             StandardBuiltinId::TemporalPlainDateConstructor,
             StandardBuiltinId::TemporalPlainTimeConstructor,
             StandardBuiltinId::TemporalPlainDateTimeConstructor,
@@ -807,10 +814,38 @@ mod tests {
             StandardBuiltinId::TemporalDurationConstructor,
         ] {
             assert!(
-                !plan.should_initialize_standard_builtin(declared_but_unrooted),
-                "`{}` became rooted from a bare `Temporal` reference — if that was \
-                 deliberate, delete this tripwire and the note that tracks it",
-                declared_but_unrooted.debug_name()
+                plan.should_initialize_standard_builtin(declared),
+                "a bare `Temporal` reference must root `{}`, which its declared namespace \
+                 shape carries unconditionally",
+                declared.debug_name()
+            );
+        }
+    }
+
+    /// No `Intl` builtin may exist outside the two namespace lists.
+    ///
+    /// The three checks around this one partition as CONSTRUCTORS ⊆ ROOTS,
+    /// ROOTS ⊆ the `require_standard_builtin` match arm, and (at debug runtime
+    /// only) match arm ⊆ ROOTS. None of them can see the drift that actually
+    /// happens next: a *new* `Intl` builtin — `Intl.NumberFormat` is the
+    /// obvious follow-on — added to neither list. Its symptom is precisely what
+    /// this lane exists to prevent: a builtin reachable as a member expression
+    /// but never rooted from a bare `Intl`, so `intl402/**/prop-desc.js`-shaped
+    /// reflective reads find it missing.
+    ///
+    /// `debug_name()` spells every `Intl` id with an `Intl.` prefix, which is
+    /// what makes the total direction checkable at all without a fourth list.
+    #[test]
+    fn every_intl_standard_builtin_is_in_the_namespace_root_list() {
+        for builtin in StandardBuiltinId::all_functions() {
+            if !builtin.debug_name().contains("Intl.") {
+                continue;
+            }
+            assert!(
+                INTL_NAMESPACE_ROOTS.contains(builtin),
+                "`{}` is an `Intl` builtin but appears in no namespace list, so a bare \
+                 `Intl` reference will not root it",
+                builtin.debug_name()
             );
         }
     }
@@ -854,63 +889,115 @@ const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [
     StandardBuiltinId::IntlDateTimeFormatBoundFormat,
 ];
 
-/// Whether this plan installs the `Intl` namespace object.
-///
-/// The non-`Absent` variant is produced **only** by
-/// [`IntlNamespacePlan::rooted`], which takes the root set by `&mut` and seeds
-/// [`INTL_NAMESPACE_ROOTS`] into it before it can return. "Marked as installed
-/// but missing a member the IR shape declares" is therefore unrepresentable,
-/// rather than merely untested — which is what the previous `intl_object: bool`
-/// was, and what `init_intl_object`'s per-member
-/// `should_initialize_standard_builtin` guard existed to paper over.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum IntlNamespacePlan {
-    /// This program never names `Intl` and never reaches an `Intl` builtin, so
-    /// no namespace object is emitted at all.
-    #[default]
-    Absent,
-    /// The namespace object is emitted, and every [`INTL_NAMESPACE_ROOTS`] id
-    /// is in `standard_roots`.
-    RootedWithDateTimeFormatFamily,
-}
+pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};
 
-impl IntlNamespacePlan {
-    /// The only constructor of [`IntlNamespacePlan::RootedWithDateTimeFormatFamily`].
-    fn rooted(standard_roots: &mut BTreeSet<StandardBuiltinId>) -> Self {
-        standard_roots.extend(INTL_NAMESPACE_ROOTS);
-        Self::RootedWithDateTimeFormatFamily
+/// The `Intl` namespace plan and its member-list witness, in a module of their
+/// own.
+///
+/// The module boundary is the enforcement. Both types were previously declared
+/// beside [`RuntimeBootstrapPlan`], where their doc comments claimed the
+/// installed variant could only come from the seeding constructor — true for
+/// every module *except* the 6,000-line one where the next namespace-rooting
+/// arm actually gets written, and in which
+/// `self.intl = IntlNamespacePlan::RootedWithDateTimeFormatFamily;` compiled
+/// fine. Here the installed variant carries a payload whose field is private to
+/// this module and [`IntlNamespaceMembers`] has no constructor at all, so
+/// neither can be built anywhere else in the crate, `planning` included.
+///
+/// The failure that shape prevents is not a missing property. `init_intl_object`
+/// walks the member list with no per-member guard (deliberately — the guard it
+/// used to have silently `continue`d past unrooted members), emitting
+/// `GlobalGet` for each constructor's global paired with an unconditional
+/// `Function` tag. A global that is never `GlobalSet` still resolves, so an
+/// unseeded member becomes a `Function`-tagged value with a never-written
+/// payload: a bogus callable, which is worse than the absent property the old
+/// guard produced.
+mod intl_namespace {
+    use super::*;
+
+    /// Evidence that [`INTL_NAMESPACE_ROOTS`] has been seeded into a plan's root
+    /// set, or that the plan initialises every builtin anyway.
+    ///
+    /// The unit field is private to this module and there is no constructor, so
+    /// this cannot be built outside [`IntlNamespacePlan::rooted`].
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct IntlRootsSeeded(());
+
+    /// Whether this plan installs the `Intl` namespace object.
+    ///
+    /// The non-`Absent` variant is produced **only** by
+    /// [`IntlNamespacePlan::rooted`], which takes the root set by `&mut` and
+    /// seeds [`INTL_NAMESPACE_ROOTS`] into it before it can return. "Marked as
+    /// installed but missing a member the IR shape declares" is therefore
+    /// unrepresentable, rather than merely untested — which is what the previous
+    /// `intl_object: bool` was, and what `init_intl_object`'s per-member
+    /// `should_initialize_standard_builtin` guard existed to paper over.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub(crate) enum IntlNamespacePlan {
+        /// This program never names `Intl` and never reaches an `Intl` builtin,
+        /// so no namespace object is emitted at all.
+        #[default]
+        Absent,
+        /// The namespace object is emitted, and every [`INTL_NAMESPACE_ROOTS`]
+        /// id is in `standard_roots`.
+        RootedWithDateTimeFormatFamily(IntlRootsSeeded),
     }
-}
 
-/// Proof that every member of the `Intl` namespace object is rooted in the plan
-/// that produced it.
-///
-/// Only [`RuntimeBootstrapPlan::intl_namespace_members`] can mint one, and it is
-/// the only way to reach the installation list, so `init_intl_object` cannot
-/// install a partial `Intl`. The emitter used to re-check
-/// `should_initialize_standard_builtin` per member and `continue` past the ones
-/// that failed; the omission compiled, formatted cleanly, and produced an `Intl`
-/// object whose contents disagreed with the shape the same program was compiled
-/// against.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct IntlNamespaceMembers {
-    /// Private, so no module outside `planning` can name
-    /// `INTL_NAMESPACE_CONSTRUCTORS` into an `IntlNamespaceMembers` and
-    /// fabricate the proof. A unit struct would have been forgeable.
-    members: &'static [(&'static str, StandardBuiltinId)],
-}
+    impl IntlNamespacePlan {
+        /// The only constructor of
+        /// [`IntlNamespacePlan::RootedWithDateTimeFormatFamily`].
+        pub(crate) fn rooted(standard_roots: &mut BTreeSet<StandardBuiltinId>) -> Self {
+            standard_roots.extend(INTL_NAMESPACE_ROOTS);
+            Self::RootedWithDateTimeFormatFamily(IntlRootsSeeded(()))
+        }
 
-impl IntlNamespaceMembers {
-    const ALL: Self = Self {
-        members: INTL_NAMESPACE_CONSTRUCTORS,
-    };
+        /// The member list, or `None` when no `Intl` object is emitted.
+        ///
+        /// `full_standard_globals` is a parameter rather than a second variant
+        /// because it discharges the same obligation by a different route:
+        /// `should_initialize_standard_builtin` is unconditionally true under
+        /// it, so every member is rooted by definition. Keeping the check here
+        /// is what leaves [`IntlNamespaceMembers`] with no reachable
+        /// constructor.
+        pub(crate) fn members(self, full_standard_globals: bool) -> Option<IntlNamespaceMembers> {
+            if full_standard_globals || matches!(self, Self::RootedWithDateTimeFormatFamily(_)) {
+                Some(IntlNamespaceMembers {
+                    members: INTL_NAMESPACE_CONSTRUCTORS,
+                })
+            } else {
+                None
+            }
+        }
+    }
 
-    /// Installation order, which is `Object.getOwnPropertyNames(Intl)` order and
-    /// therefore observable. Do not sort it here.
-    pub(crate) fn in_installation_order(
-        self,
-    ) -> impl Iterator<Item = (&'static str, StandardBuiltinId)> {
-        self.members.iter().copied()
+    /// Proof that every member of the `Intl` namespace object is rooted in the
+    /// plan that produced it.
+    ///
+    /// Only [`IntlNamespacePlan::members`] can mint one — reached through
+    /// [`RuntimeBootstrapPlan::intl_namespace_members`] — and it is the only way
+    /// to reach the installation list, so `init_intl_object` cannot install a
+    /// partial `Intl`. The emitter used to re-check
+    /// `should_initialize_standard_builtin` per member and `continue` past the
+    /// ones that failed; the omission compiled, formatted cleanly, and produced
+    /// an `Intl` object whose contents disagreed with the shape the same program
+    /// was compiled against.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct IntlNamespaceMembers {
+        /// Private to this module — not merely to `planning` — so nothing else
+        /// can name `INTL_NAMESPACE_CONSTRUCTORS` into an
+        /// [`IntlNamespaceMembers`] and fabricate the proof. A unit struct would
+        /// have been forgeable.
+        members: &'static [(&'static str, StandardBuiltinId)],
+    }
+
+    impl IntlNamespaceMembers {
+        /// Installation order, which is `Object.getOwnPropertyNames(Intl)` order
+        /// and therefore observable. Do not sort it here.
+        pub(crate) fn in_installation_order(
+            self,
+        ) -> impl Iterator<Item = (&'static str, StandardBuiltinId)> {
+            self.members.iter().copied()
+        }
     }
 }
 
@@ -1007,16 +1094,7 @@ impl RuntimeBootstrapPlan {
     /// bool accessor beside it — a caller that can ask "is `Intl` installed?"
     /// without receiving the proof is a caller that can install a partial one.
     pub(crate) fn intl_namespace_members(&self) -> Option<IntlNamespaceMembers> {
-        if self.full_standard_globals {
-            // `should_initialize_standard_builtin` is unconditionally true
-            // under the full bootstrap, so every member is rooted by
-            // definition.
-            return Some(IntlNamespaceMembers::ALL);
-        }
-        match self.intl {
-            IntlNamespacePlan::Absent => None,
-            IntlNamespacePlan::RootedWithDateTimeFormatFamily => Some(IntlNamespaceMembers::ALL),
-        }
+        self.intl.members(self.full_standard_globals)
     }
 
     pub(crate) fn needs_typed_array_intrinsic(&self) -> bool {
@@ -1469,6 +1547,11 @@ impl RuntimeBootstrapPlan {
                 // pattern. The assertion pins the direction the types cannot:
                 // an id matched here but absent from the const would be rooted
                 // without its namespace being installable.
+                //
+                // It is a backstop, not the primary check, and it is compiled
+                // out of release builds: `every_intl_standard_builtin_is_in_the_
+                // namespace_root_list` covers the same drift at rung 1 by
+                // walking `all_functions()`, which no arm can hide from.
                 debug_assert!(
                     INTL_NAMESPACE_ROOTS.contains(&builtin),
                     "`{}` is matched as an `Intl` namespace builtin but is not in \

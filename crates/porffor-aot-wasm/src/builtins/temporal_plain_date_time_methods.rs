@@ -52,9 +52,15 @@ enum TemporalDateTimeFieldKey {
 enum TemporalDateTimeFieldRead {
     /// `ToPositiveIntegerWithTruncation` into `field_locals[index]`. Only the
     /// two calendar rows take it; `hour` .. `nanosecond` accept zero.
-    PositiveInteger { property: &'static str, index: usize },
+    PositiveInteger {
+        property: &'static str,
+        index: usize,
+    },
     /// `ToIntegerWithTruncation` into `field_locals[index]`.
-    Integer { property: &'static str, index: usize },
+    Integer {
+        property: &'static str,
+        index: usize,
+    },
     /// The `monthCode` string, which has no numeric slot.
     MonthCode,
     /// `era` and `eraYear` together. They are one row because the shared era

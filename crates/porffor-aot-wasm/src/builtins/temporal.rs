@@ -979,6 +979,27 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.ZonedDateTime property bag field must be finite",
             function,
         )?;
+        // KNOWN STEP-ORDER DIVERGENCE, and the only one of the five bag paths
+        // that has it. `ToTemporalZonedDateTime` steps 2.h-2.k read the options
+        // object — `GetOptionsObject`, then the disambiguation/offset/overflow
+        // casts — *before* `InterpretTemporalDateTimeFields` reaches
+        // `CalendarResolveFields`. Here the resolver, and the two "requires
+        // year"/"requires day" TypeErrors below it, all run before
+        // `emit_temporal_zoned_date_time_options` at the bottom of this
+        // function, so an era `RangeError`/`TypeError` beats an observable
+        // option read:
+        //
+        //   Temporal.ZonedDateTime.from(
+        //     { month: 1, day: 1, timeZone: "UTC", era: "xyz", eraYear: 2025,
+        //       calendar: "gregory" },
+        //     { overflow: { get valueOf() { throw new Test262Error(); } } })
+        //
+        // throws the era RangeError where the specification throws from the
+        // option read. Nothing in the pinned corpus is currently sensitive to
+        // it. The repair is to move all three — resolver, `requires year`,
+        // `requires day` — below the options call together; moving the resolver
+        // alone would reorder it against the two pre-existing checks, which is a
+        // different observable order again.
         let resolved_year = self.emit_temporal_resolve_era_to_year(
             era,
             calendar_payload_local,
@@ -6738,9 +6759,13 @@ impl<'a> FunctionBuilder<'a> {
     /// calendar helpers use when no Temporal builtin is compiled. The slots are
     /// reserved unconditionally so the fixed helper offsets never shift with
     /// the shape of the program; only the bodies are elided.
-    fn temporal_calendar_helper_stub(&self) -> Function {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+    ///
+    /// It takes the helper it is standing in for because a stub is still that
+    /// helper's body: the elided and real bodies then enter through the same
+    /// door, and neither arm of `if real` can start a body without naming which
+    /// helper it belongs to.
+    fn temporal_calendar_helper_stub(&mut self, helper: RuntimeHelperId) -> Function {
+        let mut function = self.begin_helper_body(helper);
         for _ in 0..4 {
             function.instruction(&Instruction::I64Const(0));
         }
@@ -6770,10 +6795,11 @@ impl<'a> FunctionBuilder<'a> {
         real: bool,
     ) -> Result<Function, EmitError> {
         if !real {
-            return Ok(self.temporal_calendar_helper_stub());
+            return Ok(
+                self.temporal_calendar_helper_stub(RuntimeHelperId::TemporalCalendarIsoDateProbe)
+            );
         }
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::TemporalCalendarIsoDateProbe);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -6866,7 +6892,9 @@ impl<'a> FunctionBuilder<'a> {
         real: bool,
     ) -> Result<Function, EmitError> {
         if !real {
-            return Ok(self.temporal_calendar_helper_stub());
+            return Ok(
+                self.temporal_calendar_helper_stub(RuntimeHelperId::TemporalCalendarIdentifier)
+            );
         }
         let probe_helper_index = self
             .temporal_calendar_iso_date_probe_helper_function_index()
@@ -6876,8 +6904,7 @@ impl<'a> FunctionBuilder<'a> {
                      Temporal calendar date-probe helper without heap",
                 )
             })?;
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::TemporalCalendarIdentifier);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));

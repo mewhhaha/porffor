@@ -3331,8 +3331,11 @@ impl<'a> FunctionBuilder<'a> {
     /// Results are the `(result, result_tag, completion, completion_aux)` tuple
     /// where a normal completion carries the serialized string payload.
     pub(crate) fn compile_json_stringify_value_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        // `JsonStringifyValue` is the one helper whose seam stays live inside
+        // its own body: nested-value serialization is a real self-call through
+        // `emit_json_stringify_value_call`. `begin_helper_body` encodes that in
+        // its no-seam arm, so this is a declaration of identity, not a clear.
+        let mut function = self.begin_helper_body(RuntimeHelperId::JsonStringifyValue);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);

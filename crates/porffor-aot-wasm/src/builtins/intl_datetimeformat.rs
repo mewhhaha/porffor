@@ -389,11 +389,26 @@ pub(crate) enum IntlDtfExtensionResolution {
 ///
 /// This enum is the single declaration of a key's spelling, the options
 /// property it shares a domain with, its accepted values and the record slot it
-/// resolves into. "Read `-u-nu-` but reflect `-u-ca-`", or "accept a spelling
-/// the locale suffix cannot spell back", are compile errors rather than test
-/// failures: the extension reader, the options reader, the resolver, the suffix
-/// loop and the record store all walk this one table, and every `match` over it
-/// is exhaustive with no `_` arm.
+/// resolves into. The extension reader, the options reader, the resolver, the
+/// suffix loop and the record store all walk this one table, and every `match`
+/// over it is exhaustive with no `_` arm, so:
+///
+/// * a fourth key cannot be added without stating its spelling, its option
+///   property, its accepted values, its resolution shape and its record slot;
+/// * "accept a spelling the locale suffix cannot spell back" is a `const`
+///   assertion failure (see the block below [`Self::canonical_row`]);
+/// * `[[Calendar]]` cannot be stored at `[[NumberingSystem]]`'s offset, because
+///   [`Self::slot_offset`] is derived from the key rather than passed in.
+///
+/// What it does **not** make impossible is a transposed *local*: the pairing in
+/// `emit_intl_date_time_format_constructor`'s `extension_key_locals` maps each
+/// key to two bare `u32` wasm locals, and writing
+/// `Ca => (calendar_option_row_local, numbering_system_local)` there type-checks
+/// and silently resolves `[[Calendar]]` into the numbering-system slot. The
+/// pairing is built once and consumed by both the resolution loop and the
+/// record store, so the two cannot disagree with *each other* — but they can
+/// agree on the wrong local. Only
+/// `resolved-calendar-unicode-extensions-and-options.js` would notice.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IntlDtfRelevantExtensionKey {
     Ca,
@@ -478,7 +493,21 @@ impl IntlDtfRelevantExtensionKey {
     }
 }
 
-/// Two properties the resolver depends on, decided at compile time rather than
+/// Every byte is `0-9`, `a-z` or `-`; in particular no `A-Z`.
+const fn const_str_is_unicode_lowercase_type(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if !(byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-') {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// Four properties the resolver depends on, decided at compile time rather than
 /// discovered by a fifteen-hour sweep.
 ///
 /// 1. Every accepted `(spelling, canonical)` row's canonical form is itself an
@@ -486,7 +515,28 @@ impl IntlDtfRelevantExtensionKey {
 ///    the `-u-<key>-<value>` loop has no row to emit.
 /// 2. A string-valued key's default is itself an accepted value, so
 ///    `new Intl.DateTimeFormat("en-u-ca-gregory")` reflects the keyword instead
-///    of silently dropping it.
+///    of silently dropping it — *and* is its own canonical form. The second
+///    half is not pedantry: `default` is written into the record verbatim by
+///    `emit_dtf_set_string` when no keyword and no option is present, while a
+///    keyword equal to the default travels through `canonical_row`. A default
+///    that is an alias (say `"gregorian"`, an accepted row) would make
+///    `new Intl.DateTimeFormat("en")` and `new Intl.DateTimeFormat("en-u-ca-gregorian")`
+///    report different calendars.
+/// 3. Every accepted spelling and canonical form is already lowercase. Both
+///    readers compare bytes against these strings after ASCII-lowercasing
+///    their input — the tag path in `emit_intl_canonicalize_locale_tag`'s
+///    first pass, the options path in
+///    `emit_intl_dtf_relevant_extension_key_option` — so an upper-case
+///    character in this table would be a row that can never match.
+/// 4. `Hc`'s accepted rows are index-aligned with
+///    [`INTL_DTF_HOUR_CYCLE_OPTION`]`.codes`. Two places turn a row index into
+///    an hour-cycle code by indexing `codes` with it — the options-row loop and
+///    the `HourCycleCode` arm of the resolver — which is sound only while the
+///    two tables agree row for row. That holds today because
+///    [`INTL_DTF_ACCEPTED_HOUR_CYCLES_TABLE`] is *derived* from `codes`; the
+///    assertion is what keeps it true if the derivation is ever replaced by a
+///    literal table, where a permutation would otherwise compile and quietly
+///    give `{ hourCycle: "h11" }` the `h12` code.
 ///
 /// This is the same shape as the `INTL_DTF_ACCEPTED_CALENDARS`/
 /// `TemporalCalendarId` assertion above, which must keep passing alongside it.
@@ -501,30 +551,57 @@ const _: () = {
             // unspellable; this pins down that it found the right row.
             let canonical_row = key.canonical_row(row);
             let (spelling, _) = accepted[canonical_row];
-            let (_, canonical) = accepted[row];
+            let (row_spelling, canonical) = accepted[row];
             assert!(
                 const_str_eq(spelling, canonical),
                 "a relevant-extension-key canonical form is not an accepted spelling"
+            );
+            assert!(
+                const_str_is_unicode_lowercase_type(row_spelling)
+                    && const_str_is_unicode_lowercase_type(canonical),
+                "a relevant-extension-key value is not lowercase, so no ASCII-lowercased \
+                 input can ever match it"
             );
             row += 1;
         }
         match key.resolution() {
             IntlDtfExtensionResolution::CanonicalString { default } => {
                 let mut probe = 0;
-                let mut found = false;
+                let mut default_row = accepted.len();
                 while probe < accepted.len() {
                     let (spelling, _) = accepted[probe];
                     if const_str_eq(spelling, default) {
-                        found = true;
+                        default_row = probe;
                     }
                     probe += 1;
                 }
                 assert!(
-                    found,
+                    default_row < accepted.len(),
                     "a relevant-extension-key default is not an accepted value"
                 );
+                assert!(
+                    key.canonical_row(default_row) == default_row,
+                    "a relevant-extension-key default is not its own canonical form, so the \
+                     no-keyword and keyword-equals-default paths would report different values"
+                );
             }
-            IntlDtfExtensionResolution::HourCycleCode => {}
+            IntlDtfExtensionResolution::HourCycleCode => {
+                assert!(
+                    accepted.len() == INTL_DTF_HOUR_CYCLE_OPTION.codes.len(),
+                    "the hc keyword table and the hourCycle option table have different lengths"
+                );
+                let mut probe = 0;
+                while probe < accepted.len() {
+                    let (spelling, _) = accepted[probe];
+                    let (code_spelling, _) = INTL_DTF_HOUR_CYCLE_OPTION.codes[probe];
+                    assert!(
+                        const_str_eq(spelling, code_spelling),
+                        "the hc keyword table is not row-aligned with the hourCycle option \
+                         table, so a row index would name the wrong hour cycle"
+                    );
+                    probe += 1;
+                }
+            }
         }
         key_index += 1;
     }
@@ -1752,6 +1829,7 @@ impl<'a> FunctionBuilder<'a> {
         let value_tag_local = self.reserve_temp_local();
         let expected_local = self.reserve_temp_local();
         let ok_local = self.reserve_temp_local();
+        let lowered_local = self.reserve_temp_local();
         let property = key.option_property();
         let range_message = format!("Invalid {property} option");
 
@@ -1787,12 +1865,26 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        // `CanonicalizeUValue` (ECMA-402 6.2.4, reached from 9.2.7 step 9(i))
+        // ASCII-lowercases the value before it is looked up in `keyLocaleData`.
+        // The `type` nonterminal above accepts `A-Z`, so `{ calendar: "ISO8601" }`
+        // is well formed and must resolve to `iso8601` — without this fold it
+        // matches no row, leaves `dest_row_local` at 0 and silently resolves to
+        // the *default* calendar, which is a wrong answer rather than an error
+        // (`intl402/DateTimeFormat/canonicalize-calendar.js:15`).
+        //
+        // The tag path gets the same fold from `emit_intl_canonicalize_locale_tag`,
+        // which lowercases every byte in its first pass; this is the options
+        // path's equivalent, and the `const` assertion on
+        // `IntlDtfRelevantExtensionKey::accepted` is what lets a plain byte
+        // compare stand in for a case-insensitive one.
+        self.emit_intl_dtf_ascii_lowercase(value_payload_local, lowered_local, function)?;
         // Well formed. A row of `keyLocaleData` reports its canonical row;
         // anything else leaves `dest_row_local` at 0, which 9.2.7 reads as
         // "the options bag contributed nothing".
         for (index, (spelling, _)) in key.accepted().iter().enumerate() {
             self.emit_dtf_set_string(expected_local, spelling, function);
-            self.emit_string_payload_equality_i32(value_payload_local, expected_local, function);
+            self.emit_string_payload_equality_i32(lowered_local, expected_local, function);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_dtf_set_const(
                 dest_row_local,
@@ -1804,6 +1896,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         for local in [
+            lowered_local,
             ok_local,
             expected_local,
             value_tag_local,
@@ -3305,11 +3398,26 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Canonicalisation has already lowercased the tag and normalised its
     /// separators (`emit_intl_canonicalize_locale_tag` lowercases every byte in
-    /// pass 1 and re-renders the extension subtags in lower case), so an exact
-    /// `-<key>-<type>` needle is a sound test for a Unicode extension keyword:
-    /// the only other place those bytes could occur is a private-use sequence,
-    /// which no `Intl` option consults. That is also why `-u-nu-lATn` and
-    /// `-u-ca-Gregory` need no second lowercasing pass here.
+    /// pass 1 and re-renders the extension subtags in lower case), which is why
+    /// `-u-nu-lATn` and `-u-ca-Gregory` need no second lowercasing pass here.
+    /// (The *options* path has no canonicalisation upstream of it and does its
+    /// own fold — see `emit_intl_dtf_relevant_extension_key_option`.)
+    ///
+    /// **Known limitation, deliberately recorded rather than papered over.**
+    /// The scan has no notion of where the `-u-` singleton begins or ends: it
+    /// searches the whole tag. So bytes that spell a keyword inside some *other*
+    /// singleton are read as if they were Unicode extension keywords.
+    /// `new Intl.DateTimeFormat("en-x-ca-iso8601")` matches `-ca-iso8601` at
+    /// byte 4 of a private-use sequence and reports
+    /// `resolvedOptions().calendar === "iso8601"` with `.locale` grown a
+    /// `-u-ca-iso8601` it never had; `en-u-ca-gregory-foo` is read as `gregory`
+    /// where the spec sees the unsupported value `gregory-foo` and drops it.
+    /// This is not currently reachable from any pinned test — the `-u-` reads
+    /// only run once `emit_intl_dtf_record_lookup_match` has matched, and that
+    /// gate accepts only `en` — but it is a wrong answer, not a design choice.
+    /// Closing it means bounding the scan to the `-u-` window: locate `-u-`,
+    /// stop at the next single-character singleton or at the end of the tag,
+    /// and search inside that window only.
     ///
     /// The terminator is not optional and not a parameter: it is carried by
     /// [`IntlDtfKeywordNeedle`], the only type this accepts. A bare substring
@@ -3492,9 +3600,23 @@ impl<'a> FunctionBuilder<'a> {
         // `null` resolves like the default — but only after it has had its
         // chance above to clear the addition, which is the whole reason
         // `hour12` drops a `-u-hc-` keyword.
-        self.emit_dtf_if_code_eq(value_row_local, INTL_DTF_EXTENSION_OPTION_NULL, function);
-        self.emit_dtf_set_const(value_row_local, 0, function);
-        function.instruction(&Instruction::End);
+        //
+        // Emitted only for the resolution that can actually hold `null`. The
+        // match is exhaustive with no `_` arm, so a fourth relevant-extension
+        // key has to state whether its `[[LocaleData]]` list contains `null`
+        // before it can compile — and for a `CanonicalString` key, whose list
+        // does not, these instructions were previously dead: nothing can write
+        // [`INTL_DTF_EXTENSION_OPTION_NULL`] into its option row (see the
+        // `hour12` step-15 write above, the only producer, which is in the
+        // `hc` reader).
+        match key.resolution() {
+            IntlDtfExtensionResolution::CanonicalString { .. } => {}
+            IntlDtfExtensionResolution::HourCycleCode => {
+                self.emit_dtf_if_code_eq(value_row_local, INTL_DTF_EXTENSION_OPTION_NULL, function);
+                self.emit_dtf_set_const(value_row_local, 0, function);
+                function.instruction(&Instruction::End);
+            }
+        }
     }
 }
 

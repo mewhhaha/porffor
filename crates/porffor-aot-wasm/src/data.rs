@@ -1628,15 +1628,25 @@ impl StringPool {
             for spelling in calendar.spellings() {
                 pool.intern_string(spelling);
             }
-        }
-        // Every spelling, not just `code()`: `code()` is defined as
-        // `spellings()[0]`, and `CalendarResolveFields` matches an incoming
-        // `era` against all of them (`ad`/`bc` are the CLDR aliases of
-        // `ce`/`bce`). Interning the same table the resolver reads is what
-        // makes "add an alias" a one-place change instead of three.
-        for era in Era::ALL {
-            for spelling in era.spellings() {
-                pool.intern_string(spelling);
+            // Every era spelling, not just `code()`: `code()` is defined as
+            // `spellings()[0]`, and `CalendarResolveFields` matches an incoming
+            // `era` against all of them (`ad`/`bc` are the CLDR aliases of
+            // `ce`/`bce`). Interning the same table the resolver reads is what
+            // makes "add an alias" a one-place change instead of three.
+            //
+            // The walk is `TemporalCalendarId::ALL -> eras() -> spellings()`,
+            // i.e. literally the table
+            // `FunctionBuilder::emit_temporal_resolve_era_to_year` reads, and
+            // not a second `Era`-side list that could be short of it. That
+            // matters because the resolver emits `strings.payload(spelling)`
+            // for every spelling of every era of every calendar: an era
+            // reachable from `eras()` but missing here is the `string must
+            // exist in pool` compiler panic fixed in e04bdc061, and no
+            // `const` assertion can see a list that is never consulted.
+            for era in calendar.eras() {
+                for spelling in era.spellings() {
+                    pool.intern_string(spelling);
+                }
             }
         }
         for value in crate::builtins::intl_date_time_format_pool_strings() {

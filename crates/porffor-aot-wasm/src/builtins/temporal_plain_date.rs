@@ -168,9 +168,19 @@ const fn const_str_eq(left: &str, right: &str) -> bool {
     true
 }
 
-/// [`Era::calendar`] and [`TemporalCalendarId::eras`] must agree in both
-/// directions, so an era filed under the wrong calendar is a build failure
-/// rather than a wrong `RangeError` for a bag that named the other calendar.
+/// [`Era::calendar`] must agree with [`TemporalCalendarId::eras`], so an era
+/// filed under the wrong calendar is a build failure rather than a wrong
+/// `RangeError` for a bag that named the other calendar.
+///
+/// Only one direction needs asserting because there is only one table.
+/// [`TemporalCalendarId::eras`] is the single era list in the crate: the
+/// resolver reads it, the accessors read it, and `data.rs` interns its
+/// spellings by walking `TemporalCalendarId::ALL -> eras() -> spellings()`. An
+/// earlier revision carried a second flat `Era::ALL` list for the string pool
+/// and asserted membership both ways; that pair of assertions could not see
+/// the case that actually breaks — a new calendar whose `eras()` is complete
+/// but which nobody adds to the flat list — because a list that is never
+/// consulted is trivially consistent with itself.
 const _: () = {
     let mut calendar_index = 0;
     while calendar_index < TemporalCalendarId::ALL.len() {
@@ -185,25 +195,6 @@ const _: () = {
             era_index += 1;
         }
         calendar_index += 1;
-    }
-
-    let mut index = 0;
-    while index < Era::ALL.len() {
-        let era = Era::ALL[index];
-        let eras = era.calendar().eras();
-        let mut found = false;
-        let mut era_index = 0;
-        while era_index < eras.len() {
-            if eras[era_index].same(era) {
-                found = true;
-            }
-            era_index += 1;
-        }
-        assert!(
-            found,
-            "every Era must appear in its own calendar's TemporalCalendarId::eras"
-        );
-        index += 1;
     }
 };
 
@@ -371,9 +362,6 @@ impl GregoryEra {
         }
     }
 
-    const fn same(self, other: Self) -> bool {
-        self as u8 == other as u8
-    }
 }
 
 /// One era of one calendar.
@@ -390,13 +378,10 @@ pub(crate) enum Era {
 
 impl Era {
     /// The `gregory` era set, as [`TemporalCalendarId::eras`] hands it out.
-    pub(crate) const GREGORY: &'static [Self] =
-        &[Self::Gregory(GregoryEra::Ce), Self::Gregory(GregoryEra::Bce)];
-
-    /// Every era of every calendar. `data.rs` interns this table's
-    /// [`Self::spellings`], so an alias added there cannot be missing from the
-    /// string pool.
-    pub(crate) const ALL: &'static [Self] = Self::GREGORY;
+    pub(crate) const GREGORY: &'static [Self] = &[
+        Self::Gregory(GregoryEra::Ce),
+        Self::Gregory(GregoryEra::Bce),
+    ];
 
     /// The calendar this era belongs to. Pinned against
     /// [`TemporalCalendarId::eras`] by a `const` assertion above.
@@ -427,15 +412,6 @@ impl Era {
         }
     }
 
-    /// `PartialEq` is not `const fn`, and the tables above are checked at
-    /// compile time. Adding a second calendar makes this match non-exhaustive,
-    /// which is the intended prompt to decide what cross-calendar equality
-    /// means before anything can compile.
-    const fn same(self, other: Self) -> bool {
-        match (self, other) {
-            (Self::Gregory(left), Self::Gregory(right)) => left.same(right),
-        }
-    }
 }
 
 /// What a `Temporal.PlainMonthDay` property bag does with a supplied `year`.
@@ -472,7 +448,21 @@ pub(crate) enum MonthDayYearUse {
 ///
 /// Nothing else accepts either type and neither is `Copy`, so a step skipped in
 /// the middle is a type error at the *next* step, not a wrong answer at run
-/// time. The split into two types is deliberate: reserving and reading are
+/// time.
+///
+/// What the chain does **not** catch is a bag that is simply *dropped*:
+/// `#[must_use]` fires only on an unused expression, so
+/// `let _ = self.reserve_temporal_era_slots();` compiles, and the four slots
+/// leak from the strict LIFO stack `release_temp_local` asserts on. The symptom
+/// is then an `assert_eq!` panic inside an unrelated later emitter. A `Drop`
+/// impl would move that panic to the leak site, but a type that implements
+/// `Drop` cannot be destructured by move, which is how all three steps of this
+/// chain consume their input; converting them to accessors plus
+/// `std::mem::forget` is a real change and wants a lane that can run the
+/// temporal suites. Until then the ordering is hand-checked across the ten
+/// emitters that reserve slots.
+///
+/// The split into two types is deliberate: reserving and reading are
 /// separate because the locals must be reserved before the caller's scratch
 /// locals (`reserve_temp_local` is a strict LIFO stack) while the reads must be
 /// emitted in the middle of the alphabetical sweep.
@@ -1232,21 +1222,36 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(matched_local));
         for calendar in TemporalCalendarId::ALL {
-            for &candidate in calendar.eras() {
-                // The calendar gate is not redundant with `has_eras`: era codes
-                // are only unique *within* a calendar, so `bce` may not be
-                // allowed to select `gregory`'s arithmetic for some future
-                // calendar that spells the same code differently.
-                function.instruction(&Instruction::I64Const(
-                    self.strings.payload(calendar.canonical()),
-                ));
-                function.instruction(&Instruction::LocalSet(expected_payload_local));
-                self.emit_string_payload_equality_i32(
-                    calendar_payload_local,
-                    expected_payload_local,
-                    function,
-                );
-                function.instruction(&Instruction::If(BlockType::Empty));
+            let eras = calendar.eras();
+            if eras.is_empty() {
+                // No compare at all for a calendar with no eras, so `iso8601`
+                // costs nothing here.
+                continue;
+            }
+            // The calendar gate is not redundant with `has_eras`: era codes are
+            // only unique *within* a calendar, so `bce` may not be allowed to
+            // select `gregory`'s arithmetic for some future calendar that
+            // spells the same code differently.
+            //
+            // Emitted once per *calendar*, wrapping all of that calendar's
+            // eras, rather than once per era. Same answer either way — the era
+            // arms are independent of each other — but the cost of the compare
+            // scaled as calendars x eras, replicated across the six emitters
+            // that reach this resolver. The one function that has already
+            // crossed Cranelift's limit in this backend is an `Intl` body, so
+            // the general rule stands: a compare that does not depend on the
+            // loop variable does not belong inside the loop.
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(calendar.canonical()),
+            ));
+            function.instruction(&Instruction::LocalSet(expected_payload_local));
+            self.emit_string_payload_equality_i32(
+                calendar_payload_local,
+                expected_payload_local,
+                function,
+            );
+            function.instruction(&Instruction::If(BlockType::Empty));
+            for &candidate in eras {
                 for &spelling in candidate.spellings() {
                     function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
                     function.instruction(&Instruction::LocalSet(expected_payload_local));
@@ -1262,8 +1267,8 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(iso_year_local));
                     function.instruction(&Instruction::End);
                 }
-                function.instruction(&Instruction::End);
             }
+            function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::LocalGet(matched_local));
         function.instruction(&Instruction::I64Eqz);

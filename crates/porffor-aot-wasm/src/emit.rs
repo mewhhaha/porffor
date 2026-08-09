@@ -3418,11 +3418,20 @@ impl<'a> FunctionBuilder<'a> {
     /// (`emit_json_stringify_value_call`), which is why "the body must never
     /// name its own index" cannot be a blanket rule.
     ///
-    /// The six helper bodies compiled outside this file — `bigint.rs`,
-    /// `builtins/{decimal,json,regexp,temporal}.rs` — still build their
-    /// `Function` directly; none of them owns a seam, so nothing is lost today,
-    /// but routing them through here needs edits outside this lane's files.
-    fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
+    /// The helper bodies compiled outside this file — `objects.rs`,
+    /// `bigint.rs`, `builtins/{decimal,json,regexp,temporal}.rs` — route
+    /// through here too, which is why this is `pub(crate)`. That leaves
+    /// `FunctionBuilder::compile`/`compile_builtin` as the only two places in
+    /// the crate that build a body-shaped [`Function`] without naming a helper,
+    /// and neither of those is a helper.
+    ///
+    /// That last sentence is a fact about the source, not a property the type
+    /// system can hold: [`Function`] is a `wasm_encoder` type and a new
+    /// `compile_x_helper` may construct one directly. It is kept true by
+    /// `runtime_helpers::tests::only_three_places_build_a_function_builder_body`,
+    /// which counts the construction sites; do not restate it as an
+    /// enforcement claim anywhere else.
+    pub(crate) fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
         match helper {
             RuntimeHelperId::ObjectRead => self.outline_object_read = false,
             RuntimeHelperId::ObjectWrite => self.outline_object_write = false,
@@ -4132,73 +4141,16 @@ impl<'a> FunctionBuilder<'a> {
         Ok(self.finish_function(function))
     }
 
-    /// Compiles the shared `expr[index]` read composite. The Arguments / Array
-    /// (with prototype walk) / TypedArray-element / ordinary-object dispatch is
-    /// emitted once here and reached with a plain `call`.
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
-    /// 1=target tag, 2=integer index. Params 3-6 are unused. Results are the
-    /// standard `(result, result_tag, completion, completion_aux)` tuple: on a
-    /// normal completion the read value is in the first two slots, and a getter
-    /// or proxy-trap throw is surfaced through the completion slots for the
-    /// seam to re-raise.
-    ///
-    /// No realm-environment parameter, matching
-    /// [`Self::compile_object_read_helper`]: the ordinary read this delegates to
-    /// already passes zero for the object-read helper's params 5/6, so a read
-    /// has no realm-dependent behavior to thread.
-    fn compile_indexed_element_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_indexed_element_read_helper_body(
-            0,
-            1,
-            2,
-            self.result_local,
-            self.result_tag_local,
-            &mut function,
-        )?;
-        self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Compiles the shared `expr[index] = value` write composite (TypedArray
-    /// element store versus ordinary `[[Set]]`).
-    ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
-    /// 1=target tag, 2=integer index, 3=key payload (the string form of the
-    /// index, used by the ordinary-object arm), 4=value payload, 5=value tag,
-    /// 6=calling function's strictness (0 sloppy, nonzero strict).
-    ///
-    /// Param 6 exists for the same reason as the object-write helper's param 5:
-    /// this is a single mode-less body, so the sloppy/strict `[[Set]]` failure
-    /// split — silent no-op versus `TypeError` on a non-writable property or a
-    /// non-extensible target — has to be decided from a runtime flag rather
-    /// than from the compile-time strictness of the helper itself. Dropping it
-    /// would turn every strict-mode `a[i] = v` failure into a silent no-op.
-    fn compile_indexed_element_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementWrite);
-        self.object_write_strict_flag_local = Some(6);
-        self.push_scope();
-        self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_indexed_element_write_helper_body(0, 1, 2, 3, 4, 5, &mut function)?;
-        self.pop_scope();
-        self.object_write_strict_flag_local = None;
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
+    // `compile_indexed_element_read_helper` and
+    // `compile_indexed_element_write_helper` live in `objects.rs`, beside the
+    // composites they outline, and are the only `compile_*_helper` pair that
+    // does. That is not a filing preference: the bodies they emit are the two
+    // largest inline expansions in the crate (72,635 and 174,558 bytes), and
+    // keeping the compiler in the same module as the body is what lets the body
+    // itself stay module-private with exactly two callers — its seam's fallback
+    // arm and its helper compiler. A third caller elsewhere in the crate would
+    // re-inline the composite and quietly undo the outlining; with the body
+    // private, that call does not compile.
 
     fn init_current_env(&mut self, function: &mut Function) -> Result<(), EmitError> {
         match self.return_abi {

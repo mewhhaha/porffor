@@ -28,10 +28,16 @@ mod temporal_instant;
 pub(crate) use temporal_instant::UnvalidatedEpochNanoseconds;
 mod temporal_options;
 mod temporal_plain_date;
-/// The calendar and era tables, re-exported for `data.rs`: the string pool
-/// derives the interned calendar spellings and era codes from them rather than
-/// listing the same strings a second time.
-pub(crate) use temporal_plain_date::{Era, TemporalCalendarId};
+/// The calendar table, re-exported for `data.rs`: the string pool derives the
+/// interned calendar spellings *and* every era spelling by walking
+/// `TemporalCalendarId::ALL -> eras() -> spellings()`, which is exactly the
+/// table `emit_temporal_resolve_era_to_year` matches an incoming `era`
+/// against. `Era::code()` is `Era::spellings()[0]`, so an alias such as `ad`
+/// or `bc` added to that table is interned, accepted by
+/// `CalendarResolveFields` and excluded from the `era` accessor's answer
+/// without a second edit anywhere — and a *calendar* added with a complete
+/// `eras()` is interned without an edit here at all.
+pub(crate) use temporal_plain_date::TemporalCalendarId;
 mod temporal_plain_date_methods;
 mod temporal_plain_date_time;
 mod temporal_plain_date_time_methods;

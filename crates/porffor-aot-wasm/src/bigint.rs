@@ -277,8 +277,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 1=lhs tag, 2=rhs payload, 3=rhs tag, 4=[`BigIntHelperOp`]. Params 5-6
     /// are unused. Results are the standard four-i64 tuple.
     pub(crate) fn compile_bigint_arithmetic_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::BigIntArithmetic);
         self.push_scope();
 
         let lhs_sign = self.reserve_temp_local();
