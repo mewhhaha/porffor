@@ -6160,6 +6160,34 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::LocalSet(remainder_local));
+        // CONVENTION, shared with `emit_temporal_heap_bigint_millisecond_quotient`
+        // in the `Else` arm: `remainder_local` is the **non-negative magnitude**
+        // of the sub-millisecond part; the sign lives only in `negative_local`.
+        // The floor correction below is written for that convention.
+        //
+        // `I64RemS` takes the sign of the dividend, so this arm handed the
+        // correction a negative remainder while the heap-bigint arm handed it a
+        // magnitude (it reduces the limbs with `I64RemU` and negates only the
+        // quotient). `NANOSECONDS_PER_MILLISECOND - remainder` then *added*
+        // where it meant to subtract:
+        // `new Temporal.Instant(-13849764_999_999_999n).toJSON()` rendered
+        // `1969-07-24T16:50:35.001999999Z` instead of `...35.000000001Z`,
+        // because 1e6 - -999_999 is 1_999_999 rather than 1.
+        //
+        // This is the only one of the three sites that reads the remainder's
+        // *value*: `emit_temporal_zoned_date_time_epoch_milliseconds` and
+        // `emit_temporal_epoch_nanoseconds_record_to_milliseconds` only test it
+        // with `I64Eqz`, for which the sign is immaterial. Caught by
+        // `built-ins/Temporal/Instant/prototype/toJSON/negative-epochnanoseconds.js`.
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_temporal_heap_bigint_millisecond_quotient(
             nanoseconds_payload_local,
