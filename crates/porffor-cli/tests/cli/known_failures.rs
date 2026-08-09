@@ -433,12 +433,13 @@ pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
                     return Err(LedgerError::DuplicateExpiryHeader { line });
                 }
                 let value = value.trim();
-                let batch = value
-                    .parse::<u32>()
-                    .map_err(|_| LedgerError::MalformedExpiryHeader {
-                        line,
-                        value: value.to_string(),
-                    })?;
+                let batch =
+                    value
+                        .parse::<u32>()
+                        .map_err(|_| LedgerError::MalformedExpiryHeader {
+                            line,
+                            value: value.to_string(),
+                        })?;
                 unfilled_allowed_until = Some(batch);
             }
             continue;
@@ -646,7 +647,8 @@ fn rust_sources_in(directory: &Path) -> Vec<PathBuf> {
                 .path()
         })
         .filter(|path| {
-            path.is_file() && path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+            path.is_file()
+                && path.extension().and_then(|extension| extension.to_str()) == Some("rs")
         })
         .collect();
     paths.sort();
@@ -719,7 +721,8 @@ fn function_name(line: &str) -> Option<&str> {
         .or_else(|| line.strip_prefix("pub "))
         .unwrap_or(line);
     let rest = rest.strip_prefix("fn ")?;
-    let end = rest.find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))?;
+    let end =
+        rest.find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))?;
     let name = &rest[..end];
     if name.is_empty() {
         None
@@ -910,7 +913,9 @@ fn ledger_is_well_formed() {
         .unwrap_or_else(|error| panic!("{}: could not read: {error}", tasks_dir.display()))
         .map(|entry| {
             entry
-                .unwrap_or_else(|error| panic!("{}: could not read entry: {error}", tasks_dir.display()))
+                .unwrap_or_else(|error| {
+                    panic!("{}: could not read entry: {error}", tasks_dir.display())
+                })
                 .file_name()
                 .to_string_lossy()
                 .into_owned()
@@ -1014,13 +1019,14 @@ fn every_expected_failure_carries_a_should_panic() {
         if !row.state.names_a_real_test() {
             continue;
         }
-        let declaration = declaration_for(&declarations, row.target, row.test).unwrap_or_else(|| {
-            panic!(
+        let declaration =
+            declaration_for(&declarations, row.target, row.test).unwrap_or_else(|| {
+                panic!(
                 "known-failures.tsv:{}: no test function named `{}` in target `{}`. A renamed or \
                  deleted test must not leave a live ledger row behind.",
                 row.line, row.test, row.target
             )
-        });
+            });
         if !row.state.requires_should_panic() {
             continue;
         }
@@ -1126,12 +1132,13 @@ fn every_ignored_test_is_declared() {
         if !row.state.requires_ignore() {
             continue;
         }
-        let declaration = declaration_for(&declarations, row.target, row.test).unwrap_or_else(|| {
-            panic!(
-                "known-failures.tsv:{}: no test function named `{}` in target `{}`.",
-                row.line, row.test, row.target
-            )
-        });
+        let declaration =
+            declaration_for(&declarations, row.target, row.test).unwrap_or_else(|| {
+                panic!(
+                    "known-failures.tsv:{}: no test function named `{}` in target `{}`.",
+                    row.line, row.test, row.target
+                )
+            });
         assert!(
             declaration.ignore.is_some(),
             "known-failures.tsv:{}: `{}` is declared ignored, but {}:{} no longer carries an \

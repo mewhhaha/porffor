@@ -65,11 +65,16 @@ pub(crate) use emit::{
     BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder, IteratorCloseOnThrowLocals,
     LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
 };
-pub use emitted_function::EmittedFunctionSummary;
+// `FunctionBodySize` and `FunctionLocalCount` are part of the public face
+// because `EmittedFunctionSummary` carries them: a `pub` struct whose fields
+// name crate-private types is a `private_interfaces` warning, and flattening
+// them back to `u32` at the boundary would give the two figures the same type
+// again — which is exactly what this module's newtypes exist to prevent.
 pub(crate) use emitted_function::{
     emit_size_report_requested, write_size_report_file_if_requested, EmittedFunction,
-    FunctionBodyBudget, FunctionBodySize, FunctionIdentity, ModuleCode,
+    FunctionBodyBudget, FunctionIdentity, ModuleCode,
 };
+pub use emitted_function::{EmittedFunctionSummary, FunctionBodySize, FunctionLocalCount};
 use heap::*;
 use intrinsics::*;
 use module::*;
@@ -324,9 +329,9 @@ mod tests {
             largest.name
         );
         assert!(
-            line.contains(&format!(" bytes={} ", largest.body_bytes)),
+            line.contains(&format!(" bytes={} ", largest.body_bytes.bytes())),
             "typed report says {} bytes but debug_dump says {line}",
-            largest.body_bytes
+            largest.body_bytes.bytes()
         );
         assert!(
             line.contains(&format!(" index={} ", largest.wasm_index)),
@@ -412,11 +417,11 @@ mod tests {
         );
         for body in probe_bodies {
             assert!(
-                body.body_bytes <= BUDGET_BYTES,
+                body.body_bytes.bytes() <= BUDGET_BYTES,
                 "{} is {} bytes against a budget of {BUDGET_BYTES}; \
                  one dynamic-key property read should not cost a six-figure body",
                 body.name,
-                body.body_bytes
+                body.body_bytes.bytes()
             );
         }
     }

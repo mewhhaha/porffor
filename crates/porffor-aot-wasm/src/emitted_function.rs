@@ -143,7 +143,7 @@ impl FunctionIdentity {
 /// A newtype rather than a bare `u32` so a size cannot be swapped with a
 /// function index, a budget, or a local count at a call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct FunctionBodySize(u32);
+pub struct FunctionBodySize(u32);
 
 impl FunctionBodySize {
     /// Measures a finished body. This is the only constructor, and it is called
@@ -153,7 +153,7 @@ impl FunctionBodySize {
         Self(u32::try_from(raw_body.len()).unwrap_or(u32::MAX))
     }
 
-    pub(crate) const fn bytes(self) -> u32 {
+    pub const fn bytes(self) -> u32 {
         self.0
     }
 }
@@ -167,7 +167,7 @@ impl FunctionBodySize {
 /// a value per live local at every control-flow join — so virtual-register
 /// pressure grows with `locals x blocks`, which a byte count alone can hide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct FunctionLocalCount(u32);
+pub struct FunctionLocalCount(u32);
 
 impl FunctionLocalCount {
     /// Every value type this decoder will step over, as its single-byte
@@ -232,7 +232,7 @@ impl FunctionLocalCount {
         Some(Self(total))
     }
 
-    pub(crate) const fn count(self) -> u32 {
+    pub const fn count(self) -> u32 {
         self.0
     }
 }
@@ -241,9 +241,9 @@ impl FunctionLocalCount {
 ///
 /// `unknown` rather than `0`, so "the decoder does not understand this body"
 /// cannot be mistaken for "this body declares no locals".
-fn format_declared_locals(locals: Option<u32>) -> String {
+fn format_declared_locals(locals: Option<FunctionLocalCount>) -> String {
     match locals {
-        Some(locals) => locals.to_string(),
+        Some(locals) => locals.count().to_string(),
         None => "unknown".to_string(),
     }
 }
@@ -262,15 +262,23 @@ fn format_declared_locals(locals: Option<u32>) -> String {
 /// [`FunctionIdentity::category`], an exhaustive match with no `_` arm, so a new
 /// class of emitted function fails to build until it is named — the report
 /// cannot silently acquire an `other` bucket.
+///
+/// The two size figures keep the newtypes [`EmittedFunctionRecord`] stores them
+/// in rather than being flattened to `u32` on the way out. This row exists to
+/// carry *two* numbers that are both "a count about one body" and that must
+/// never be confused — the whole point of reporting `most_locals` separately
+/// from `largest` is that they answer different questions — so
+/// `EmittedFunctionSummary { body_bytes: locals, declared_locals: bytes }` has
+/// to be a type error rather than a plausible transcription slip.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmittedFunctionSummary {
     pub wasm_index: u32,
     pub name: String,
     pub category: &'static str,
-    pub body_bytes: u32,
+    pub body_bytes: FunctionBodySize,
     /// `None` when the body's local declaration did not decode; see
     /// [`FunctionLocalCount::decode`]. Rendered as `unknown`, never as `0`.
-    pub declared_locals: Option<u32>,
+    pub declared_locals: Option<FunctionLocalCount>,
 }
 
 impl EmittedFunctionSummary {
@@ -284,7 +292,7 @@ impl EmittedFunctionSummary {
         format!(
             "index={} bytes={} locals={} kind={} name={}",
             self.wasm_index,
-            self.body_bytes,
+            self.body_bytes.bytes(),
             format_declared_locals(self.declared_locals),
             self.category,
             self.name
@@ -484,10 +492,8 @@ impl ModuleFunctionTable {
                 wasm_index: record.wasm_index,
                 name: record.identity.wasm_name(),
                 category: record.identity.category(),
-                body_bytes: record.body_bytes.bytes(),
-                declared_locals: record
-                    .declared_locals
-                    .map(FunctionLocalCount::count),
+                body_bytes: record.body_bytes,
+                declared_locals: record.declared_locals,
             })
             .collect()
     }
@@ -652,7 +658,7 @@ mod tests {
             EmittedFunctionSummary::largest(&summaries).expect("table should not be empty");
         assert_eq!(largest.name, "helper::object_read");
         assert_eq!(largest.category, "runtime-helper");
-        assert!(table.total_body_bytes() >= u64::from(largest.body_bytes));
+        assert!(table.total_body_bytes() >= u64::from(largest.body_bytes.bytes()));
     }
 
     /// The typed report and the rendered report are the same traversal, so a
@@ -692,7 +698,10 @@ mod tests {
         );
         assert_eq!(
             EmittedFunctionSummary::attribution_line("largest emitted function", Some(largest)),
-            format!("largest emitted function: {}", &lines[0]["emitted function: ".len()..]),
+            format!(
+                "largest emitted function: {}",
+                &lines[0]["emitted function: ".len()..]
+            ),
         );
         assert_eq!(
             EmittedFunctionSummary::attribution_line("largest emitted function", None),
