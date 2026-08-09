@@ -707,9 +707,10 @@ mod tests {
 
     #[test]
     fn every_installed_intl_namespace_member_is_rooted_by_the_namespace_plan() {
-        // `IntlNamespaceMembers` is a proof that the installation list is
-        // rooted, and the two lists are declared in different crates. This is
-        // the one link the types cannot carry, so it is checked here.
+        // Kept only for its message. The containment itself is now a `const _`
+        // block beside `INTL_NAMESPACE_ROOTS`, so the drift this used to catch
+        // at `cargo test` no longer compiles; do not read this test's presence
+        // as meaning the check lives at test time.
         for (name, builtin) in INTL_NAMESPACE_CONSTRUCTORS {
             assert!(
                 INTL_NAMESPACE_ROOTS.contains(builtin),
@@ -889,6 +890,44 @@ const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [
     StandardBuiltinId::IntlDateTimeFormatBoundFormat,
 ];
 
+/// `INTL_NAMESPACE_CONSTRUCTORS` ⊆ [`INTL_NAMESPACE_ROOTS`], checked by the
+/// compiler rather than by a test.
+///
+/// This is the one link the two types cannot carry. [`IntlNamespacePlan::rooted`]
+/// seeds `INTL_NAMESPACE_ROOTS` and [`IntlNamespacePlan::members`] hands out
+/// `INTL_NAMESPACE_CONSTRUCTORS`, which lives in `porffor-ir`; nothing relates
+/// them, so [`IntlNamespaceMembers`]'s "every member is rooted" claim rests on
+/// this containment alone. Adding `Intl.NumberFormat` to the shape list and
+/// forgetting the root list is the plausible mistake, and it is not a missing
+/// property: `init_intl_object` walks the member list with no per-member guard,
+/// so an unseeded member becomes a `GlobalGet` on a global that is never
+/// `GlobalSet`, paired with an unconditional `Function` tag — a callable with a
+/// zero payload.
+///
+/// `StandardBuiltinId` is fieldless, so `as u32` is a total, `const`-evaluable
+/// identity for it and the whole check runs at compile time.
+const _: () = {
+    let mut member = 0;
+    while member < INTL_NAMESPACE_CONSTRUCTORS.len() {
+        let needle = INTL_NAMESPACE_CONSTRUCTORS[member].1 as u32;
+        let mut root = 0;
+        let mut found = false;
+        while root < INTL_NAMESPACE_ROOTS.len() {
+            if INTL_NAMESPACE_ROOTS[root] as u32 == needle {
+                found = true;
+            }
+            root += 1;
+        }
+        assert!(
+            found,
+            "an `Intl` namespace member declared on the IR shape is missing from \
+             `INTL_NAMESPACE_ROOTS`, so a bare `Intl` reference would install it as a \
+             `Function`-tagged value with a never-written payload"
+        );
+        member += 1;
+    }
+};
+
 pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};
 
 /// The `Intl` namespace plan and its member-list witness, in a module of their
@@ -972,6 +1011,13 @@ mod intl_namespace {
 
     /// Proof that every member of the `Intl` namespace object is rooted in the
     /// plan that produced it.
+    ///
+    /// The proof has two halves, and only one of them is this type: minting one
+    /// requires a plan that has seeded [`INTL_NAMESPACE_ROOTS`], and the `const`
+    /// block beside that list is what makes "seeded the roots" imply "rooted
+    /// every member of `INTL_NAMESPACE_CONSTRUCTORS`". The second half is
+    /// cross-crate — the member list lives in `porffor-ir` — so it cannot be a
+    /// property of this type, only of the build.
     ///
     /// Only [`IntlNamespacePlan::members`] can mint one — reached through
     /// [`RuntimeBootstrapPlan::intl_namespace_members`] — and it is the only way

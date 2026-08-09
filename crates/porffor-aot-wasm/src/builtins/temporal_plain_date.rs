@@ -452,13 +452,22 @@ pub(crate) enum MonthDayYearUse {
 /// `#[must_use]` fires only on an unused expression, so
 /// `let _ = self.reserve_temporal_era_slots();` compiles, and the four slots
 /// leak from the strict LIFO stack `release_temp_local` asserts on. The symptom
-/// is then an `assert_eq!` panic inside an unrelated later emitter. A `Drop`
-/// impl would move that panic to the leak site, but a type that implements
-/// `Drop` cannot be destructured by move, which is how all three steps of this
-/// chain consume their input; converting them to accessors plus
-/// `std::mem::forget` is a real change and wants a lane that can run the
-/// temporal suites. Until then the ordering is hand-checked across the ten
-/// emitters that reserve slots.
+/// is then an `assert_eq!` panic inside an unrelated later emitter.
+///
+/// A `Drop` impl would move that panic to the leak site, and the obvious
+/// objection — a type that implements `Drop` cannot be destructured by move,
+/// which is how all three steps consume their input — is soluble: a private
+/// zero-sized guard *field* keeps the destructuring legal, at the cost of a
+/// `std::mem::forget` at each step. The reason not to do it is the other one.
+/// Every caller reserves these slots and then emits through `?`
+/// (`emit_object_read`, `emit_temporal_to_temporal_calendar_identifier`,
+/// `emit_temporal_property_bag_integer`, …), so a bag alive across an
+/// `EmitError` is *routine*, not a bug: `EmitError::unsupported` is a recovered
+/// outcome that reports one case as NotImplemented. A panicking `Drop` would
+/// convert every one of those into a compiler crash. Making it fire only on the
+/// leak needs the failure path to defuse the guard explicitly, which is a real
+/// change and wants a lane that can run the temporal suites. Until then the
+/// ordering is hand-checked across the ten emitters that reserve slots.
 ///
 /// The split into two types is deliberate: reserving and reading are
 /// separate because the locals must be reserved before the caller's scratch

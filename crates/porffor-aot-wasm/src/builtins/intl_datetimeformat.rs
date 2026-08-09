@@ -639,6 +639,44 @@ impl IntlDtfKeywordNeedle {
     }
 }
 
+/// The byte range of a canonicalised tag's `-u-` singleton, as two wasm locals.
+///
+/// [`FunctionBuilder::emit_intl_dtf_tag_contains`] takes one of these and has
+/// no other way to bound its scan, and the only constructor is
+/// [`FunctionBuilder::emit_intl_dtf_unicode_extension_window`] — so "search the
+/// whole tag" is not a thing a call site can express, which is what it used to
+/// do. Searching the whole tag read keyword bytes that live in some *other*
+/// singleton: `new Intl.DateTimeFormat("en-x-ca-iso8601")` matched `-ca-iso8601`
+/// at byte 4 of a private-use sequence and reported
+/// `resolvedOptions().calendar === "iso8601"` with `.locale` grown a
+/// `-u-ca-iso8601` it never had. ECMA-402 9.2.7 resolves keywords out of
+/// `r.[[extension]]`, which is the `-u-` sequence and nothing else.
+///
+/// `start` is the index of the `-` that closes the `-u-` introducer (so a
+/// needle, which itself opens with `-`, can match starting there); `end` is one
+/// past the last byte of the extension, i.e. the index of the next singleton's
+/// `-` or the length of the tag. A tag with no `-u-` singleton yields `0`/`0`,
+/// which makes every scan over the window fail on its first bounds test.
+struct IntlDtfUnicodeExtensionWindow {
+    start_local: u32,
+    end_local: u32,
+}
+
+/// A relevant-extension-key options value that has been through the `type`
+/// nonterminal check of ECMA-402 11.1.2 steps 8 and 10 and been ASCII-folded.
+///
+/// The wasm local it names is the *folded* one, and the only way to obtain the
+/// type is [`FunctionBuilder::emit_intl_dtf_type_nonterminal_guard`], which
+/// emits the `RangeError` and the fold. Its only consumer is
+/// [`FunctionBuilder::emit_intl_dtf_accepted_row_lookup`]. So "walk the
+/// `keyLocaleData` table for a value that was never checked, or check it after
+/// the walk" has no spelling — where before both were straight-line steps in
+/// one emitter and either edit compiled, produced no dead code and turned all
+/// 28 invalid-value cases red.
+struct IntlDtfWellFormedTypeValue {
+    lowered_local: u32,
+}
+
 /// An offset from UTC in whole signed minutes.
 ///
 /// The only constructor range-checks, so "the parser forgot to bound the hour"
@@ -1799,12 +1837,16 @@ impl<'a> FunctionBuilder<'a> {
     /// kinds of thing, and this is the one place the difference is decided:
     ///
     /// * A value that is not the `type` nonterminal — `alphanum{3,8}` subtags
-    ///   joined by `-` — is a `RangeError`, thrown here. The emitted code
-    ///   returns before it can reach the table walk below, so "ill formed" is
-    ///   not a state `dest_row_local` is able to hold; it is not merely a
-    ///   branch that happens to come first. All 28 strings in
+    ///   joined by `-` — is a `RangeError`, thrown by
+    ///   [`Self::emit_intl_dtf_type_nonterminal_guard`]. "Ill formed" is not a
+    ///   state `dest_row_local` is able to hold, and that is carried by
+    ///   [`IntlDtfWellFormedTypeValue`] rather than by the two emitters
+    ///   happening to appear in this order: the table walk takes one and the
+    ///   guard is its only producer. All 28 strings in
     ///   `constructor-options-calendar-invalid.js` and
-    ///   `constructor-options-numberingSystem-invalid.js` fail this check.
+    ///   `constructor-options-numberingSystem-invalid.js` fail this check —
+    ///   and, being ill-formed rather than merely unsupported, none of them
+    ///   would notice if the ordering were the only thing enforcing it.
     /// * A well-formed value this implementation has no data for is **not** an
     ///   error. 9.2.7 step 9(i)(iv) only honours an options value that
     ///   `keyLocaleData` contains and drops every other one, so
@@ -1853,46 +1895,20 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_string_payload(value_payload_local, value_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(value_payload_local));
         self.emit_return_current_completion_if_throw(function);
-        self.emit_intl_dtf_is_unicode_type_i32(value_payload_local, ok_local, function);
-        function.instruction(&Instruction::LocalGet(ok_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
+        let well_formed = self.emit_intl_dtf_type_nonterminal_guard(
+            value_payload_local,
+            ok_local,
+            lowered_local,
             &range_message,
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        // `CanonicalizeUValue` (ECMA-402 6.2.4, reached from 9.2.7 step 9(i))
-        // ASCII-lowercases the value before it is looked up in `keyLocaleData`.
-        // The `type` nonterminal above accepts `A-Z`, so `{ calendar: "ISO8601" }`
-        // is well formed and must resolve to `iso8601` — without this fold it
-        // matches no row, leaves `dest_row_local` at 0 and silently resolves to
-        // the *default* calendar, which is a wrong answer rather than an error
-        // (`intl402/DateTimeFormat/canonicalize-calendar.js:15`).
-        //
-        // The tag path gets the same fold from `emit_intl_canonicalize_locale_tag`,
-        // which lowercases every byte in its first pass; this is the options
-        // path's equivalent, and the `const` assertion on
-        // `IntlDtfRelevantExtensionKey::accepted` is what lets a plain byte
-        // compare stand in for a case-insensitive one.
-        self.emit_intl_dtf_ascii_lowercase(value_payload_local, lowered_local, function)?;
-        // Well formed. A row of `keyLocaleData` reports its canonical row;
-        // anything else leaves `dest_row_local` at 0, which 9.2.7 reads as
-        // "the options bag contributed nothing".
-        for (index, (spelling, _)) in key.accepted().iter().enumerate() {
-            self.emit_dtf_set_string(expected_local, spelling, function);
-            self.emit_string_payload_equality_i32(lowered_local, expected_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_dtf_set_const(
-                dest_row_local,
-                key.canonical_row(index) as i64 + 1,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
+        self.emit_intl_dtf_accepted_row_lookup(
+            key,
+            well_formed,
+            expected_local,
+            dest_row_local,
+            function,
+        );
         function.instruction(&Instruction::End);
 
         for local in [
@@ -1906,6 +1922,83 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(local);
         }
         Ok(())
+    }
+
+    /// The `type`-nonterminal `RangeError` of ECMA-402 11.1.2 steps 8 and 10,
+    /// followed by `CanonicalizeUValue`'s ASCII fold.
+    ///
+    /// Returns the only thing
+    /// [`Self::emit_intl_dtf_accepted_row_lookup`] accepts, which is what keeps
+    /// the two in this order. Hoisting the table walk above the throw, or
+    /// reaching the walk without emitting the throw at all, is now a type
+    /// error rather than a reordering that compiles and turns all 28 cases of
+    /// `constructor-options-calendar-invalid.js` and
+    /// `constructor-options-numberingSystem-invalid.js` red. (It does not make
+    /// *deleting* the `emit_return_current_completion` below impossible —
+    /// nothing in a type can see that — but that line and the throw it belongs
+    /// to now live together in one emitter instead of being two steps in a
+    /// straight-line body.)
+    ///
+    /// The fold is here rather than in the lookup because it is part of what
+    /// "well formed" means downstream: the `type` nonterminal accepts `A-Z`, so
+    /// `{ calendar: "ISO8601" }` is well formed and must resolve to `iso8601`.
+    /// Without it the value matches no row, leaves the destination at 0 and
+    /// silently resolves to the *default* calendar — a wrong answer rather than
+    /// an error (`intl402/DateTimeFormat/canonicalize-calendar.js:15`). The tag
+    /// path gets the same fold from `emit_intl_canonicalize_locale_tag`, whose
+    /// first pass lowercases every byte; the `const` assertion on
+    /// [`IntlDtfRelevantExtensionKey::accepted`] is what lets a plain byte
+    /// compare stand in for a case-insensitive one on both paths.
+    fn emit_intl_dtf_type_nonterminal_guard(
+        &mut self,
+        value_payload_local: u32,
+        ok_local: u32,
+        lowered_local: u32,
+        range_message: &str,
+        function: &mut Function,
+    ) -> Result<IntlDtfWellFormedTypeValue, EmitError> {
+        self.emit_intl_dtf_is_unicode_type_i32(value_payload_local, ok_local, function);
+        function.instruction(&Instruction::LocalGet(ok_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            range_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_intl_dtf_ascii_lowercase(value_payload_local, lowered_local, function)?;
+        Ok(IntlDtfWellFormedTypeValue { lowered_local })
+    }
+
+    /// `keyLocaleData` lookup for a value that has been through
+    /// [`Self::emit_intl_dtf_type_nonterminal_guard`].
+    ///
+    /// A row reports its 1-based *canonical* row; anything else leaves
+    /// `dest_row_local` at 0, which 9.2.7 step 9(i)(iv) reads as "the options
+    /// bag contributed nothing" — the same state as an absent option, on
+    /// purpose.
+    fn emit_intl_dtf_accepted_row_lookup(
+        &mut self,
+        key: IntlDtfRelevantExtensionKey,
+        value: IntlDtfWellFormedTypeValue,
+        expected_local: u32,
+        dest_row_local: u32,
+        function: &mut Function,
+    ) {
+        for (index, (spelling, _)) in key.accepted().iter().enumerate() {
+            self.emit_dtf_set_string(expected_local, spelling, function);
+            self.emit_string_payload_equality_i32(value.lowered_local, expected_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_dtf_set_const(
+                dest_row_local,
+                key.canonical_row(index) as i64 + 1,
+                function,
+            );
+            function.instruction(&Instruction::End);
+        }
     }
 
     /// `ok_local = 1` when the string is `alphanum{3,8}(-alphanum{3,8})*`.
@@ -3403,30 +3496,32 @@ impl<'a> FunctionBuilder<'a> {
     /// (The *options* path has no canonicalisation upstream of it and does its
     /// own fold — see `emit_intl_dtf_relevant_extension_key_option`.)
     ///
-    /// **Known limitation, deliberately recorded rather than papered over.**
-    /// The scan has no notion of where the `-u-` singleton begins or ends: it
-    /// searches the whole tag. So bytes that spell a keyword inside some *other*
-    /// singleton are read as if they were Unicode extension keywords.
-    /// `new Intl.DateTimeFormat("en-x-ca-iso8601")` matches `-ca-iso8601` at
-    /// byte 4 of a private-use sequence and reports
-    /// `resolvedOptions().calendar === "iso8601"` with `.locale` grown a
-    /// `-u-ca-iso8601` it never had; `en-u-ca-gregory-foo` is read as `gregory`
-    /// where the spec sees the unsupported value `gregory-foo` and drops it.
-    /// This is not currently reachable from any pinned test — the `-u-` reads
-    /// only run once `emit_intl_dtf_record_lookup_match` has matched, and that
-    /// gate accepts only `en` — but it is a wrong answer, not a design choice.
-    /// Closing it means bounding the scan to the `-u-` window: locate `-u-`,
-    /// stop at the next single-character singleton or at the end of the tag,
-    /// and search inside that window only.
+    /// The scan is bounded to the `-u-` singleton by
+    /// [`IntlDtfUnicodeExtensionWindow`], which is a parameter precisely so that
+    /// it cannot be omitted. Unbounded, this read the whole tag and answered
+    /// `iso8601` for `new Intl.DateTimeFormat("en-x-ca-iso8601")`, whose `ca`
+    /// bytes belong to a private-use sequence; see that type for the rest.
     ///
-    /// The terminator is not optional and not a parameter: it is carried by
-    /// [`IntlDtfKeywordNeedle`], the only type this accepts. A bare substring
-    /// search matched `-hc-h11` inside `en-u-hc-h11x`, which was latent only
-    /// because `hc` was the single key that used it.
+    /// Two rules bound a match, and both are about *subtags*, not bytes:
+    ///
+    /// * The needle must end at the window's end or be followed by `-`. That
+    ///   terminator is not optional and not a parameter: it is carried by
+    ///   [`IntlDtfKeywordNeedle`], the only type this accepts. A bare substring
+    ///   search matched `-hc-h11` inside `en-u-hc-h11x`, which was latent only
+    ///   because `hc` was the single key that used it.
+    /// * What follows inside the window must be the next *key*, i.e. a subtag
+    ///   of exactly two bytes. A `uvalue` is one-or-more subtags (ECMA-402 /
+    ///   UTS 35 `keyword ::= key (sep type)?`, `type ::= alphanum{3,8}
+    ///   (sep alphanum{3,8})*`), so `en-u-ca-gregory-foo` carries the single
+    ///   unsupported value `gregory-foo` and 9.2.7 step 9(h) drops it; without
+    ///   this rule the scan read it as `gregory`. Every value this
+    ///   implementation has data for is one subtag, so "the next subtag is a
+    ///   key" is exactly "the match consumed the whole value".
     fn emit_intl_dtf_tag_contains(
         &mut self,
         tag_local: u32,
         needle: &IntlDtfKeywordNeedle,
+        window: &IntlDtfUnicodeExtensionWindow,
         dest_local: u32,
         function: &mut Function,
     ) {
@@ -3434,6 +3529,7 @@ impl<'a> FunctionBuilder<'a> {
         let length_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
         let inner_local = self.reserve_temp_local();
+        let tail_local = self.reserve_temp_local();
         let byte_local = self.reserve_temp_local();
         let matched_local = self.reserve_temp_local();
         let needle_bytes: Vec<i64> = needle.bytes().to_vec();
@@ -3441,13 +3537,18 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_unpack_string_payload(tag_local, offset_local, length_local, function);
         self.emit_dtf_set_const(dest_local, 0, function);
-        self.emit_dtf_set_const(index_local, 0, function);
+        // The scan starts at the `-` closing the `-u-` introducer and stops at
+        // the window's end, so a keyword spelled inside another singleton is
+        // never even looked at. A tag with no `-u-` has `start == end == 0` and
+        // the bounds test below fails on the first iteration.
+        function.instruction(&Instruction::LocalGet(window.start_local));
+        function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::I64Const(needle_len));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::LocalGet(window.end_local));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::BrIf(1));
         self.emit_dtf_set_const(matched_local, 1, function);
@@ -3464,9 +3565,11 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_dtf_set_const(matched_local, 0, function);
             function.instruction(&Instruction::End);
         }
-        // The subtag boundary. The byte after the needle must be `-`, or there
-        // must be no byte after the needle at all. This whole check is
-        // depth-balanced so the `Br(2)` below still names the enclosing Block.
+        // The subtag boundary. Either the needle ends the window, or the byte
+        // after it is `-` *and* the subtag that follows is a two-byte key —
+        // which is what makes `-ca-gregory` decline to match the single
+        // unsupported value `gregory-foo`. This whole check is depth-balanced
+        // so the `Br(2)` below still names the enclosing Block.
         function.instruction(&Instruction::LocalGet(matched_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -3476,15 +3579,41 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(inner_local));
         function.instruction(&Instruction::LocalGet(inner_local));
-        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::LocalGet(window.end_local));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // Something follows inside the window, so the match is rejected unless
+        // that something is the next key.
+        self.emit_dtf_set_const(matched_local, 0, function);
         self.emit_load_string_byte(offset_local, inner_local, byte_local, function);
         function.instruction(&Instruction::LocalGet(byte_local));
         function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dtf_set_const(matched_local, 0, function);
+        // A subtag starting at `inner + 1` is two bytes long exactly when the
+        // window ends at `inner + 3` or a `-` sits there.
+        function.instruction(&Instruction::LocalGet(inner_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(tail_local));
+        function.instruction(&Instruction::LocalGet(tail_local));
+        function.instruction(&Instruction::LocalGet(window.end_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(matched_local, 1, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(tail_local));
+        function.instruction(&Instruction::LocalGet(window.end_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(offset_local, tail_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(matched_local, 1, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -3507,7 +3636,160 @@ impl<'a> FunctionBuilder<'a> {
         for local in [
             matched_local,
             byte_local,
+            tail_local,
             inner_local,
+            index_local,
+            length_local,
+            offset_local,
+        ] {
+            self.release_temp_local(local);
+        }
+    }
+
+    /// Locates the `-u-` singleton of a canonicalised tag, as the window
+    /// [`FunctionBuilder::emit_intl_dtf_tag_contains`] scans inside.
+    ///
+    /// Two passes, both plain byte loops over the tag:
+    ///
+    /// 1. find `-u-`. The canonicaliser always emits a language subtag first,
+    ///    so the singleton is always introduced by a `-` and there is no
+    ///    leading-`u-` case to handle. Not found leaves both locals at 0.
+    /// 2. from there, find the next singleton — a one-byte subtag, i.e. a `-`
+    ///    with either the end of the tag or another `-` two bytes later. That
+    ///    is where the Unicode extension stops; canonical form sorts `-x-`
+    ///    last, so this is usually it. Not found leaves the end at the tag's
+    ///    length.
+    fn emit_intl_dtf_unicode_extension_window(
+        &mut self,
+        tag_local: u32,
+        window: &IntlDtfUnicodeExtensionWindow,
+        function: &mut Function,
+    ) {
+        let offset_local = self.reserve_temp_local();
+        let length_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let probe_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let matched_local = self.reserve_temp_local();
+
+        self.emit_unpack_string_payload(tag_local, offset_local, length_local, function);
+        self.emit_dtf_set_const(window.start_local, 0, function);
+        self.emit_dtf_set_const(window.end_local, 0, function);
+        self.emit_dtf_set_const(index_local, 0, function);
+
+        // Pass 1 — the `-u-` introducer.
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_dtf_set_const(matched_local, 1, function);
+        for (position, expected) in [(0i64, b'-'), (1, b'u'), (2, b'-')] {
+            function.instruction(&Instruction::LocalGet(index_local));
+            function.instruction(&Instruction::I64Const(position));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(probe_local));
+            self.emit_load_string_byte(offset_local, probe_local, byte_local, function);
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(expected as i64));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_dtf_set_const(matched_local, 0, function);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // The window opens on the `-` that closes `-u-`, because a needle opens
+        // with its own `-`. The end defaults to the whole tag and pass 2 may
+        // pull it in.
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(window.start_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::LocalSet(window.end_local));
+        // If / Loop / Block: depth 2 is the enclosing Block.
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        // Pass 2 — the next singleton, if the tag has a `-u-` at all.
+        function.instruction(&Instruction::LocalGet(window.start_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(window.start_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_load_string_byte(offset_local, index_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(probe_local));
+        self.emit_dtf_set_const(matched_local, 0, function);
+        function.instruction(&Instruction::LocalGet(probe_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(matched_local, 1, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(probe_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_string_byte(offset_local, probe_local, byte_local, function);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_dtf_set_const(matched_local, 1, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(matched_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalSet(window.end_local));
+        // If / If / Loop / Block: depth 3 is the Block opened in this pass.
+        function.instruction(&Instruction::Br(3));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        for local in [
+            matched_local,
+            byte_local,
+            probe_local,
             index_local,
             length_local,
             offset_local,
@@ -3539,11 +3821,19 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         let found_local = self.reserve_temp_local();
+        // Located once per key rather than once per spelling: the scan is
+        // unrolled over `key.accepted()`, and the window does not depend on
+        // which needle is being looked for.
+        let window = IntlDtfUnicodeExtensionWindow {
+            start_local: self.reserve_temp_local(),
+            end_local: self.reserve_temp_local(),
+        };
         self.emit_dtf_set_const(dest_row_local, 0, function);
         self.emit_dtf_if_nonzero(tag_local, function);
+        self.emit_intl_dtf_unicode_extension_window(tag_local, &window, function);
         for (index, (spelling, _)) in key.accepted().iter().enumerate() {
             let needle = IntlDtfKeywordNeedle::keyword(key, spelling);
-            self.emit_intl_dtf_tag_contains(tag_local, &needle, found_local, function);
+            self.emit_intl_dtf_tag_contains(tag_local, &needle, &window, found_local, function);
             self.emit_dtf_if_nonzero(found_local, function);
             self.emit_dtf_set_const(
                 dest_row_local,
@@ -3553,6 +3843,8 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::End);
+        self.release_temp_local(window.end_local);
+        self.release_temp_local(window.start_local);
         self.release_temp_local(found_local);
     }
 
