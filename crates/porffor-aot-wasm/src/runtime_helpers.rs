@@ -484,7 +484,10 @@ mod tests {
                     .expect("scanned path is under `src`")
                     .display()
                     .to_string();
-                sites.extend(std::iter::repeat_n(relative, dense.matches(&needle).count()));
+                sites.extend(std::iter::repeat_n(
+                    relative,
+                    dense.matches(&needle).count(),
+                ));
             }
         }
         sites.sort();

@@ -361,7 +361,6 @@ impl GregoryEra {
             Self::Bce => &["bce", "bc"],
         }
     }
-
 }
 
 /// One era of one calendar.
@@ -411,7 +410,6 @@ impl Era {
             Self::Gregory(era) => era.direction(),
         }
     }
-
 }
 
 /// What a `Temporal.PlainMonthDay` property bag does with a supplied `year`.
@@ -919,7 +917,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Proleptic Gregorian `era` / `eraYear` into the result pair.
     ///
     /// One `isoYear > 0` test, and both of its arms are filled from
-    /// [`Era::ALL`] in its declared order. Neither accessor decides for itself
+    /// [`GregoryEra::ALL`] in its declared order. Neither accessor decides for itself
     /// which branch is `ce`: `emit_temporal_gregorian_era_arm` is handed the
     /// [`Era`] and derives *both* the era code and the era-year arithmetic from
     /// it, so the `era` an accessor reports and the `eraYear` beside it cannot

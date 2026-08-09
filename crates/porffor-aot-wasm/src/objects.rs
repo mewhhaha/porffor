@@ -6253,7 +6253,13 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_typed_array_or_object_index_write_from_locals_inner(
-            0, 1, 2, 3, 4, 5, &mut function,
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            &mut function,
         )?;
         self.pop_scope();
         self.object_write_strict_flag_local = None;
