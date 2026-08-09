@@ -282,29 +282,38 @@ mod tests {
 
     #[test]
     fn runtime_helper_count_is_derived_not_asserted() {
-        // 32 unconditional helpers, plus `JSON.stringify`'s value helper only
-        // when `JSON.stringify` is compiled. The hand-written `27` this
-        // replaces had drifted by five.
-        let plain = emit_script("this;").expect("script should emit");
-        assert!(
-            plain
-                .debug_dump
-                .lines()
-                .any(|line| line == "runtime helper functions: 32"),
-            "{}",
-            plain.debug_dump
+        // The point of this test is that the reported figure is *derived from
+        // the registry*, not hand-written: the literal `27` it replaces had
+        // drifted from the truth by five. So the expectation is spelled from
+        // `RuntimeHelperId::ALL` and a new helper moves both sides together.
+        //
+        // Exactly one helper is conditional (`JSON.stringify`'s value helper).
+        // That does NOT make the emitted count vary by script: `emit` gates it
+        // on `compiled_standard_builtins.contains(JsonStringify)`, and the
+        // default bootstrap installs the full global object, so
+        // `JSON.stringify` has a compiled body for every script — including one
+        // that never mentions `JSON`. Asserting a lower count for `this;` would
+        // be asserting a demand-driven bootstrap this backend does not have
+        // yet, which is why that assertion failed the first time it was run.
+        let conditional = RuntimeHelperId::ALL
+            .iter()
+            .filter(|helper| helper.is_conditional())
+            .count();
+        assert_eq!(
+            conditional, 1,
+            "only JSON.stringify's value helper is conditional; \
+             a second conditional helper needs this test to distinguish them"
         );
 
-        let with_json =
-            emit_script("JSON.stringify({});").expect("JSON.stringify script should emit");
-        assert!(
-            with_json
-                .debug_dump
-                .lines()
-                .any(|line| line == "runtime helper functions: 33"),
-            "{}",
-            with_json.debug_dump
-        );
+        let expected = format!("runtime helper functions: {}", RuntimeHelperId::ALL.len());
+        for source in ["this;", "JSON.stringify({});"] {
+            let artifact = emit_script(source).expect("script should emit");
+            assert!(
+                artifact.debug_dump.lines().any(|line| line == expected),
+                "expected `{expected}` for `{source}`\n{}",
+                artifact.debug_dump
+            );
+        }
     }
 
     #[test]
