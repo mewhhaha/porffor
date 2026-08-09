@@ -4097,19 +4097,26 @@ report;
             .parse_diagnostic()
             .expect("engine error should retain parse diagnostic");
         assert_eq!(
-            diagnostic.kind,
+            diagnostic.kind(),
             porffor_front::ParseDiagnosticKind::MalformedJavaScript
         );
-        assert_eq!(diagnostic.phase, porffor_front::ParseDiagnosticPhase::Parse);
-        assert_eq!(diagnostic.error_type, "SyntaxError");
-        assert_eq!(diagnostic.code, "P_PARSE_MALFORMED");
+        assert_eq!(diagnostic.phase(), porffor_front::ParseDiagnosticPhase::Parse);
+        assert_eq!(diagnostic.error_type(), "SyntaxError");
+        assert_eq!(diagnostic.code, porffor_front::ParseCode::Malformed);
         assert!(diagnostic.span.is_some());
     }
 
     #[test]
     fn engine_error_preserves_structured_ir_early_error_diagnostic() {
-        let source_diagnostic =
-            IrDiagnostic::early_error("E_TEST_EARLY", "SyntaxError", "early error: test", None);
+        // The code is a real inhabitant of the domain. It used to be
+        // `"E_TEST_EARLY"`, a code no producer emits, which a `&'static str`
+        // field happily accepted — the mistake class this type exists to make
+        // unrepresentable.
+        let source_diagnostic = IrDiagnostic::rejected(
+            porffor_ir::EarlyErrorCode::ObjectDuplicateProto,
+            "early error: test",
+            None,
+        );
         let err = EngineError::from_ir_diagnostic(source_diagnostic.clone());
 
         assert_eq!(err.message(), source_diagnostic.message);
@@ -4128,9 +4135,12 @@ report;
         let diagnostic = err
             .parse_diagnostic()
             .expect("engine error should retain front-end diagnostic");
-        assert_eq!(diagnostic.code, "E_OBJECT_DUPLICATE_PROTO");
-        assert_eq!(diagnostic.phase, porffor_front::ParseDiagnosticPhase::Early);
-        assert_eq!(diagnostic.error_type, "SyntaxError");
+        assert_eq!(
+            diagnostic.code,
+            porffor_front::ParseCode::Early(porffor_front::EarlyErrorCode::ObjectDuplicateProto)
+        );
+        assert_eq!(diagnostic.phase(), porffor_front::ParseDiagnosticPhase::Early);
+        assert_eq!(diagnostic.error_type(), "SyntaxError");
         assert!(err.ir_diagnostic().is_none());
     }
 

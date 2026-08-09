@@ -13,6 +13,17 @@ use crate::{
 };
 use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
 
+/// Reference Records (6.2.5) and their `[[Strict]]`. See
+/// `docs/rust-rewrite/contracts/reference-records.md`.
+///
+/// Declared here rather than in `lib.rs` because `ExprIr`'s reference-write
+/// variants carry `Strictness` in their fields, so the type has to be in scope
+/// in this file; the `#[path]` keeps the module a sibling file on disk.
+#[path = "reference.rs"]
+pub mod reference;
+
+pub use reference::{carried_strictness, Strictness};
+
 pub type FunctionId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1371,11 +1382,13 @@ pub enum ExprIr {
         name: String,
         value: Box<TypedExpr>,
         implicit: bool,
-        /// `true` when the assignment appears in strict code. PutValue step 2.b
-        /// then requires a ReferenceError if the reference is unresolvable, so
-        /// the backend guards the write with a runtime presence check on the
-        /// global object rather than silently creating the property.
-        strict: bool,
+        /// The `[[Strict]]` of the Reference this write consumes. PutValue
+        /// step 2.a requires a ReferenceError when the Reference is
+        /// unresolvable and `[[Strict]]` is true, so the backend guards the
+        /// write with a runtime presence check on the global object rather
+        /// than silently creating the property; step 3.d then makes a
+        /// `[[Set]]` that answered `false` a TypeError.
+        strictness: Strictness,
     },
     PropertyRead {
         target: Box<TypedExpr>,
@@ -1393,6 +1406,10 @@ pub enum ExprIr {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
         value: Box<TypedExpr>,
+        /// The `[[Strict]]` of the Reference this write consumes. PutValue
+        /// step 3.d: a `[[Set]]` that answered `false` is a TypeError only
+        /// when it is true.
+        strictness: Strictness,
     },
     PropertyUpdate {
         target: Box<TypedExpr>,
@@ -1400,12 +1417,16 @@ pub enum ExprIr {
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
         value_kind: ValueKind,
+        /// PutValue step 3.d, for the write-back half of `++`/`--`.
+        strictness: Strictness,
     },
     PropertyCompoundAssign {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
         op: ArithmeticBinaryOp,
         value: Box<TypedExpr>,
+        /// PutValue step 3.d, for the write-back half of `op=`.
+        strictness: Strictness,
     },
     UpdateIdentifier {
         name: String,
@@ -1418,6 +1439,9 @@ pub enum ExprIr {
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
         value_kind: ValueKind,
+        /// PutValue steps 2.a and 3.d, for the write-back half of `++`/`--`
+        /// on a global Reference.
+        strictness: Strictness,
     },
     CompoundAssignIdentifier {
         name: String,
@@ -1428,6 +1452,9 @@ pub enum ExprIr {
         name: String,
         op: ArithmeticBinaryOp,
         value: Box<TypedExpr>,
+        /// PutValue steps 2.a and 3.d, for the write-back half of `op=` on a
+        /// global Reference.
+        strictness: Strictness,
     },
     UnaryNumber {
         op: UnaryNumericOp,
@@ -1445,14 +1472,15 @@ pub enum ExprIr {
     },
     DeleteGlobalProperty {
         name: String,
-        /// `true` when the `delete` appears in strict code, so a `false`
-        /// `[[Delete]]` result must raise a TypeError (13.5.1.2 step 5.d).
-        strict: bool,
+        /// The `[[Strict]]` of the Reference `delete` evaluated, so a `false`
+        /// `[[Delete]]` result raises a TypeError (13.5.1.2 step 5.e).
+        strictness: Strictness,
     },
     DeleteProperty {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
-        strict: bool,
+        /// 13.5.1.2 step 5.e, as above.
+        strictness: Strictness,
     },
     TypeOf {
         expr: Box<TypedExpr>,
@@ -1605,6 +1633,11 @@ pub enum ExprIr {
     SuperPropertyWrite {
         key: PropertyKeyIr,
         value: Box<TypedExpr>,
+        /// PutValue step 3.d. The Receiver of the `[[Set]]` is `[[ThisValue]]`
+        /// (GetThisValue, 6.2.5.4) and is still implicit in the backend; see
+        /// the MC4b entry in
+        /// `docs/rust-rewrite/contracts/reference-records.md`.
+        strictness: Strictness,
     },
     PrivateRead {
         target: Box<TypedExpr>,
@@ -2954,7 +2987,9 @@ impl IrSummaryCounts {
                     }
                 }
             }
-            ExprIr::PropertyWrite { target, key, value } => {
+            ExprIr::PropertyWrite {
+                target, key, value, ..
+            } => {
                 self.property_writes += 1;
                 if matches!(key, PropertyKeyIr::StaticString(name) if name == "prototype") {
                     self.prototype_writes += 1;
@@ -3291,7 +3326,7 @@ impl IrSummaryCounts {
                 self.super_uses += 1;
                 self.visit_property_key(key);
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite { key, value, .. } => {
                 self.super_uses += 1;
                 self.visit_property_key(key);
                 self.visit_expr(value);

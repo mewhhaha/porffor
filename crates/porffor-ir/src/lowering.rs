@@ -1,5 +1,15 @@
 use super::*;
 
+/// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
+/// through the crate-root glob above; the rest of the module is `pub(crate)`
+/// and is named explicitly so every use of the Reference typestate in this
+/// file is traceable to one import. See
+/// `docs/rust-rewrite/contracts/reference-records.md`.
+use crate::ir::reference::{
+    reference_base_of_lowered_read, Composition, ReferenceBase, ReferencePins, ReferenceRecord,
+    UnsupportedTarget,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BindingInfo {
     pub(crate) mode: BindingMode,
@@ -63,46 +73,6 @@ enum PropertyUpdateOp {
     Arithmetic(ArithmeticOp),
     Bitwise(BitwiseOp),
     Logical(LogicalBinaryOp),
-}
-
-/// A property Reference split into the parts a compound assignment has to read
-/// from and then write back through, without re-evaluating either part.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PropertyReference {
-    Property {
-        target: TypedExpr,
-        key: PropertyKeyIr,
-    },
-    Private {
-        target: TypedExpr,
-        private_name_id: PrivateNameId,
-    },
-    Super {
-        key: PropertyKeyIr,
-    },
-    Global {
-        name: String,
-    },
-}
-
-impl PropertyReference {
-    fn read_ir(&self) -> ExprIr {
-        match self {
-            Self::Property { target, key } => ExprIr::PropertyRead {
-                target: Box::new(target.clone()),
-                key: key.clone(),
-            },
-            Self::Private {
-                target,
-                private_name_id,
-            } => ExprIr::PrivateRead {
-                target: Box::new(target.clone()),
-                private_name_id: *private_name_id,
-            },
-            Self::Super { key } => ExprIr::SuperPropertyRead { key: key.clone() },
-            Self::Global { name } => ExprIr::GlobalPropertyRead { name: name.clone() },
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11435,7 +11405,7 @@ impl<'a> ScriptLowerer<'a> {
                             ValueInfo::new(ValueKind::Boolean),
                             ExprIr::DeleteGlobalProperty {
                                 name: name.clone(),
-                                strict: self.is_current_owner_strict(),
+                                strictness: self.reference_strictness(),
                             },
                         );
                     }
@@ -11446,7 +11416,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::DeleteProperty {
                         target: Box::new(target),
                         key,
-                        strict: self.is_current_owner_strict(),
+                        strictness: self.reference_strictness(),
                     },
                 )
             }
@@ -11483,7 +11453,7 @@ impl<'a> ScriptLowerer<'a> {
                             // configurable property, so [[Delete]] cannot fail.
                             ExprIr::DeleteGlobalProperty {
                                 name,
-                                strict: false,
+                                strictness: Strictness::Sloppy,
                             },
                         );
                     }
@@ -16913,11 +16883,28 @@ impl<'a> ScriptLowerer<'a> {
             .is_some_and(|plan| plan.strict)
     }
 
-    fn is_current_owner_strict(&self) -> bool {
-        self.analysis
-            .owner_plans
-            .get(&self.current_owner_id)
-            .is_some_and(|owner| owner.strict)
+    /// `[[Strict]]` for a Reference created by the code currently being
+    /// lowered (13.1.3 ResolveBinding's `strict` argument; 13.3.2.1 / 13.3.3.1
+    /// member-expression evaluation).
+    ///
+    /// This is the sole producer of [`Strictness`] in the lowerer, and every
+    /// Reference-shaped IR node gets its field from here. The value is a
+    /// property of the Reference at creation time, so it must be taken *when
+    /// the Reference is built* and carried; recovering it later by asking what
+    /// the currently-emitting code's mode is computes a different quantity
+    /// that only coincides while creation and consumption sit in the same
+    /// function body.
+    ///
+    /// An owner with no plan is `Strict`, never `Sloppy`. A spurious throw
+    /// fails loudly in the first test that reaches it; a suppressed throw is
+    /// invisible, which is how strict mode went unenforced for unresolvable
+    /// references without any test noticing.
+    fn reference_strictness(&self) -> Strictness {
+        match self.analysis.owner_plans.get(&self.current_owner_id) {
+            Some(owner) if owner.strict => Strictness::Strict,
+            Some(_) => Strictness::Sloppy,
+            None => Strictness::Strict,
+        }
     }
 
     fn default_this_info_for_function_target(&self, function_id: &FunctionId) -> ValueInfo {
@@ -30497,6 +30484,7 @@ impl<'a> ScriptLowerer<'a> {
                                     &key,
                                     &value_info,
                                 );
+                                let strictness = self.reference_strictness();
                                 return TypedExpr::from_info(
                                     value_info,
                                     ExprIr::PropertyCompoundAssign {
@@ -30504,6 +30492,7 @@ impl<'a> ScriptLowerer<'a> {
                                         key,
                                         op: ArithmeticBinaryOp::Add,
                                         value: Box::new(rhs),
+                                        strictness,
                                     },
                                 );
                             }
@@ -30629,13 +30618,14 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                     self.set_global_property_value_info(name.clone(), result_info.clone());
+                    let strictness = self.reference_strictness();
                     return TypedExpr::from_info(
                         result_info,
                         ExprIr::GlobalPropertyWrite {
                             name,
                             value: Box::new(result),
                             implicit: false,
-                            strict: false,
+                            strictness,
                         },
                     );
                 }
@@ -30745,6 +30735,7 @@ impl<'a> ScriptLowerer<'a> {
                     AssignOp::Exp => ArithmeticBinaryOp::Exp,
                     _ => unreachable!(),
                 };
+                let strictness = self.reference_strictness();
                 let expr = if let Some(storage_name) = binding_storage_name {
                     ExprIr::CompoundAssignIdentifier {
                         name: storage_name,
@@ -30756,6 +30747,7 @@ impl<'a> ScriptLowerer<'a> {
                         name,
                         op,
                         value: Box::new(value),
+                        strictness,
                     }
                 };
                 TypedExpr::from_info(result_info, expr)
@@ -30841,13 +30833,14 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 } else {
                     self.set_global_property_value_info(name.clone(), value.value_info());
+                    let strictness = self.reference_strictness();
                     TypedExpr::from_info(
                         value.value_info(),
                         ExprIr::GlobalPropertyWrite {
                             name,
                             value: Box::new(value),
                             implicit: false,
-                            strict: false,
+                            strictness,
                         },
                     )
                 }
@@ -30941,13 +30934,14 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 } else {
                     self.set_global_property_value_info(name.clone(), value.value_info());
+                    let strictness = self.reference_strictness();
                     TypedExpr::from_info(
                         value.value_info(),
                         ExprIr::GlobalPropertyWrite {
                             name,
                             value: Box::new(value),
                             implicit: false,
-                            strict: false,
+                            strictness,
                         },
                     )
                 }
@@ -31023,10 +31017,15 @@ impl<'a> ScriptLowerer<'a> {
                         },
                     );
                 }
+                // SetMutableBinding (9.1.1.1.5) step 6.b: an assignment to an
+                // immutable binding throws only when `S` is true. This is
+                // PutValue consumer 4.c, and it is decided here, at lowering,
+                // which is why the identifier-write IR nodes carry no
+                // `[[Strict]]` of their own.
                 if self
                     .sloppy_immutable_binding_storage_names
                     .contains(&storage_name)
-                    && !self.is_current_owner_strict()
+                    && !self.reference_strictness().throws_on_failed_set()
                 {
                     return value;
                 }
@@ -31079,12 +31078,12 @@ impl<'a> ScriptLowerer<'a> {
             )
         } else {
             let implicit = !self.global_property_is_proven_present(&name);
-            // PutValue step 2.b: assigning through an unresolvable Reference in
+            // PutValue step 2.a: assigning through an unresolvable Reference in
             // strict code is a ReferenceError. Whether the name resolves is only
             // decidable at run time (the global object may have grown the
             // property via `globalThis.x = ...`), so the strictness travels with
             // the node and the backend performs the presence check.
-            let strict = self.is_current_owner_strict();
+            let strictness = self.reference_strictness();
             self.set_global_property_value_info_with_source(
                 name.clone(),
                 value.value_info(),
@@ -31100,7 +31099,7 @@ impl<'a> ScriptLowerer<'a> {
                     name,
                     value: Box::new(value),
                     implicit,
-                    strict,
+                    strictness,
                 },
             )
         }
@@ -31113,12 +31112,14 @@ impl<'a> ScriptLowerer<'a> {
         value: TypedExpr,
     ) -> TypedExpr {
         let binding_visible = self.lower_with_binding_visible(&name, object.clone());
+        let strictness = self.reference_strictness();
         let with_write = TypedExpr::from_info(
             value.value_info(),
             ExprIr::PropertyWrite {
                 target: Box::new(object),
                 key: PropertyKeyIr::StaticString(name.clone()),
                 value: Box::new(value.clone()),
+                strictness,
             },
         );
         let fallback = self.lower_identifier_assign_value(name, value);
@@ -32178,13 +32179,14 @@ impl<'a> ScriptLowerer<'a> {
             }
             None => {
                 self.set_global_property_value_info(name.to_string(), info.clone());
+                let strictness = self.reference_strictness();
                 TypedExpr::from_info(
                     info,
                     ExprIr::GlobalPropertyWrite {
                         name: name.to_string(),
                         value: Box::new(result),
                         implicit: false,
-                        strict: false,
+                        strictness,
                     },
                 )
             }
@@ -32193,12 +32195,13 @@ impl<'a> ScriptLowerer<'a> {
 
     /// Lowers `ref op= rhs` where `ref` is a property Reference.
     ///
-    /// Spec order (13.15.2 / 13.15.3) is: evaluate the Reference once, read it,
-    /// then evaluate `rhs`, then write back through the *same* Reference. The
-    /// Reference is preserved by lowering the property access as an ordinary
-    /// read, splitting the resulting IR back into its base and key, and pinning
-    /// any effectful base or computed key into a temporary so the write-back
-    /// does not re-evaluate it.
+    /// Spec order (13.15.2 / 13.15.3) is: evaluate the LeftHandSideExpression
+    /// **once**, GetValue it, evaluate `rhs`, then PutValue through *that same*
+    /// Reference. Here the single evaluation is structural rather than
+    /// conventional: the Reference is reified once as a [`ReferenceRecord`],
+    /// `read` borrows it, `write` consumes it, and the temporaries its
+    /// effectful operands were pinned into can only be discharged by spending
+    /// the [`ReferencePins`] the same call produced.
     fn lower_property_reference_update(
         &mut self,
         access: &PropertyAccess,
@@ -32207,101 +32210,37 @@ impl<'a> ScriptLowerer<'a> {
     ) -> TypedExpr {
         let read = self.lower_expression(&Expression::PropertyAccess(access.clone()));
         let read_info = read.value_info();
-        let mut reference = match read.expr {
-            ExprIr::PropertyRead { target, key } => PropertyReference::Property {
-                target: *target,
-                key,
-            },
-            ExprIr::PrivateRead {
-                target,
-                private_name_id,
-            } => PropertyReference::Private {
-                target: *target,
-                private_name_id,
-            },
-            ExprIr::SuperPropertyRead { key } => PropertyReference::Super { key },
-            // A dynamic key lowers the read to GetV; the same base and key
-            // written back is an ordinary property write.
-            ExprIr::SpecOperation {
-                operation: SpecOperationIr::Get | SpecOperationIr::GetV,
-                operands,
-            } => {
-                let mut operands = operands.into_iter();
-                let (Some(target), Some(key), None) =
-                    (operands.next(), operands.next(), operands.next())
-                else {
-                    return self.unsupported_expr("unsupported property assignment operator");
-                };
-                let key = match key.expr {
-                    ExprIr::String(name) => PropertyKeyIr::StaticString(name),
-                    _ => PropertyKeyIr::StringExpr(Box::new(key)),
-                };
-                PropertyReference::Property { target, key }
-            }
-            // `globalThis.x` on a known global resolves to the global binding
-            // itself rather than to a property of an object.
-            ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {
-                PropertyReference::Global { name }
-            }
-            // Anything else is a read the lowering specialised into a shape that
-            // is not a writable Reference (a folded constant, an intrinsic, ...).
-            _ => return self.unsupported_expr("unsupported property assignment operator"),
+        let base = match reference_base_of_lowered_read(read.expr) {
+            Ok(base) => base,
+            Err(unsupported) => return self.unsupported_expr(unsupported.feature()),
         };
+        // 6.2.5: `[[Strict]]` is populated when the Reference is created, and
+        // is carried from here to whichever PutValue consumes it.
+        let mut record = ReferenceRecord::create(base, self.reference_strictness());
+        let pins = self.pin_reference_operands(record.base_mut());
 
-        // Pin the parts of the Reference that must not be evaluated twice.
-        let mut pinned: Vec<(String, TypedExpr)> = Vec::new();
-        if let PropertyReference::Property { target, .. }
-        | PropertyReference::Private { target, .. } = &mut reference
-        {
-            if !Self::is_repeatable_operand(&target.expr) {
-                let info = target.value_info();
-                let name = self.alloc_temp_binding_name("compound.assign.target.");
-                let pinned_target = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
-                pinned.push((name, std::mem::replace(target, pinned_target)));
-            }
-        }
-        if let PropertyReference::Property { key, .. } | PropertyReference::Super { key } =
-            &mut reference
-        {
-            let key_expr = match key {
-                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                    Some(&mut **expr)
-                }
-                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => None,
-            };
-            if let Some(key_expr) = key_expr {
-                if !Self::is_repeatable_operand(&key_expr.expr) {
-                    let info = key_expr.value_info();
-                    let name = self.alloc_temp_binding_name("compound.assign.key.");
-                    let pinned_key = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
-                    pinned.push((name, std::mem::replace(key_expr, pinned_key)));
-                }
-            }
-        }
-
-        let read = TypedExpr::from_info(read_info.clone(), reference.read_ir());
+        let read = record.read(read_info.clone());
         let rhs = self.lower_expression(rhs);
-        let mut result = match op {
+        let (value, shape_info, compose) = match op {
             PropertyUpdateOp::Logical(logical) => {
                 // The write only happens on the branch that evaluates `rhs`, so
                 // the observable property type is the merge of both branches.
                 let written_info = rhs.value_info();
                 let merged = self.merge_value_infos(read_info, written_info);
-                let write =
-                    self.build_property_reference_write(access, &reference, rhs, merged.clone());
-                TypedExpr::from_info(
-                    merged,
-                    ExprIr::LogicalShortCircuit {
+                (
+                    rhs,
+                    merged.clone(),
+                    Composition::ShortCircuit {
                         op: logical,
-                        lhs: Box::new(read),
-                        rhs: Box::new(write),
+                        read,
+                        merged,
                     },
                 )
             }
             PropertyUpdateOp::Arithmetic(arithmetic) => {
                 let value = self.combine_arithmetic(arithmetic, read, rhs);
                 let info = value.value_info();
-                self.build_property_reference_write(access, &reference, value, info)
+                (value, info, Composition::Value)
             }
             PropertyUpdateOp::Bitwise(bitwise) => {
                 let op = match bitwise {
@@ -32321,22 +32260,79 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
                 let info = value.value_info();
-                self.build_property_reference_write(access, &reference, value, info)
+                (value, info, Composition::Value)
             }
         };
+        self.record_reference_write_shape(access, record.base(), shape_info);
+        pins.materialize(record.write(value, compose))
+    }
 
-        for (name, value) in pinned.into_iter().rev() {
-            let info = result.value_info();
-            result = TypedExpr::from_info(
-                info,
-                ExprIr::MaterializeBinding {
-                    name,
-                    value: Box::new(value),
-                    body: Box::new(result),
-                },
-            );
+    /// Pins the operands of a Reference that PutValue must not re-evaluate.
+    ///
+    /// The pins are returned rather than wrapped here: 13.15.2's
+    /// `MaterializeBinding` chain has to enclose the *whole* compound
+    /// expression, which does not exist yet at this point. [`ReferencePins`]
+    /// is the only value that can produce that chain, and it is `#[must_use]`
+    /// and not `Clone`, so the wrap can be neither forgotten nor duplicated.
+    fn pin_reference_operands(&mut self, base: &mut ReferenceBase) -> ReferencePins {
+        let mut pins = ReferencePins::none();
+        if let Some(target) = base.evaluated_base_mut() {
+            if !Self::is_repeatable_operand(&target.expr) {
+                let info = target.value_info();
+                let name = self.alloc_temp_binding_name("compound.assign.target.");
+                let pinned_target = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
+                pins.pin(name, std::mem::replace(target, pinned_target));
+            }
         }
-        result
+        if let Some(key_expr) = base.computed_key_mut() {
+            if !Self::is_repeatable_operand(&key_expr.expr) {
+                let info = key_expr.value_info();
+                let name = self.alloc_temp_binding_name("compound.assign.key.");
+                let pinned_key = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
+                pins.pin(name, std::mem::replace(key_expr, pinned_key));
+            }
+        }
+        pins
+    }
+
+    /// The lowerer-side bookkeeping a PutValue implies: the recorded shape of
+    /// whichever object the write lands on goes stale.
+    ///
+    /// Exhaustive over [`ReferenceBase`] with no catch-all, because "which
+    /// object does this write land on" is exactly the question a fifth base
+    /// shape would have to answer.
+    fn record_reference_write_shape(
+        &mut self,
+        access: &PropertyAccess,
+        base: &ReferenceBase,
+        shape_info: ValueInfo,
+    ) {
+        match base {
+            ReferenceBase::Property { key, .. } => {
+                if let PropertyAccess::Simple(simple) = access {
+                    self.update_written_shape(simple.target(), key, &shape_info);
+                }
+            }
+            // PrivateSet writes a fixed slot of a known class shape; there is
+            // no tracked property shape to invalidate.
+            ReferenceBase::Private { .. } => {}
+            ReferenceBase::Super { key } => {
+                // A super Reference reads through the home object's prototype
+                // but writes with `this` as the Receiver (PutValue 3.c via
+                // GetThisValue), so it is `this`'s recorded shape that goes
+                // stale. This covers a constructor body; a method body has no
+                // tracked `this` shape to update, the same gap the plain
+                // `super.k = v` path has.
+                self.update_binding_shape_path(
+                    LEXICAL_THIS_NAME,
+                    std::slice::from_ref(key),
+                    shape_info,
+                );
+            }
+            ReferenceBase::Global { name } => {
+                self.set_global_property_value_info(name.clone(), shape_info);
+            }
+        }
     }
 
     /// Whether an operand can be duplicated into both the read and the
@@ -32352,62 +32348,6 @@ impl<'a> ScriptLowerer<'a> {
                 | ExprIr::Number(_)
                 | ExprIr::String(_)
         )
-    }
-
-    fn build_property_reference_write(
-        &mut self,
-        access: &PropertyAccess,
-        reference: &PropertyReference,
-        value: TypedExpr,
-        shape_info: ValueInfo,
-    ) -> TypedExpr {
-        let info = value.value_info();
-        let write = match reference {
-            PropertyReference::Property { target, key } => {
-                if let PropertyAccess::Simple(simple) = access {
-                    self.update_written_shape(simple.target(), key, &shape_info);
-                }
-                ExprIr::PropertyWrite {
-                    target: Box::new(target.clone()),
-                    key: key.clone(),
-                    value: Box::new(value),
-                }
-            }
-            PropertyReference::Private {
-                target,
-                private_name_id,
-            } => ExprIr::PrivateWrite {
-                target: Box::new(target.clone()),
-                private_name_id: *private_name_id,
-                value: Box::new(value),
-            },
-            PropertyReference::Super { key } => {
-                // A super Reference reads through the home object's prototype
-                // but writes to `this`, so it is `this`'s recorded shape that
-                // goes stale. This covers a constructor body; a method body has
-                // no tracked `this` shape to update, the same gap the plain
-                // `super.k = v` path has.
-                self.update_binding_shape_path(
-                    LEXICAL_THIS_NAME,
-                    std::slice::from_ref(key),
-                    shape_info,
-                );
-                ExprIr::SuperPropertyWrite {
-                    key: key.clone(),
-                    value: Box::new(value),
-                }
-            }
-            PropertyReference::Global { name } => {
-                self.set_global_property_value_info(name.clone(), shape_info);
-                ExprIr::GlobalPropertyWrite {
-                    name: name.clone(),
-                    value: Box::new(value),
-                    implicit: false,
-                    strict: false,
-                }
-            }
-        };
-        TypedExpr::from_info(info, write)
     }
 
     fn lower_property_assign_value(
@@ -32776,7 +32716,10 @@ impl<'a> ScriptLowerer<'a> {
                         // there is no real mutation: evaluate `rhs` (for its
                         // side effects/value) and drop the write.
                         let value = self.lower_expression(rhs);
-                        if self.is_current_owner_strict() {
+                        // PutValue 3.d, folded at compile time: `[[Set]]` on a
+                        // primitive Receiver always answers `false`, so the
+                        // Reference's `[[Strict]]` alone decides the outcome.
+                        if self.reference_strictness().throws_on_failed_set() {
                             TypedExpr::from_info(
                                 value.value_info(),
                                 ExprIr::RuntimeThrow {

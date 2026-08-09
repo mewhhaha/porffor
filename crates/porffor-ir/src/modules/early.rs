@@ -16,6 +16,13 @@
 //! duplicate export would be reported as "unsupported" rather than as the
 //! `SyntaxError` a `negative: phase: parse` case expects.
 //!
+//! It is classified by *the same table* the entry path uses:
+//! `porffor_front::classify_parse_failure`. That is not a convention, it is the
+//! only table there is. Clause 17 gives the Script early errors (16.1.1) and the
+//! Module early errors (16.2.1.2) the same abstract operations over their
+//! respective item lists, so a source that is an early error as an entry is the
+//! same early error as a dependency, under the same name.
+//!
 //! # What is deliberately *not* checked here
 //!
 //! `import` / `export` outside the module goal. boa's script parser rejects
@@ -42,13 +49,17 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
     // 16.2.3.1: "It is a Syntax Error if the ExportedNames of ModuleItemList
     // contains any duplicate entries."
     for export_name in record.duplicate_export_names() {
+        // The code is named directly. It used to be read back out of a
+        // `ModuleLinkErrorIr`, which was the round trip that let this producer
+        // and `graph.rs`'s disagree about the *phase* of one condition: 16.2.3.1
+        // makes a duplicate `ExportedName` an early error, and
+        // `early-dup-export-id.js` is `phase: parse`.
         let error = ModuleLinkErrorIr::DuplicateExport {
             module: record.id,
             export_name,
         };
-        diagnostics.push(IrDiagnostic::early_error(
-            error.code(),
-            "SyntaxError",
+        diagnostics.push(IrDiagnostic::rejected(
+            EarlyErrorCode::ModuleDuplicateExport,
             error.message(),
             None,
         ));
@@ -80,9 +91,8 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
         {
             continue;
         }
-        diagnostics.push(IrDiagnostic::early_error(
-            "E_MODULE_UNDECLARED_EXPORT",
-            "SyntaxError",
+        diagnostics.push(IrDiagnostic::rejected(
+            EarlyErrorCode::ModuleUndeclaredExport,
             format!(
                 "exported binding {} is not declared in module {}",
                 entry.local_name.spec_name(),
@@ -95,98 +105,25 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
     diagnostics
 }
 
-/// One boa module-goal early error: the fragments its message always contains,
-/// and the stable diagnostic code it maps to.
-///
-/// Matching on message text is unpleasant but unavoidable: `boa_parser` reports
-/// every static-semantics failure as a generic `Error::general`/`Error::lex`
-/// with no machine-readable kind. The fragments are chosen to be the invariant
-/// part of each `format!` in `boa_parser-0.21.1/src/parser/mod.rs`
-/// (`ModuleParser::parse`) and `boa_ast-0.21.1/src/operations/mod.rs`
-/// (`CheckLabelsError::message`), never the interpolated identifier.
-struct ParseFailureRule {
-    /// Every fragment that must appear in boa's message for this rule to fire.
-    fragments: &'static [&'static str],
-    /// Stable diagnostic code.
-    code: &'static str,
-}
-
-/// Order matters only in that the first match wins; the patterns are disjoint.
-const PARSE_FAILURE_RULES: &[ParseFailureRule] = &[
-    // "exported name `x` declared multiple times"
-    ParseFailureRule {
-        fragments: &["exported name", "declared multiple times"],
-        code: "E_MODULE_DUPLICATE_EXPORT",
-    },
-    // "could not find the exported binding `x` in the declared names of the module"
-    ParseFailureRule {
-        fragments: &["could not find the exported binding"],
-        code: "E_MODULE_UNDECLARED_EXPORT",
-    },
-    // "lexical name `x` declared multiple times"
-    ParseFailureRule {
-        fragments: &["lexical name", "declared multiple times"],
-        code: "E_DUPLICATE_LEXICAL_DECLARATION",
-    },
-    // "module cannot contain `super` on the top-level"
-    ParseFailureRule {
-        fragments: &["module cannot contain", "super"],
-        code: "E_MODULE_TOP_LEVEL_SUPER",
-    },
-    // "module cannot contain `new.target` on the top-level"
-    ParseFailureRule {
-        fragments: &["module cannot contain", "new.target"],
-        code: "E_MODULE_TOP_LEVEL_NEW_TARGET",
-    },
-    ParseFailureRule {
-        fragments: &["invalid private identifier usage"],
-        code: "E_INVALID_PRIVATE_IDENTIFIER",
-    },
-    // The four `CheckLabelsError` messages. Codes match the ones
-    // `porffor_front::parser_static_semantics_error_code` already uses for the
-    // same failures on the script path, so one test262 case cannot be reported
-    // under two different codes depending on whether it was an entry or a
-    // dependency.
-    ParseFailureRule {
-        fragments: &["duplicate label"],
-        code: "E_DUPLICATE_LABEL",
-    },
-    ParseFailureRule {
-        fragments: &["undefined break target"],
-        code: "E_UNDEFINED_BREAK_TARGET",
-    },
-    ParseFailureRule {
-        fragments: &["undefined continue target"],
-        code: "E_UNDEFINED_CONTINUE_TARGET",
-    },
-    ParseFailureRule {
-        fragments: &["illegal break statement"],
-        code: "E_ILLEGAL_BREAK",
-    },
-    ParseFailureRule {
-        fragments: &["illegal continue statement"],
-        code: "E_ILLEGAL_CONTINUE",
-    },
-];
-
 /// Classifies a failed module reparse.
 ///
-/// A recognised static-semantics failure becomes an `EarlyError` diagnostic
-/// (`SyntaxError`, phase `parse`). Anything else — a genuine syntax error whose
-/// wording we do not model, or a parser abort — stays `Unsupported`, because
-/// claiming `SyntaxError` for a source we simply failed to read would turn a
-/// compiler gap into a spec claim.
+/// The classification itself is `porffor_front::classify_parse_failure`, the
+/// **one** fragment table in this workspace. This module used to carry a second
+/// copy of it, keyed to the same boa messages and maintained by hand alongside
+/// the copy in `porffor-front`; the two had drifted in both directions by the
+/// time they were merged. See
+/// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
+///
+/// A recognised static-semantics failure becomes a coded rejection
+/// (`SyntaxError`, phase `parse`, via `IrDiagnostic::rejected`). Anything else —
+/// a genuine syntax error whose wording we do not model, or a parser abort —
+/// stays `Unsupported`, because claiming `SyntaxError` for a source we simply
+/// failed to read would turn a compiler gap into a spec claim.
 pub(crate) fn module_parse_failure_diagnostic(message: &str) -> IrDiagnostic {
-    for rule in PARSE_FAILURE_RULES {
-        if rule
-            .fragments
-            .iter()
-            .all(|fragment| message.contains(fragment))
-        {
-            return IrDiagnostic::early_error(rule.code, "SyntaxError", message, None);
-        }
+    match porffor_front::classify_parse_failure(message) {
+        Some(code) => IrDiagnostic::rejected(code, message, None),
+        None => IrDiagnostic::unsupported(message),
     }
-    IrDiagnostic::unsupported(message)
 }
 
 #[cfg(test)]
@@ -258,9 +195,15 @@ mod tests {
         let diagnostics = module_early_errors(&record);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].kind, IrDiagnosticKind::EarlyError);
-        assert_eq!(diagnostics[0].phase, IrDiagnosticPhase::Early);
-        assert_eq!(diagnostics[0].code, Some("E_MODULE_DUPLICATE_EXPORT"));
-        assert_eq!(diagnostics[0].error_type, Some("SyntaxError"));
+        assert_eq!(diagnostics[0].phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostics[0].code(),
+            Some(EarlyErrorCode::ModuleDuplicateExport)
+        );
+        assert_eq!(
+            diagnostics[0].error_type(),
+            Some(NativeErrorKind::SyntaxError)
+        );
     }
 
     #[test]
@@ -288,8 +231,14 @@ mod tests {
 
         let diagnostics = module_early_errors(&record);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].code, Some("E_MODULE_UNDECLARED_EXPORT"));
-        assert_eq!(diagnostics[0].error_type, Some("SyntaxError"));
+        assert_eq!(
+            diagnostics[0].code(),
+            Some(EarlyErrorCode::ModuleUndeclaredExport)
+        );
+        assert_eq!(
+            diagnostics[0].error_type(),
+            Some(NativeErrorKind::SyntaxError)
+        );
         assert!(diagnostics[0].message.contains("missing"));
     }
 
@@ -324,46 +273,131 @@ mod tests {
         assert_eq!(module_early_errors(&record), Vec::new());
     }
 
+    /// Every witness of every row of the one fragment table, under the prefix
+    /// `record::reparse_module` actually applies.
+    ///
+    /// The prefix is load-bearing: assertion P6 in
+    /// `porffor_front::early_error_code` proves it matches no row on its own, so
+    /// a prefixed message and a bare one classify identically. This test is the
+    /// runtime half of that — it checks the real wordings, which no type can.
     #[test]
     fn boa_static_semantics_messages_classify_as_syntax_errors() {
+        const PREFIX: &str = "lowering module reparse failed: ";
         let cases = [
             (
-                "lowering module reparse failed: exported name `x` declared multiple times",
-                "E_MODULE_DUPLICATE_EXPORT",
+                "Duplicate __proto__ fields are not allowed in object literals.",
+                EarlyErrorCode::ObjectDuplicateProto,
             ),
             (
-                "lowering module reparse failed: could not find the exported binding `x` in the \
-                 declared names of the module",
-                "E_MODULE_UNDECLARED_EXPORT",
+                "exported name `x` declared multiple times",
+                EarlyErrorCode::ModuleDuplicateExport,
             ),
             (
-                "lowering module reparse failed: lexical name `x` declared multiple times",
-                "E_DUPLICATE_LEXICAL_DECLARATION",
+                "could not find the exported binding `x` in the declared names of the module",
+                EarlyErrorCode::ModuleUndeclaredExport,
             ),
             (
-                "lowering module reparse failed: module cannot contain `super` on the top-level",
-                "E_MODULE_TOP_LEVEL_SUPER",
+                "lexical name `x` declared multiple times",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
             ),
             (
-                "lowering module reparse failed: module cannot contain `new.target` on the \
-                 top-level",
-                "E_MODULE_TOP_LEVEL_NEW_TARGET",
+                "lexical name declared multiple times",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
             ),
             (
-                "lowering module reparse failed: invalid private identifier usage",
-                "E_INVALID_PRIVATE_IDENTIFIER",
+                "lexical name declared in var names",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
             ),
             (
-                "lowering module reparse failed: undefined break target: loop",
-                "E_UNDEFINED_BREAK_TARGET",
+                "lexical name declared in var declared names",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
             ),
+            (
+                "invalid scope analysis: duplicate lexical declaration",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+            (
+                "formal parameter `x` declared in lexically declared names",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+            (
+                "module cannot contain `super` on the top-level",
+                EarlyErrorCode::ModuleTopLevelSuper,
+            ),
+            (
+                "module cannot contain `new.target` on the top-level",
+                EarlyErrorCode::ModuleTopLevelNewTarget,
+            ),
+            (
+                "invalid private identifier usage",
+                EarlyErrorCode::InvalidPrivateIdentifier,
+            ),
+            ("duplicate label: lbl", EarlyErrorCode::DuplicateLabel),
+            (
+                "undefined break target: lbl",
+                EarlyErrorCode::UndefinedBreakTarget,
+            ),
+            (
+                "undefined continue target: lbl",
+                EarlyErrorCode::UndefinedContinueTarget,
+            ),
+            ("illegal break statement", EarlyErrorCode::IllegalBreak),
+            ("illegal continue statement", EarlyErrorCode::IllegalContinue),
         ];
-        for (message, code) in cases {
-            let diagnostic = module_parse_failure_diagnostic(message);
+        for (boa_message, code) in cases {
+            let message = format!("{PREFIX}{boa_message}");
+            let diagnostic = module_parse_failure_diagnostic(&message);
             assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{message}");
-            assert_eq!(diagnostic.phase, IrDiagnosticPhase::Early, "{message}");
-            assert_eq!(diagnostic.code, Some(code), "{message}");
-            assert_eq!(diagnostic.error_type, Some("SyntaxError"), "{message}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{message}");
+            assert_eq!(diagnostic.code(), Some(code), "{message}");
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{message}"
+            );
+        }
+    }
+
+    /// Drift B1, closed. A duplicate `__proto__` inside a *dependency* module
+    /// used to reach `IrDiagnostic::unsupported` — `code: None`,
+    /// `error_type: None` — because this crate's copy of the table had no row
+    /// for it at all, while the entry path's copy did.
+    #[test]
+    fn duplicate_proto_in_a_dependency_module_is_a_syntax_error() {
+        let diagnostic = module_parse_failure_diagnostic(
+            "lowering module reparse failed: Duplicate __proto__ fields are not allowed in \
+             object literals.",
+        );
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::ObjectDuplicateProto),
+            "{diagnostic:?}"
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+    }
+
+    /// Drift B2, closed. The block, switch and scope-analysis wordings for a
+    /// lexical redeclaration used to miss this crate's copy of the table
+    /// entirely and be reported as unsupported, which
+    /// `compile_negative_error_matches` rejects outright.
+    #[test]
+    fn every_lexical_redeclaration_wording_reaches_one_code() {
+        for boa_message in [
+            "lexical name declared multiple times",
+            "lexical name `x` declared multiple times",
+            "lexical name declared in var names",
+            "lexical name declared in var declared names",
+            "invalid scope analysis: duplicate lexical declaration",
+            "formal parameter `x` declared in lexically declared names",
+        ] {
+            let diagnostic = module_parse_failure_diagnostic(&format!(
+                "lowering module reparse failed: {boa_message}"
+            ));
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::DuplicateLexicalDeclaration),
+                "{boa_message}"
+            );
         }
     }
 
@@ -374,6 +408,7 @@ mod tests {
         let diagnostic =
             module_parse_failure_diagnostic("lowering module reparse failed: unexpected token ')'");
         assert_eq!(diagnostic.kind, IrDiagnosticKind::Unsupported);
-        assert_eq!(diagnostic.error_type, None);
+        assert_eq!(diagnostic.code(), None);
+        assert_eq!(diagnostic.error_type(), None);
     }
 }

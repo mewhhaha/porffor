@@ -14,7 +14,7 @@ use porffor_engine::{
     compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
     ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
 };
-use porffor_ir::{IrDiagnosticKind, IrDiagnosticPhase};
+use porffor_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind};
 use serde::{Deserialize, Serialize};
 
 const TOP_LEVEL_FILTERS: [&str; 6] = [
@@ -21475,7 +21475,7 @@ fn compile_negative_error_matches(
     negative: &NegativeExpectation,
 ) -> bool {
     if let Some(diagnostic) = err.parse_diagnostic() {
-        let phase_matches = match diagnostic.phase {
+        let phase_matches = match diagnostic.phase() {
             porffor_front::ParseDiagnosticPhase::Parse => {
                 negative.phase.eq_ignore_ascii_case("parse")
             }
@@ -21485,10 +21485,10 @@ fn compile_negative_error_matches(
             }
         };
         return phase_matches
-            && (negative.error_type.is_empty() || diagnostic.error_type == negative.error_type);
+            && (negative.error_type.is_empty() || diagnostic.error_type() == negative.error_type);
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
-        let phase_matches = match diagnostic.phase {
+        let phase_matches = match diagnostic.phase() {
             IrDiagnosticPhase::Early => {
                 negative.phase.eq_ignore_ascii_case("parse")
                     || negative.phase.eq_ignore_ascii_case("early")
@@ -21499,13 +21499,21 @@ fn compile_negative_error_matches(
             IrDiagnosticPhase::Resolution => negative.phase.eq_ignore_ascii_case("resolution"),
             IrDiagnosticPhase::Lowering => !negative.phase.eq_ignore_ascii_case("parse"),
         };
+        // `code().is_some()` is exactly "this is a spec rejection, not a
+        // compiler gap" — the same predicate the old two-variant `matches!`
+        // stated, said once and in terms of the thing that decides it.
+        //
+        // The error-type comparison must not go the other way round.
+        // `NativeErrorKind::from_str(&negative.error_type)` returns `None` for a
+        // `negative.error_type` outside the nine-name domain (`Test262Error`,
+        // say), and `None == diagnostic.error_type()` would then turn an
+        // unmatched expectation into a match.
         return phase_matches
-            && matches!(
-                diagnostic.kind,
-                IrDiagnosticKind::EarlyError | IrDiagnosticKind::LinkError
-            )
+            && diagnostic.code().is_some()
             && (negative.error_type.is_empty()
-                || diagnostic.error_type == Some(negative.error_type.as_str()));
+                || diagnostic
+                    .error_type()
+                    .is_some_and(|kind| kind.as_str() == negative.error_type));
     }
 
     let detail = err.message();
@@ -21516,12 +21524,21 @@ fn compile_negative_error_detail(err: &porffor_engine::EngineError) -> String {
     if let Some(diagnostic) = err.parse_diagnostic() {
         return format!(
             "{} {} {}: {}",
-            diagnostic.code, diagnostic.error_type, diagnostic.message, err
+            diagnostic.code.wire_name(),
+            diagnostic.error_type(),
+            diagnostic.message,
+            err
         );
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
-        let code = diagnostic.code.unwrap_or("E_IR_DIAGNOSTIC");
-        let error_type = diagnostic.error_type.unwrap_or("Error");
+        // These two literals name the *absence* of a code and of a spec error
+        // type — an `Unsupported` or `Lowering` diagnostic. They are the only
+        // `E_...` literal and the only error-name literal left outside the two
+        // spelling authorities, and they must stay literals: an
+        // `EarlyErrorCode` variant meaning "no code" would let `Some(_)` mean
+        // "none".
+        let code = diagnostic.code().map_or("E_IR_DIAGNOSTIC", EarlyErrorCode::wire_name);
+        let error_type = diagnostic.error_type().map_or("Error", NativeErrorKind::as_str);
         return format!("{code} {error_type} {}: {err}", diagnostic.message);
     }
     err.message().to_string()

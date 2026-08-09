@@ -101,7 +101,10 @@ pub enum ResolvedBindingIr {
 }
 
 /// A linking failure. Every variant is a `SyntaxError` reported at compile
-/// time, which is what test262's `phase: resolution` negatives expect.
+/// time, which is what test262's `phase: resolution` negatives expect — with
+/// one exception this enum does not get to make: `DuplicateExport` names a
+/// 16.2.3.1 *early* error that happens to have a producer here too, and
+/// `rejection_kind` reports it at `phase: parse` from both producers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleLinkErrorIr {
     /// The host could not resolve a request to a module.
@@ -170,17 +173,23 @@ pub enum ModuleLinkErrorIr {
 }
 
 impl ModuleLinkErrorIr {
-    /// Stable diagnostic code.
+    /// The condition this failure reports, in the one closed domain.
+    ///
+    /// `DuplicateExport` is deliberately not special-cased here: it names the
+    /// same 16.2.3.1 condition `modules::early` names, and which *stage* that
+    /// condition is reported at is `rejection_kind`'s decision, not this
+    /// enum's. That is what makes it impossible for the two producers to
+    /// disagree about its phase — they no longer each choose one.
     #[must_use]
-    pub const fn code(&self) -> &'static str {
+    pub const fn code(&self) -> EarlyErrorCode {
         match self {
-            Self::UnresolvedModule { .. } => "E_MODULE_UNRESOLVED",
-            Self::MissingExport { .. } => "E_MODULE_MISSING_EXPORT",
-            Self::AmbiguousExport { .. } => "E_MODULE_AMBIGUOUS_EXPORT",
-            Self::DuplicateExport { .. } => "E_MODULE_DUPLICATE_EXPORT",
-            Self::InconsistentLoad { .. } => "E_MODULE_INCONSISTENT_LOAD",
-            Self::UnsupportedPhase { .. } => "E_MODULE_UNSUPPORTED_PHASE",
-            Self::TooManyUnits { .. } => "E_MODULE_TOO_MANY_UNITS",
+            Self::UnresolvedModule { .. } => EarlyErrorCode::ModuleUnresolved,
+            Self::MissingExport { .. } => EarlyErrorCode::ModuleMissingExport,
+            Self::AmbiguousExport { .. } => EarlyErrorCode::ModuleAmbiguousExport,
+            Self::DuplicateExport { .. } => EarlyErrorCode::ModuleDuplicateExport,
+            Self::InconsistentLoad { .. } => EarlyErrorCode::ModuleInconsistentLoad,
+            Self::UnsupportedPhase { .. } => EarlyErrorCode::ModuleUnsupportedPhase,
+            Self::TooManyUnits { .. } => EarlyErrorCode::ModuleTooManyUnits,
         }
     }
 
@@ -221,9 +230,15 @@ impl ModuleLinkErrorIr {
     }
 
     /// The diagnostic this error becomes on `ProgramIr`.
+    ///
+    /// The kind and phase are not chosen here. `IrDiagnostic::rejected` derives
+    /// them from the code, so `DuplicateExport` lands on `EarlyError`/`Early`
+    /// — 16.2.3.1 makes it an early error and
+    /// `test/language/module-code/early-dup-export-id.js` is `phase: parse` —
+    /// while the six genuine link conditions land on `LinkError`/`Resolution`.
     #[must_use]
     pub fn to_diagnostic(&self) -> IrDiagnostic {
-        IrDiagnostic::link_error(self.code(), self.message())
+        IrDiagnostic::rejected(self.code(), self.message(), None)
     }
 }
 
@@ -1780,7 +1795,7 @@ mod tests {
         assert!(
             diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.code == Some("E_MODULE_TOO_MANY_UNITS")),
+                .any(|diagnostic| diagnostic.code() == Some(EarlyErrorCode::ModuleTooManyUnits)),
             "{diagnostics:?}"
         );
     }

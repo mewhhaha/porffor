@@ -1,4 +1,6 @@
-use porffor_front::SourceSpan;
+use crate::early_error_code::rejection_kind;
+use crate::NativeErrorKind;
+use porffor_front::{EarlyErrorCode, SourceSpan};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoweringStage {
@@ -32,41 +34,85 @@ pub enum IrDiagnosticPhase {
     Lowering,
 }
 
+impl IrDiagnosticKind {
+    /// When this rejection was decided.
+    ///
+    /// 16.1.4 `ParseScript` and 16.2.1.6.1 `ParseModule` fix the reporting phase
+    /// per producing operation, so the phase is a function of the stage that
+    /// produced the diagnostic and never a free choice at a call site. It used
+    /// to be a field beside `kind`, which is what let one condition
+    /// (`E_MODULE_DUPLICATE_EXPORT`) be reported as `Early` by one producer and
+    /// `Resolution` by another.
+    #[must_use]
+    pub const fn phase(self) -> IrDiagnosticPhase {
+        match self {
+            Self::EarlyError => IrDiagnosticPhase::Early,
+            Self::LinkError => IrDiagnosticPhase::Resolution,
+            Self::Unsupported | Self::Lowering => IrDiagnosticPhase::Lowering,
+        }
+    }
+
+    /// The error the program would have thrown, if the spec says it throws one.
+    ///
+    /// `ParseScript` and `ParseModule` return "a List of **SyntaxError**
+    /// objects"; `InitializeEnvironment` throws a **SyntaxError**. Measured on
+    /// the pinned suite: there is no `parse/` or `resolution/` negative of any
+    /// other type, in either direction. `Unsupported` and `Lowering` are
+    /// compiler gaps and must **not** claim a spec error type — `None` here is
+    /// the difference between "ECMAScript rejects this program" and "this
+    /// compiler could not compile it".
+    #[must_use]
+    pub const fn error_type(self) -> Option<NativeErrorKind> {
+        match self {
+            Self::EarlyError | Self::LinkError => Some(NativeErrorKind::SyntaxError),
+            Self::Unsupported | Self::Lowering => None,
+        }
+    }
+}
+
+/// One compile-time rejection or gap report.
+///
+/// `phase` and `error_type` are **not** fields; they are functions of `kind`,
+/// and `kind` is a function of `code`. What used to be a four-field product held
+/// consistent by there happening to be exactly four constructors is now one
+/// stored discriminant plus payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IrDiagnostic {
     pub kind: IrDiagnosticKind,
-    pub phase: IrDiagnosticPhase,
-    pub code: Option<&'static str>,
-    pub error_type: Option<&'static str>,
+    /// **Private, and that is the invariant.** The only writer is
+    /// [`IrDiagnostic::rejected`], which derives `kind` from this value. A
+    /// struct literal anywhere else in the workspace is `error[E0451]` (private
+    /// field `code`), so a fifth constructor cannot be written except beside the
+    /// other four, in this file, where the derivation lives.
+    ///
+    /// `None` means "not a spec rejection": an `Unsupported` or `Lowering`
+    /// report. It is deliberately not an `EarlyErrorCode` variant — a code that
+    /// named the absence of a code would let `code: Some(_)` mean "no code".
+    code: Option<EarlyErrorCode>,
     pub span: Option<SourceSpan>,
     pub message: String,
 }
 
 impl IrDiagnostic {
-    pub fn early_error(
-        code: &'static str,
-        error_type: &'static str,
+    /// The **only** constructor that can produce a coded diagnostic: this
+    /// program is rejected before any construct evaluates, under this condition.
+    ///
+    /// Replaces the old `early_error` / `link_error` pair, whose separation was
+    /// precisely the opportunity for the two to disagree about one condition —
+    /// and they did, for `E_MODULE_DUPLICATE_EXPORT`. Which of the two stages
+    /// rejects a given code is now
+    /// [`rejection_kind`](crate::early_error_code::rejection_kind)'s single
+    /// exhaustive match, and the parse table's half of that agreement is
+    /// assertion P7.
+    pub fn rejected(
+        code: EarlyErrorCode,
         message: impl Into<String>,
         span: Option<SourceSpan>,
     ) -> Self {
         Self {
-            kind: IrDiagnosticKind::EarlyError,
-            phase: IrDiagnosticPhase::Early,
+            kind: rejection_kind(code),
             code: Some(code),
-            error_type: Some(error_type),
             span,
-            message: message.into(),
-        }
-    }
-
-    /// A module-linking failure. Always a `SyntaxError`, always compile time.
-    pub fn link_error(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            kind: IrDiagnosticKind::LinkError,
-            phase: IrDiagnosticPhase::Resolution,
-            code: Some(code),
-            error_type: Some("SyntaxError"),
-            span: None,
             message: message.into(),
         }
     }
@@ -74,9 +120,7 @@ impl IrDiagnostic {
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
             kind: IrDiagnosticKind::Unsupported,
-            phase: IrDiagnosticPhase::Lowering,
             code: None,
-            error_type: None,
             span: None,
             message: message.into(),
         }
@@ -85,11 +129,29 @@ impl IrDiagnostic {
     pub fn lowering(message: impl Into<String>) -> Self {
         Self {
             kind: IrDiagnosticKind::Lowering,
-            phase: IrDiagnosticPhase::Lowering,
             code: None,
-            error_type: None,
             span: None,
             message: message.into(),
         }
+    }
+
+    /// The condition this diagnostic reports, or `None` for a compiler gap.
+    ///
+    /// `code().is_some()` is exactly "this is a spec rejection", which is the
+    /// predicate `porffor-test262` needs and the one that survives folding the
+    /// code into `IrDiagnosticKind` later.
+    #[must_use]
+    pub const fn code(&self) -> Option<EarlyErrorCode> {
+        self.code
+    }
+
+    #[must_use]
+    pub const fn phase(&self) -> IrDiagnosticPhase {
+        self.kind.phase()
+    }
+
+    #[must_use]
+    pub const fn error_type(&self) -> Option<NativeErrorKind> {
+        self.kind.error_type()
     }
 }

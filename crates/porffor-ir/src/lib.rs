@@ -57,6 +57,10 @@ mod analysis;
 mod binding_names;
 mod builtins;
 mod diagnostics;
+/// The `EarlyErrorCode` → rejection-stage map. **Unrelated to `early_errors`
+/// below**, despite the adjacency: this is the diagnostic taxonomy, that is
+/// derived-constructor validation over `ExprIr` arms.
+mod early_error_code;
 mod early_errors;
 mod ir;
 mod iterator_obligations;
@@ -134,6 +138,11 @@ pub(crate) use binding_names::{
 /// The two closed spec name domains. See
 /// `docs/rust-rewrite/contracts/closed-name-domains.md`.
 pub use native_error::NativeErrorKind;
+
+/// The closed domain of pre-evaluation rejection codes, re-exported from
+/// `porffor-front` so consumers of `IrDiagnostic::code` have one path to it. See
+/// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
+pub use early_error_code::EarlyErrorCode;
 pub use well_known::{
     is_symbol_description, shape_namespace_key, SymbolDescription, SymbolMemberName,
     WellKnownSymbol,
@@ -1182,7 +1191,9 @@ mod tests {
             program
                 .diagnostics
                 .iter()
-                .all(|diagnostic| diagnostic.code != Some("E_OBJECT_DUPLICATE_PROTO")),
+                .all(|diagnostic| {
+                    diagnostic.code() != Some(EarlyErrorCode::ObjectDuplicateProto)
+                }),
             "diagnostics: {:?}",
             program.diagnostics
         );
