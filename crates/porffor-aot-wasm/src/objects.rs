@@ -14225,19 +14225,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(TYPE_ERROR_NAME),
-        ));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        // This site sets the name directly rather than through
-        // `emit_throw_runtime_error`, so it must clear the message global too;
-        // otherwise this throw reports a previous throw's message.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
+        // This site builds its error object inline rather than through
+        // `emit_throw_runtime_error`, so it publishes the diagnostics itself.
+        // `None` is the message: this throw genuinely carries none, and saying
+        // so is what stops it from reporting a previous, unrelated throw's.
+        self.emit_set_thrown_error_text(TYPE_ERROR_NAME, None, function);
         self.set_completion_kind_with_aux(
             CompletionKind::Throw,
             self.strings.payload(TYPE_ERROR_NAME) as i64,

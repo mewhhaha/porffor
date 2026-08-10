@@ -8628,7 +8628,7 @@ impl<'a> ScriptLowerer<'a> {
         // global lexical Environment Record — the frame this lowerer was built
         // with — before the body evaluates.
         let scope = LexicalScopeInstantiation::instantiate_in_current_scope(
-            self,
+            &mut self,
             script.statements().statements(),
         );
         let body = self.lower_root_statement_items(
@@ -35336,14 +35336,16 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn static_number_to_exponential(value: f64, fraction_digits: Option<usize>) -> Option<String> {
-        if value == f64::INFINITY {
-            return Some("Infinity".to_string());
-        }
-        if value == f64::NEG_INFINITY {
-            return Some("-Infinity".to_string());
-        }
-        if value.is_finite() && value.fract() == 0.0 && value.abs() > 0.0 && value.abs() < 10.0 {
+    /// 21.1.3.2 steps 6 onward. Step 4's non-finite return is discharged by
+    /// [`FiniteReceiver`]: the `±Infinity` arms this used to open with were
+    /// unreachable once `fold_number_format` owned the ordering, and are now
+    /// unwritable as well.
+    fn static_number_to_exponential(
+        value: FiniteReceiver,
+        fraction_digits: Option<usize>,
+    ) -> Option<String> {
+        let value = value.get();
+        if value.fract() == 0.0 && value.abs() > 0.0 && value.abs() < 10.0 {
             if let Some(fraction_digits) = fraction_digits {
                 let sign = if value.is_sign_negative() { "-" } else { "" };
                 let digit = value.abs() as u64;
@@ -35433,11 +35435,14 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
-    fn static_number_to_fixed(value: f64, fraction_digits: usize) -> Option<String> {
-        if value.is_nan() {
-            return Some("NaN".to_string());
-        }
-        if value != 0.0 && value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 {
+    /// 21.1.3.3 steps 7 onward. Step 6's non-finite return is discharged by
+    /// [`FiniteReceiver`], so the `NaN` arm this used to open with is gone —
+    /// and this is the clause where that matters most: `ToFixed`'s
+    /// `RangeCheckFirst` ordering means a `NaN` arm here would answer `"NaN"`
+    /// for `NaN.toFixed(101)`, where 21.1.3.3 steps 4–5 require a RangeError.
+    fn static_number_to_fixed(value: FiniteReceiver, fraction_digits: usize) -> Option<String> {
+        let value = value.get();
+        if value != 0.0 && value.fract() == 0.0 && value.abs() < 1e21 {
             let sign = if value.is_sign_negative() { "-" } else { "" };
             let integer = value.abs() as u64;
             return Some(if fraction_digits == 0 {
@@ -35463,28 +35468,24 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
-    fn static_number_to_precision(value: f64, precision: u8) -> Option<String> {
+    /// 21.1.3.5 steps 6 onward.
+    fn static_number_to_precision(value: FiniteReceiver, precision: u8) -> Option<String> {
         // 21.1.3.5 step 5 (`p < 1 or p > 100`) is discharged by `Precision`'s
         // one constructor before this is reached, and step 4's non-finite
-        // receiver return is discharged by
-        // `NonFiniteReceiverOrder::ReceiverFirst` in `fold_number_format`.
-        // Ledger **LN3**: the parameter is a primitive because the rest of this
-        // body is outside this area's owned region, so the lower bound is
+        // receiver return is discharged by [`FiniteReceiver`], whose only
+        // producer is the branch of `fold_number_format` that has already
+        // applied `NonFiniteReceiverOrder::ReceiverFirst`.
+        // Ledger **LN3**: `precision` is still a primitive because the rest of
+        // this body is outside this area's owned region, so the lower bound is
         // re-stated here as an assertion rather than re-tested as a branch.
         //
         // The former `!(1..=100).contains(&precision)` guard also *preceded*
-        // the `±Infinity` arms below, inverting 21.1.3.5 steps 4 and 5. The
-        // retrofit removes the inversion by construction rather than by
-        // reordering two `if`s; the arms below are now unreachable and their
-        // deletion is recorded as a follow-up in
-        // `target/lane-notes/numeric-conversion-codomains-theory-integration.md`.
+        // the `±Infinity` arms this function used to open with, inverting
+        // 21.1.3.5 steps 4 and 5. Those arms are deleted (follow-up F5 of
+        // `target/lane-notes/numeric-conversion-codomains-theory-integration.md`)
+        // and `FiniteReceiver` is what stops them being written again.
         debug_assert!((1..=100).contains(&precision));
-        if value == f64::INFINITY {
-            return Some("Infinity".to_string());
-        }
-        if value == f64::NEG_INFINITY {
-            return Some("-Infinity".to_string());
-        }
+        let value = value.get();
         if value == 0.0 {
             return Some(if precision <= 1 {
                 "0".to_string()
@@ -35492,7 +35493,7 @@ impl<'a> ScriptLowerer<'a> {
                 format!("0.{}", "0".repeat(precision as usize - 1))
             });
         }
-        if value.is_finite() && value.fract() == 0.0 && value.abs() >= 1.0 && value.abs() < 1e21 {
+        if value.fract() == 0.0 && value.abs() >= 1.0 && value.abs() < 1e21 {
             let sign = if value.is_sign_negative() { "-" } else { "" };
             let integer = value.abs() as u64;
             let digits = integer.to_string();

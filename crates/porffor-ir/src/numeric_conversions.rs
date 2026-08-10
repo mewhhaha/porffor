@@ -360,6 +360,40 @@ impl NumberFormatClause for ToPrecision {
     const RANGE_ERROR: &'static str = "Number.prototype.toPrecision precision out of range";
 }
 
+/// A receiver that has already passed 21.1.3.2 step 4 / 21.1.3.3 step 6 /
+/// 21.1.3.5 step 4, the "if `x` is not finite, return `! ToString(x)`" step.
+///
+/// The field is private and the only constructor is private to this module, so
+/// [`fold_number_format`] is the sole producer and the three formatters in
+/// `lowering.rs` are the sole consumers. That is what retires the non-finite
+/// arms those formatters used to carry: with a bare `f64` parameter each
+/// formatter had to re-handle `±∞` and `NaN` defensively, because nothing
+/// stopped a new call site from passing one — and re-handling it there is
+/// exactly how the ordering inverts, since a formatter that answers
+/// `"Infinity"` for `Infinity.toFixed(101)` has silently overruled 21.1.3.3's
+/// RangeError. A direct call now needs a `FiniteReceiver`, which cannot be
+/// built outside this module (`E0603`), so the ordering can only be decided
+/// where `C::ORDER` is in scope.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FiniteReceiver(f64);
+
+impl FiniteReceiver {
+    /// Private on purpose: the only caller is the branch of
+    /// [`fold_number_format`] that has just tested `receiver.is_finite()`. The
+    /// assertion is the in-module half of the invariant, which the type cannot
+    /// carry for the producer itself — see the contract's ledger row LN6.
+    fn assume_finite(receiver: f64) -> Self {
+        debug_assert!(receiver.is_finite());
+        Self(receiver)
+    }
+
+    /// The one reader. Formatting is real `f64` arithmetic, so the value has to
+    /// come back out; what the newtype buys is the *boundary*, not the body.
+    pub fn get(self) -> f64 {
+        self.0
+    }
+}
+
 /// The single driver for 21.1.3.2, 21.1.3.3 and 21.1.3.5.
 ///
 /// All three clauses are this function with different arguments; there is no
@@ -383,9 +417,9 @@ pub fn fold_number_format<C: NumberFormatClause>(
     receiver: f64,
     digits: RangeChecked<C::Digits>,
     number_to_string: impl FnOnce(f64) -> String,
-    format: impl FnOnce(f64, C::Digits) -> Option<String>,
+    format: impl FnOnce(FiniteReceiver, C::Digits) -> Option<String>,
 ) -> NumberFormatFold {
-    let finish = |digits: C::Digits| match format(receiver, digits) {
+    let finish = |digits: C::Digits| match format(FiniteReceiver::assume_finite(receiver), digits) {
         Some(text) => NumberFormatFold::Formatted(text),
         None => NumberFormatFold::NotStatic,
     };

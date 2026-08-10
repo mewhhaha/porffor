@@ -515,6 +515,38 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Publishes the two throw-diagnostic globals **together**.
+    ///
+    /// The name global existed alone, and an uncaught throw therefore reached
+    /// the host as `TypeError: wasm-aot completion: object(handle@5397552)` — a
+    /// raw linear-memory address that is not stable across builds and maps to
+    /// no allocation site, so ~2,488 measured cases across ~1,743 addresses
+    /// carried one bit of information between them.
+    ///
+    /// It is one function because the pairing is the invariant: a site that
+    /// sets the name and forgets the message reports a *previous*, unrelated
+    /// throw's message. `None` is the explicit "this throw carries no message"
+    /// answer and clears the global; it is not the same as not calling this.
+    /// The only site that may set either global without coming through here is
+    /// `emit_capture_throw_error_name`, which reads both off a user-thrown
+    /// value and zeroes the message on entry for the same reason.
+    pub(crate) fn emit_set_thrown_error_text(
+        &mut self,
+        name: &str,
+        message: Option<&str>,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        let message_payload = message.map_or(0, |message| self.strings.payload(message));
+        function.instruction(&Instruction::I64Const(message_payload));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
+    }
+
     pub(crate) fn emit_throw_runtime_error(
         &mut self,
         name: &str,
@@ -524,19 +556,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_runtime_error_object(name, message, payload_local, tag_local, function)?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        // Companion to the name global. Without it an uncaught throw reaches the
-        // host as `TypeError: wasm-aot completion: object(handle@5397552)` — a
-        // raw linear-memory address that is not stable across builds and maps to
-        // no allocation site, so ~2,488 measured cases across ~1,743 addresses
-        // carried one bit of information between them.
-        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
-        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
+        self.emit_set_thrown_error_text(name, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -700,17 +720,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
-        // Same pairing as `emit_throw_runtime_error`: whenever the name global
-        // is set at a throw site, the message global is set beside it, so the
-        // host never has to render a bare address.
-        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
-        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
-            self.uses_heap,
-        )));
+        self.emit_set_thrown_error_text(name, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));

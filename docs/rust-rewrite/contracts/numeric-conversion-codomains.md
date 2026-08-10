@@ -100,3 +100,64 @@ LN1 differential and by the integration note's acceptance gate respectively.
 gate to the integrator; the residual blind-write risks are enumerated in
 `target/lane-notes/numeric-conversion-codomains-theory-integration.md` §11, and
 the encoder's self-review is §13 of the same file.
+
+---
+
+## Integrator amendment (round 3): `FiniteReceiver`, and the closure of F5
+
+Applied at the compile gate, with the reasoning recorded here because it adds a
+type the contract did not name.
+
+**What F5 asked for.** The integration note's follow-up F5 asked the integrator
+to delete the `value == f64::INFINITY` / `NEG_INFINITY` arms of
+`static_number_to_precision`, which `NonFiniteReceiverOrder::ReceiverFirst`
+had made unreachable. Re-measuring at the gate found the same dead handling in
+**all three** formatters, not one: `static_number_to_exponential` carries the
+same two arms, and `static_number_to_fixed` carries an `is_nan()` arm.
+`fold_number_format` calls `finish` only after `receiver.is_finite()` in *both*
+`NonFiniteReceiverOrder` branches, so every formatter is dead on the non-finite
+path regardless of clause. F5's count was one; the measured count is three.
+
+**Why the deletion alone was not enough.** A plain deletion leaves three private
+`fn(f64, …) -> Option<String>` formatters that a new call site can hand
+`f64::INFINITY` to. That is not hypothetical: this area's own history is the
+`toPrecision` range check sitting *above* the `±Infinity` arms and thereby
+inverting 21.1.3.5 steps 4 and 5. The dangerous direction is `ToFixed`, whose
+`RangeCheckFirst` ordering means a formatter that answers `"NaN"` for
+`NaN.toFixed(101)` has silently overruled a required RangeError.
+
+**The type.** `FiniteReceiver(f64)` in `numeric_conversions.rs`: private field,
+single private constructor `assume_finite`, single reader `get`. Its only
+producer is the branch of `fold_number_format` that has just tested
+`receiver.is_finite()`; its only consumers are the three formatters, whose
+signatures now take it. The `pub use` list in `ir.rs` grows from 25 names to
+**26** — the count in that doc comment is load-bearing and was updated with it.
+
+**It meets AGENTS.md's test, and the check was performed, not assumed.** Both
+perturbations were compiled at the gate and reverted:
+
+| Perturbation | Result |
+|---|---|
+| `Self::static_number_to_precision(f64::INFINITY, 3)` | `E0308`: expected `FiniteReceiver`, found `f64` |
+| `Self::static_number_to_precision(FiniteReceiver(f64::INFINITY), 3)` | `E0423`: cannot initialize a tuple struct which contains private fields |
+
+**What it does not do, stated plainly.** It does not make an `== f64::INFINITY`
+arm *inside* a formatter body a compile error — `get()` returns a bare `f64`,
+because formatting is real floating-point arithmetic and the value has to come
+back out. The newtype buys the **boundary**, not the body. Ledger row **LN6**
+below records the residue.
+
+### Ledger row added
+
+- **LN6 — `FiniteReceiver::assume_finite` is checked at run time, not by a
+  type.** Inside `numeric_conversions.rs` the constructor is in scope, so
+  `fold_number_format` could in principle build one on the non-finite branch.
+  The guard is a `debug_assert!(receiver.is_finite())` plus the fact that the
+  producer is a single 30-line function with both call sites visible in one
+  screen. Cross-module the invariant is a type; in-module it is an assertion.
+  Making it a type as well would need a checked constructor returning
+  `Option<Self>`, which re-opens the question `fold_number_format` exists to
+  answer once — so this row is accepted, not scheduled.
+
+**Ledger: six rows** (LN1–LN5 unchanged, LN6 new). F5 is **closed**, and closed
+wider than it was written.

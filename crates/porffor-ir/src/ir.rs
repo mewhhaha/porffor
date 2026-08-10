@@ -33,12 +33,12 @@ pub use reference::{carried_put_value_failure, PutValueFailure, Strictness};
 #[path = "numeric_conversions.rs"]
 pub mod numeric_conversions;
 
-/// 25 names. Counted, not estimated — an earlier revision of this list said 18
+/// 26 names. Counted, not estimated — an earlier revision of this list said 18
 /// while carrying 19, which is the same class of drift the whole area is about.
 pub use numeric_conversions::{
     fold_number_format, reference_to_index, reference_to_int32, reference_to_length,
     reference_to_uint16, reference_to_uint32, residue_pow2_i64, ExtendedInteger, FiniteInteger,
-    FractionDigits, IntegerOrInfinity, NonFiniteReceiverOrder, NumberFormatClause,
+    FiniteReceiver, FractionDigits, IntegerOrInfinity, NonFiniteReceiverOrder, NumberFormatClause,
     NumberFormatFold, Precision, RangeChecked, ResidueCarrier, ResidueWidth, ToExponential,
     ToFixed, ToIndexOutcome, ToPrecision, Uint16, Uint32, MAX_SAFE_INTEGER_U64,
 };
