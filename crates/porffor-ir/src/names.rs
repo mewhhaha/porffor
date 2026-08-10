@@ -146,7 +146,7 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
     (INTL_LOCALE_NAME, StandardBuiltinId::IntlLocaleConstructor),
 ];
 
-/// The `Temporal.ZonedDateTime.prototype` members batch 6 added, as ONE table.
+/// The `Temporal.ZonedDateTime.prototype` DATA-PROPERTY METHODS, as ONE table.
 ///
 /// Same shape and same reason as [`INTL_NAMESPACE_CONSTRUCTORS`] above: two
 /// consumers in two crates must agree on this membership exactly.
@@ -167,10 +167,47 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
 /// sites makes the disagreement unrepresentable instead of commented against
 /// (AGENTS.md, "Code Invariants Before Test Invariants").
 ///
+/// **This covers the whole data-property membership, not only the five members
+/// batch 6 added.** It first shipped holding those five while `equals`,
+/// `toInstant`, `withTimeZone` and `toPlainDateTime` stayed written out twice —
+/// once as `properties.insert` literals in the shape, once as
+/// `emit_object_define_function_data` calls in the installer — so for four of
+/// the nine members the guarantee this doc claims was still just a comment, and
+/// a tenth member added to one block and not the other would still compile and
+/// still produce the `TypeError: value is not callable` the table exists to make
+/// impossible. The four are folded in, in install order, ahead of the five.
+///
+/// The accessors (`era`, `hoursInDay`, the calendar/time fields, …) are NOT
+/// here. They are installed with
+/// `emit_object_append_accessor_property_with_flags`, not
+/// `emit_object_define_function_data`, and the shape records them as
+/// `ObjectShapeProperty::Accessor`; one table cannot describe both without
+/// carrying a kind column that has exactly one non-default row. If accessors are
+/// ever folded in too, that is the shape to give this.
+///
 /// **Order is observable.** The install loop appends in this order and
 /// `Object.keys` on the prototype shows it, so the order is part of the
-/// contract. Do not sort this list, and append rather than interleave.
+/// contract. Do not sort this list, and append rather than interleave. The
+/// leading four are in the order the installer already used (`equals` before
+/// `withTimeZone`, which is not spec order); preserving that is what makes the
+/// fold byte-neutral.
 pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId)] = &[
+    (
+        "equals",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
+    ),
+    (
+        "toInstant",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
+    ),
+    (
+        "withTimeZone",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
+    ),
+    (
+        "toPlainDateTime",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+    ),
     (
         "withCalendar",
         StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,

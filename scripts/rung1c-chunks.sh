@@ -111,14 +111,30 @@ DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 # of tests", and a chunk whose module has grown or shrunk re-runs. The count is
 # the same exact-line `awk` form the hygiene scanner uses, over the one file the
 # chunk selects. It is a FINGERPRINT, not an assertion about the suite: it
-# deliberately counts `#[cfg]`-gated tests too (only `frontend.rs` has any), so
-# it moves whenever the module's source does.
+# deliberately counts `#[cfg]`-gated tests too (only `frontend.rs` has any).
 #
-# What it does NOT see, and nobody should think it does: a chunk goes stale when
-# the COMPILER changes as well as when its tests do, and no count can detect
-# that. Retiring those verdicts is still a human judgement -- delete the chunk's
-# line from the done-file. This mechanism removes one whole class of that
-# judgement, not the class.
+# WHAT IT SEES IS THE COUNT, AND ONLY THE COUNT. An earlier draft of this
+# paragraph said it "moves whenever the module's source does", which is false and
+# was read as a stronger guarantee than the mechanism has. `module_test_count` is
+# a pure `awk` tally of `#[test]` attributes in one file, so a RENAME, a BODY
+# REWRITE, or a delete-one-add-one leaves the fingerprint fixed and the stale
+# verdict banked. That is not hypothetical: batch 6 rewrote
+# `crates/porffor-cli/tests/cli/iterator_helpers.rs` by 114 lines and only the
+# incidental 13 -> 14 test count made this guard fire. Had the rewrite kept 13
+# tests, nine red fixtures would have stayed banked as red while the repair sat
+# in the tree -- the `date` case this sidecar is advertised on, mirrored.
+#
+# Two classes therefore still need the hand-deleted done-file line (property 3):
+#
+#   * a same-count edit to the module, per the paragraph above;
+#   * a COMPILER change, which no count over the test sources can detect.
+#
+# The strictly stronger mechanism is a content hash --
+# `cksum "crates/porffor-cli/tests/cli/$1.rs" | awk '{print $1}'` drops into
+# `module_test_count`'s shape unchanged, including its fail-open 0. It is not
+# taken here because switching the fingerprint invalidates every recorded row at
+# once and forces a full 18-chunk re-run (~2.5 h); do it at the START of a batch
+# with no banked verdicts to lose, never mid-resume.
 #
 # The two unknown cases are deliberately resolved in OPPOSITE directions, and
 # the difference is which way the unknown can lie:
@@ -253,7 +269,27 @@ run_chunk() {
   # Set only on the stale path, so the done-file is rewritten in place of being
   # appended to exactly when a duplicate line would otherwise appear.
   rebank=0
-  if grep -qx "$name" "$DONE"; then
+  if grep -qx "$name" "$DONE" && [ "$name" = "known_failures" ]; then
+    # NEVER SKIPPABLE, and this is the one chunk for which that is a
+    # correctness rule rather than caution.
+    #
+    # `known_failures` is the only chunk that validates the chunk/module
+    # PARTITION -- `rung_1c_chunks_cover_every_cli_area_module` reads three
+    # inputs, and the fingerprint sees none of them: `tests/cli/main.rs`'s `mod`
+    # list, the set of `tests/cli/*.rs` on disk, and the `^run_chunk ` lines of
+    # THIS file. Its own `#[test]` count is independent of all three. So adding
+    # `tests/cli/foo.rs` + `mod foo;` while forgetting the `run_chunk` line
+    # leaves the count at 5, this chunk skips, the partition check never
+    # executes, `foo`'s tests never run, nothing is UNBANKED, and the script
+    # prints ALL CHUNKS DONE -- the `iterator_helpers` incident with the resume
+    # as the new bypass.
+    #
+    # Batch 6 papered over this by hand-deleting the `known_failures` line from
+    # the done-file, i.e. a human remembering the one case the mechanism cannot
+    # see, every batch. Measured cost of doing it properly: 0.01 s.
+    echo "rung1c: RE-RUN known_failures unconditionally -- it holds the chunk/module partition check, whose inputs (main.rs \`mod\` list, tests/cli/*.rs, this file's run_chunk lines) the counts fingerprint cannot see." >&2
+    rebank=1
+  elif grep -qx "$name" "$DONE"; then
     tests_banked=$(banked_test_count "$name")
     if [ "$tests_now" = "0" ]; then
       echo "rung1c: skip $name (already banked in $DONE; WARNING -- could not count tests in crates/porffor-cli/tests/cli/$name.rs, so its verdict could not be re-validated)" >&2
@@ -407,6 +443,30 @@ run_chunk() {
   return 0
 }
 
+
+# `frontend_test262_subset` MUST HOLD EXACTLY ONE TEST, checked before anything
+# runs rather than asserted in prose.
+#
+# One-test-ness is the single property the whole isolation design rests on, and
+# until now it was stated only in comments (that module's header, main.rs, and
+# `chunk_stall` below). The measured child is 4.46-5.55 GiB peak RSS (38
+# `ps -o rss` samples on an idle box). Two such tests in that module run
+# concurrently under the mandatory `--test-threads=3` -- ~11 GiB on a 15 GiB box,
+# which is batch 5's exact OOM geometry (`avail` 1.6 GiB) -- and the only signal
+# would be a SIGKILL blamed on whatever else was running. The counts fingerprint
+# reacts to such an edit (the chunk re-runs) but neither prevents nor diagnoses
+# it, and the invariant list forbids editing `known_failures.rs`, so the hygiene
+# tests cannot carry this either. This costs ~1 ms and names the reason.
+#
+# Fail-closed on a read error is deliberate here, unlike `run_chunk`'s skip
+# path: if that file cannot be read the chunk would select zero tests and never
+# bank anyway, so exiting with the reason beats exiting without one.
+subset_test_count=$(module_test_count frontend_test262_subset)
+if [ "$subset_test_count" != "1" ]; then
+  echo "rung1c: crates/porffor-cli/tests/cli/frontend_test262_subset.rs declares $subset_test_count test(s); it must hold exactly ONE." >&2
+  echo "rung1c: that module is isolated so nothing schedules beside it -- its single test peaks at 4.5-5.6 GiB RSS, and two of them under --test-threads=3 do not fit this box. Move the new test to frontend.rs." >&2
+  exit 1
+fi
 
 # Order is cheapest-and-most-diagnostic first, so a short container window still
 # banks something useful. `known_failures` leads deliberately: it holds

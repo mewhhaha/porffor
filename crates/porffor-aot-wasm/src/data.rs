@@ -2223,6 +2223,21 @@ impl StringPool {
         // The `Temporal.PlainDateTime` family shares one prototype and is
         // installed wholesale by a realm bootstrap, so its literals are interned
         // unconditionally the same way the PlainTime set above is.
+        //
+        // THIS BLOCK IS ALSO WHAT KEEPS `Temporal.ZonedDateTime.prototype`
+        // INSTALLABLE, which its name does not say. `withCalendar`, `add`,
+        // `subtract`, `until` and `since` below are the property keys
+        // `install_temporal_zoned_date_time_constructor_intrinsics` passes to
+        // `emit_object_define_function_data`, which reaches
+        // `StringPool::payload` — and that PANICS rather than degrading on a
+        // string that was never interned (the failure mode measured this batch
+        // as 24 red `--lib` tests on ``string `...` must exist in pool``, from
+        // the two ZonedDateTime guard messages). Being unconditional is what
+        // makes that safe today. If this block is ever put behind a
+        // PlainDateTime predicate, the ZonedDateTime prototype install goes with
+        // it and every program touching `Temporal.ZonedDateTime` panics at emit;
+        // give those five their own gate keyed on
+        // `names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS` at the same time.
         {
             for value in [
                 "PlainDateTime",

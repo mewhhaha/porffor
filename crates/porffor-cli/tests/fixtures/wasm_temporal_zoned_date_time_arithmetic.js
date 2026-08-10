@@ -65,9 +65,25 @@ for (var i = 0; i < methodNames.length; i++) {
   if (descriptor.writable !== true) throw methodName + " writable";
   if (descriptor.enumerable !== false) throw methodName + " enumerable";
   if (descriptor.configurable !== true) throw methodName + " configurable";
-  // Mirrors .../<name>/branding.js: a receiver without
-  // [[InitializedTemporalZonedDateTime]] is a TypeError, and the check happens
-  // before any argument is coerced.
+  // Mirrors .../<name>/branding.js only: a receiver without
+  // [[InitializedTemporalZonedDateTime]] is a TypeError.
+  //
+  // IT DOES NOT PIN THE ORDERING, and an earlier version of this comment
+  // claimed "the check happens before any argument is coerced". `undefined` is
+  // rejected by a LATER guard on all five paths anyway — `withCalendar` by its
+  // undefined-calendar guard, and add/subtract/until/since by the brand check
+  // inside the inlined `emit_temporal_zoned_date_time_to_plain_date_time` — so
+  // deleting the outer `emit_temporal_zoned_date_time_record_from_receiver`
+  // call, which is the thing the ordering claim was about, leaves this loop
+  // green.
+  //
+  // Witnessing the order needs an argument whose coercion is observable AND
+  // actually read on the path under test, which differs per method (a duration
+  // bag for add/subtract, a ZonedDateTime-like for until/since, a calendar for
+  // withCalendar) — so it is a per-method probe, not this loop. test262's
+  // `order-of-operations.js` files are the shape to copy. Recorded as missing
+  // coverage rather than approximated with a getter nothing reads, which is how
+  // this assertion became vacuous the first time.
   expectError(TypeError, function () {
     return Temporal.ZonedDateTime.prototype[methodName].call({}, undefined);
   });

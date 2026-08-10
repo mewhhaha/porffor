@@ -1140,10 +1140,20 @@ pub enum StandardBuiltinId {
     // load-bearing three ways and none of them is "reads like the spec":
     // `all_functions()` order feeds Wasm function indices, `all_globals()` is
     // deliberately not declaration order, and variant order feeds `Ord` for the
-    // `BTreeSet<StandardBuiltinId>` the rooting plan iterates. Appending keeps
-    // every pre-existing index stable; spec property order is expressed where
-    // it is actually observable, in the define-property sequence in
-    // `install_temporal_zoned_date_time_constructor_intrinsics`.
+    // `BTreeSet<StandardBuiltinId>` the rooting plan iterates. Spec property
+    // order is expressed where it is actually observable, in the define-property
+    // sequence in `install_temporal_zoned_date_time_constructor_intrinsics`.
+    //
+    // "END OF THE ZONEDDATETIME BLOCK" IS NOT "END OF THE ENUM", and an earlier
+    // wording here — "appending keeps every pre-existing index stable" — read as
+    // though it were. Counted on this file: `all_functions()` holds 770 entries
+    // and `TemporalZonedDateTimePrototypeWithCalendar` is at index 480, so the
+    // 285 entries after these five each moved by 5 and their Wasm function
+    // indices moved with them (`emit.rs` assigns from that iteration order).
+    // That is fine for FEATURE work, which is what this was; it is exactly what
+    // a refactor gated on rung G byte-identity must not do. If you are inserting
+    // a variant during such a refactor, append at the END OF THE ENUM instead,
+    // and re-read this paragraph before deciding the two are the same thing.
     TemporalZonedDateTimePrototypeWithCalendar,
     TemporalZonedDateTimePrototypeAdd,
     TemporalZonedDateTimePrototypeSubtract,

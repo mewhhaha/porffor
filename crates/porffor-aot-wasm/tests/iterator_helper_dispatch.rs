@@ -39,16 +39,32 @@
 //! them, so both programs root and emit the same set of builtins and take the
 //! same fast path for those calls; only the statement under test differs.
 //!
-//! # What this does not claim
+//! # What this does not claim, and the control that keeps it from being vacuous
 //!
 //! It is a *differential*, not a fingerprint. It cannot name the emitter that
 //! ran, only that two calls were emitted alike, and it would stay green if a
-//! future change routed both members of a pair into the generic tail. That is
-//! an acceptable residual: `drop` and `flatMap` on this receiver are covered
-//! end to end by their own CLI fixtures, so "drop is correct" plus "take is
-//! emitted like drop" is a real chain. Rung G is the tool for absolute claims
-//! about emitted bytes and is deliberately inapplicable to a change that is
-//! meant to move them.
+//! future change routed both members of a pair into the generic tail. `drop` and
+//! `flatMap` on this receiver are covered end to end by their own CLI fixtures,
+//! so "drop is correct" plus "take is emitted like drop" is a real chain. Rung G
+//! is the tool for absolute claims about emitted bytes and is deliberately
+//! inapplicable to a change that is meant to move them.
+//!
+//! That residual is larger than the paragraph above used to admit, and saying
+//! "a future change" hid it. **At this head the two `_dispatches_..._like_...`
+//! tests cannot fail**, because both guards funnel a non-array receiver into the
+//! same emitter: `take`/`map` reach it through
+//! `receiver_shape_targets_iterator_helper` while lowering is right, and through
+//! `receiver_needs_dynamic_helper_dispatch` when it is wrong (a nullish-typed
+//! receiver is inside that predicate's kind set), and `drop`/`flatMap` reach it
+//! unconditionally on any non-array receiver. Under every configuration
+//! reachable from here the difference is bounded by construction rather than by
+//! measurement.
+//!
+//! [`iterator_helper_dispatch_differential_separates_two_emitters`] is what
+//! stops that from being the whole story. It runs the identical comparison over
+//! a receiver that genuinely reaches neither guard and asserts the difference is
+//! **larger** than the slack. Without it, `assert_dispatched_alike` is an
+//! instrument nobody has shown can move.
 
 use porffor_aot_wasm::emit;
 use porffor_front::{parse, ParseOptions};
@@ -129,8 +145,13 @@ fn assert_dispatched_alike(subject: &str, control: &str) {
     );
 }
 
+/// Every test in this target is named `iterator_helper_*` on purpose. The
+/// family's habitual filter is `-- iterator`, and under the previous names
+/// (`a_class_receiver_dispatches_...`) that filter selected **0 of 3** and
+/// printed `0 passed; 0 failed`, which reads as green. `-- dispatch` selected 2
+/// of 3, which is worse. Keep the prefix; run the target unfiltered.
 #[test]
-fn a_class_receiver_dispatches_take_the_same_way_as_drop() {
+fn iterator_helper_take_dispatches_like_drop_on_a_class_receiver() {
     assert_dispatched_alike("new Source().take(1);", "new Source().drop(1);");
 }
 
@@ -138,10 +159,54 @@ fn a_class_receiver_dispatches_take_the_same_way_as_drop() {
 /// the same reason `drop` is above: its block routes every non-array receiver
 /// to the shared dispatch, so it was correct throughout while `map` was not.
 #[test]
-fn a_class_receiver_dispatches_map_the_same_way_as_flat_map() {
+fn iterator_helper_map_dispatches_like_flat_map_on_a_class_receiver() {
     assert_dispatched_alike(
         "new Source().map(identity);",
         "new Source().flatMap(identity);",
+    );
+}
+
+/// THE NEGATIVE CONTROL for the two tests above, and the reason they mean
+/// anything.
+///
+/// Both of those pairs are emitter-identical under every configuration
+/// reachable from this head (see the module doc), so on their own they show
+/// only that `assert_dispatched_alike` returns. This runs the same instrument
+/// over a receiver that reaches **neither** helper guard and requires it to
+/// separate the two emitters:
+///
+/// * `"abc".take(1)` — `possible_kinds == {String}` is not a subset of
+///   `{Object, Function} ∪ NULLISH`, so `receiver_needs_dynamic_helper_dispatch`
+///   is false, and a string prototype carries no `take`, so
+///   `receiver_shape_targets_iterator_helper` is false too. It falls through to
+///   `emit_method_call`'s generic tail and takes its `ValueKind::String` arm.
+/// * `"abc".drop(1)` — `drop`'s guard is `receiver_is_iterator ||
+///   !receiver_is_array` and a string is not array-shaped, so it goes to the
+///   shared dispatch unconditionally.
+///
+/// The two emissions therefore differ structurally: the dispatch emits a runtime
+/// RequireObjectCoercible test with a full `emit_throw_runtime_error` body and
+/// no callee `Unreachable`, while the String arm resolves the string prototype
+/// and emits the tail's callable check. Neither program is ever run — `"abc"`
+/// has no such methods at run time — and neither needs to be: the claim is
+/// about which emitter produced the bytes.
+///
+/// If this ever goes red because the difference fell inside the slack, do not
+/// widen the slack. It means the two emitters converged, and the two tests above
+/// stopped being able to say anything.
+#[test]
+fn iterator_helper_dispatch_differential_separates_two_emitters() {
+    let (tail_bytes, _) = main_body_bytes_and_module(probe("\"abc\".take(1);"));
+    let (dispatch_bytes, _) = main_body_bytes_and_module(probe("\"abc\".drop(1);"));
+    let difference = tail_bytes.abs_diff(dispatch_bytes);
+    assert!(
+        difference > PAYLOAD_ENCODING_SLACK,
+        "a receiver that reaches neither helper guard must be emitted differently \
+         from one routed to the shared dispatch, or `assert_dispatched_alike` \
+         cannot distinguish an emitter it never moved: \
+         tail(`\"abc\".take(1)`)={tail_bytes} \
+         dispatch(`\"abc\".drop(1)`)={dispatch_bytes} \
+         difference={difference} slack={PAYLOAD_ENCODING_SLACK}"
     );
 }
 
@@ -150,7 +215,7 @@ fn a_class_receiver_dispatches_map_the_same_way_as_flat_map() {
 /// pairs to the shared dispatch, and an unbalanced control frame is invisible
 /// to a byte count.
 #[test]
-fn a_class_receiver_helper_call_emits_a_valid_module() {
+fn iterator_helper_class_receiver_call_emits_a_valid_module() {
     for statement in [
         "new Source().take(1);",
         "new Source().drop(1);",

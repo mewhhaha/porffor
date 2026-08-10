@@ -1052,85 +1052,25 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        let equals_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimePrototypeEquals.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.equals`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "equals",
-            equals_meta,
-            function,
-        )?;
-        let to_instant_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.toInstant`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "toInstant",
-            to_instant_meta,
-            function,
-        )?;
-        let with_time_zone_meta = self
-            .functions
-            .get(
-                &StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
-                    .function_id(),
-            )
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.withTimeZone`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "withTimeZone",
-            with_time_zone_meta,
-            function,
-        )?;
-        let to_plain_date_time_meta = self
-            .functions
-            .get(
-                &StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
-                    .function_id(),
-            )
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.toPlainDateTime`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "toPlainDateTime",
-            to_plain_date_time_meta,
-            function,
-        )?;
-        // The batch-6 arithmetic/calendar surface, appended in spec property
-        // order relative to each other.
+        // Every data-property method of this prototype, in install order.
         //
-        // Order is observable (`Object.keys` on the prototype), so appending
-        // rather than interleaving is a deliberate choice: it leaves the
-        // pre-existing prefix byte-for-byte alone. The prototype's order is
-        // already not spec order — `equals` is installed before `withTimeZone`
-        // — so interleaving these five would have moved existing names without
-        // making the whole list right.
+        // Order is observable (`Object.keys` on the prototype). The order below
+        // is the one this installer already emitted — `equals`, `toInstant`,
+        // `withTimeZone`, `toPlainDateTime`, then batch 6's five appended — so
+        // the fold that put the first four into the table moved no name. It is
+        // deliberately NOT spec order (`equals` before `withTimeZone`); fixing
+        // that is a separate change with an observable result.
         //
-        // The list itself lives in `porffor-ir`
+        // The list lives in `porffor-ir`
         // (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`) and is iterated
         // by `lowering::temporal_zoned_date_time_prototype_shape` too, so this
         // prototype and that shape cannot disagree about what exists. Batch 6
-        // shipped the two lists as separate literals with a comment asking the
-        // reader to keep them in step; that is what this replaces. Adding a
-        // member means editing the const, which updates both sites at once.
+        // shipped the five new names as separate literals in each crate with a
+        // comment asking the reader to keep them in step, and left the four
+        // older names duplicated that way afterwards; this replaces both.
+        // Adding a member means editing the const, which updates both sites at
+        // once. The accessors above are installed through a different emitter
+        // and are deliberately outside the table — see the const's doc.
         for (name, builtin) in TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS {
             let builtin = *builtin;
             let method_meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {

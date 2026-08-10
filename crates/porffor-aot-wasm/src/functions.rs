@@ -334,6 +334,40 @@ fn receiver_shape_targets_iterator_helper(receiver: &TypedExpr, helper: Iterator
 /// (`Object`, `Function`, `Undefined`, `Null`, or `Dynamic` per the paragraph
 /// above), so it changes no emitted byte; on an `EMPTY` kind set with a
 /// primitive `kind` it falls to the tail exactly as before.
+///
+/// # This set is deliberately WIDER than the repair needs. Two claims, kept apart
+///
+/// **The minimal repair is `possible_kinds.is_subset_of(KindSet::NULLISH)`.**
+/// That is exactly the receiver the tail gets wrong — the statically-nullish
+/// shortcut in `emit_method_call`, which returns having emitted no call. Every
+/// other receiver this predicate captures reaches the tail's
+/// `Object | Function | Dynamic` arm, which emits the same `[[Get]]` plus
+/// `emit_function_handle_call_with_argv` this dispatch does, so on a *callable*
+/// property the two are behaviourally equivalent and moving them repairs
+/// nothing.
+///
+/// **What the wider set buys is a second, separate improvement, and it is the
+/// only reason to keep it:** on a NON-callable property the two differ. The
+/// tail's callee check is `i64.eq` against the `Function` tag followed by
+/// `Instruction::Unreachable` — `({}).map(1)` traps the module. This dispatch
+/// reaches `emit_function_handle_call_with_argv_inner`, whose own check throws
+/// `TypeError: value is not callable`. Turning a Wasm trap into a spec-shaped
+/// `TypeError` for seven of the most common method names in JavaScript is worth
+/// having; treating it as a side effect of a bug fix is not, which is why it is
+/// stated here rather than left to be re-derived.
+///
+/// The cost, stated so the next batch does not have to re-discover it: every
+/// `{Object, Function}` receiver of these seven names moves off the tail for the
+/// whole corpus, so any argument that banked rung-1c verdicts survive this
+/// change has to enumerate those call sites. If the `TypeError` improvement is
+/// ever given up, narrow the body to the `NULLISH` subset test alone — it still
+/// repairs the mistyped class receiver, and it leaves every already-correct
+/// object receiver on the tail byte for byte.
+///
+/// Neither claim is witnessed by a test today. `({}).map(1)` throwing a
+/// `TypeError` rather than trapping is unfixtured, and the differential in
+/// `crates/porffor-aot-wasm/tests/iterator_helper_dispatch.rs` cannot see it
+/// (it compares sizes, and both programs there have callable properties).
 fn receiver_needs_dynamic_helper_dispatch(receiver: &TypedExpr) -> bool {
     let dispatchable = KindSet::from_kind(ValueKind::Object)
         .union(KindSet::from_kind(ValueKind::Function))
@@ -9041,19 +9075,35 @@ impl<'a> FunctionBuilder<'a> {
     ///    the error they threw;
     /// 3. after the call, matching the tail.
     ///
+    /// **(3) IS STATICALLY DEAD, and calling it load-bearing was wrong.**
+    /// [`Self::emit_function_handle_call_with_argv`] hard-codes
+    /// `PropagateCallThrow::ToActiveHandler`, and *both* arms that implement it
+    /// — the outlined-helper path and the inline path — already call
+    /// `emit_propagate_throw_from_locals_if_needed` and then
+    /// `set_completion_kind(CompletionKind::Normal)`. Control reaches (3) only
+    /// with `completion_local == NORMAL`, so the `i64.eq`/`if`/`end` it emits
+    /// can never take its true arm. The generic tail carries the identical dead
+    /// check after its own call, so this is a copy of an existing no-op rather
+    /// than a repair; it is kept for symmetry with the tail and so that a future
+    /// switch to `PropagateCallThrow::LeaveInCompletion` here is safe, and for
+    /// no other reason. (1) and (2) are the two that are merely *unwitnessed*,
+    /// which is a weaker statement than dead — see below.
+    ///
     /// The fourth is 7.2.1 RequireObjectCoercible, between (1) and (2). It is a
     /// *runtime* tag test rather than a static one for the reason spelled out
     /// on [`super::receiver_needs_dynamic_helper_dispatch`]: the receiver that
     /// makes this dispatch necessary is one `porffor-ir` mistypes as
     /// `undefined`, so no static test can separate it from a program that
-    /// really wrote `undefined.take(1)`.
+    /// really wrote `undefined.take(1)`. It is the only one of the four with a
+    /// reachable true arm on the ordinary path.
     ///
     /// `wasm_iterator_helper_class_receiver_abrupt_dispatch.js` answers `ok` on
     /// the *pre-repair* compiler, because its receivers are ordinary objects
     /// that the generic tail already handled. **It pins that the routing change
     /// preserves the tail's abrupt-completion behaviour; it does not witness
     /// checks (1)-(3),** and an earlier version of this comment claimed it did.
-    /// Measured: the fixture still answers `ok` with all three deleted. In this
+    /// Measured: the fixture still answers `ok` with all three deleted — and for
+    /// (3) no fixture ever could, per the paragraph above. In this
     /// emitter's configuration they are redundant —
     /// [`Self::emit_object_read`] routes to `emit_object_read_ordinary`, which
     /// propagates on the outlined-helper path (the variant that does *not* is
@@ -10073,10 +10123,20 @@ impl<'a> FunctionBuilder<'a> {
                     .map(DestinationWritten::discharge);
             }
         }
-        // `forEach` was the one helper that already acquired its callee with an
-        // ordinary `[[Get]]`, and the one helper measured correct for a
-        // `class X extends Iterator` receiver. It is now the same call as the
-        // other nine rather than the odd one out.
+        // `forEach` needs no fall-back disjunct, and the batch-5 story for why
+        // it was already correct — "it was the one helper that acquired its
+        // callee with an ordinary `[[Get]]`, and it is now the same call as the
+        // other nine" — was wrong on both halves, which is why it no longer sits
+        // here. Callee acquisition was never the defect (see this file's header:
+        // for the failing receiver no code was emitted for the call at all), no
+        // arm was converted, and "the other nine" does not describe anything:
+        // there are eleven helpers, seven bare-guard blocks, `drop`/`flatMap` on
+        // a different guard shape, and `toArray` never reaches this function.
+        //
+        // What is true at this head: lowering resolves `forEach` off the fixed
+        // instance shape, so `receiver_shape_targets_iterator_helper` fires for
+        // the class receiver and this guard alone is enough.
+        // `wasm_iterator_helper_class_receiver_for_each.js` is what covers it.
         if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::ForEach.property_name())
             && receiver_shape_targets_iterator_helper(receiver, IteratorHelper::ForEach)
         {

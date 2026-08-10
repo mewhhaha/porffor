@@ -1761,41 +1761,18 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        properties.insert(
-            "equals".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeEquals.function_id(),
-                false,
-            )),
-        );
-        properties.insert(
-            "toInstant".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant.function_id(),
-                false,
-            )),
-        );
-        properties.insert(
-            "withTimeZone".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone.function_id(),
-                false,
-            )),
-        );
-        properties.insert(
-            "toPlainDateTime".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime.function_id(),
-                false,
-            )),
-        );
-        // The batch-6 arithmetic/calendar surface, read out of the one table
-        // both crates iterate (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`).
-        // Batch 6 shipped this list literally here AND in
+        // Every data-property method of this prototype, read out of the one
+        // table both crates iterate
+        // (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`). Batch 6 shipped
+        // its five new members literally here AND in
         // `install_temporal_zoned_date_time_constructor_intrinsics`, with a
         // comment in each saying they must agree; that agreement is now
-        // structural rather than remembered. See the const's doc for what a
-        // divergence costs.
+        // structural rather than remembered. `equals`, `toInstant`,
+        // `withTimeZone` and `toPlainDateTime` were still spelled out here as
+        // four separate `properties.insert` calls identical to this loop body,
+        // duplicating four more members against the installer — they are in the
+        // table now, at the head of it, in the order the installer used. See the
+        // const's doc for what a divergence costs.
         for (name, builtin) in TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS {
             properties.insert(
                 (*name).to_string(),
