@@ -207,6 +207,78 @@ mod tests {
         }
     }
 
+    /// The rooting walk must terminate on a cyclic dependency, and must still
+    /// root both ends of the cycle.
+    ///
+    /// `Temporal.PlainDateTime`'s arm requires `TemporalZonedDateTimeConstructor`
+    /// (its `toZonedDateTime` returns one) and `Temporal.ZonedDateTime`'s arm
+    /// requires `TemporalPlainDateTimeConstructor` (its `toPlainDateTime`
+    /// returns one). Before the `walked` guard this pair recursed until the
+    /// engine's 64 MiB worker stack was gone and the process died with SIGABRT
+    /// — from `print(typeof Temporal.ZonedDateTime)`, from
+    /// `print(typeof globalThis)`, and from any test262 case containing
+    /// `var global = this;`, which is how it took down a full-suite sweep and
+    /// aborted the whole `--test cli` process ten tests in.
+    ///
+    /// A stack overflow aborts the test binary rather than failing one test, so
+    /// a regression here is loud: the whole `porffor-aot-wasm` lib target dies.
+    /// That is the intended behaviour of this test, not a flaw in it — there is
+    /// no way to catch a blown guard page in-process.
+    #[test]
+    fn a_cyclic_rooting_dependency_terminates_and_roots_both_ends() {
+        for entry in [
+            StandardBuiltinId::TemporalZonedDateTimeConstructor,
+            StandardBuiltinId::TemporalPlainDateTimeConstructor,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry);
+
+            assert!(
+                plan.standard_roots.contains(&entry),
+                "the entry point itself must be rooted: {entry:?}"
+            );
+            // Both ends of the cycle, whichever end we entered from. This is
+            // the half that a naive `if !standard_roots.insert(..) { return }`
+            // guard would have been free to drop.
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::TemporalZonedDateTimeConstructor),
+                "entering at {entry:?} must still root the ZonedDateTime constructor"
+            );
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::TemporalPlainDateTimeConstructor),
+                "entering at {entry:?} must still root the PlainDateTime constructor"
+            );
+            assert!(
+                plan.temporal_object,
+                "entering at {entry:?} must set the Temporal namespace flag"
+            );
+        }
+    }
+
+    /// Requiring the same builtin twice must be a no-op the second time, and
+    /// must not shrink the answer.
+    ///
+    /// `walked` makes the second call return early, so this pins the claim that
+    /// the arms are idempotent: walking once yields the same `standard_roots`
+    /// as walking repeatedly.
+    #[test]
+    fn requiring_a_builtin_twice_is_idempotent() {
+        let mut once = RuntimeBootstrapPlan::default();
+        once.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+
+        let mut twice = RuntimeBootstrapPlan::default();
+        twice.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+        twice.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+
+        assert_eq!(once.standard_roots, twice.standard_roots);
+        assert_eq!(once.temporal_object, twice.temporal_object);
+    }
+
     #[test]
     fn string_call_result_chain_keeps_bootstrap_and_both_methods_live() {
         let mut plan = RuntimeBootstrapPlan::default();
@@ -1061,6 +1133,32 @@ pub(crate) struct RuntimeBootstrapPlan {
     /// is the only module allowed to discharge it. Read it through
     /// [`RuntimeBootstrapPlan::intl_namespace_members`].
     intl: IntlNamespacePlan,
+    /// Which builtins [`RuntimeBootstrapPlan::require_standard_builtin`] has
+    /// already *walked*, as opposed to which ones are rooted.
+    ///
+    /// The dependency graph these arms describe has cycles in it, and one of
+    /// them is reachable from a one-line program. `Temporal.PlainDateTime`'s
+    /// arm requires `TemporalZonedDateTimeConstructor` (for `toZonedDateTime`)
+    /// and `Temporal.ZonedDateTime`'s arm requires
+    /// `TemporalPlainDateTimeConstructor` (for `toPlainDateTime`), so
+    /// `print(typeof Temporal.ZonedDateTime)` recursed until it exhausted the
+    /// engine's 64 MiB worker stack and aborted the process with SIGABRT. Top
+    /// level `this` and `globalThis` reach it too, because they root every
+    /// global; that is how a `var global = this;` case in
+    /// `built-ins/Array/prototype/map` came to kill a full-suite sweep.
+    ///
+    /// This must NOT be replaced by guarding on `standard_roots` itself, however
+    /// tempting the one-liner is. Several arms below add their dependencies with
+    /// a bare `standard_roots.insert(dep)` rather than a recursive `require`, so
+    /// a builtin can already be *rooted* without ever having been *walked*.
+    /// Guarding on `standard_roots` would then skip that builtin's arm the first
+    /// time anything genuinely required it, silently dropping every root the arm
+    /// would have added — trading an abort for a wrong answer.
+    ///
+    /// Walking each builtin exactly once reaches the same fixpoint as walking it
+    /// repeatedly: every effect in these arms is a set insertion or a `= true`
+    /// flag, so they are idempotent and order-independent.
+    walked: BTreeSet<StandardBuiltinId>,
 }
 
 impl RuntimeBootstrapPlan {
@@ -1230,6 +1328,12 @@ impl RuntimeBootstrapPlan {
 
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
         self.standard_roots.insert(builtin);
+        // Rooting is unconditional above; *walking* happens at most once. See
+        // the `walked` field's documentation for why the guard cannot live on
+        // `standard_roots`, and for the cycle that makes it necessary at all.
+        if !self.walked.insert(builtin) {
+            return;
+        }
         if builtin == StandardBuiltinId::ArrayFromAsync {
             self.standard_roots
                 .insert(StandardBuiltinId::ArrayConstructor);
