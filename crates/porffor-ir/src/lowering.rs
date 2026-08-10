@@ -6897,12 +6897,25 @@ impl<'a> ScriptLowerer<'a> {
             // Declared exactly as the PlainDate / PlainDateTime / PlainYearMonth
             // era pair already is, so the four cannot disagree. `era` is filed
             // under `Undefined` and `eraYear` under `Dynamic`; that asymmetry
-            // is inherited, not invented here, and it is measured non-fatal —
-            // the `intl402/Temporal/PlainDate` node is 488/488 with
-            // `prototype/era/basic.js` (`era === "ce"`) inside it, so this
-            // declaration does not fold a gregory era to `undefined`. It is
-            // still a wrong declaration for a two-calendar backend; see the
-            // lane note's finding on it.
+            // is inherited, not invented here.
+            //
+            // `Undefined` is a *wrong* declaration for a two-calendar backend
+            // — a gregory receiver answers the string `"ce"` — and it is
+            // harmless only because nothing consults it on this path. Every
+            // singleton-`possible_kinds` shortcut in the backend is gated on
+            // `planning::expr_result_tag_is_runtime_dynamic`, whose or-pattern
+            // returns `true` for `PropertyRead`, `CallNamed` and `CallMethod`;
+            // those are the only syntactic forms that can reach an era getter,
+            // so the declared kind never decides the emitted tag. (Do not cite
+            // the `intl402/Temporal/PlainDate` 488/488 node for this, as an
+            // earlier version of this comment did: that snapshot is
+            // `spec-exec`, and these tables are read by wasm-aot lowering
+            // only.)
+            //
+            // The correct fix is to widen all four `era` getters to
+            // `ValueKind::Dynamic` with `String|Undefined`, mirroring what the
+            // four `eraYear` getters already do with `Number|Undefined`, in
+            // one edit so they cannot disagree.
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => (
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),

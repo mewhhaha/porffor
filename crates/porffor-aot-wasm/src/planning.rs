@@ -2069,6 +2069,21 @@ impl RuntimeBootstrapPlan {
                 // the PlainDateTime arm above carries for `toZonedDateTime`.
                 // Without it `emit_alloc_temporal_plain_date_time` reads a
                 // prototype global nothing has bootstrapped.
+                //
+                // SIZE CONSEQUENCE, recorded deliberately. This arm is shared
+                // by all 24 ZonedDateTime members, so a program that touches
+                // *any* of them — `zdt.hour`, say — now roots the whole
+                // PlainDateTime constructor family. It cannot be narrowed in
+                // place: the same arm unconditionally inserts
+                // `...PrototypeToPlainDateTime` into `standard_roots` below,
+                // and that emitter reads
+                // `TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX`
+                // (`intrinsics/temporal_plain_date_time.rs`). So the growth is
+                // inherent to the existing root-them-all shape rather than a
+                // placement mistake, and it is unmeasured against batch 3's
+                // emit-size budget. The real fix, if it ever matters, is to
+                // split this arm so the accessors do not drag in
+                // `toPlainDateTime`.
                 self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,

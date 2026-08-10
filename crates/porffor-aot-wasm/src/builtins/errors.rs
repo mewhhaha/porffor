@@ -765,12 +765,16 @@ impl<'a> FunctionBuilder<'a> {
     /// an uncaught user throw from reaching the host as nothing but
     /// `object(handle@5397552)`.
     ///
-    /// The message global is zeroed **here**, not by the caller. The name
-    /// global's callers each zero it themselves before calling
-    /// (`control_flow.rs`'s `StatementIr::Throw`, `promise.rs`'s rejection
-    /// path), and that convention is exactly why a *new* global would inherit a
-    /// stale value from a previous throw at any call site that forgot. Zeroing
-    /// on entry makes it impossible to forget from outside this function.
+    /// **Both** globals are zeroed here, not by the caller. Zeroing the name
+    /// used to be the caller's job — `control_flow.rs`'s `StatementIr::Throw`
+    /// and `promise.rs`'s rejection path each emitted their own
+    /// `I64Const(0); GlobalSet(name)` first — and that convention is exactly
+    /// how a stale value from a previous throw reaches the host at whichever
+    /// call site forgets. Both globals are module-lifetime, so a forgotten
+    /// clear is not a missing diagnostic but a *wrong* one, attributed to the
+    /// throw being captured now. Zeroing on entry makes it impossible to
+    /// forget from outside this function; the emitted instruction sequence is
+    /// unchanged, because the zero moved to exactly where the callers put it.
     pub(crate) fn emit_capture_throw_error_name(
         &mut self,
         payload_local: u32,
@@ -785,6 +789,10 @@ impl<'a> FunctionBuilder<'a> {
         let message_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
 
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
             self.uses_heap,
