@@ -15,6 +15,7 @@ mod frontend;
 mod functions;
 mod heap;
 mod iterator;
+mod iterator_helpers;
 mod known_failures;
 mod language;
 mod object;

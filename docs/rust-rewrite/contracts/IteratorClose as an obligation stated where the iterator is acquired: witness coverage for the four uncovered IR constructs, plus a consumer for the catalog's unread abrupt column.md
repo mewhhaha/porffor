@@ -182,6 +182,14 @@ The two "none owed" rows are load-bearing and are the reason §4 B1's witness is
 close after a `next()` that already threw — is an *observable extra call to
 `return`*, i.e. a conformance failure in the opposite direction.
 
+**One clause of these two rows is not yet established**, and B1's premise says so
+(§4): whether GetIteratorFromMethod owes a close when `Get(iterator, "next")`
+throws. If it does, both rows are incomplete and the destructuring `GetIterator`
+path is missing a close as well. The vendored corpus does not settle it; the
+`yield-star-next-get-abrupt` family asserts only that the reason propagates, with
+no `returnCount`. **OPEN**, and it gates acceptance of B1's premise, not of
+anything landed.
+
 ### 1.5 14.4.14 `yield*`, stated as three resume modes
 
 `yield* AssignmentExpression`:
@@ -465,43 +473,52 @@ pub const ARRAY_DESTRUCTURING_PROTOCOL: Self =
 The witness census, `pub(crate)` so `porffor-aot-wasm` cannot read it (§10 P2):
 
 ```rust
-/// Every witness constant, by name. Written over names rather than values
-/// because `ARRAY_INDEX_WALK_RESUMABLE` *is* `ARRAY_INDEX_WALK` (§2.2), so a
-/// value-distinctness check would be vacuous.
-pub(crate) const ALL_WITNESSES: &[IteratorProtocolWitness] = &[
-    IteratorProtocolWitness::ARRAY_INDEX_WALK,
-    IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE,
-    IteratorProtocolWitness::STRING_CODE_POINT_WALK,
-    IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL,
-    IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL,
-    IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
-    IteratorProtocolWitness::NO_ITERATION,
-];
+**The census is generated, not hand-maintained.** An `iterator_witnesses!`
+macro — `emission_sites!`'s shape applied to the witness domain — declares every
+`pub const` **and** `ALL_WITNESSES` from one row list, so "added a constant,
+forgot the census" is not expressible. An alias row is written
+`ARRAY_INDEX_WALK_RESUMABLE => Self::ARRAY_INDEX_WALK`, which is why the census
+is over names rather than values (§2.2): seven names, six distinct values.
 
-/// True when some witness constant discharges some obligation by emission at
-/// `site` — i.e. some IR construct has accepted responsibility for that arm.
-pub(crate) const fn site_is_witnessed(site: EmissionSite) -> bool {
+```rust
+macro_rules! iterator_witnesses {
+    ($( $( #[$meta:meta] )* $name:ident => $body:expr ),+ $(,)?) => {
+        impl IteratorProtocolWitness { $( $( #[$meta] )* pub const $name: Self = $body; )+ }
+        pub(crate) const ALL_WITNESSES: &[IteratorProtocolWitness] =
+            &[ $( IteratorProtocolWitness::$name , )+ ];
+    };
+}
+```
+
+```rust
+/// True when some witness constant discharges **`obligation`** by emission at
+/// `site`. Per-obligation, not per-site: a site may run 7.4.2/7.4.8/7.4.9 and
+/// owe no 7.4.11 (B1's `CallArgumentSpread` is the worked example), and J10 has
+/// to be able to say so.
+pub(crate) const fn site_emits(site: EmissionSite, obligation: IteratorObligation) -> bool {
     let mut i = 0;
     while i < ALL_WITNESSES.len() {
-        let witness = ALL_WITNESSES[i];
-        let mut j = 0;
-        while j < ALL_OBLIGATIONS.len() {
-            // `match`, not `if let`, to stay in the const-fn shape the existing
-            // `assumes` / `emits` helpers in this file already prove compiles
-            // (`iterator_obligations.rs:493-513`). Discriminant comparison via
-            // `as u8` is likewise their existing idiom: `EmissionSite` has no
-            // `const` `PartialEq`.
-            match witness.discharge(ALL_OBLIGATIONS[j]) {
-                ObligationDischarge::ByEmission(actual) => {
-                    if actual as u8 == site as u8 {
-                        return true;
-                    }
-                }
-                ObligationDischarge::ByAssumption(_) => {}
+        // `match`, not `if let`, to stay in the const-fn shape the existing
+        // `assumes` / `emits` helpers in this file already prove compiles.
+        // Discriminant comparison via `as u8` is likewise their existing idiom:
+        // `EmissionSite` has no `const` `PartialEq`.
+        match ALL_WITNESSES[i].discharge(obligation) {
+            ObligationDischarge::ByEmission(actual) => {
+                if actual as u8 == site as u8 { return true; }
             }
-            j += 1;
+            ObligationDischarge::ByAssumption(_) => {}
         }
         i += 1;
+    }
+    false
+}
+
+/// K1's question, derived from `site_emits` rather than re-deriving the scan.
+pub(crate) const fn site_is_witnessed(site: EmissionSite) -> bool {
+    let mut j = 0;
+    while j < ALL_OBLIGATIONS.len() {
+        if site_emits(site, ALL_OBLIGATIONS[j]) { return true; }
+        j += 1;
     }
     false
 }
@@ -530,52 +547,63 @@ const _: () = {
 };
 
 // (K2) The new constant says what its doc comment says — the same shape as the
-//      four existing witness assertions.
+//      four existing witness assertions — and it is asked of the value
+//      reachable *through the IR field's type*, so this is also
+//      `ArrayPatternProtocol::witness`'s const consumer.
 const _: () = assert!(
     emits_every_obligation(
-        IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+        ArrayPatternProtocol::ARRAY_DESTRUCTURING.witness(),
         EmissionSite::ArrayDestructuring,
     ),
-    "ARRAY_DESTRUCTURING_PROTOCOL must emit all four 7.4 obligations at \
+    "ArrayPatternProtocol::ARRAY_DESTRUCTURING must emit all four 7.4 obligations at \
      compile_array_destructure_from_value_locals"
 );
-
-// (K3) `ALL_WITNESSES` is complete. Stated as a count against the number of
-//      `pub const` witnesses, so adding a constant and forgetting the list is a
-//      compile error rather than a silently partial K1.
-const _: () = assert!(ALL_WITNESSES.len() == 7, "ALL_WITNESSES is out of date");
 ```
 
-K3 is honestly weak — it is the `ALL.len() == 29` shape that round 1's §13.3
-showed cannot detect its own invariant. It is kept because it costs one line and
-converts *forgetting the list* from silence into a failure the next person to add
-a constant will see; it is recorded as ledger **IC-4** rather than claimed as a
-proof. The strong form (generating the constants from one row list, as A1 does
-for the sites) is not available: each constant's body is a different
-four-argument expression, not a row.
+**K3 is retired.** It asserted `ALL_WITNESSES.len() == 7`, which is the
+`ALL.len() == 29` shape round 1's §13.3 showed cannot detect its own omission —
+the count is exactly what forgetting a row preserves. Ledger **IC-4** used to
+justify keeping it on the grounds that "the strong form is not available: each
+constant's body is a different four-argument expression, not a row". That reason
+was wrong. A `macro_rules!` row can carry an expression fragment, so the
+`iterator_witnesses!` expansion above generates the constants and the census from
+one row list exactly as `emission_sites!` does for the sites — and an alias row
+removes the `ARRAY_INDEX_WALK_RESUMABLE` wart as a bonus. Completeness is now
+definitional and K1 is total rather than conditional on a hand-maintained
+census. IC-4 is closed by the macro, not by a length check.
 
 And one in `operations.rs`, which is the assertion the brief asked for. Extend
 the file's existing import line (`operations.rs:15`) rather than path-qualifying
 at the use site:
 
 ```rust
-use crate::iterator_obligations::{site_is_witnessed, EmissionSite};
+use crate::iterator_obligations::{site_emits, EmissionSite, IteratorObligation};
 ```
 
 ```rust
 // (J10) The catalog may not credit an emitter arm that no acquisition has
-//       accepted. This is the `SYNC_PROTOCOL_SITES` ↔ witness tie: it reads
-//       `iterator_obligations::site_is_witnessed`, so a future divergence
-//       between the two tables fails to build.
+//       accepted **for this row's own operation**. It reads
+//       `iterator_obligations::site_emits`, so a future divergence between the
+//       two tables fails to build.
+//
+//       Per-obligation, and that is what makes B1's split enforceable rather
+//       than conventional. Asking only "is this site witnessed for *some*
+//       obligation" accepts `EmissionSite::CallArgumentSpread` on the
+//       `IteratorClose` row — the exact mistake `SYNC_CLOSE_SITES` exists to
+//       prevent — because the same site legitimately emits `GetIterator`.
+//       `StatementEmissionRow` therefore gains `pub obligation:
+//       IteratorObligation`, with `AsyncIteratorClose` mapping to
+//       `IteratorObligation::IteratorClose`.
 const _: () = {
     let mut i = 0;
     while i < STATEMENT_EMISSION_ROWS.len() {
-        let sites = STATEMENT_EMISSION_ROWS[i].sites;
+        let row = STATEMENT_EMISSION_ROWS[i];
         let mut j = 0;
-        while j < sites.len() {
+        while j < row.sites.len() {
             assert!(
-                site_is_witnessed(sites[j]),
-                "a statement-emission row credits a site no witness constant names"
+                site_emits(row.sites[j], row.obligation),
+                "a statement-emission row credits a site that no witness constant discharges by \
+                 emission of that row's own operation"
             );
             j += 1;
         }
@@ -607,12 +635,30 @@ const _: () = {
 };
 ```
 
-K1 ∧ J10 ∧ J11 is the closed triangle: **site ⇒ witness**, **catalog ⇒ site**,
-**site ⇒ catalog**. Adding a site without a witness fails K1; adding a site
-without a row fails J11; naming a site in a row that no witness reaches fails
-J10; and adding a site at all fails `emission_sites_are_backed` unless it names a
-real function. That is the whole of M3, and it is why Group B cannot land a
-variant without landing its witness and its row in the same patch.
+K1 ∧ J10 ∧ J11 is the triangle: **site ⇒ witness**, **catalog ⇒ site (for the
+row's own obligation)**, **site ⇒ catalog**. Adding a site without a witness
+fails K1; adding a site without a row fails J11; naming a site in a row that no
+witness reaches *for that operation* fails J10; and adding a site at all fails
+`emission_sites_are_backed` unless it names a real function.
+
+**What the triangle does not close, stated exactly.** All four ties quantify over
+witness *constants*. No const expression ties a witness constant to an IR field
+that holds it, so a Group B lane can add `EmissionSite::CallArgumentSpread`, add
+`CALL_ARGUMENT_SPREAD_PROTOCOL` to the `iterator_witnesses!` rows, add the catalog
+row, and simply **not** add `protocol` to `SpreadOperandIr`: K1, K2, J10, J11 and
+`emission_sites_are_backed` all pass, and the acquisition still states nothing.
+The earlier claim that "a new site cannot land without its witness and its row in
+the same patch" and that "Group B is atomic per item — there is no half-landing"
+was therefore too strong; what is checked is that the *constant* exists, not that
+any construct holds it. The constant is even shielded from `dead_code` by its own
+census entry, which is round 1's "survival by `pub`" shape one visibility level
+down.
+
+The closure is per-construct newtypes at the IR field, as A3 now does for array
+patterns: a field whose type has one inhabitant makes the constant reachable from
+exactly one struct field, and a missing field is `E0063`. Group B must do the
+same for `SpreadOperandIr` and `YieldForm`, and the atomicity claim holds only
+for items that do.
 
 ### A3. The witness field on `ArrayDestructuringPatternIr`
 
@@ -629,13 +675,48 @@ pub struct ArrayDestructuringPatternIr {
     /// `DestructuringTargetIr::NestedArray`, which is why the field lives here
     /// rather than on `ExprIr::ArrayDestructure`.
     ///
+    /// The type is `ArrayPatternProtocol`, **not** `IteratorProtocolWitness`.
+    ///
     /// **The emitter must not read this**, and cannot: every reader of a
-    /// witness's contents is `pub(crate)` to `porffor-ir` (round 1 §13.12), so
-    /// a `porffor-aot-wasm` arm that binds it and branches on it is `E0624`.
+    /// witness's contents — including `ArrayPatternProtocol::witness` — is
+    /// `pub(crate)` to `porffor-ir` (round 1 §13.12), so a `porffor-aot-wasm`
+    /// arm that binds it and branches on it is `E0624`.
     /// Non-optional, no `Default`.
-    pub protocol: IteratorProtocolWitness,
+    pub protocol: ArrayPatternProtocol,
+}
+
+/// The witness slot on `ArrayDestructuringPatternIr`. One inhabitant, private
+/// constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrayPatternProtocol(IteratorProtocolWitness);
+
+impl ArrayPatternProtocol {
+    pub const ARRAY_DESTRUCTURING: Self =
+        Self(IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL);
+    pub(crate) const fn witness(self) -> IteratorProtocolWitness { self.0 }
 }
 ```
+
+**Why a newtype, and this is the correction to M1a.** M1a claimed the guarantee
+bought by the required field is that "the author must name a constant that lives
+beside its premises". With the bare witness type, the field's type is the *whole
+witness domain*: `protocol: IteratorProtocolWitness::NO_ITERATION` — or
+`::ARRAY_INDEX_WALK`, which assumes away all of 23.1.3.x — compiles at both
+`lowering.rs` construction sites and every const assertion still passes, because
+K2 pins the constant's **contents**, not which field may hold it. The guarantee
+was "a constant", not "the right constant". A newtype with one inhabitant and a
+private constructor makes any other witness `E0308`, and K2 asks its question of
+`ArrayPatternProtocol::ARRAY_DESTRUCTURING.witness()` so the accessor has a const
+consumer rather than surviving on `pub(crate)`.
+
+The same hole is open on the three `ForOf*` `protocol` fields, where
+`lowering.rs` already *selects* the constant with an `if`/`else` chain — precisely
+the shape a copy-paste gets wrong. It is recorded as ledger **IC-6** rather than
+fixed here: unlike the array pattern, those three fields legitimately admit
+different witnesses, so the newtype would have to be `ForOfProtocol` with three
+inhabitants and would not by itself stop the wrong one being chosen. Closing it
+means moving the choice into a function that takes the `KindSet` and returns the
+newtype, which is a `lowering.rs` change this area does not own.
 
 Why this placement and not `ExprIr::ArrayDestructure`, stated because it is the
 one design decision in Group A that a reviewer might want to overturn:
@@ -653,8 +734,8 @@ one design decision in Group A that a reviewer might want to overturn:
 3. **The compile error is the same error in the same crate.** `E0063 missing
    field 'protocol'` at `lowering.rs:32307` and `:32361`.
 
-The field is `pub`, matching the three `ForOf*` `protocol` fields
-(`ir.rs:2045, 2054, 2063`). Forgery is already prevented one level down:
+The field is `pub`, matching the three `ForOf*` `protocol` fields. Forgery is
+already prevented one level down:
 `IteratorProtocolWitness::new` and the four discharge constructors are private
 to `iterator_obligations` (round 1 §12.2 D4), so the only inhabitants available
 at a construction site are the named constants.
@@ -686,11 +767,23 @@ pub enum AbruptDiscipline {
     /// (`emit_propagate_throw_from_locals_if_needed`,
     /// `emit_propagate_current_completion_if_throw`.)
     PropagateWithoutClose,
-    /// The arm closes the acquired iterator on abrupt exit and implements
-    /// 7.4.11 step 4 on **both** sides: `emit_iterator_close_preserving_current_throw`
-    /// when a throw is already in flight (step 5 — the original wins), and
-    /// `emit_iterator_close` otherwise (step 6 — the close's error replaces the
-    /// break/continue/return).
+    /// The arm closes the acquired iterator and routes the two completion
+    /// classes 7.4.11 step 4 distinguishes to the two helpers that implement
+    /// them: `emit_iterator_close_preserving_current_throw` when a throw is
+    /// already in flight (step 5 — the original wins), and
+    /// `emit_iterator_close` otherwise (steps 6-8 — the close's error is not
+    /// swallowed).
+    ///
+    /// It does **not** claim that every site exercises the break/return branch,
+    /// and the first wording did. `compile_for_of_iterator` does: it branches on
+    /// `saved_completion == THROW` and its else-arm really is the
+    /// break/return/continue close. `compile_array_destructure_from_value_locals`
+    /// — the site this contract adds — does not: there the `emit_iterator_close`
+    /// call is the **normal**-completion close 8.6.3 step 5 requires, and the
+    /// abrupt arm is unconditionally the step-5 helper for every abrupt kind.
+    /// Both are step 4's two halves; only one site has a third case. A reader
+    /// checking the old wording against `control_flow.rs` found a claim the site
+    /// does not support — the species this area exists to delete.
     CloseOnAbruptExitWithStep4Precedence,
 }
 
@@ -702,8 +795,39 @@ impl AbruptDiscipline {
             Self::CloseOnAbruptExitWithStep4Precedence => "close, 7.4.11 step 4 precedence",
         }
     }
+
+    const ALL: [Self; 3] = [
+        Self::NoAbruptExit,
+        Self::PropagateWithoutClose,
+        Self::CloseOnAbruptExitWithStep4Precedence,
+    ];
 }
+
+// The three names are pairwise distinct — K4's treatment, applied to this
+// area's own new type. `name()` was defended as an exhaustiveness anchor and
+// then shipped with zero callers workspace-wide, which is the same shape §1.1
+// diagnoses for `CompletionAbruptKind`; K4, twenty lines away in the sibling
+// file, sets a stricter standard. Six lines make it a `const` reader that
+// catches a real mistake: a copy-pasted arm whose string was not changed makes
+// two disciplines indistinguishable in every table the column feeds.
+const _: () = {
+    let mut i = 0;
+    while i < AbruptDiscipline::ALL.len() {
+        let mut j = i + 1;
+        while j < AbruptDiscipline::ALL.len() {
+            assert!(
+                !str_eq(AbruptDiscipline::ALL[i].name(), AbruptDiscipline::ALL[j].name()),
+                "two AbruptDiscipline variants render the same name"
+            );
+            j += 1;
+        }
+        i += 1;
+    }
+};
 ```
+
+The `lib.rs` re-export of `AbruptDiscipline` is held until something outside the
+crate needs it; today nothing does.
 
 `StatementEmissionRow` gains `pub discipline: AbruptDiscipline` — a required
 field with no `Default`, so a new row cannot omit it (`E0063`). The five
@@ -739,15 +863,38 @@ const _: () = {
             row.discipline,
             AbruptDiscipline::CloseOnAbruptExitWithStep4Precedence
         ) {
-            assert!(
-                row.abrupt.len() == 4,
-                "a row claiming 7.4.11 step 4 precedence must admit all four abrupt kinds"
-            );
+            // A **membership scan**, not `row.abrupt.len() == 4`. The length
+            // test passes on `&[Throw, Return, Break, Break]`, in which
+            // `Continue` — the kind whose outer-label carve-out is the subtlest
+            // part of 14.7.1.1 — is silently absent, and writing the slice out
+            // by hand instead of reusing the `CONTROL_COMPLETIONS` alias is
+            // exactly the plausible mistake. J13 already contains this idiom.
+            let mut k = 0;
+            while k < CompletionAbruptKind::ALL.len() {
+                let mut found = false;
+                let mut m = 0;
+                while m < row.abrupt.len() {
+                    if row.abrupt[m] as u8 == CompletionAbruptKind::ALL[k] as u8 {
+                        found = true;
+                    }
+                    m += 1;
+                }
+                assert!(
+                    found,
+                    "a row claiming 7.4.11 step 4 precedence must admit all four abrupt kinds"
+                );
+                k += 1;
+            }
         }
         i += 1;
     }
 };
 ```
+
+`CompletionAbruptKind::ALL` is added for this, with a bitmask `const _` proving
+it lists each kind exactly once — a duplicate plus an omission is what preserves
+a length. `CONTROL_COMPLETIONS` is then defined as `&CompletionAbruptKind::ALL`
+rather than as a second hand-written list of the same four kinds.
 
 **A4b — callee containment.** This is the reader that actually consumes
 `SpecOperationIr::abrupt()`, and it is spec-derived rather than invented: an
@@ -766,11 +913,22 @@ from the spec text quoted in §1.2/§1.3:
 | `AsyncIteratorClose` | `GetMethod`, `Call` | 7.4.12 steps 3, 4.c (`Await` has no variant) |
 
 ```rust
-// (J13) Callee containment: every abrupt completion a callee may return must
-//       appear in the caller's `abrupt` set. This is the first and only reader
-//       of `SpecOperationIr::abrupt()` on the product path. Marking `Get` as
-//       `NO_ABRUPT` — the shape of commit ca09433c1 — now fails the build at
-//       the `IteratorValue` row.
+// (J13) Callee containment, **plus** the justification check without which the
+//       containment claim is empty.
+//
+//       Containment alone cannot catch the mistake M4b names. Setting `Get` to
+//       `NO_ABRUPT` makes `row.calls[j].abrupt()` an *empty* slice, so the
+//       `while k < callee.len()` body never runs, nothing is asserted, and the
+//       build stays green: containment is monotone in the wrong direction for a
+//       weakened callee. The first version of this assertion shipped with that
+//       hole and the claim "marking `Get` as `NO_ABRUPT` now fails the build"
+//       was therefore false.
+//
+//       The repair is one extra scan per row: a row that claims an abrupt exit
+//       must name at least one callee that can produce one. It passes on today's
+//       five rows — GetIterator/IteratorStep/IteratorClose/AsyncIteratorClose
+//       all list `GetMethod` or `Call` — and fails the instant `Get` becomes
+//       `NO_ABRUPT`, because `IteratorValue`'s only callee is `Get`.
 const _: () = {
     let mut i = 0;
     while i < STATEMENT_EMISSION_ROWS.len() {
@@ -778,6 +936,18 @@ const _: () = {
         assert!(
             !row.calls.is_empty(),
             "a statement-emission row names no callee; 7.4's operations all invoke something"
+        );
+        let mut justified = false;
+        let mut c = 0;
+        while c < row.calls.len() {
+            if !row.calls[c].abrupt().is_empty() {
+                justified = true;
+            }
+            c += 1;
+        }
+        assert!(
+            row.abrupt.is_empty() || justified,
+            "a statement-emission row claims an abrupt exit no callee it names can produce"
         );
         let mut j = 0;
         while j < row.calls.len() {
@@ -816,13 +986,38 @@ declaring more callees only makes the check stricter.
 
 ### A5. `lib.rs` re-export additions
 
-Inside the existing `pub use iterator_obligations::{…}` block (currently
-`lib.rs:88-93`): nothing is added. `ALL_WITNESSES`, `site_is_witnessed` and
-`ALL_OBLIGATIONS` are `pub(crate)` by design (§10 P2) and must not appear here.
+Inside the existing `pub use iterator_obligations::{…}` block: add
+`ArrayPatternProtocol` only. `ALL_WITNESSES`, `site_is_witnessed`, `site_emits`
+and `ALL_OBLIGATIONS` are `pub(crate)` by design (§10 P2) and must not appear
+there; `ArrayPatternProtocol` must, because it is the type of a `pub` struct
+field (see A3), while its `witness()` accessor stays `pub(crate)` so P2 is
+unaffected.
 
-Inside the existing `pub use operations::{…}` block (`lib.rs:106-115`): add
-`AbruptDiscipline`, in alphabetical position (it sorts before
-`ArithmeticBinaryOp`). That is the only `lib.rs` edit Group A makes.
+Inside the existing `pub use operations::{…}` block: **nothing new**.
+`AbruptDiscipline`'s re-export has zero consumers outside `operations.rs` — the
+same "survival by `pub`" shape §1.1 diagnoses for `CompletionAbruptKind`, where
+the only mention outside the module was the `pub use` line. It is retained only
+because `StatementEmissionRow`'s `pub discipline` field names it and that struct
+is re-exported; the honest cleanup is to narrow `StatementEmissionRow` and
+`TrackedGapRow` themselves to `pub(crate)`, which is a wider change than this
+round should make blind. Recorded as ledger **IC-7**.
+
+`StatementEmissionRow::into_entry` and `TrackedGapRow::into_entry` are
+`pub(crate)`, **not** `pub`. Every field of `SpecOperationCatalogEntry` is
+private so that the only producers are this module's three constructors; a `pub`
+`into_entry` on a struct whose own fields are all `pub` gives that back, since
+any consumer crate can write
+
+```rust
+StatementEmissionRow { name: "ArraySpeciesCreate", abrupt: &[], discipline: NoAbruptExit,
+                       calls: &[], sites: &[], .. }.into_entry()
+```
+
+and mint a catalog entry claiming `StatementEmission` for an unimplemented
+operation, bypassing J7, J10, J12 and J13 — which quantify only over
+`STATEMENT_EMISSION_ROWS`. Nothing outside `operations.rs` reads
+`StatementEmissionRow`, `TrackedGapRow`, `STATEMENT_EMISSION_ROWS`,
+`TRACKED_GAP_ROWS` or `into_entry`, so narrowing costs nothing.
 
 ---
 
@@ -835,9 +1030,18 @@ round. The encoder does **not** write Group B. The lane note carries the patch
 text and the line list so the batch that owns `porffor-aot-wasm` can apply it as
 one mechanical change.
 
-Group B is atomic per item: a new `EmissionSite` variant without its witness
-fails K1, without its catalog row fails J11, and without an
-`emission_sites_are_backed` arm fails `E0004`. There is no half-landing.
+Group B is atomic per item **for everything the const ties can see**: a new
+`EmissionSite` variant without its witness fails K1, without its catalog row
+fails J11, and without an `emission_sites_are_backed` arm fails `E0004`. What
+they cannot see is the IR field — a lane can add the variant, the constant and
+the row and never add `protocol` to `SpreadOperandIr`, and everything passes (see
+A2's "what the triangle does not close"). So each Group B item must give its IR
+field a **per-construct newtype**, as A3 does for array patterns:
+`CallArgumentSpreadProtocol` with the single inhabitant
+`CALL_ARGUMENT_SPREAD_PROTOCOL`, and `YieldForm::Delegate` carrying
+`GeneratorDelegationProtocol`. With the newtype the item really is atomic; with a
+bare `IteratorProtocolWitness` field it is not, and the field can also hold the
+wrong constant.
 
 ### B1. `SpreadArgument` — call-argument spread (13.3.8.1)
 
@@ -865,44 +1069,71 @@ from what the brief assumed:
 /// `ExprIr::SpreadArgument` — 13.3.8.1 ArgumentListEvaluation for `f(...it)`.
 ///
 /// `GetIterator`, `IteratorStep` and `IteratorValue` are really emitted, by
-/// `FunctionBuilder::emit_call_args_vector` (`functions.rs:7632`), which
-/// open-codes the `@@iterator` read, the callability and object checks, the
-/// once-only `next` cache and the per-step `done`/`value` reads.
+/// `FunctionBuilder::emit_call_args_vector`, which open-codes the `@@iterator`
+/// read, the callability and object checks, the once-only `next` cache and the
+/// per-step `done`/`value` reads. (Cited by *name*, not by line: a concurrent
+/// lane added 243 lines above it and every `:76xx` citation this section
+/// originally carried is now wrong by about +150.)
 ///
-/// `IteratorClose` is **not** emitted, and must not be: every abrupt exit of
-/// that loop is an `IteratorStep`/`IteratorValue` failure, after which ES2025's
-/// `IteratorStepValue` has already set `[[Done]]`, so 7.4.11 is not owed.
+/// `IteratorClose` is **not** emitted, and must not be: no abrupt exit of the
+/// spread lowering leaves an iterator that 13.2.4.1/13.3.8.1 owes a close for.
 /// Emitting a close there would be an *observable extra call to `return`*.
 pub const CALL_ARGUMENT_SPREAD_PROTOCOL: Self = Self::new(
     GetIteratorDischarge::emitted(EmissionSite::CallArgumentSpread),
     IteratorStepDischarge::emitted(EmissionSite::CallArgumentSpread),
     IteratorValueDischarge::emitted(EmissionSite::CallArgumentSpread),
-    IteratorCloseDischarge::assumed(IntactnessPremise::SpreadLoopExitsOnlyWhenDone),
+    IteratorCloseDischarge::assumed(IntactnessPremise::SpreadCloseOwedOnlyAfterAcquisition),
 );
 ```
 
-New premise:
+New premise. **The wording is the round-4 correction**, and the correction
+matters: the premise was `SpreadLoopExitsOnlyWhenDone`, "every abrupt exit of a
+spread loop happens after the iterator has been marked done", and the completed
+read (§9.11) shows that is **false at exactly two lines**. Inside
+`emit_call_args_vector` there are two abrupt exits that occur *after the iterator
+object exists* and *before any step*: the `Get(iterator, "next")` throw, and the
+invented `"Spread iterator next must be callable"` TypeError. Both leave an
+iterator that is not done. The conclusion — no close owed — still holds, but for
+a different reason: those steps are inside **GetIterator** itself, whose
+abruption 13.3.8.1 step 3 propagates with `?` before the caller holds an
+iteratorRecord at all.
+
+Ship the premise with the reason that is true, because leaving the false wording
+invites the next reader either to weaken it or to "fix" the emitter by adding a
+close — which this contract itself says is an observable extra `return()` call:
 
 ```rust
-/// Every abrupt exit of a spread loop happens after the iterator has been
-/// marked done, so `IteratorClose` is not owed.
+/// No abrupt exit of the spread lowering leaves an iterator that 13.2.4.1 /
+/// 13.3.8.1 owes a close for: loop-internal exits are step/value failures with
+/// `[[Done]]` already set, and every pre-loop exit — including the
+/// `Get(iterator, "next")` throw and the not-callable TypeError beside it — is
+/// *inside* GetIterator, whose abruption propagates with `?` before the caller
+/// holds an iteratorRecord.
 ///
 /// [`PremiseKind::ImplementationFact`]: a claim about *our emitter's exit
 /// structure*, established by reading it, not a condition on the user's
-/// program. **Partially verified**: `emit_call_args_vector`
-/// (`functions.rs:7632`) was read from `:7632` to `:7830` and every exit in that
-/// range is either pre-acquisition (source nullish, `@@iterator` missing or
-/// not callable, the iterator method's result not an Object) or a step/value
-/// failure. The dry-runner must complete the read to the end of the function
-/// before this premise is accepted; §9.11 says so.
-SpreadLoopExitsOnlyWhenDone,
+/// program. Verified by the completed read §9.11 required, over the whole of
+/// `emit_call_args_vector`.
+SpreadCloseOwedOnlyAfterAcquisition,
 ```
+
+One question this premise does **not** settle, and it is open: whether ES2025's
+GetIteratorFromMethod owes an `IteratorClose` when `Get(iterator, "next")`
+throws. If it does, the premise needs a fifth clause, the two "none owed" rows in
+§1.4 are incomplete, and the destructuring `GetIterator` path
+(`finish_get_iterator_from_method`, which propagates the next-read throw before
+the abrupt-target frame is opened) is missing a close. The vendored suite does
+not settle it — the `yield-star-next-get-abrupt` family asserts only that the
+reason propagates, with no `returnCount`. Resolve against the current spec text
+before B1's premise is accepted.
 
 with `kind()` returning `PremiseKind::ImplementationFact` — a new arm in the
 exhaustive match at `iterator_obligations.rs:215`, plus a `name()` arm.
 
 New site: `CallArgumentSpread => "emit_call_args_vector"`, backed by
-`FunctionBuilder::emit_call_args_vector` (`pub(crate)`, `functions.rs:7632`).
+`FunctionBuilder::emit_call_args_vector` (`pub(crate)`, in `functions.rs`;
+locate it with `rg -n 'fn emit_call_args_vector' crates/porffor-aot-wasm/src/functions.rs`
+rather than by the stale `:7632`).
 
 Catalog: `EmissionSite::CallArgumentSpread` joins `SYNC_PROTOCOL_SITES` for the
 `GetIterator`, `IteratorStep` and `IteratorValue` rows **only** — not the
@@ -918,7 +1149,9 @@ const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
     EmissionSite::GeneratorDelegation,
 ];
 /// The subset that emits 7.4.11. `CallArgumentSpread` is deliberately absent:
-/// its loop never owes a close (see `SpreadLoopExitsOnlyWhenDone`).
+/// its loop never owes a close (see `SpreadCloseOwedOnlyAfterAcquisition`).
+/// Since J10 is per-obligation, putting it back is a **build failure**, not a
+/// review catch: no witness discharges `IteratorClose` by emission at that site.
 const SYNC_CLOSE_SITES: &[EmissionSite] = &[
     EmissionSite::SyncForOfIterator,
     EmissionSite::AsyncForOfIterator,
@@ -941,16 +1174,19 @@ ExprIr::SpreadArgument(SpreadOperandIr {
 | line | today | becomes |
 |---|---|---|
 | `lowering.rs:12509` | or-pattern arm `\| ExprIr::SpreadArgument(value)` | split into its own arm binding `operand`, using `&operand.value` |
-| `ir.rs:3000` | `ExprIr::SpreadArgument(value) => …visit_expr(value)` | `…(operand) => …visit_expr(&operand.value)` |
+| `ir.rs` (`visit_expr`'s `SpreadArgument` arm — was cited `:3000`, now `:3021` after this round's +21 lines, so grep rather than trust) | `ExprIr::SpreadArgument(value) => …visit_expr(value)` | `…(operand) => …visit_expr(&operand.value)` |
 | `early_errors.rs:32` | or-pattern arm `\| ExprIr::SpreadArgument(operand)` | split into its own arm |
-| `lib.rs:1298`, `:1303` | `ExprIr::SpreadArgument(ref value)` (both inside `#[cfg(test)] mod tests`) | `…(ref operand)` + `&operand.value` |
+| `lib.rs` (was cited `:1298`/`:1303`, re-derived as `:1312`/`:1317`) | `ExprIr::SpreadArgument(ref value)` (both inside `#[cfg(test)] mod tests`) | `…(ref operand)` + `&operand.value` |
 
 **Pattern repairs outside `crates/porffor-ir` (6) — the lane note's patch:**
-`porffor-aot-wasm/src/data.rs:3363`, `functions.rs:7667`, `planning.rs:2935`
-(or-pattern), `:3385` (or-pattern), `:4768`, `:8106`. Plus one new arm in
-`emission_sites.rs`. The eight `(_)`/`(..)` patterns
-(`expressions.rs:1361`, `:3148`, `functions.rs:7642`, `planning.rs:6182`,
-`:6843`, `:6870`, `:7525`, `reference.rs:160`, `:411`) are untouched.
+`porffor-aot-wasm/src/data.rs:3363`, one site in `functions.rs` (cited `:7667`;
+now about +150 after a concurrent lane), `planning.rs:2935` (or-pattern), `:3385`
+(or-pattern), `:4768`, `:8106`. Plus one new arm in `emission_sites.rs`. The
+**nine** `(_)`/`(..)` patterns — the list below was called "the eight" and has
+nine entries — are untouched: `expressions.rs:1361`, `:3148`, one in
+`functions.rs` (cited `:7642`, same +150 drift), `planning.rs:6182`, `:6843`,
+`:6870`, `:7525`, `reference.rs:160`, `:411`. Re-derive every `functions.rs` line
+with `rg` before applying; do not trust the numbers in this table.
 
 ### B2. `YieldForm` — `yield*` (14.4.14)
 
@@ -1034,13 +1270,16 @@ built delegating-without-a-witness; it does not claim the word `bool` has been
 eliminated from the lowering path. Closing that would mean rewriting twelve call
 sites to duplicate the same `if`, which is churn without a new compile error.
 
-**Pattern repairs, in `crates/porffor-ir`:** none. Every `porffor-ir` pattern on
-`GeneratorYield` either uses `..` or binds only `value`/`resume_mode`
-(`lowering.rs:12108, 12851, 12857, 12914, 12988, 13182, 13267, 13273, 13281,
-15998, 16002, 16015, 16019`; `ir.rs:2153, 2664`; `lowering_helpers.rs:49`;
-`early_errors.rs:298`). The `#[cfg(test)]` patterns in `lib.rs` that spell
-`delegate:` must be checked by the applier; the field rename is the only thing
-that reaches them.
+**Pattern repairs, in `crates/porffor-ir`: five**, all in `lib.rs`, all
+`#[cfg(test)]` — `lib.rs:6027, 6056, 6097, 6150, 6323` spell `delegate:` and
+break under the field rename (`grep -c delegate crates/porffor-ir/src/lib.rs`
+returns 5). This section used to say "none" and then hedge in the next sentence;
+the count costs one command and belongs in the applier's estimate.
+
+Every *other* `porffor-ir` pattern on `GeneratorYield` either uses `..` or binds
+only `value`/`resume_mode` (`lowering.rs:12108, 12851, 12857, 12914, 12988,
+13182, 13267, 13273, 13281, 15998, 16002, 16015, 16019`; `ir.rs:2153, 2664`;
+`lowering_helpers.rs:49`; `early_errors.rs:298`).
 
 **Pattern repairs outside `crates/porffor-ir` (7) — the lane note's patch:**
 `control_flow.rs:1943` and `:2090` (full-field patterns, no `..`; also the
@@ -1120,8 +1359,10 @@ what cannot be a type, and why.
 | **IC-1** | An emitter body actually implements the `AbruptDiscipline` its row declares. | `porffor-ir` cannot see `porffor-aot-wasm`; the dependency runs the other way, and an emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm closes before propagating". This is round 1's **L2** in a new suit, and it is stated here so the A4a claim is not over-read: J12 proves the *table* is coherent, not that the emitter is. | Nothing, this round. The lane note's scope type (§7 of the note) is the design that would close it; it lives in `porffor-aot-wasm`. |
 | **IC-2** | A `StatementEmissionRow`'s `calls` column lists every operation the row's spec definition invokes. | The column is transcribed from spec text by hand. Nothing in the crate can read ECMA-262. | Bounded rather than checked: every entry is a real `SpecOperationIr` variant (type-checked), and under-listing only *weakens* J13 — it can never forge a containment. Over-listing makes the check stricter. |
 | **IC-3** | The lowering path carries no `bool` standing for "is this a delegation". | `lower_linear_generator_yield{,_value}` keep a `delegate: bool` parameter; the conversion to `YieldForm` happens once at the IR construction. Removing the parameter means twelve duplicated `if`s and buys no new compile error. | Nothing. The mistake M2 names — building the IR variant delegating without a witness — is `E0063`/`E0308` regardless. |
-| **IC-4** | `ALL_WITNESSES` lists every witness constant. | Stable Rust has no way to enumerate a type's associated constants; the constants are four-argument expressions, not rows a macro can expand twice (which is how A1 solves the same problem for sites). | Const assert K3, a length check — which is the `ALL.len() == 29` shape round 1's §13.3 showed cannot detect its own omission. Recorded as a weak check, not claimed as a proof. Escalate by making K1 quantify over something generated, if a constant is ever forgotten in practice. |
-| **IC-5** | An array-literal SpreadElement states which desugaring discharged 13.2.4.1, and on what premise. | There is no IR node: the spread is desugared to `[].concat(…)` / `Array.from(…)` before any node exists (C1). The obligation would have to be attached to the lowering *decision*, which is a `lowering.rs` restructure this area is not allowed to make (§5). | Nothing. `ArraySpreadStrategy` is designed in §5 and in the lane note. Until it lands, the three-branch premise in §5's table is documentation. |
+| **IC-4** | `ALL_WITNESSES` lists every witness constant. | ~~Stable Rust has no way to enumerate a type's associated constants; the constants are four-argument expressions, not rows a macro can expand twice.~~ **That reason was wrong.** A `macro_rules!` row carries expression fragments perfectly well. | **CLOSED by a type.** `iterator_witnesses!` expands one row list into both the `pub const`s and `ALL_WITNESSES`, exactly as `emission_sites!` does for the sites; an alias row (`ARRAY_INDEX_WALK_RESUMABLE => Self::ARRAY_INDEX_WALK`) even removes the aliasing wart. K3's length check is **retired** — it is the shape that cannot detect its own omission — and K1 is now total rather than conditional on a hand-maintained census. |
+| **IC-5** | An array-literal SpreadElement states which desugaring discharged 13.2.4.1, and on what premise. | There is no IR node: the spread is desugared to `[].concat(…)` / `Array.from(…)` before any node exists (C1). The obligation would have to be attached to the lowering *decision*, which is a `lowering.rs` restructure this area is not allowed to make (§5). | **Was "documentation"; that understated it — the first branch's premise was not unproven, it was *falsified by ordinary programs*.** The guard was `spread_value.possible_kinds.contains(ValueKind::Array)`, and an un-inferred function parameter carries `KindSet::all_runtime_tags()`, which sets `ARRAY_BIT`. So `function f(x) { return [...x]; }` desugared to `[].concat(x)`, and for any non-array iterable `x`, 23.1.3.1 with IsConcatSpreadable false **appended the object instead of iterating it** — wrong under a pristine realm, with no tampering at all. Fixed this round: the guard is now `possible_kinds.is_subset_of({Array})`, the same predicate the for-of array walk uses, so `ConcatArrayLike` is reachable only where the premise can hold and everything else falls through to `Array.from`, which runs the real protocol. The **residual** IC-5 is what it always should have been: a statically-known `Array` still skips `%Array.prototype%[@@iterator]`. `ArraySpreadStrategy` (§5) is the design that names that; until it lands the residual is documentation. |
+| **IC-7** | The `ForOf*` `protocol` fields hold the *right* witness, not merely *a* witness. | The three fields legitimately admit three different constants, and `lowering.rs` selects between them with an `if`/`else` chain — the shape a copy-paste gets wrong. A one-inhabitant newtype (A3's `ArrayPatternProtocol`) cannot apply. Closing it means moving the choice into a function that takes the `KindSet` and returns a `ForOfProtocol`, which is a `lowering.rs` restructure. | Nothing at the field. `ForOfLoweringIr::into_statement_and_kind` now *reads* the witness on the way out and `debug_assert`s the two conditions that are checkable — an `Empty` statement must carry `NO_ITERATION`, and a real `ForOf*` statement must not — which also replaces the unread `protocol()` accessor. |
+| **IC-8** | `StatementEmissionRow` / `TrackedGapRow` are not part of the public API. | They are `pub` and re-exported from `lib.rs`, and narrowing them to `pub(crate)` is a wider change than a blind round should make. `into_entry` is `pub(crate)`, which closes the forge-a-catalog-entry hole; the structs themselves remain visible. | Nothing yet. `AbruptDiscipline`'s re-export survives only because `StatementEmissionRow::discipline` names it. |
 | **IC-6** | `porffor-aot-wasm` acquisition sites that no `porffor-ir` construct reaches are witnessed. | Some acquisitions have no IR construct at all — the ~15 builtin consumers of `IfAbruptCloseIterator` (§1.7) are emitted from `StandardBuiltinId` arms, not from user-program IR. A witness on an acquisition that the user's program does not spell has nothing to attach to. | Nothing, and deliberately not the same thing as a gap: the builtins' close discipline is pinned by the five CLI fixtures in §2.6 and by Test262. Named here so the next reader does not mistake `EmissionSite`'s small variant set for a claim that only that many arms run the protocol. |
 
 ---
@@ -1130,7 +1371,7 @@ what cannot be a type, and why.
 
 | # | Plausible mistake | Today | After this contract |
 |---|---|---|---|
-| **M1a** | Add or edit an array destructuring pattern without saying how its `GetIterator` discharged 7.4 — including a *nested* pattern, which acquires its own iterator. | `ArrayDestructuringPatternIr { elements }` compiles. Nothing is stated; the site is invisible. | **`E0063` missing field `protocol`** at `lowering.rs:32307` and `:32361`. No `Default`, no `Option`, and `IteratorProtocolWitness::new` is module-private, so the author must name a constant that lives beside its premises. **Group A.** |
+| **M1a** | Add or edit an array destructuring pattern without saying how its `GetIterator` discharged 7.4 — including a *nested* pattern, which acquires its own iterator. | `ArrayDestructuringPatternIr { elements }` compiles. Nothing is stated; the site is invisible. | **`E0063` missing field `protocol`** at both `lowering.rs` construction sites. No `Default`, no `Option`, and `IteratorProtocolWitness::new` is module-private. **And the field's type is `ArrayPatternProtocol`, not `IteratorProtocolWitness`** — with the bare witness type the author had to name *a* constant, not *the right* constant, and `protocol: IteratorProtocolWitness::NO_ITERATION` compiled at both sites with every const assertion still passing. One inhabitant, private constructor, so anything else is `E0308`. **Group A.** |
 | **M1b** | Add a call-argument spread path with no stated close discharge. | `ExprIr::SpreadArgument(Box::new(v))` compiles. | **`E0063`** on `SpreadOperandIr`. **Group B — specified, not applied.** |
 | **M1c** | Add a fifth *iterator-consuming `ExprIr` variant* with no witness at all. | Nothing. | **Still nothing.** No type in Rust can force an arbitrary new enum variant to carry a field. The guarantee this contract buys is *per named construct*, and saying otherwise would be exactly the over-claim §0 C6 corrected. Stated in the acceptance checklist as a non-claim. |
 | **M2** | Request 14.4.14's delegation — four protocol operations plus the close-then-TypeError branch — with a bare `true`. | `delegate: bool` (`ir.rs:1974`). One construction site, and nothing there says what is owed. | **Unconstructible**: `YieldForm::Delegate` has no nullary spelling; `form: true` is `E0308`; a stale `delegate:` pattern is `E0026`. **Group B — specified, not applied.** |
@@ -1138,7 +1379,7 @@ what cannot be a type, and why.
 | **M3b** | Add an `EmissionSite` variant that no catalog row credits — a variant existing only to satisfy K1. | Nothing; round 1's L6 was exactly this, retired by hand. | **`E0080`** — const assert **J11**. **Group A.** |
 | **M3c** | Add an `EmissionSite` variant and forget `EmissionSite::ALL`, silently making K1 and J11 partial. | `ALL` does not exist. | **Unrepresentable** — enum, `ALL` and `name()` are three expansions of one `emission_sites!` row list (A1), the `spec_operations!` shape. **Group A.** |
 | **M4a** | A row whose `abrupt` says the operation may throw, with nothing said about how the throw leaves. | `abrupt` has zero readers (§2.5). | **`E0063`** for the missing `discipline` field, then **`E0080`** via const assert **J12** if the declared discipline and the `abrupt` set disagree. Scope: a *table* claim. Ledger **IC-1** states what it does not prove. **Group A.** |
-| **M4b** | Mark an operation the iterator protocol depends on as non-throwing — commit `ca09433c1`'s shape. | `SpecOperationIr::abrupt()` is total on the variant and nothing reads it. | **`E0080`** — const assert **J13**: marking `Get` as `NO_ABRUPT` breaks the `IteratorValue` row's containment. **Group A.** |
+| **M4b** | Mark an operation the iterator protocol depends on as non-throwing — commit `ca09433c1`'s shape. | `SpecOperationIr::abrupt()` is total on the variant and nothing reads it. | **`E0080`** — const assert **J13**, *including its justification clause*. Containment alone does **not** catch this: weakening `Get` to `NO_ABRUPT` empties the callee slice, so the containment loop body never runs and the build stays green. J13 therefore also asserts that a row claiming an abrupt exit names at least one callee that can produce one, which fails at `IteratorValue` — whose only callee is `Get` — the instant `Get` is weakened. **Group A.** |
 | **M4c** | Claim 7.4.11 step-4 precedence on a row whose `abrupt` admits only `Throw`, i.e. claim an asymmetry with only one side. | Nothing. | **`E0080`** — J12 (b). **Group A.** |
 | **M5** | Close with the wrong precedence: `emit_iterator_close` where step 5 requires the original throw to win, or `_preserving_current_throw` where step 6 requires the close's error to replace a `break`/`return`. | A choice between two similarly-named plain functions at 62 call sites. Silent wrong answer; `iterator-close-throw-get-method-abrupt.js` is the trace that separates them. | **Not typed.** The distinction lives entirely in `porffor-aot-wasm`. `AbruptDiscipline` gives the fork a *name* in the IR crate's vocabulary so the emitter-side design has something to be checked against; the check itself is the lane note's scope type. Ledger **IC-1**. |
 | **M6** | Add an abrupt exit out of an iteration region without closing — the failure `IfAbruptCloseIterator` exists to name. | `Option<IteratorCloseOnThrowLocals>::None` is a legal argument at every call site of the two functions that take it (`objects.rs:14383`, `builtins/standard.rs:4418`). One acquisition through `emit_get_iterator_from_value_locals` against 62 close sites, with nothing linking them. | **Not typed, and honestly bounded.** There is *no shipped-defect ledger entry and no git-log instance* of this class; five CLI fixtures already pin the behaviour (§2.6). It is a real structural gap, not a wound, and this contract does not inflate it. Designed in the lane note. |
@@ -1347,14 +1588,23 @@ confirm no path constructs an `ArrayLiteral` whose elements contain a spread.
 (`functions.rs:7632`) open-codes the protocol and propagates the throw with
 **no** close — which §1.4 says is correct.
 
-**Required of the dry-runner:** read `functions.rs:7632` to the end of the
-spread branch and confirm that *every* abrupt exit inside the loop is a
-step/value failure. This formalization read `:7632-7830` and found only
-pre-acquisition exits and step failures; the remainder is unverified.
-`SpreadLoopExitsOnlyWhenDone` must not be accepted into Group B until that read
-is complete. If a non-done abrupt exit exists, the premise is false and the
-witness must become `ByEmission` — with a corresponding *conformance defect* to
-file, because the emitter would then be missing a close it owes.
+**This read is now complete, and it changed the premise's wording.** Two abrupt
+exits inside `emit_call_args_vector` occur *after the iterator object exists* and
+*before any step*: the `Get(iterator, "next")` throw, and the invented
+`"Spread iterator next must be callable"` TypeError beside it. Both leave an
+iterator that is **not** done, so `SpreadLoopExitsOnlyWhenDone` — "every abrupt
+exit of a spread loop happens after the iterator has been marked done" — is false
+at exactly those two lines. The *conclusion* survives: those two steps are inside
+**GetIterator**, whose abruption 13.3.8.1 step 3 propagates with `?` before the
+caller holds an iteratorRecord, so no close is owed. §4 B1 now ships the premise
+as `SpreadCloseOwedOnlyAfterAcquisition` with that reason. Leaving the old
+wording in place would invite the next reader either to weaken it or to "fix" the
+emitter by adding a close, which this contract itself calls an observable extra
+`return()` call.
+
+One clause remains open and is called out in §1.4 and §4 B1: whether ES2025's
+GetIteratorFromMethod owes a close when `Get(iterator, "next")` throws. That is a
+spec-text question, not an emitter-reading question.
 
 ### 9.12 `built-ins/Array/from/iter-map-fn-err.js` — M4's rider
 
@@ -1418,9 +1668,12 @@ The brief proposed making `IteratorCloseOnThrowLocals` non-`Copy`, non-`Clone`,
 not discharge the close is `E0382`/`E0505`.
 
 **Traced on paper against the real code, that design fails immediately, and on a
-*correct* program.** `emit_create_data_property_or_throw` (`objects.rs:14374`)
-takes one `Option<IteratorCloseOnThrowLocals>` and uses it at **two** exits —
-`:14548` (non-configurable) and `:14599` (non-extensible). Both are correct;
+*correct* program.** `emit_create_data_property_or_throw` (cited `objects.rs:14374`
+when this was written; re-derived as `:14734`, and it has moved again since — grep
+for the function name rather than trusting any of these numbers) takes one
+`Option<IteratorCloseOnThrowLocals>` and uses it at **two** exits —
+cited `:14548`/`:14599`, re-derived `:14908`/`:14959`, the non-configurable and
+non-extensible throws. Both are correct;
 both need the same iterator closed. A token moved at `:14548` is `E0382 use of
 moved value` at `:14599`. The by-value design would reject the code it exists to
 protect, and the natural repair — `Clone` — deletes the guarantee.
@@ -1494,14 +1747,35 @@ reads more into the result than is there.
    built.
 3. **claim** Deleting `protocol` from either `lowering.rs:32307` or `:32361` is
    `E0063 missing field 'protocol'`.
-4. **claim** Adding an `EmissionSite` variant without a witness fails K1;
-   without a catalog row fails J11; without an `emission_sites_are_backed` arm
-   fails `E0004`; and it cannot be omitted from `EmissionSite::ALL` at all.
+4. **claim** Adding an `EmissionSite` variant without a witness *constant*
+   fails K1; without a catalog row fails J11; without an
+   `emission_sites_are_backed` arm fails `E0004`; and it cannot be omitted from
+   `EmissionSite::ALL` at all. **Nor from `ALL_WITNESSES`**, which
+   `iterator_witnesses!` now generates from the same rows as the constants.
+   *Not* claimed: that any IR construct actually holds the constant — see A2's
+   "what the triangle does not close" and the per-construct newtype that closes
+   it for array patterns.
+4b. **claim** Crediting a site on the `IteratorClose` row when no witness
+   discharges `IteratorClose` by emission there fails J10, which is
+   per-obligation.
 5. **claim** Adding a `StatementEmissionRow` without `discipline` or `calls` is
    `E0063`; with `abrupt: MAY_THROW, discipline: NoAbruptExit` is `E0080`.
-6. **claim** Marking `SpecOperationIr::Get` as `NO_ABRUPT` is `E0080` at J13.
-7. **claim** No `porffor-aot-wasm` file is modified. `git status` shows changes
-   only under `crates/porffor-ir/src/` and `docs/` and `target/lane-notes/`.
+6. **claim** Marking `SpecOperationIr::Get` as `NO_ABRUPT` is `E0080` at J13 —
+   which required J13's *justification* clause, not containment alone.
+   Containment is vacuous for a weakened callee: an empty callee slice makes the
+   containment loop body never execute. The clause "a row that claims an abrupt
+   exit names at least one callee that can produce one" is what fires, at
+   `IteratorValue`, whose only callee is `Get`.
+7. **claim** No hunk in `crates/porffor-aot-wasm/` is attributable to this
+   contract. **Not dischargeable by a bare `git status`**: the checkout is
+   shared, and at the time this checklist was written `git status` already
+   listed `crates/porffor-aot-wasm/src/functions.rs` as modified by a concurrent
+   lane (a `MethodCallDestination`/`DestinationWritten` typestate for
+   `emit_method_call`, unrelated to iterator obligations, and not one of the four
+   batch-2 files). An integrator running item 7 literally reads a false negative.
+   The owned file set is: `crates/porffor-ir/src/iterator_obligations.rs`,
+   `operations.rs`, `ir.rs`, `lowering.rs`, `lib.rs`, plus `docs/` and
+   `target/lane-notes/`.
 8. **claim** The six stale `control_flow.rs` citations of §2.4 are repaired in
    the two owned files.
 9. **non-claim** Nothing here makes an arbitrary *new* iterator-consuming
@@ -1512,8 +1786,19 @@ reads more into the result than is there.
     array-literal spread strategy are **not** landed. They are specified in §4
     and §5 and carried in the lane note. Until they land, three acquisition
     sites still state no discharge, and the ledger says so.
-12. Emitted bytes are unchanged. Every Group A change is a compile-time
-    addition: a new field on a struct the emitter only borrows, new `const`
-    items, and a macro that re-declares an existing enum. Rung G is therefore
-    *available* as a check but is not required by this contract, which runs no
-    cargo command.
+12. Emitted bytes are unchanged **by Group A**. Every Group A change is a
+    compile-time addition: a new field on a struct the emitter only borrows, new
+    `const` items, and two macros that re-declare existing items.
+    `ForOfLoweringIr::into_statement_and_kind`'s two `debug_assert`s add no
+    emitted Wasm.
+
+    **One exception, added in round 4 and deliberately not silent:** the IC-5
+    fix narrows `lower_array_literal`'s spread guard from
+    `possible_kinds.contains(Array)` to `possible_kinds.is_subset_of({Array})`,
+    so a spread whose operand is not statically an array now lowers to
+    `Array.from` instead of `[].concat`. That **changes emitted bytes**, and it is
+    a bug fix rather than a refactor: `function f(x) { return [...x]; }` was
+    appending a non-array iterable instead of iterating it, under a pristine
+    realm. Rung G will be non-empty for that reason and no other; the diff should
+    show changes only in functions containing an array-literal spread whose
+    operand is not statically an `Array`.

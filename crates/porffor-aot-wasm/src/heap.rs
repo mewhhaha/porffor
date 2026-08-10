@@ -1158,12 +1158,16 @@ const _: () = assert!(
         < (1u64 << MappedSlot::SHIFT),
     "every flag bit must sit below the mapped-slot payload at bit 32",
 );
-// This one earns its place: the *reader* of the mapped slot is a bare
-// `I64Const(32); I64ShrU` in `functions.rs`, and the writer is a bare `<< 32`.
-// Changing `SHIFT` without changing those three literals would be silent.
+// The three bare literals this used to guard are gone: `functions.rs`'s writer
+// now goes through `DescriptorWord::with_flags` and both readers shift by
+// `MappedSlot::SHIFT`. What is left to pin is the *reproduction* assertion
+// directly below, which spells the shift as a literal `32` in order to state
+// the old wire format independently — if `SHIFT` moved and that literal did
+// not, the assertion below would be comparing against a word no writer
+// produces, and would fail rather than silently agreeing.
 const _: () = assert!(
     MappedSlot::SHIFT == 32,
-    "the mapped-slot readers in functions.rs shift the stored word right by a literal 32",
+    "the mapped-arguments wire format below is written against a literal 32",
 );
 const _: () = assert!(
     DescriptorWord::of_data(false, false, false)

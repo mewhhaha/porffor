@@ -378,10 +378,18 @@ fn run_wasm_backend_succeeds_for_iterator_prototype_some_fixture() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    // The fixture answers with a NAMED label for whichever of its ~15 checks
+    // failed, and a bare `assert!(output.status.success())` throws that label
+    // away -- which is why four batches of this test failing said only "it
+    // failed". Nothing asserted here changed; only what a failure reports.
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "wasm_iterator_prototype_some.js: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "stdout={stdout}");
+    assert!(stdout.contains("boolean(true)"), "stdout={stdout}");
 }
 
 #[test]
@@ -394,10 +402,18 @@ fn run_wasm_backend_succeeds_for_iterator_prototype_every_fixture() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    // The fixture answers with a NAMED label for whichever of its ~15 checks
+    // failed, and a bare `assert!(output.status.success())` throws that label
+    // away -- which is why four batches of this test failing said only "it
+    // failed". Nothing asserted here changed; only what a failure reports.
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "wasm_iterator_prototype_every.js: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "stdout={stdout}");
+    assert!(stdout.contains("boolean(true)"), "stdout={stdout}");
 }
 
 #[test]
@@ -410,10 +426,18 @@ fn run_wasm_backend_succeeds_for_iterator_prototype_find_fixture() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    // The fixture answers with a NAMED label for whichever of its ~15 checks
+    // failed, and a bare `assert!(output.status.success())` throws that label
+    // away -- which is why four batches of this test failing said only "it
+    // failed". Nothing asserted here changed; only what a failure reports.
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "wasm_iterator_prototype_find.js: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "stdout={stdout}");
+    assert!(stdout.contains("boolean(true)"), "stdout={stdout}");
 }
 
 #[test]
@@ -426,10 +450,18 @@ fn run_wasm_backend_succeeds_for_iterator_prototype_reduce_fixture() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    // The fixture answers with a NAMED label for whichever of its ~15 checks
+    // failed, and a bare `assert!(output.status.success())` throws that label
+    // away -- which is why four batches of this test failing said only "it
+    // failed". Nothing asserted here changed; only what a failure reports.
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "wasm_iterator_prototype_reduce.js: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "stdout={stdout}");
+    assert!(stdout.contains("boolean(true)"), "stdout={stdout}");
 }
 
 #[test]

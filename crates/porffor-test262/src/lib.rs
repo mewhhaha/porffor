@@ -2,6 +2,7 @@ use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroUsize;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -20,7 +21,7 @@ use serde::{Deserialize, Serialize};
 mod attempt_journal;
 
 use attempt_journal::{
-    plan_run_phases, AttemptJournal, CaseAdmission, CaseStrikes, CrashStrikeLimit,
+    plan_run_phases, AdmittedCase, AttemptJournal, CaseAdmission, CaseStrikes, CrashStrikeLimit,
 };
 
 const TOP_LEVEL_FILTERS: [&str; 6] = [
@@ -20653,7 +20654,7 @@ fn execute_cases(
         attempt_journal_path(config, &run_config.snapshot_name, manifest.manifest_hash),
         run_config.resume,
         CrashStrikeLimit::DEFAULT,
-    )?;
+    );
     let suspects = journal.charge_strikes_for_survivors()?;
     for suspect in &suspects {
         // Named on the same stream as `test262 checkpoint: N/M cases`. The
@@ -20681,6 +20682,11 @@ fn execute_cases(
     };
 
     if remaining.is_empty() {
+        // Nothing to attempt is a clean exit, so the journal goes with it —
+        // otherwise a completed node keeps its `.attempts` file (and every
+        // strike charged during it) for the next run at the same
+        // `(snapshot_name, manifest_hash)` pair to inherit.
+        journal.discard()?;
         let mut existing = completed.into_values().collect::<Vec<_>>();
         existing.sort_by(|left, right| left.test_path.cmp(&right.test_path));
         return Ok(existing);
@@ -20693,13 +20699,22 @@ fn execute_cases(
     let previously_completed: Vec<TestResult> = completed.into_values().collect();
 
     let results = Arc::new(Mutex::new(Vec::new()));
-    let worker_count = config.worker_count.max(1).min(cases.len().max(1));
+    // `NonZeroUsize`, not `usize`, and the reason is the failure this batch is
+    // about: a phase whose worker count is zero spawns no workers, its queue is
+    // never drained, and every case in it disappears from `results` without a
+    // record. That is a silent skip, which AGENTS.md bans outright. The `max(1)`
+    // below already guaranteed it at run time; carrying the guarantee in the
+    // type means `plan_run_phases` cannot hand a phase back with no way to run
+    // it, and the literal `1` it uses for the serial suspect phase has to say so.
+    let worker_count = NonZeroUsize::new(config.worker_count.max(1).min(cases.len().max(1)))
+        .expect("worker count is clamped to at least 1 on the line above");
     // Guarded by the same mutex as `results` so the "did we cross a
     // checkpoint boundary" decision is race-safe: the length check happens
     // while still holding the lock that guards pushes into `results`.
     let checkpoint_error: Mutex<Option<String>> = Mutex::new(None);
-    // A journal write that fails means the next process death cannot be
-    // attributed, so it fails the run rather than degrading it silently.
+    // An `admit` write that fails means a case would be attempted with no
+    // durable record, so it fails the run rather than degrading it silently. A
+    // failed `retire` is deliberately NOT fatal — see the retire arm below.
     let journal_error: Mutex<Option<String>> = Mutex::new(None);
     // Workers can finish later checkpoints before earlier workers finish
     // serializing theirs. Serialize checkpoint writes and retain the largest
@@ -20710,7 +20725,7 @@ fn execute_cases(
     // more than one case in flight, in which case the suspects run serially
     // first so the next death names exactly one of them.
     for phase in plan_run_phases(&suspects, remaining, worker_count) {
-        let phase_worker_count = phase.worker_count();
+        let phase_worker_count = phase.worker_count().get();
         let queue = Arc::new(Mutex::new(phase.into_queue()));
         thread::scope(|scope| {
             for worker_slot in 0..phase_worker_count {
@@ -20760,28 +20775,40 @@ fn execute_cases(
                         };
 
                         let result = match admission {
-                            CaseAdmission::Run(case) => {
+                            CaseAdmission::Run(admitted) => {
                                 let result = run_case_entry(
                                     &worker_config,
                                     &preludes,
-                                    &case,
+                                    &admitted,
                                     &worker_run_config,
                                 );
-                                // Every path that reaches here has a
-                                // `TestResult`, including the panic path:
-                                // `run_case_entry` catches unwinding panics
-                                // itself and returns a failure record. The
-                                // retire therefore runs on every path a
-                                // process survives, which is what makes a
-                                // surviving journal entry mean "the process
-                                // died".
+                                // `run_case_entry` returns `TestResult`, not
+                                // `Result<TestResult, _>`: it catches unwinding
+                                // panics itself and turns them into a failure
+                                // record. There is therefore no path from the
+                                // line above to the line below that skips the
+                                // retire, which is what makes a surviving
+                                // journal entry mean "the process died" — a
+                                // fact about the signature rather than about a
+                                // test.
                                 if let Err(err) = journal.retire(worker_slot) {
-                                    let mut error_guard = journal_error
-                                        .lock()
-                                        .expect("journal error mutex poisoned");
-                                    if error_guard.is_none() {
-                                        *error_guard = Some(err);
-                                    }
+                                    // Loud, but NOT fatal, and the asymmetry
+                                    // with `admit` above is deliberate. A
+                                    // stale in-flight entry self-heals: the
+                                    // next `admit` for this slot drops it, and
+                                    // at worst it costs one bogus strike,
+                                    // which a later completion now forgives.
+                                    // Failing the run instead would let a full
+                                    // `--snapshot-dir` produce a deterministic
+                                    // non-zero exit on every supervisor
+                                    // attempt — burning the whole retry budget
+                                    // on a diagnostic subsystem, which is the
+                                    // exact failure shape this module exists
+                                    // to end.
+                                    eprintln!(
+                                        "test262 attempt journal: could not retire the entry for {} ({err}); attribution for this node is degraded but the run continues. If this repeats, delete the node's `.attempts` file in the snapshot directory and check for a full disk.",
+                                        admitted.case().path
+                                    );
                                 }
                                 result
                             }
@@ -20882,6 +20909,11 @@ fn execute_cases(
     if run_config.resume {
         write_resume_case_checkpoint(config, manifest, &all_results, run_config)?;
     }
+
+    // Last, and only on the success path: this run exited cleanly, so nothing
+    // in the journal describes a death and nothing in it should survive into a
+    // later run at the same `(snapshot_name, manifest_hash)` pair.
+    journal.discard()?;
 
     Ok(all_results)
 }
@@ -21034,11 +21066,7 @@ fn snapshot_paths_for_name(
 /// where a parse failure is propagated, not skipped. A journal named `.json`
 /// would therefore turn every `report-all --resume` that has not yet written an
 /// aggregate into a hard error, which is the opposite of this module's purpose.
-fn attempt_journal_path(
-    config: &SuiteConfig,
-    snapshot_name: &str,
-    manifest_hash: u64,
-) -> PathBuf {
+fn attempt_journal_path(config: &SuiteConfig, snapshot_name: &str, manifest_hash: u64) -> PathBuf {
     snapshot_paths_for_name(config, snapshot_name, manifest_hash)
         .json_path
         .with_extension("attempts")
@@ -21276,12 +21304,21 @@ fn run_one_case_in_child_process(
     child_result
 }
 
+/// Runs one case that the attempt journal has admitted.
+///
+/// Takes [`AdmittedCase`] rather than `&TestCase` on purpose: the worker
+/// closure in `execute_cases` has the whole `&[TestCase]` in scope, so with a
+/// bare `&TestCase` parameter `run_case_entry(.., &cases[0], ..)` compiled and
+/// bypassed the quarantine check entirely. `AdmittedCase`'s field is private
+/// and `AttemptJournal::admit` is its only non-test constructor, so that line
+/// is now an E0603.
 fn run_case_entry(
     config: &SuiteConfig,
     preludes: &PreludeStore,
-    case: &TestCase,
+    admitted: &AdmittedCase,
     run_config: &RunConfig,
 ) -> TestResult {
+    let case = admitted.case();
     // In-process execution is the default (`config.case_runner_bin` is only
     // `Some` when the CLI is invoked with `PORFFOR_TEST262_FORCE_CASE_RUNNER`
     // set, e.g. for crash repro). This used to be unsafe for a
@@ -36128,7 +36165,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     #[cfg(unix)]
-    fn a_case_left_in_the_attempt_journal_is_charged_a_strike_on_the_next_resume() {
+    fn a_case_left_in_the_attempt_journal_is_charged_a_strike_and_forgiven_when_it_completes() {
         let (runner_path, sentinel_path) = recording_case_runner("journal-one-strike");
         let mut config = fixture_config();
         fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
@@ -36166,17 +36203,27 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("resume run should complete");
 
-        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
-        assert_eq!(
-            journal.strikes_for(&cases[0].path).map(CaseStrikes::get),
-            Some(1),
-            "the surviving journal entry must be charged exactly one strike"
-        );
         assert!(
             !CrashStrikeLimit::DEFAULT
                 .is_reached_by(CaseStrikes::from_count(1).expect("one strike is non-zero")),
             "one strike is not yet a quarantine"
+        );
+        // The strike WAS charged on entry -- the seeded death is the real
+        // journal state and `charge_strikes_for_survivors` is exercised by
+        // `attempt_journal::tests::attempt_journal_charges_one_strike_per_death_and_quarantines_at_the_limit`.
+        // What this test adds is the product-level consequence: one strike is
+        // not a quarantine, the case runs, and the run exits cleanly.
+        //
+        // Deliberately NOT asserting `strikes_for(..) == None` here. A clean
+        // exit removes the journal file, so re-opening it yields a fresh one
+        // and any strike assertion at this point passes for that reason alone.
+        // Strike forgiveness is asserted where it can be observed, on the
+        // journal itself:
+        // `attempt_journal::tests::attempt_journal_retire_forgives_the_strike_of_a_case_that_then_completed`.
+        assert!(
+            !journal_path.exists(),
+            "a clean exit must leave no journal behind: {}",
+            journal_path.display()
         );
 
         // ... and one strike is not a quarantine, so the case still ran.
@@ -36193,7 +36240,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 panic!("the recording runner writes no child snapshot, so every case fails");
             };
             assert!(
-                !failure.detail.contains("quarantined by report-all --resume"),
+                !failure
+                    .detail
+                    .contains("quarantined by report-all --resume"),
                 "nothing may be quarantined at one strike: {failure:?}"
             );
         }
@@ -36245,7 +36294,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             )
             .expect("seeded death should write the journal");
             AttemptJournal::open(journal_path.clone(), true, CrashStrikeLimit::DEFAULT)
-                .expect("journal should reopen")
                 .charge_strikes_for_survivors()
                 .expect("charging should work");
         }
@@ -36279,7 +36327,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(failure.kind, FailureKind::WasmBackend);
         assert_eq!(failure.origin, FailureOrigin::LocalHarness);
         assert!(
-            failure.detail.contains("quarantined by report-all --resume"),
+            failure
+                .detail
+                .contains("quarantined by report-all --resume"),
             "detail: {}",
             failure.detail
         );
@@ -36375,17 +36425,20 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("seeded death should write the journal");
 
-        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
+        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT);
         let suspects = journal
             .charge_strikes_for_survivors()
             .expect("charging should work");
         assert_eq!(suspects.len(), 2);
 
-        let phases = plan_run_phases(&suspects, cases, 8);
+        let phases = plan_run_phases(
+            &suspects,
+            cases.clone(),
+            NonZeroUsize::new(8).expect("test phase width is non-zero"),
+        );
         assert_eq!(phases.len(), 2);
         assert_eq!(
-            phases[0].worker_count(),
+            phases[0].worker_count().get(),
             1,
             "the suspects must run serially, or the next death names two cases again"
         );
@@ -36395,10 +36448,120 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             serial_paths,
             vec!["narrow/first.js".to_string(), "narrow/third.js".to_string()]
         );
-        assert_eq!(phases[1].worker_count(), 8);
+        assert_eq!(phases[1].worker_count().get(), 8);
         assert_eq!(phases[1].case_paths(), vec!["narrow/second.js".to_string()]);
     }
 
+    /// The plan above is inert unless `execute_cases` actually runs each phase
+    /// at the phase's own width, and that wiring is one line
+    /// (`for worker_slot in 0..phase.worker_count()`). Checked here through the
+    /// product entry point, because an edit that spawned the *config's* worker
+    /// count regardless of the phase would leave the plan test green while
+    /// reintroducing the two-cases-in-flight blame-spreading the plan exists to
+    /// stop.
+    #[test]
+    #[cfg(unix)]
+    fn execute_cases_runs_the_suspect_phase_serially_and_first() {
+        let sentinel_path = unique_temp_path("narrow-serial-sentinel");
+        let busy_path = unique_temp_path("narrow-serial-busy");
+        let runner_path = unique_temp_path("narrow-serial-runner");
+        // Records dispatch ORDER, and detects OVERLAP: a second case entering
+        // while the marker file exists can only happen with more than one
+        // worker. The marker never outlives an invocation, so this cannot fire
+        // on a correctly serial phase.
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\nif [ -e '{busy}' ]; then printf 'overlap %s\\n' \"$5\" >> '{sentinel}'; fi\n: > '{busy}'\nprintf '%s\\n' \"$5\" >> '{sentinel}'\nsleep 0.2\nrm -f '{busy}'\n",
+                busy = busy_path.display(),
+                sentinel = sentinel_path.display(),
+            ),
+        )
+        .expect("serial-phase runner script should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("serial-phase runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("serial-phase runner permissions should update");
+
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        // Two workers, exactly the sweep's `--threads 2`, so a phase that
+        // ignored its own width would run both suspects at once.
+        config.worker_count = 2;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![
+            synthetic_case("narrow-run/first.js"),
+            synthetic_case("narrow-run/second.js"),
+            synthetic_case("narrow-run/third.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "narrow-run", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "narrow-run".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        attempt_journal::simulate_process_death_with_cases_in_flight(
+            journal_path,
+            &[cases[0].clone(), cases[2].clone()],
+        )
+        .expect("seeded death should write the journal");
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+        assert_eq!(results.len(), 3);
+
+        let dispatched = fs::read_to_string(&sentinel_path)
+            .expect("the serial-phase sentinel should exist")
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(
+            !dispatched.iter().any(|line| line.starts_with("overlap ")),
+            "the suspect phase ran more than one case at a time, so the next death would again \
+             name two cases: {dispatched:?}"
+        );
+        assert_eq!(dispatched.len(), 3, "{dispatched:?}");
+        let mut suspects_dispatched = dispatched[..2].to_vec();
+        suspects_dispatched.sort();
+        assert_eq!(
+            suspects_dispatched,
+            vec![
+                "narrow-run/first.js".to_string(),
+                "narrow-run/third.js".to_string()
+            ],
+            "the suspects must be dispatched before anything else: {dispatched:?}"
+        );
+        assert_eq!(dispatched[2], "narrow-run/second.js", "{dispatched:?}");
+    }
+
+    /// # What this does and does not cover
+    ///
+    /// It covers the in-process path (`case_runner_bin` is `None`) reaching a
+    /// clean exit with nothing left in the journal, and the journal file being
+    /// removed rather than left holding strikes for the next run at the same
+    /// `(snapshot_name, manifest_hash)` pair.
+    ///
+    /// It does **not** cover the `panic::catch_unwind` arm in `run_case_entry`:
+    /// none of these three cases panics, so that arm is never taken here. That
+    /// arm needs no test — `run_case_entry` returns `TestResult`, not
+    /// `Result<TestResult, _>`, and the `journal.retire` call sits
+    /// unconditionally on the line after it, so "retire runs on every path this
+    /// process survives" is a property of the signature. Do not re-add a
+    /// panic-path claim to this test's name or doc without a case that actually
+    /// panics.
     #[test]
     fn an_empty_journal_is_the_normal_exit_state() {
         let config = fixture_config();
@@ -36426,46 +36589,50 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let journal_path =
             attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        // Stronger than "exists and is empty", which was the previous
+        // assertion: a journal that survives a clean exit carries every strike
+        // charged during it into the next run at the same
+        // `(snapshot_name, manifest_hash)` pair, and one file per node
+        // accumulates in a snapshot directory that is already 423 MB. Removing
+        // it also upgrades the startup signal to "the journal exists ⇒ the
+        // previous process died".
+        //
+        // One assertion, and it is the whole invariant: **the journal exists
+        // if and only if the previous process died**. The pair this used to end
+        // on (`in_flight_paths().is_empty()` and `charge_strikes_for_survivors()`
+        // empty) is implied by the file's absence -- `read_journal` answers
+        // `fresh()` for a missing file -- so they would read as two more checks
+        // while checking nothing.
         assert!(
-            journal_path.exists(),
-            "the journal must exist after a clean run: {}",
+            !journal_path.exists(),
+            "a clean exit must remove the journal, not leave it behind: {}",
             journal_path.display()
-        );
-        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
-        assert!(
-            journal.in_flight_paths().is_empty(),
-            "retire must run on every path, so a clean exit leaves nothing in flight"
-        );
-        assert!(
-            journal
-                .charge_strikes_for_survivors()
-                .expect("charging should work")
-                .is_empty(),
-            "a clean exit must charge nobody"
         );
     }
 
+    /// # Why the runner reads the journal instead of just exiting 134
+    ///
+    /// The post-run assertions alone (nothing in flight, no strike, nothing to
+    /// charge) are all satisfied by an `admit`/`retire` pair that writes
+    /// *nothing at all*: a missing journal file makes `read_journal` answer
+    /// `AttemptJournalFile::fresh()`, which is empty in-flight and empty
+    /// strikes — exactly what those three assertions demand. They therefore
+    /// separate "once" from neither "twice" nor "never".
+    ///
+    /// So the crashing child dumps the journal into a sentinel *while it is the
+    /// case in flight*. That makes this the one place where the record-before-
+    /// attempt ordering is observed end to end rather than inferred from
+    /// `admit` calling `persist` before it returns.
     #[test]
     #[cfg(unix)]
     fn the_child_runner_path_journals_exactly_once() {
         // A crashing *child* is already an ordinary `TestResult`. Only a death
         // of *this* process may charge a strike, so this path must journal
         // once, retire once, and accrue nothing.
-        let runner_path = unique_temp_path("child-crash-runner");
-        fs::write(&runner_path, "#!/bin/sh\nexit 134\n").expect("crashing runner should write");
-        let mut permissions = fs::metadata(&runner_path)
-            .expect("crashing runner metadata should read")
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&runner_path, permissions)
-            .expect("crashing runner permissions should update");
-
         let mut config = fixture_config();
         fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
         config.worker_count = 1;
         config.timeout_ms = 5_000;
-        config.case_runner_bin = Some(runner_path);
 
         let cases = vec![synthetic_case("child-crash/case.js")];
         let manifest = attempt_journal_manifest(&config, "child-crash", &cases);
@@ -36475,6 +36642,28 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
+        // Computable before the run, which is what lets the child observe it.
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+
+        let sentinel_path = unique_temp_path("child-crash-journal-sentinel");
+        let runner_path = unique_temp_path("child-crash-runner");
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\ncat '{journal}' >> '{sentinel}' 2>/dev/null\nprintf '\\n' >> '{sentinel}'\nexit 134\n",
+                journal = journal_path.display(),
+                sentinel = sentinel_path.display(),
+            ),
+        )
+        .expect("crashing runner should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("crashing runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("crashing runner permissions should update");
+        config.case_runner_bin = Some(runner_path);
 
         let results = execute_cases(
             &config,
@@ -36487,24 +36676,39 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(results.len(), 1);
         assert!(matches!(results[0].status, TestStatus::Failed(_)));
 
-        let journal_path =
-            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
-        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
-        assert!(
-            journal.in_flight_paths().is_empty(),
-            "the child-runner path must retire its single journal entry"
-        );
+        // What the journal said while the child was running. A journal that
+        // recorded nothing fails here; a journal that recorded the case twice,
+        // or that charged a strike at dispatch, fails on the counts.
+        let observed = fs::read_to_string(&sentinel_path)
+            .expect("the child must have been able to read the journal it was dispatched under");
         assert_eq!(
-            journal.strikes_for(&cases[0].path),
-            None,
-            "a crashing child must not accrue a strike"
+            observed.matches(&cases[0].path).count(),
+            1,
+            "the journal must name the in-flight case exactly once while its child runs: \
+             {observed}"
         );
         assert!(
-            journal
-                .charge_strikes_for_survivors()
-                .expect("charging should work")
-                .is_empty()
+            observed.contains("\"in_flight\""),
+            "the child read something that is not an attempt journal: {observed}"
+        );
+        assert!(
+            !observed.contains("\"strikes\":{\""),
+            "dispatching a case must not charge it a strike; only a process death does: {observed}"
+        );
+
+        // And after the run, the file itself is gone, because a clean exit is
+        // not a death and a crashing *child* is an ordinary `TestResult`.
+        //
+        // This one assertion carries the post-run half. The three the test used
+        // to end on -- nothing in flight, no strike, nothing to charge -- are
+        // now satisfied by the file's absence alone (`read_journal` answers
+        // `fresh()` for a missing file), so keeping them would read as
+        // corroboration while corroborating nothing. Retirement is observed
+        // above instead, against the journal the child actually saw.
+        assert!(
+            !journal_path.exists(),
+            "a clean exit must remove the journal, and a crashing child is not a death: {}",
+            journal_path.display()
         );
     }
 
@@ -36585,7 +36789,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ..config
         };
 
-        let result = run_case_entry(&config, &PreludeStore::default(), &case, &run_config);
+        let result = run_case_entry(
+            &config,
+            &PreludeStore::default(),
+            // Test-only bypass of the journal: this test is about the child
+            // runner's snapshot handling, not about admission.
+            &AdmittedCase::admitted_by_test(case.clone()),
+            &run_config,
+        );
 
         let TestStatus::Failed(imported_failure) = result.status else {
             panic!("child failure should be imported");
@@ -36624,7 +36835,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ..RunConfig::default()
         };
 
-        let result = run_case_entry(&config, &PreludeStore::default(), &case, &run_config);
+        let result = run_case_entry(
+            &config,
+            &PreludeStore::default(),
+            // Test-only bypass of the journal: this test is about the child
+            // runner's snapshot handling, not about admission.
+            &AdmittedCase::admitted_by_test(case.clone()),
+            &run_config,
+        );
 
         let TestStatus::Failed(failure) = result.status else {
             panic!("preclassified exclusion should fail as unsupported");

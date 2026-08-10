@@ -405,88 +405,6 @@ impl IteratorProtocolWitness {
         )
     }
 
-    /// `StatementIr::ForOfArray` — the index walk.
-    ///
-    /// All four obligations are discharged by assumption. `compile_for_of_array`
-    /// (`control_flow.rs:5238`) is a bare `emit_array_length` +
-    /// `emit_array_read` index walk with no `@@iterator` `Get` anywhere in it,
-    /// which is exactly what these premises assert is safe — and what trace A1
-    /// shows is observably wrong when `Array.prototype[@@iterator]` is patched.
-    pub const ARRAY_INDEX_WALK: Self = Self::new(
-        GetIteratorDischarge::assumed(IntactnessPremise::ArrayIteratorIntact),
-        IteratorStepDischarge::assumed(IntactnessPremise::ArrayLengthStableDuringBody),
-        IteratorValueDischarge::assumed(IntactnessPremise::ArrayHasNoHolesOrIndexAccessors),
-        IteratorCloseDischarge::assumed(IntactnessPremise::NoIteratorObjectExists),
-    );
-
-    /// The same index walk, reached by a different desugaring: `for (x of arr)`
-    /// whose body awaits, inside a plain async function, becomes a
-    /// `StatementIr::GeneratorLoop` over `PropertyKeyIr::ArrayLength` and
-    /// `PropertyKeyIr::ArrayIndex` (`lowering.rs`,
-    /// `lower_async_for_of_array_with_body_await`).
-    ///
-    /// It is a *fourth* for-of specialization that is not spelled as a `ForOf*`
-    /// variant, and it relies on exactly the premises of
-    /// [`Self::ARRAY_INDEX_WALK`]. It is a separate constant so that the
-    /// witness names the desugaring a reader has to go and check.
-    pub const ARRAY_INDEX_WALK_RESUMABLE: Self = Self::ARRAY_INDEX_WALK;
-
-    /// `StatementIr::ForOfString` — the code-point walk.
-    ///
-    /// `compile_for_of_string` (`control_flow.rs:5353`) steps via
-    /// `emit_decode_utf8_scalar_at_index`.
-    pub const STRING_CODE_POINT_WALK: Self = Self::new(
-        GetIteratorDischarge::assumed(IntactnessPremise::StringIteratorIntact),
-        IteratorStepDischarge::assumed(IntactnessPremise::StringWalkIsCodePoint),
-        IteratorValueDischarge::assumed(IntactnessPremise::StringWalkIsCodePoint),
-        IteratorCloseDischarge::assumed(IntactnessPremise::NoIteratorObjectExists),
-    );
-
-    /// `StatementIr::ForOfIterator`, sync. Every obligation is really emitted;
-    /// the close predicate in `emit_iterator_close_condition_i32`
-    /// (`control_flow.rs:8451`) is exactly `¬LoopContinues`.
-    pub const SYNC_ITERATOR_PROTOCOL: Self = Self::emitted_by(EmissionSite::SyncForOfIterator);
-
-    /// `StatementIr::ForOfIterator` with an async plan (`for await`).
-    pub const ASYNC_ITERATOR_PROTOCOL: Self = Self::emitted_by(EmissionSite::AsyncForOfIterator);
-
-    /// `ArrayDestructuringPatternIr` — the iterator one ArrayBindingPattern
-    /// (8.6.3 IteratorBindingInitialization) or ArrayAssignmentPattern
-    /// (13.15.5.5 IteratorDestructuringAssignmentEvaluation) acquires.
-    ///
-    /// One witness per *pattern*, not per statement: both operations perform a
-    /// fresh `GetIterator` for every array pattern, nested ones included, which
-    /// is why the field lives on [`crate::ArrayDestructuringPatternIr`] rather
-    /// than on `ExprIr::ArrayDestructure`.
-    ///
-    /// Every obligation is really emitted, verified step by step at
-    /// `control_flow.rs:7656-7770`: `emit_get_iterator_from_value_locals`
-    /// (`:7687`), `emit_destructuring_iterator_step` (`:8099`) per element, and
-    /// **both** halves of 7.4.11 step 4 — `emit_iterator_close` under the
-    /// `[[Done]]` guard on the normal path (`:7710`) and
-    /// `emit_iterator_close_preserving_current_throw` under the same guard on
-    /// the abrupt path (`:7729`). That guard is 8.6.3 step 5's
-    /// "if `iteratorRecord.[[Done]]` is false", which is what
-    /// `array-elem-iter-nrml-close-skip.js` pins. There is no array fast path
-    /// here, so every array destructuring pays the real protocol and the
-    /// discharge is honestly `ByEmission` in all four slots.
-    pub const ARRAY_DESTRUCTURING_PROTOCOL: Self =
-        Self::emitted_by(EmissionSite::ArrayDestructuring);
-
-    /// The for-of head produced no iteration: an unsupported form was reported
-    /// and the statement is `StatementIr::Empty`. Every obligation is vacuous
-    /// because nothing runs.
-    ///
-    /// This exists so that a bail-out path is still a construction a reviewer
-    /// sees, rather than the one shape in which a for-of head can escape
-    /// without saying anything.
-    pub const NO_ITERATION: Self = Self::new(
-        GetIteratorDischarge::assumed(IntactnessPremise::NoIterationLowered),
-        IteratorStepDischarge::assumed(IntactnessPremise::NoIterationLowered),
-        IteratorValueDischarge::assumed(IntactnessPremise::NoIterationLowered),
-        IteratorCloseDischarge::assumed(IntactnessPremise::NoIterationLowered),
-    );
-
     pub(crate) const fn get_iterator(self) -> GetIteratorDischarge {
         self.get_iterator
     }
@@ -523,6 +441,167 @@ impl IteratorProtocolWitness {
             && self.iterator_step.get().is_emitted()
             && self.iterator_value.get().is_emitted()
             && self.iterator_close.get().is_emitted()
+    }
+}
+
+/// Declares every [`IteratorProtocolWitness`] constant **and** the
+/// [`ALL_WITNESSES`] census from one row list.
+///
+/// This is `emission_sites!`'s shape, applied to the witness domain. The
+/// previous round recorded (ledger **IC-4**) that no type could carry the
+/// census because "each constant's body is a different four-argument
+/// expression, not a row". That is not a barrier: a `macro_rules!` row can
+/// carry an expression fragment, so the constants and the census are two
+/// expansions of the same `$(...)+` sequence and "added a constant, forgot the
+/// census" is not expressible. The length assertion K3 that guarded the census
+/// by hand is retired with it — a `len() == 7` check is exactly what forgetting
+/// a row preserves (ledger **L1**'s shape), and an assertion that cannot detect
+/// its own omission is decoration.
+///
+/// An alias row is written `NAME => Self::OTHER`, which is how
+/// `ARRAY_INDEX_WALK_RESUMABLE` stays a *named* desugaring without a second
+/// value — and why the census is written over names rather than over values.
+macro_rules! iterator_witnesses {
+    ($(
+        $( #[$meta:meta] )*
+        $name:ident => $body:expr
+    ),+ $(,)?) => {
+        impl IteratorProtocolWitness {
+            // The type is spelled out rather than written `Self`: the row bodies
+            // are captured at the invocation site, which is module scope, and
+            // `Self` there has no impl to resolve against.
+            $( $( #[$meta] )* pub const $name: IteratorProtocolWitness = $body; )+
+        }
+
+        /// Every witness constant, by name.
+        ///
+        /// Generated from the same rows as the constants themselves, so it
+        /// cannot be partial. Written over *names* rather than over values
+        /// because [`IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE`]
+        /// **is** [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — seven names,
+        /// six distinct values — so a value-distinctness check would be
+        /// vacuous.
+        ///
+        /// `pub(crate)`, like every other reader of a witness's contents: a
+        /// `porffor-aot-wasm` arm that reached for this list would be `E0603`,
+        /// which is the same prohibition the accessors carry.
+        pub(crate) const ALL_WITNESSES: &[IteratorProtocolWitness] =
+            &[ $( IteratorProtocolWitness::$name , )+ ];
+    };
+}
+
+iterator_witnesses! {
+    /// `StatementIr::ForOfArray` — the index walk.
+    ///
+    /// All four obligations are discharged by assumption. `compile_for_of_array`
+    /// (`control_flow.rs`) is a bare `emit_array_length` + `emit_array_read`
+    /// index walk with no `@@iterator` `Get` anywhere in it, which is exactly
+    /// what these premises assert is safe — and what trace A1 shows is
+    /// observably wrong when `Array.prototype[@@iterator]` is patched.
+    ARRAY_INDEX_WALK => IteratorProtocolWitness::new(
+        GetIteratorDischarge::assumed(IntactnessPremise::ArrayIteratorIntact),
+        IteratorStepDischarge::assumed(IntactnessPremise::ArrayLengthStableDuringBody),
+        IteratorValueDischarge::assumed(IntactnessPremise::ArrayHasNoHolesOrIndexAccessors),
+        IteratorCloseDischarge::assumed(IntactnessPremise::NoIteratorObjectExists),
+    ),
+
+    /// The same index walk, reached by a different desugaring: `for (x of arr)`
+    /// whose body awaits, inside a plain async function, becomes a
+    /// `StatementIr::GeneratorLoop` over `PropertyKeyIr::ArrayLength` and
+    /// `PropertyKeyIr::ArrayIndex` (`lowering.rs`,
+    /// `lower_async_for_of_array_with_body_await`).
+    ///
+    /// It is a *fourth* for-of specialization that is not spelled as a `ForOf*`
+    /// variant, and it relies on exactly the premises of
+    /// [`IteratorProtocolWitness::ARRAY_INDEX_WALK`]. It is a separate constant
+    /// so that the witness names the desugaring a reader has to go and check.
+    ARRAY_INDEX_WALK_RESUMABLE => IteratorProtocolWitness::ARRAY_INDEX_WALK,
+
+    /// `StatementIr::ForOfString` — the code-point walk.
+    ///
+    /// `compile_for_of_string` (`control_flow.rs`) steps via
+    /// `emit_decode_utf8_scalar_at_index`.
+    STRING_CODE_POINT_WALK => IteratorProtocolWitness::new(
+        GetIteratorDischarge::assumed(IntactnessPremise::StringIteratorIntact),
+        IteratorStepDischarge::assumed(IntactnessPremise::StringWalkIsCodePoint),
+        IteratorValueDischarge::assumed(IntactnessPremise::StringWalkIsCodePoint),
+        IteratorCloseDischarge::assumed(IntactnessPremise::NoIteratorObjectExists),
+    ),
+
+    /// `StatementIr::ForOfIterator`, sync. Every obligation is really emitted;
+    /// the close predicate in `emit_iterator_close_condition_i32`
+    /// (`control_flow.rs`) is exactly `¬LoopContinues`.
+    SYNC_ITERATOR_PROTOCOL => IteratorProtocolWitness::emitted_by(EmissionSite::SyncForOfIterator),
+
+    /// `StatementIr::ForOfIterator` with an async plan (`for await`).
+    ASYNC_ITERATOR_PROTOCOL => IteratorProtocolWitness::emitted_by(EmissionSite::AsyncForOfIterator),
+
+    /// `ArrayDestructuringPatternIr` — the iterator one ArrayBindingPattern
+    /// (8.6.3 IteratorBindingInitialization) or ArrayAssignmentPattern
+    /// (13.15.5.5 IteratorDestructuringAssignmentEvaluation) acquires.
+    ///
+    /// One witness per *pattern*, not per statement: both operations perform a
+    /// fresh `GetIterator` for every array pattern, nested ones included, which
+    /// is why the field lives on [`crate::ArrayDestructuringPatternIr`] rather
+    /// than on `ExprIr::ArrayDestructure`.
+    ///
+    /// Every obligation is really emitted, verified step by step in
+    /// `compile_array_destructure_from_value_locals`:
+    /// `emit_get_iterator_from_value_locals`, `emit_destructuring_iterator_step`
+    /// per element, and **both** halves of 7.4.11 step 4 —
+    /// `emit_iterator_close` under the `[[Done]]` guard on the normal path and
+    /// `emit_iterator_close_preserving_current_throw` under the same guard on
+    /// the abrupt path. That guard is 8.6.3 step 5's "if
+    /// `iteratorRecord.[[Done]]` is false", which is what
+    /// `array-elem-iter-nrml-close-skip.js` pins. There is no array fast path
+    /// here, so every array destructuring pays the real protocol and the
+    /// discharge is honestly `ByEmission` in all four slots.
+    ///
+    /// Reachable at the IR field only through
+    /// [`ArrayPatternProtocol::ARRAY_DESTRUCTURING`].
+    ARRAY_DESTRUCTURING_PROTOCOL => IteratorProtocolWitness::emitted_by(EmissionSite::ArrayDestructuring),
+
+    /// The for-of head produced no iteration: an unsupported form was reported
+    /// and the statement is `StatementIr::Empty`. Every obligation is vacuous
+    /// because nothing runs.
+    ///
+    /// This exists so that a bail-out path is still a construction a reviewer
+    /// sees, rather than the one shape in which a for-of head can escape
+    /// without saying anything.
+    NO_ITERATION => IteratorProtocolWitness::new(
+        GetIteratorDischarge::assumed(IntactnessPremise::NoIterationLowered),
+        IteratorStepDischarge::assumed(IntactnessPremise::NoIterationLowered),
+        IteratorValueDischarge::assumed(IntactnessPremise::NoIterationLowered),
+        IteratorCloseDischarge::assumed(IntactnessPremise::NoIterationLowered),
+    ),
+}
+
+/// The witness slot on [`crate::ArrayDestructuringPatternIr`].
+///
+/// A newtype rather than a bare [`IteratorProtocolWitness`], because the bare
+/// field's type was the **whole witness domain**: `protocol:
+/// IteratorProtocolWitness::NO_ITERATION` — or `::ARRAY_INDEX_WALK`, which
+/// assumes away all of 23.1.3.x — compiled at both construction sites in
+/// `lowering.rs`, and every const assertion still passed. K2 pins what the
+/// constant *contains*; nothing pinned which field may hold it. The guarantee
+/// the round-1 ledger claimed ("the author must name a constant that lives
+/// beside its premises") was therefore "a constant", not "the right constant".
+///
+/// There is exactly one inhabitant and its constructor is private, so any other
+/// witness at that field is `E0308`. The accessor is `pub(crate)`, so the
+/// prohibition on `porffor-aot-wasm` reading a witness (P2) is unaffected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrayPatternProtocol(IteratorProtocolWitness);
+
+impl ArrayPatternProtocol {
+    /// The only inhabitant: 8.6.3 / 13.15.5.5 acquire a real iterator and
+    /// `compile_array_destructure_from_value_locals` emits all four 7.4
+    /// obligations for it.
+    pub const ARRAY_DESTRUCTURING: Self =
+        Self(IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL);
+
+    pub(crate) const fn witness(self) -> IteratorProtocolWitness {
+        self.0
     }
 }
 
@@ -602,55 +681,51 @@ pub(crate) const ALL_OBLIGATIONS: [IteratorObligation; 4] = [
     IteratorObligation::IteratorClose,
 ];
 
-/// Every witness constant, by name.
-///
-/// Written over *names* rather than over values because
-/// [`IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE`] **is**
-/// [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — six names, five distinct
-/// values — so a value-distinctness check would be vacuous.
-///
-/// `pub(crate)`, like every other reader of a witness's contents: a
-/// `porffor-aot-wasm` arm that reached for this list would be `E0603`, which is
-/// the same prohibition the accessors carry.
-pub(crate) const ALL_WITNESSES: &[IteratorProtocolWitness] = &[
-    IteratorProtocolWitness::ARRAY_INDEX_WALK,
-    IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE,
-    IteratorProtocolWitness::STRING_CODE_POINT_WALK,
-    IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL,
-    IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL,
-    IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
-    IteratorProtocolWitness::NO_ITERATION,
-];
-
-/// True when some witness constant discharges some obligation by emission at
+/// True when some witness constant discharges **`obligation`** by emission at
 /// `site` — i.e. some IR construct has accepted responsibility for that emitter
-/// arm.
+/// arm running *that* operation.
 ///
-/// This is the direction the catalog could not state. `EmissionSite` already
-/// guarantees that a variant *names a real function*; what it could not
-/// guarantee is that any construct in the IR admits to causing that function to
-/// run. `SYNC_PROTOCOL_SITES` credited `ArrayDestructuring` while no witness
-/// mentioned it, and nothing could see the asymmetry.
-pub(crate) const fn site_is_witnessed(site: EmissionSite) -> bool {
+/// This is the direction the catalog could not state, at the resolution the
+/// catalog needs. `EmissionSite` already guarantees that a variant *names a
+/// real function*; what it could not guarantee is that any construct in the IR
+/// admits to causing that function to run. `SYNC_PROTOCOL_SITES` credited
+/// `ArrayDestructuring` while no witness mentioned it, and nothing could see
+/// the asymmetry.
+///
+/// Per-obligation rather than per-site, because a site may run 7.4.2/7.4.8/7.4.9
+/// and owe no 7.4.11 (13.3.8.1's argument-list spread is the worked example).
+/// J10 in `operations.rs` asks this question of each row's own operation, so
+/// crediting such a site on the `IteratorClose` row is a build failure rather
+/// than a convention.
+pub(crate) const fn site_emits(site: EmissionSite, obligation: IteratorObligation) -> bool {
     let mut i = 0;
     while i < ALL_WITNESSES.len() {
-        let witness = ALL_WITNESSES[i];
-        let mut j = 0;
-        while j < ALL_OBLIGATIONS.len() {
-            // `match` and `as u8`, not `if let` and `==`: this is the shape the
-            // `assumes`/`emits` helpers above already use, because
-            // `EmissionSite` has no `const` `PartialEq`.
-            match witness.discharge(ALL_OBLIGATIONS[j]) {
-                ObligationDischarge::ByEmission(actual) => {
-                    if actual as u8 == site as u8 {
-                        return true;
-                    }
+        // `match` and `as u8`, not `if let` and `==`: this is the shape the
+        // `assumes`/`emits` helpers above already use, because `EmissionSite`
+        // has no `const` `PartialEq`.
+        match ALL_WITNESSES[i].discharge(obligation) {
+            ObligationDischarge::ByEmission(actual) => {
+                if actual as u8 == site as u8 {
+                    return true;
                 }
-                ObligationDischarge::ByAssumption(_) => {}
             }
-            j += 1;
+            ObligationDischarge::ByAssumption(_) => {}
         }
         i += 1;
+    }
+    false
+}
+
+/// True when some witness constant discharges *some* obligation by emission at
+/// `site`. K1's question, derived from [`site_emits`] rather than re-deriving
+/// the scan.
+pub(crate) const fn site_is_witnessed(site: EmissionSite) -> bool {
+    let mut j = 0;
+    while j < ALL_OBLIGATIONS.len() {
+        if site_emits(site, ALL_OBLIGATIONS[j]) {
+            return true;
+        }
+        j += 1;
     }
     false
 }
@@ -676,28 +751,27 @@ const _: () = {
     }
 };
 
-// (K2) The new constant says what its doc comment says, in the same shape as
-//      the two `emits_every_obligation` assertions above.
+// (K2) The array-destructuring constant says what its doc comment says, in the
+//      same shape as the two `emits_every_obligation` assertions below — and it
+//      is asked of the value reachable *through the IR field's type*, so this is
+//      also `ArrayPatternProtocol::witness`'s `const` consumer. A newtype whose
+//      only inhabitant were the wrong witness would fail here.
 const _: () = assert!(
     emits_every_obligation(
-        IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+        ArrayPatternProtocol::ARRAY_DESTRUCTURING.witness(),
         EmissionSite::ArrayDestructuring,
     ),
-    "ARRAY_DESTRUCTURING_PROTOCOL must emit all four 7.4 obligations at \
+    "ArrayPatternProtocol::ARRAY_DESTRUCTURING must emit all four 7.4 obligations at \
      compile_array_destructure_from_value_locals"
 );
 
-// (K3) `ALL_WITNESSES` is complete.
-//
-//      Honestly weak, and recorded as ledger **IC-4** rather than claimed as a
-//      proof: this is the `ALL.len() == 29` shape that ledger L1 showed cannot
-//      detect its own omission, because the count is exactly what forgetting a
-//      row preserves. It is kept because it costs one line and turns "added a
-//      constant, forgot the census" from silence into a failure the author of
-//      the next constant sees. The strong form — generating the constants from
-//      one row list, as `emission_sites!` does for the sites — is not available:
-//      each constant's body is a different four-argument expression, not a row.
-const _: () = assert!(ALL_WITNESSES.len() == 7, "ALL_WITNESSES is out of date");
+// (K3) is retired. It asserted `ALL_WITNESSES.len() == 7`, which is the
+//      `ALL.len() == 29` shape ledger **L1** showed cannot detect its own
+//      omission: the count is exactly what forgetting a row preserves. The
+//      census is now generated from the same rows as the constants by
+//      `iterator_witnesses!`, so completeness is definitional and K1 is total
+//      rather than conditional on a hand-maintained list. Ledger **IC-4** is
+//      closed by that macro, not by a length check.
 
 // (K4) Two sites may not name the same emitter function.
 //

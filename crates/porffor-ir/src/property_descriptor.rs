@@ -964,11 +964,20 @@ impl<C: DescriptorCarrier> fmt::Debug for CompletionDefaults<C> {
 /// The `Data | Generic` or-pattern is 6.2.6.6 step 3 verbatim — "if
 /// IsGenericDescriptor(Desc) is true, **or** IsDataDescriptor(Desc) is true" —
 /// written as one arm so that adding a fourth kind is still a compile error.
+///
+/// The case is **derived, not chosen**: 6.2.6.6 steps 3 and 4 branch on
+/// IsGenericDescriptor/IsDataDescriptor of *this* descriptor, so there is no
+/// `kind` parameter for a caller to get wrong.
+/// `complete_property_descriptor(accessor_descriptor, Data, …)` used to compile
+/// and return `CompleteDescriptor::Data { value: undefined, … }`, silently
+/// discarding `[[Get]]`/`[[Set]]` — step 3 applied to a descriptor step 4
+/// governs. The parameter bought nothing: the `RuntimeFlag = Infallible` bound
+/// already makes [`ValidatedDescriptor::static_kind`] total.
 pub fn complete_property_descriptor<C: DescriptorCarrier<RuntimeFlag = Infallible>>(
     descriptor: ValidatedDescriptor<C>,
-    kind: PropertyDescriptorKind,
     defaults: &CompletionDefaults<C>,
 ) -> CompleteDescriptor<C> {
+    let kind = descriptor.static_kind();
     let partial = descriptor.into_partial();
     match kind {
         PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic => CompleteDescriptor::Data {
@@ -1124,8 +1133,7 @@ impl DescriptorSourceText<DataSide> {
             "a DataSide DescriptorSourceText cannot carry [[Get]] or [[Set]], so 6.2.6.5 step 9 \
              cannot fire",
         );
-        let kind = validated.static_kind();
-        complete_property_descriptor(validated, kind, &SourceText::completion_defaults())
+        complete_property_descriptor(validated, &SourceText::completion_defaults())
     }
 }
 
@@ -1389,10 +1397,10 @@ mod tests {
         let validated = PartialDescriptor::<SourceText>::empty()
             .validate()
             .expect("`{}` passes 6.2.6.5 step 9");
-        let kind = validated.static_kind();
-        assert_eq!(kind, PropertyDescriptorKind::Generic);
-        let complete =
-            complete_property_descriptor(validated, kind, &SourceText::completion_defaults());
+        assert_eq!(validated.static_kind(), PropertyDescriptorKind::Generic);
+        // 6.2.6.6 step 3 is derived inside `complete_property_descriptor` from
+        // this same classification; the caller no longer gets to name a case.
+        let complete = complete_property_descriptor(validated, &SourceText::completion_defaults());
         assert_eq!(complete.kind(), PropertyDescriptorKind::Data);
         assert_eq!(
             complete.render(),

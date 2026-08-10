@@ -58,16 +58,19 @@
 //!   **615** across `tests/cli/*.rs`. The two additions since batch 4 are the
 //!   13 in the new `iterator_helpers.rs` and the one added to this module
 //!   ([`rung_1c_chunks_cover_every_cli_area_module`], so `known_failures::` is
-//!   now a **5**-test chunk, not 4). The 13 compile only once `main.rs`
-//!   declares `mod iterator_helpers;`, so the compiled figure is **594**
-//!   without that line and **607** with it; 8 stay behind
-//!   `spec-exec-oracle` either way. Settle it with `--list`, never by
-//!   arithmetic on this comment.
+//!   now a **5**-test chunk, not 4). `main.rs` declares `mod iterator_helpers;`,
+//!   so **607 compile** (615 minus the 8 behind `spec-exec-oracle`). Settle it
+//!   with `--list`, never by arithmetic on this comment.
 //!
 //!   The source scan below reads `tests/cli/*.rs` from disk, so it sees all 615
-//!   whether or not the `mod` line landed. That is deliberate: an area module
-//!   that exists but is never declared is exactly the silently-unrun file this
-//!   module exists to surface.
+//!   whether or not the `mod` line landed — while the compiled target would see
+//!   none of an undeclared module's tests. That gap is not hypothetical:
+//!   `iterator_helpers.rs` shipped with 13 tests, its own `run_chunk` line, and
+//!   no `mod` declaration, and every check in this file was green while its
+//!   chunk selected nothing and banked. [`rung_1c_chunks_cover_every_cli_area_module`]
+//!   now reads `main.rs`'s `mod` list and asserts it against the files on disk
+//!   in both directions, so that state is a sub-millisecond red rather than a
+//!   paragraph somebody has to remember.
 //! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
 //! - **1** `should_panic` attribute. It was 0 before this module existed and 2
@@ -1482,6 +1485,44 @@ fn rung_1c_chunks_cover_every_cli_area_module() {
          the coverage check below would pass vacuously.",
         cli_dir.display()
     );
+
+    // A file on disk with a chunk of its own is NOT enough, and the gap is not
+    // hypothetical: `iterator_helpers.rs` shipped with 13 tests, a `run_chunk`
+    // line, and no `mod iterator_helpers;` in `main.rs`. The file existed, the
+    // chunk existed, this test was green -- and the chunk selected nothing,
+    // libtest exited 0 on `0 passed`, and the done-file banked a chunk that
+    // measured nothing. Undeclared modules are not compiled, so the disk scan
+    // above cannot see the difference; only `main.rs` can.
+    let root_source = cli_dir.join("main.rs");
+    let root_text = std::fs::read_to_string(&root_source).unwrap_or_else(|error| {
+        panic!(
+            "{}: could not read the cli target's crate root: {error}",
+            repo_relative(&root_source)
+        )
+    });
+    let declared: BTreeSet<String> = root_text
+        .lines()
+        .map(str::trim)
+        .filter_map(|line| line.strip_prefix("mod "))
+        .filter_map(|rest| rest.strip_suffix(';'))
+        .map(str::to_string)
+        .collect();
+    for module in &modules {
+        assert!(
+            declared.contains(module),
+            "crates/porffor-cli/tests/cli/main.rs does not declare `mod {module};`, so \
+             tests/cli/{module}.rs is not compiled into the `cli` target at all. Its chunk \
+             `{module}::` then selects nothing, libtest exits 0 on `0 passed`, and the chunked \
+             rung 1c banks it and reads as a complete suite. Add `mod {module};` to main.rs."
+        );
+    }
+    for module in &declared {
+        assert!(
+            modules.contains(module),
+            "crates/porffor-cli/tests/cli/main.rs declares `mod {module};` but there is no \
+             tests/cli/{module}.rs. Delete the declaration or restore the file."
+        );
+    }
 
     for module in &modules {
         assert!(

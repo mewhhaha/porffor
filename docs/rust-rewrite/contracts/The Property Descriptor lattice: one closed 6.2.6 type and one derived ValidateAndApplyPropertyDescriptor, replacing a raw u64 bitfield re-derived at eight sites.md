@@ -543,19 +543,32 @@ rather than a conformance delta.
 |---|---|---|---|---|
 | I1 | The 6.2.6.1–3 partition is closed and has three cases | `enum PropertyDescriptorKind { Data, Accessor, Generic }`, exhaustive matches, **no `_` arm anywhere in the workspace** | M5 | `porffor-ir` |
 | I2 | A stored property is `Data` or `Accessor`, and `Accessor` has no `[[Writable]]` | `enum CompleteDescriptor<C> { Data{..}, Accessor{..} }` — `Accessor` has no `writable` field | M1 | `porffor-ir` |
-| I3 | Presence is one closed 3-state question per field | `enum Presence<T, R> { Absent, Present(T), Runtime { present: R, value: T } }` | M2, M5 | `porffor-ir` |
+| I3 | Presence is one closed 3-state question per field (**partial** — see below) | `enum Presence<T, R> { Absent, Present(T), Runtime { present: R, value: T } }` | M2, M5 | `porffor-ir` |
 | I4 | A partial descriptor is one value, not 15 positional parameters | `struct PartialDescriptor<C>` with six `Presence` fields | M2 | `porffor-ir` |
 | I5 | The partition is a theorem about *validated* descriptors | `struct ValidatedDescriptor<C>(PartialDescriptor<C>)`, static constructor validates 6.2.6.5 step 9 | — | `porffor-ir` |
-| I6 | `classify` is the only derivation of the partition | `fn classify(&ValidatedDescriptor<C>) -> DescriptorClassification` | M5 | `porffor-ir` |
+| I6 | `classify` is the only derivation of the partition | `fn classify(&ValidatedDescriptor<C>) -> DescriptorClassification`, and the seed decision in `emit_object_define_entry_validated` derives from the two `KindTerms` rather than from `[[Value]]` | M5 | `porffor-ir` (+ the one consumer) |
 | I7 | The stored word is a value with exactly two constructors | `struct DescriptorWord(u64)`; `of_data(writable, enumerable, configurable)`, `of_accessor(enumerable, configurable)` | M1 | `porffor-aot-wasm/heap.rs` |
 | I8 | A mask is not a value | `struct DescriptorMask(u64)`, composites allowed, no conversion to `DescriptorWord` | (protects §1.7 fact 2) | `porffor-aot-wasm/heap.rs` |
-| I9 | The exotic flags are an orthogonal axis with a payload | `struct DescriptorFlags`, `struct MappedSlot(u32)`, disjointness `const _: () = assert!(..)` | — | `porffor-aot-wasm/heap.rs` |
+| I9 | The exotic flags are an orthogonal axis with a payload | `struct DescriptorFlags`, `struct MappedSlot(u32)`, disjointness `const _: () = assert!(..)`, **and the three `functions.rs` consumers** (`DescriptorWord::with_flags` at the mapped-arguments writer, `MappedSlot::SHIFT` at both readers) | — | `porffor-aot-wasm/heap.rs` + `functions.rs` |
 | I10 | The six legacy constants are derivations, and the wire format is pinned | `pub(crate) const OBJECT_DESCRIPTOR_* : u64 = <derivation>;` + `const _: () = assert!(.. == <literal>);` | — | `porffor-aot-wasm/heap.rs` |
-| I11 | A runtime-built word cannot acquire a writable bit on an accessor path | `struct DescriptorWordEmitter<K: DescriptorKindMarker>`; `set_writable_if` exists **only** on `K = Data` and `K = Dynamic` | M1 (runtime half) | `porffor-aot-wasm/objects.rs` |
+| I11 | A runtime-built word cannot acquire a writable bit on an accessor path | `struct DescriptorKindLocal<K: DescriptorKindMarker>`; `set_writable_if_nonzero`/`carry_writable_from_existing` exist **only** on `K = DataKind`, **and the kind-agnostic builders take `AttributeBit`** (`{Enumerable, Configurable}`) rather than `DescriptorBit`, so `DescriptorBit::Writable` cannot reach an accessor-seeded word by any route | M1 (runtime half) | `porffor-aot-wasm/objects.rs` |
 | I12 | The six field names are a closed domain | `enum DescriptorField { Value, Writable, Get, Set, Enumerable, Configurable }` with `const fn key(self) -> &'static str` | M7 | `porffor-ir` |
 | I13 | FromPropertyDescriptor's two codomain shapes | `CompleteDescriptor::keys() -> [DescriptorField; 4]`, and `PartialDescriptor::present_fields()` for the partial case | M6 | `porffor-ir` |
 | I14 | Descriptor source text is built from the field domain, not from string literals | `struct DescriptorSourceText` over `PartialDescriptor<SourceText>` where `SourceText::RuntimeFlag = core::convert::Infallible` | M7 | `porffor-ir` (consumed in `modules/namespace.rs`) |
-| I15 | The 6.2.6.5 field-read order is a table, not a hand-written literal | `const TO_PROPERTY_DESCRIPTOR_ORDER: [DescriptorField; 6]` + `const _: () = assert!(..)` that every variant appears exactly once | partial M4 | `porffor-ir`; **consumer note-routed** |
+| I15 | The 6.2.6.5 field-read order is a table, not a hand-written literal | `const TO_PROPERTY_DESCRIPTOR_ORDER: [DescriptorField; 6]` + `const _: () = assert!(..)` that every variant appears exactly once, **and `emit_to_property_descriptor_object` iterates it** (with 6.2.6.4's own `DescriptorField::ALL` order driving the FromPropertyDescriptor loop below it) | partial M4 | `porffor-ir` + `porffor-aot-wasm/objects.rs` |
+
+**I3 is discharged for the contradictory pair and OPEN for the `Present`/step-4
+conflation.** `Presence::Runtime` requires a value carrier, so
+`(data: None, data_present_local: Some(_))` — the state in which the static
+classification said "accessor" while the run-time one said "maybe data" — is
+unspellable, which is A3(a). But every 10.1.6.3 step-4 arm and every carry-over
+arm in `emit_object_define_entry_validated` treats `Present` exactly like
+`Absent`, and that is sound only for the two internal defines that chose the
+*value* as well as the presence. Step 4 fires on "Desc **has** the field". A
+new caller spelling a genuinely user-supplied field as `Present` compiles and
+silently skips steps 4.a/4.b/4.d/4.e. Ledger row **LN10** carries it, and every
+such arm is now written as two separate arms so the exemption is stated where it
+is taken rather than hidden in an or-pattern.
 
 Ledger:
 
@@ -569,6 +582,8 @@ Ledger:
 | LN6 | `emit_validate_array_named_descriptor`'s `requested_data_descriptor: bool` | Its **only** two call sites are `array.rs:4141` and `:4544`, in an unowned file. Changing the parameter type breaks them. **Note-routed**; the body's bit handling lands this round. |
 | LN7 | The 8 array/arguments derivation sites | `standard.rs:2454, 2741, 3007, 3432`; `array.rs:3709, 3821, 4062, 4463`. Unowned. **Note-routed**, with the retrofit instructions and the §6.5 trace that proves them. |
 | LN8 | `lowering.rs`'s three shape sites | Shared hub; batch 5 is in `standard.rs` this round and `lowering.rs` is the crate's largest contention surface. **Note-routed** with the exact replacement per site (§4.5). |
+| LN9 | The seed when **both** 6.2.6 sides are run-time-possible | The stored kind is then genuinely a run-time value, and the emitter assembles the word in one Wasm local with a compile-time typestate, so there is no representation for "either". The case is reachable only through `from_runtime_checked`, whose emitted 6.2.6.5 step-9 throw dominates both callers and leaves exactly one side live per branch; the seed is taken from the operand the caller materialised. A caller that materialises operands on both sides needs a run-time seed and a run-time `stored_kind()`, which is a larger change than a seed derivation. |
+| LN10 | `Presence::Present` exempts a field from 10.1.6.3 step 4 | Step 4 fires on *Desc has the field*, not on "the program discovered it". A `Present` field is exempt only because the compiler chose the value too — true of `emit_object_define_accessor_with_flag_local` and of `emit_object_define_entry`'s two `Present` slots, false of anything a program supplies. The same fact exempts a **statically-true side** from step 6.a/7.a. Closing it needs a `DischargesStepFour` witness threaded through `ValidatedDescriptor` and produced only by the owned helpers, plus the run-time-emitting arms that witness's absence would demand — a design, not an edit. Every arm and `emit_descriptor_kind_change_throw`'s exhaustive four-case `match` now state the exemption at the point of risk instead of reaching it through `runtime_flags().is_empty()`. |
 
 ### 2.1 `DescriptorField` — I12
 
@@ -867,6 +882,40 @@ arrive, and `Static` has exactly three inhabitants — which is what makes the
 `Generic` arm mandatory at every consumer. Today, `objects.rs:13575-13579` has no
 such arm; it is a two-way `if`.
 
+**`statically_true` is part of the predicate, not a hint.** 6.2.6.1/6.2.6.2 is
+`statically_true OR (the run-time disjunction)`, so a consumer that reads only
+`runtime_flags()` is not emitting the spec's predicate. Reading only the
+run-time half conflates three different situations, and the consumer must
+distinguish all four:
+
+| `statically_true` | has run-time terms | The spec's antecedent | What must be emitted |
+|---|---|---|---|
+| false | false | unconditionally **false** | nothing — the obligation does not arise |
+| false | true | the OR-fold | the OR-fold |
+| true | true | unconditionally **true** | `I32Const(1)`; the OR-fold alone would *under-fire* on the descriptor the static field already decides |
+| true | false | unconditionally **true** | nothing, **and only because** every field on the side is `Presence::Present`, i.e. this is one of the internal defines the compiler wrote itself — the same unproven caller property as the `Present` arms of step 4, ledger row **LN10** |
+
+The same distinction governs step 4.c: `restore_existing_accessor_kind_if_runtime_generic`
+takes both sides' `KindTerms`, not a flat list of run-time flags, because
+IsGenericDescriptor(Desc) is unconditionally **false** when either side is
+statically true — a fact a flat list cannot express.
+
+**And the seed is derived from the terms, not from `[[Value]]`.** The first
+landed version decided the `Dynamic` seed with
+`match descriptor.value.known() { No => Accessor, _ => Data }`, which is a second
+derivation of the partition from one field — spelling 5 restated — and it is
+wrong in the direction 6.2.6.2 warns about: IsDataDescriptor is false only if the
+descriptor has *neither* `[[Value]]` *nor* `[[Writable]]`, so
+`{writable: <runtime>, enumerable: e, configurable: c}` passes `validate()`,
+classifies `Dynamic`, and was seeded **Accessor** — writing an accessor entry
+with undefined get/set where 6.2.6.2 and 6.2.6.6 step 3 require a data property.
+The seed now reads `(data_terms.is_possible(), accessor_terms.is_possible())`:
+`Data` whenever the accessor side is impossible, `Accessor` when the data side
+is, and only when *both* are run-time-possible does it fall back to the operand
+the caller materialised — ledger row **LN9**, which also records why that last
+case genuinely needs a run-time seed and cannot be fixed by a better static
+rule.
+
 ### 2.6 `CompleteDescriptor` — I2, and the reason `Accessor` has no `writable`
 
 ```rust
@@ -947,6 +996,17 @@ Its body is a `match classify(&desc)` with three arms, and the `Generic` and
 `Data` arms are the *same* arm by 6.2.6.6 step 3 — written as
 `PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic =>`, an
 or-pattern, so adding a fourth kind is still a compile error.
+
+**There is no `kind` parameter, and the absence is the invariant.** 6.2.6.6
+steps 3 and 4 branch on IsGenericDescriptor/IsDataDescriptor of *this*
+descriptor; a caller-supplied case lets
+`complete_property_descriptor(accessor_descriptor, Data, …)` compile and return
+`CompleteDescriptor::Data { value: undefined, … }`, silently discarding
+`[[Get]]`/`[[Set]]` — step 3 applied to a descriptor step 4 governs, on a `pub`
+re-exported function. The first landed version carried such a parameter; it has
+been removed, and the case is computed inside from `ValidatedDescriptor::static_kind`,
+which the `RuntimeFlag = Infallible` bound already makes total. The bound is what
+makes the parameter unnecessary as well as dangerous.
 
 ### 2.7 `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` — I7, I8, I9
 
@@ -1163,10 +1223,32 @@ by-hand M1 repair, guarded by a comment — become either an arm that cannot
 mention writability (`Accessor`) or a call to the one method that can (`Data`).
 That is what turns the comment at `:13965-13972` into a type.
 
-`set_bit_if_nonzero` stays available on all four markers because
+The kind-agnostic bit setter stays available on all markers because
 `[[Enumerable]]` and `[[Configurable]]` are legal on every kind — which is
 exactly 10.1.6.3 steps 6.b and 7 ("preserve only `[[Enumerable]]` and
 `[[Configurable]]`"), now readable off the API surface.
+
+**But it must not take a `DescriptorBit`, and the sketch above was wrong to let
+it.** A kind-agnostic `set_bit_if_nonzero(bit: DescriptorBit, …)` is a fence with
+an open gate beside it: `set_bit_if_nonzero(DescriptorBit::Writable,
+writable_payload_local, function)` on an accessor-seeded word is a one-token edit
+that compiles and stores `ACCESSOR | WRITABLE` = 5 — mistake class M1 exactly,
+reached *around* the `DataKind`-only method rather than through it. The landed
+form therefore introduces
+
+```rust
+pub(crate) enum AttributeBit { Enumerable, Configurable }
+impl AttributeBit { const fn bit(self) -> DescriptorBit { … } }
+```
+
+and the two kind-agnostic builders (`set_attribute_if_nonzero`,
+`carry_attribute_from_existing`) take an `AttributeBit`. `DescriptorBit::Writable`
+at those call sites is now `E0308`, and the bit is nameable against a kind word
+only inside the two `impl DescriptorKindLocal<DataKind>` methods. Those two spell
+their instruction sequences out rather than delegating to a shared
+`DescriptorBit`-taking helper, because re-introducing that helper to save eight
+lines re-opens the gate. Two `const _: () = assert!(..)` lines pin that the
+embedding is injective and that it cannot reach `[[Writable]]`.
 
 ### 2.10 What is *not* typed, and why — the four honest negatives
 
@@ -1629,9 +1711,21 @@ has already thrown if `value_present || writable_present`. Setting
 `value: Presence::Absent` makes `data_present_local.is_some()` false, the whole
 block disappears, and **step 6.a stops being emitted**.
 
-That would be an immediate, reachable conformance regression:
-`8.12.9-9-b-i_1.js` (§6.4) redefines a **non-configurable** data property as an
-accessor and requires a `TypeError`.
+That would be a conformance regression on spec grounds — 10.1.6.3 step 6.a is
+required and unemitted — but **the corpus does not currently witness it**, and
+the citation this paragraph used to carry was wrong. `8.12.9-9-b-i_1.js`, read in
+full (§6.4), defines `foo` with `configurable: true`, calls
+`Object.preventExtensions(o)`, redefines with `{get}` and asserts the redefinition
+**succeeds**: `fooDescrip.get !== undefined`, `configurable === true`,
+`writable === undefined`. Only the *object* is non-extensible; the property is
+configurable, so step 4 — and with it step 6.a — is never entered. The design
+conclusion below (split the four-way conjunction into two side-keyed obligations)
+is unaffected: it is right because 10.1.6.3 states two independent obligations,
+not because a test happens to notice. A witness would have to redefine a
+**non-configurable** data property using `get`/`set`; the
+`built-ins/Object/defineProperty/15.2.3.6-4-*` non-configurable data→accessor
+family is where to look for one. Until such a case is named, step 6.a is retained
+on spec grounds alone and that is said out loud rather than dressed as evidence.
 
 **The contract's resolution, and it is the reason M5′ exists as a mistake
 class.** The four-way conjunction is not one obligation; it is two, and each
@@ -1668,8 +1762,8 @@ show each is in the provably-dead set. The expected sets are:
 
 | Site | Instructions expected to disappear | Why dead |
 |---|---|---|
-| `standard.rs:11572` | `:13754-13776` (step 7.a throw) | `standard.rs:11364-11380` already threw if `value_present \|\| writable_present` |
-| `standard.rs:11572` | `:13778-13801` (step 4.e writable check) | same |
+| `standard.rs:11572` | **corrected:** only the `value_present` disjunct of the step-7.a throw (4 instructions). The throw itself survives, driven by `writable_present` alone. | `standard.rs:11364-11380` already threw if `value_present \|\| writable_present`, so the survivor is run-time-dead, which is the conservative direction |
+| `standard.rs:11572` | **corrected: nothing.** The step-4.e writable check survives whole. | The positional adapter maps `writable` to `presence_from_positional(Some(writable_payload_local), writable_present_local)` = `Runtime`, not `Absent` — a writable *payload* really is passed — so the arm is still `Presence::Runtime` and still emits. Run-time-dead for the same reason. |
 | `standard.rs:11572` | `:13802-13853` (step 4.e `SameValue`) | same |
 | `standard.rs:11572` | `:13941-13963` (re-read stored data) | result stored only under the `descriptor_kind & ACCESSOR == 0` branch at `:14066`, which is false here |
 | `standard.rs:11905` | `:13731-13752` (step 6.a throw) | this is the `Else` of `standard.rs:11363`, so `getter_present == setter_present == 0` |
@@ -1678,6 +1772,14 @@ show each is in the provably-dead set. The expected sets are:
 **If the dry run cannot discharge every row, the encoder must keep the byte and
 route the simplification to the note.** A byte the dry-runner cannot account for
 is a defect, not a cleanup.
+
+Two rows above were wrong when this table was written, and are corrected in
+place: the step-7.a throw and the step-4.e writable check do **not** disappear at
+`standard.rs:11572`, because `writable` arrives as `Presence::Runtime` rather
+than `Presence::Absent`. Both survivors are run-time-dead given the emitted
+6.2.6.5 step-9 throw, so no obligation is lost — but an integrator checking the
+rung-G diff against this table would otherwise be looking for absences that are
+not there.
 
 ### 5.3 The derivation count is **nine**, not eight, and the array/arguments count is **eight**, not six
 
@@ -2124,9 +2226,22 @@ Object.getOwnPropertyDescriptor(o, 'x');   // {value:2, writable:false, enumerab
 
 **Trace obligation.** At the Rust level, exhibit that no sequence of calls to
 `DescriptorWord::of_data` / `::of_accessor` / `::with_flags` produces a word
-with both bit 0 and bit 2 set, and that
-`DescriptorWordEmitter<Accessor>` has no method that can set bit 2. Then show
-that `objects.rs:13973-13997` becomes **deletable** — not merely commented —
+with both bit 0 and bit 2 set, and that `DescriptorKindLocal<AccessorKind>` has
+no method that can set bit 2 — including through the kind-agnostic builders,
+which take `AttributeBit` and so cannot be handed `DescriptorBit::Writable`.
+
+**This obligation's second half was misstated and is corrected here.** It used
+to demand that the 21 repair instructions become **deletable**. They are not,
+and the encoder was right not to delete them: they are now
+`DescriptorKindLocal::<DataKind>::carry_writable_from_existing`, called from
+`DescriptorKindWord::carry_writable`, and they are still emitted verbatim on the
+data path — necessarily, because `Object.defineProperty(o,'x',{value:2})` over
+an existing **writable** data property must keep `writable: true` (trace 2,
+`15.2.3.6-4-82-1.js`). What the typestate deletes is the *guard*
+`if has_data { if let Some(..) }` — two conditions, neither of which was the
+spec's — replaced by a match on the stored kind and a match on presence. So the
+obligation is: **show that the accessor arm cannot reach the carry-over, and
+that the guard is now the kind rather than `has_data`.** Then show
 because the `Accessor` arm cannot mention writability and the `Data` arm's
 `set_writable_if` is the spec's step 8, not a repair.
 
@@ -2207,11 +2322,20 @@ without a conformance run.
    1, 2, 5 and 6 are gone; 3, 4, 7, 8 are note-routed with per-site
    instructions; 9 is unchanged except `&'static str` → `DescriptorField`.
 5. **The rung-G diff is fully accounted for.** It will **not** be empty. Every
-   differing byte must map to a row of §5.2's dead-instruction table or to
-   §4.4's three-instruction deletion. **A byte the dry-runner cannot account for
-   is a defect, and the change does not land.** This is the reason §5.2 is
-   mandatory reading: it is the difference between a justified 5-row diff and a
-   silently dropped 10.1.6.3 step-6.a check.
+   differing byte must map to a row of §5.2's dead-instruction table, to §4.4's
+   three-instruction deletion, or to one of the two structural rows below.
+   **A byte the dry-runner cannot account for is a defect, and the change does
+   not land.** This is the reason §5.2 is mandatory reading: it is the
+   difference between a justified 5-row diff and a silently dropped 10.1.6.3
+   step-6.a check.
+
+   Two rows §5.2's table omits, and the diff will be far larger than that table
+   alone predicts:
+
+   | Row | What changes | Why it is semantically inert |
+   |---|---|---|
+   | **Temp-local renumbering** | `emit_object_define_accessor_with_flag_local` no longer reserves `writable_payload_local`. `reserve_temp_local` is a stack (`emit.rs`, `local = temp_local_base + temp_stack_depth`), so **all thirteen** temp locals reserved inside `emit_object_define_entry_validated` shift down by one index on every accessor-define path, `max_temp_stack_depth` may fall by one, and `finish_function` then declares one fewer local. Visible as changed `LocalGet`/`LocalSet` immediates and possibly changed LEB128 widths in every function that defines an accessor property — which is most of `host.rs`'s prototype installation. | The locals are a stack allocation, not a numbering with meaning. The alternative, if the integrator wants the semantic change and the renumbering in separate batches, is the surgical form the lane note carries: keep the reservation and still pass `writable: Presence::Absent`. |
+   | **Array-literal spread** | `lowering.rs`'s array-literal spread guard narrows from `possible_kinds.contains(Array)` to `possible_kinds.is_subset_of({Array})`, so a spread whose operand is not statically an array now desugars to `Array.from` instead of `[].concat`. | **Not inert — this one is a deliberate semantic fix**, and the only one in the batch. It belongs to the IteratorClose contract's ledger IC-5; it is listed here because it will appear in the same rung-G diff. |
 6. **`namespace.rs` output is byte-identical**, evidenced by the eight existing
    substring assertions in that file (§4.2) passing unchanged.
 7. **`generic_property_descriptor_shape` has no call site**, and therefore does
@@ -2219,7 +2343,7 @@ without a conformance run.
    criterion for this round is that the note carries the three per-site
    replacements of §4.5b, including the fact that `27816` and `28453` become
    `heap_shape: None` and **not** a four-key shape.
-8. **Every ledger row has a reason.** LN1–LN8 are stated in §2.0 with the reason
+8. **Every ledger row has a reason.** LN1–LN10 are stated in §2.0 with the reason
    a type cannot carry each. A row acquiring a type later is progress; a row
    without a reason is a defect in this document.
 9. **Nothing in `emit_create_data_property_or_throw` changed.**

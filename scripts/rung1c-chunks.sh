@@ -48,6 +48,14 @@
 # 3. THE DONE-FILE *IS* THE RESUME STATE. Do not "clean it up" between runs.
 #    Deleting it re-runs hours of already-banked work.
 #
+# 4. A CHUNK IS BANKED ONLY WHEN IT PRODUCED A VERDICT. Exit 124 (the stall
+#    guard SIGKILLed it), a missing log, a missing `test result:` line, or
+#    `running 0 tests` all leave the chunk out of the done-file and make the
+#    script exit 1 with RUN INCOMPLETE. It used to bank on every exit status,
+#    which meant a killed chunk was skipped forever and the run still printed
+#    ALL CHUNKS DONE -- a chunk that measured nothing, recorded as measured.
+#    A libtest FAILURE is a verdict and IS banked; that is the point of the run.
+#
 # # The partition is the whole claim
 #
 # Every test runs exactly once and the union of the chunks is the suite, so a
@@ -85,23 +93,50 @@ cd "$repo_root" || exit 1
 RESULTS=${RUNG1C_RESULTS:-target/lane-notes/rung1c-chunks.md}
 DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 
-# The batch-4 done-file, which this script's untracked predecessor wrote. Read
-# once, so promoting the runner does not throw away banked chunks.
+# The batch-4 done-file, which this script's untracked predecessor wrote.
+#
+# NOT read by default, and that is a correctness rule rather than caution. Its
+# verdicts were measured against a compiler that batch 5 then rewrote
+# (`porffor-aot-wasm/{functions,objects,heap}.rs` and six `porffor-ir` files),
+# so seeding from it makes a resumed run execute 6 of 17 chunks and still print
+# ALL CHUNKS DONE -- and the ledger is then filled from a run that never
+# measured most of the suite. `known_failures` is in that legacy list, so even
+# the ledger gate itself would be skipped.
+#
+# Opt in only when the tree has NOT moved since those chunks were measured:
+#
+#   RUNG1C_SEED_FROM_B4=1 ./scripts/rung1c-chunks.sh
+#
+# `known_failures` is dropped from any seed unconditionally: it is cheap, it is
+# the gate that validates the ledger the whole run exists to fill, and a stale
+# verdict for it is worthless.
 LEGACY_DONE=target/watched/b4c-done
 
 mkdir -p target/watched target/lane-notes
 
 if [ ! -f "$DONE" ] && [ -f "$LEGACY_DONE" ]; then
-  cp "$LEGACY_DONE" "$DONE"
-  echo "rung1c: seeded $DONE from $LEGACY_DONE ($(wc -l < "$DONE" | tr -d ' ') chunk(s) banked)"
+  if [ "${RUNG1C_SEED_FROM_B4:-0}" = "1" ]; then
+    grep -vx 'known_failures' "$LEGACY_DONE" > "$DONE"
+    echo "rung1c: seeded $DONE from $LEGACY_DONE ($(wc -l < "$DONE" | tr -d ' ') chunk(s) banked, known_failures excluded)"
+    echo "rung1c: WARNING -- those verdicts were measured at an older tree. Re-run any chunk whose subsystem has changed."
+  else
+    echo "rung1c: NOT seeding from $LEGACY_DONE (set RUNG1C_SEED_FROM_B4=1 to inherit its chunk verdicts)."
+    echo "rung1c: its verdicts predate the current compiler; a blind seed reports ALL CHUNKS DONE after running a minority of the suite."
+  fi
 fi
 touch "$DONE"
+
+# Chunks that ran but produced no bankable verdict this pass. A run with any of
+# these is NOT a complete rung 1c, so it must not print ALL CHUNKS DONE.
+UNBANKED=""
 
 # run_chunk <module-stem> <module-stem>:: [--skip <other-stem>::]...
 #
 # The first argument is the done-file key and the log name; the rest are passed
 # to libtest verbatim. Keep the second argument spelled `<stem>::` -- the
-# hygiene test asserts it.
+# hygiene test asserts it, by parsing these very lines back out of this file.
+# Keep the invocations below spelled `run_chunk <stem> <stem>::` for the same
+# reason: a wrapper name would make every chunk invisible to that check.
 run_chunk() {
   name=$1
   shift
@@ -114,8 +149,41 @@ run_chunk() {
   PORFFOR_CPU_PERCENT=100 ./scripts/run-watched.sh --label "rung1c-$name" --stall 900 -- \
     cargo test -p porffor-cli --test cli -- --test-threads=3 "$@"
   rc=$?
-  line=$(grep -E '^test result:' "$log" | tail -1)
-  echo "$name EXIT=$rc  $line" >> "$RESULTS"
+  line=$(grep -E '^test result:' "$log" 2>/dev/null | tail -1)
+  # The partition arithmetic, banked mechanically instead of left for a human
+  # to re-derive from the logs. `running N tests` is what libtest selected and
+  # `filtered out` is what it did not; per chunk the two must sum to the
+  # compiled test count (`cargo test -p porffor-cli --test cli -- --list | tail -1`).
+  ran=$(grep -Eo '^running ([0-9]+) tests?' "$log" 2>/dev/null | tail -1 | awk '{print $2}')
+  filtered=$(printf '%s' "$line" | grep -Eo '[0-9]+ filtered out' | awk '{print $1}')
+  ran=${ran:-0}
+  filtered=${filtered:-0}
+  echo "$name EXIT=$rc  ran=$ran filtered_out=$filtered  sum=$((ran + filtered))  $line" >> "$RESULTS"
+
+  # BANK ONLY ON A VERDICT. `run-watched.sh` returns 124 after it SIGKILLs a
+  # stalled run, and the done-file IS the resume state -- so banking on every
+  # exit status records a chunk that produced no verdict as complete and skips
+  # it forever, which is the dynamic form of the "subset masquerading as rung
+  # 1c" this whole script exists to prevent. `binary_data::` sits directly on
+  # that boundary (HANG_TIMEOUT 900 s vs --stall 900). A libtest FAILURE (a
+  # `test result:` line with rc != 0) is a verdict and is banked.
+  if [ "$rc" -eq 124 ] || [ ! -f "$log" ] || [ -z "$line" ]; then
+    echo "$name NO-VERDICT (EXIT=$rc): killed by the stall guard, or no 'test result:' line. NOT banked; re-run this chunk." >> "$RESULTS"
+    echo "rung1c: $name produced no verdict (EXIT=$rc); not banked" >&2
+    echo "=== $name END $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
+    UNBANKED="$UNBANKED $name"
+    return 1
+  fi
+  # A filter that matches nothing exits 0 on `0 passed`. Banking that records a
+  # chunk which measured nothing -- exactly what a missing `mod <stem>;` line in
+  # tests/cli/main.rs produces.
+  if [ "$ran" -eq 0 ]; then
+    echo "$name RAN ZERO TESTS: the filter selected nothing (missing 'mod $name;' in crates/porffor-cli/tests/cli/main.rs?). NOT banked." >> "$RESULTS"
+    echo "rung1c: $name selected zero tests; not banked" >&2
+    echo "=== $name END $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
+    UNBANKED="$UNBANKED $name"
+    return 1
+  fi
   if [ "$rc" -ne 0 ]; then
     # Names AND per-test stdout. The batch-4 predecessor banked only the
     # indented lines, which is the failure names plus their backtraces and NOT
@@ -128,7 +196,9 @@ run_chunk() {
   fi
   echo "=== $name END $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
   echo "$name" >> "$DONE"
+  return 0
 }
+
 
 # Order is cheapest-and-most-diagnostic first, so a short container window still
 # banks something useful. `known_failures` leads deliberately: it holds
@@ -151,6 +221,13 @@ run_chunk typed_array       typed_array::
 run_chunk array             array:: --skip typed_array::
 run_chunk language          language::
 run_chunk binary_data       binary_data::
+
+if [ -n "$UNBANKED" ]; then
+  echo "RUN INCOMPLETE $(date -u +%Y-%m-%dT%H:%M:%SZ) -- no verdict for:$UNBANKED" >> "$RESULTS"
+  echo "rung1c: INCOMPLETE. No verdict for:$UNBANKED" >&2
+  echo "rung1c: re-run this script to retry them; they were deliberately not banked." >&2
+  exit 1
+fi
 
 echo "ALL CHUNKS DONE $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$RESULTS"
 echo "rung1c: all chunks done; verdicts in $RESULTS"

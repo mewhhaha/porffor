@@ -7,8 +7,9 @@ use std::marker::PhantomData;
 // shared hub this lane does not own. See
 // `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
 use porffor_ir::property_descriptor::{
-    classify, DescriptorCarrier, DescriptorClassification, DescriptorSide, KindTerms,
-    KnownPresence, PartialDescriptor, Presence, PropertyDescriptorKind, ValidatedDescriptor,
+    classify, DescriptorCarrier, DescriptorClassification, DescriptorField, DescriptorSide,
+    KindTerms, KnownPresence, PartialDescriptor, Presence, PropertyDescriptorKind,
+    ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
 };
 
 /// Wasm blocks opened by the **runtime** strictness guard on an object write.
@@ -171,6 +172,46 @@ pub(crate) enum StoredDescriptorKind {
     Accessor,
 }
 
+/// The two attributes 10.1.6.3 steps 6.b and 7 say survive a **kind
+/// conversion**: `[[Enumerable]]` and `[[Configurable]]`.
+///
+/// A separate, strictly smaller domain than [`DescriptorBit`], and that is its
+/// entire job. The kind-agnostic word builders below take an `AttributeBit`, so
+/// `[[Writable]]` — which an accessor property does not have at all (6.2.6.6,
+/// and 10.1.6.3 step 6.b's "preserve only `[[Enumerable]]` and
+/// `[[Configurable]]`") — cannot be passed to a builder that runs on an
+/// accessor-seeded word. `DescriptorBit::ArrayOwnProperty` and
+/// `DescriptorBit::ArgumentsMapped` are excluded for the orthogonal reason: they
+/// are the exotic axis, not attributes, and belong to `DescriptorFlags`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttributeBit {
+    Enumerable,
+    Configurable,
+}
+
+impl AttributeBit {
+    const fn bit(self) -> DescriptorBit {
+        match self {
+            Self::Enumerable => DescriptorBit::Enumerable,
+            Self::Configurable => DescriptorBit::Configurable,
+        }
+    }
+}
+
+// The embedding is injective and misses `[[Writable]]` and the two exotic
+// flags. Not a tautology: a copy-pasted arm mapping both inhabitants to the same
+// bit would silently make `enumerable` set `configurable`.
+const _: () = assert!(
+    AttributeBit::Enumerable.bit().word() != AttributeBit::Configurable.bit().word(),
+    "the two AttributeBit inhabitants must name different bits",
+);
+const _: () = assert!(
+    (AttributeBit::Enumerable.bit().word() | AttributeBit::Configurable.bit().word())
+        & DescriptorBit::Writable.word()
+        == 0,
+    "AttributeBit must not reach [[Writable]]: an accessor property has no such attribute",
+);
+
 mod descriptor_kind_marker {
     pub trait Sealed {}
     impl Sealed for super::DataKind {}
@@ -232,7 +273,21 @@ impl<K: DescriptorKindMarker> DescriptorKindLocal<K> {
     /// are legal on every kind — which is 10.1.6.3 steps 6.b and 7's "preserve
     /// only `[[Enumerable]]` and `[[Configurable]]`", now readable off the API
     /// surface rather than from a comment.
-    fn set_bit_if_nonzero(&mut self, bit: DescriptorBit, flag_local: u32, function: &mut Function) {
+    ///
+    /// Takes an [`AttributeBit`], **not** a [`DescriptorBit`]. That is the whole
+    /// difference between a fence and a fence with an open gate beside it: with
+    /// a `DescriptorBit` parameter, `set_bit_if_nonzero(DescriptorBit::Writable,
+    /// …)` on an accessor-seeded word was a one-token edit that compiled and
+    /// stored the illegal word `ACCESSOR | WRITABLE` (= 5) — mistake class M1
+    /// exactly, reached around the `DataKind`-only `set_writable_if_nonzero`.
+    /// `DescriptorBit::Writable` here is now `E0308`.
+    fn set_attribute_if_nonzero(
+        &mut self,
+        attribute: AttributeBit,
+        flag_local: u32,
+        function: &mut Function,
+    ) {
+        let bit = attribute.bit();
         function.instruction(&Instruction::LocalGet(flag_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
@@ -250,13 +305,19 @@ impl<K: DescriptorKindMarker> DescriptorKindLocal<K> {
     /// Emitted only when presence is a *run-time* question; a statically absent
     /// field is the 6.2.6.6 default and a statically present one is already in
     /// the word.
-    fn carry_bit_from_existing(
+    ///
+    /// [`AttributeBit`] for the same reason as
+    /// [`Self::set_attribute_if_nonzero`]. `[[Writable]]`'s carry-over is not
+    /// this shape anyway — it is three levels deep, because 10.1.6.3 step 7.b
+    /// only carries it when the *existing* entry is also a data property.
+    fn carry_attribute_from_existing(
         &mut self,
-        bit: DescriptorBit,
+        attribute: AttributeBit,
         present_local: u32,
         existing_descriptor_kind_local: u32,
         function: &mut Function,
     ) {
+        let bit = attribute.bit();
         function.instruction(&Instruction::LocalGet(present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -280,12 +341,26 @@ impl<K: DescriptorKindMarker> DescriptorKindLocal<K> {
     ///
     /// Available on both kinds because the word is only ever corrected
     /// *towards* the existing accessor kind; it never adds `[[Writable]]`.
+    ///
+    /// Takes both sides' [`KindTerms`] rather than a flat list of run-time
+    /// flags. Step 4.c's antecedent is IsGenericDescriptor(Desc) — *neither*
+    /// side is true — and a side that is `statically_true` makes that antecedent
+    /// unconditionally **false**. A flat list of run-time flags cannot see that:
+    /// it would emit the correction for `{get: g, enumerable: <runtime>}` on the
+    /// strength of the `enumerable` flag alone, on a descriptor that is
+    /// statically an accessor descriptor.
     fn restore_existing_accessor_kind_if_runtime_generic(
         &mut self,
-        presence_locals: &[u32],
+        data_terms: &KindTerms<WasmLocals>,
+        accessor_terms: &KindTerms<WasmLocals>,
         existing_descriptor_kind_local: u32,
         function: &mut Function,
     ) {
+        if data_terms.statically_true || accessor_terms.statically_true {
+            return;
+        }
+        let mut presence_locals = data_terms.runtime_flags();
+        presence_locals.extend(accessor_terms.runtime_flags());
         if presence_locals.is_empty() {
             return;
         }
@@ -313,9 +388,26 @@ impl<K: DescriptorKindMarker> DescriptorKindLocal<K> {
 }
 
 impl DescriptorKindLocal<DataKind> {
-    /// 10.1.6.3 step 8 for `[[Writable]]`. Exists only here.
+    /// 10.1.6.3 step 8 for `[[Writable]]`. Exists only here, and this is one of
+    /// exactly two places in this file that may name `DescriptorBit::Writable`
+    /// against a kind word — the generic pair above takes an [`AttributeBit`],
+    /// which has no `Writable` inhabitant.
+    ///
+    /// The nine instructions are spelled out rather than delegated to
+    /// [`DescriptorKindLocal::set_attribute_if_nonzero`] on purpose: a shared
+    /// helper taking an arbitrary `DescriptorBit` is the open gate this fence
+    /// exists to close, and re-opening it to save eight lines would restore
+    /// mistake class M1 verbatim.
     fn set_writable_if_nonzero(&mut self, flag_local: u32, function: &mut Function) {
-        self.set_bit_if_nonzero(DescriptorBit::Writable, flag_local, function);
+        function.instruction(&Instruction::LocalGet(flag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(self.local));
+        function.instruction(&Instruction::End);
     }
 
     /// 10.1.6.3 step 7.b: `[[Writable]]` carries over from the existing
@@ -390,44 +482,58 @@ impl DescriptorKindWord {
         }
     }
 
-    fn set_bit_if_nonzero(&mut self, bit: DescriptorBit, flag_local: u32, function: &mut Function) {
+    fn set_attribute_if_nonzero(
+        &mut self,
+        attribute: AttributeBit,
+        flag_local: u32,
+        function: &mut Function,
+    ) {
         match self {
-            Self::Data(word) => word.set_bit_if_nonzero(bit, flag_local, function),
-            Self::Accessor(word) => word.set_bit_if_nonzero(bit, flag_local, function),
+            Self::Data(word) => word.set_attribute_if_nonzero(attribute, flag_local, function),
+            Self::Accessor(word) => word.set_attribute_if_nonzero(attribute, flag_local, function),
         }
     }
 
-    fn carry_bit_from_existing(
+    fn carry_attribute_from_existing(
         &mut self,
-        bit: DescriptorBit,
+        attribute: AttributeBit,
         present_local: u32,
         existing_descriptor_kind_local: u32,
         function: &mut Function,
     ) {
         match self {
-            Self::Data(word) => {
-                word.carry_bit_from_existing(bit, present_local, existing_descriptor_kind_local, function)
-            }
-            Self::Accessor(word) => {
-                word.carry_bit_from_existing(bit, present_local, existing_descriptor_kind_local, function)
-            }
+            Self::Data(word) => word.carry_attribute_from_existing(
+                attribute,
+                present_local,
+                existing_descriptor_kind_local,
+                function,
+            ),
+            Self::Accessor(word) => word.carry_attribute_from_existing(
+                attribute,
+                present_local,
+                existing_descriptor_kind_local,
+                function,
+            ),
         }
     }
 
     fn restore_existing_accessor_kind_if_runtime_generic(
         &mut self,
-        presence_locals: &[u32],
+        data_terms: &KindTerms<WasmLocals>,
+        accessor_terms: &KindTerms<WasmLocals>,
         existing_descriptor_kind_local: u32,
         function: &mut Function,
     ) {
         match self {
             Self::Data(word) => word.restore_existing_accessor_kind_if_runtime_generic(
-                presence_locals,
+                data_terms,
+                accessor_terms,
                 existing_descriptor_kind_local,
                 function,
             ),
             Self::Accessor(word) => word.restore_existing_accessor_kind_if_runtime_generic(
-                presence_locals,
+                data_terms,
+                accessor_terms,
                 existing_descriptor_kind_local,
                 function,
             ),
@@ -12369,46 +12475,58 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        // ToPropertyDescriptor observes the fields in this order, and reads
-        // each present field exactly once after its HasProperty check.
-        for (key, present_local, payload_local, tag_local) in [
-            (
-                "enumerable",
+        // 6.2.6.5 ToPropertyDescriptor steps 3-8 observe the six fields in this
+        // order, and read each present field exactly once after its HasProperty
+        // check. Both facts are observable through side-effecting accessors on
+        // the descriptor object, so the order is behaviour, not style.
+        //
+        // The order is [`TO_PROPERTY_DESCRIPTOR_ORDER`] and the keys are
+        // [`DescriptorField::key`] — this loop is that table's consumer. Before
+        // it, the table and its `const _` permutation assertion pinned a list
+        // nobody read while the real order sat here as six `&'static str`
+        // literals: dropping `writable`, reordering the pair, or misspelling a
+        // key was invisible, because 6.2.6.5 ignores stray keys and 6.2.6.6
+        // supplies a default for the field that then goes missing.
+        //
+        // The `match` is exhaustive over `DescriptorField`, so a seventh field
+        // is `E0004` here rather than a silently unread one.
+        // `move`, so the closure copies the eighteen `u32` local indices in
+        // rather than borrowing them for the rest of the function.
+        let field_locals = move |field: DescriptorField| match field {
+            DescriptorField::Enumerable => (
                 enumerable_present_local,
                 enumerable_payload_local,
                 enumerable_tag_local,
             ),
-            (
-                "configurable",
+            DescriptorField::Configurable => (
                 configurable_present_local,
                 configurable_payload_local,
                 configurable_tag_local,
             ),
-            (
-                "value",
+            DescriptorField::Value => (
                 value_present_local,
                 value_payload_local,
                 value_tag_local,
             ),
-            (
-                "writable",
+            DescriptorField::Writable => (
                 writable_present_local,
                 writable_payload_local,
                 writable_tag_local,
             ),
-            (
-                "get",
+            DescriptorField::Get => (
                 getter_present_local,
                 getter_payload_local,
                 getter_tag_local,
             ),
-            (
-                "set",
+            DescriptorField::Set => (
                 setter_present_local,
                 setter_payload_local,
                 setter_tag_local,
             ),
-        ] {
+        };
+        for field in TO_PROPERTY_DESCRIPTOR_ORDER {
+            let key = field.key();
+            let (present_local, payload_local, tag_local) = field_locals(field);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -12441,7 +12559,12 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
             self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
 
-            if matches!(key, "enumerable" | "configurable" | "writable") {
+            if matches!(
+                field,
+                DescriptorField::Enumerable
+                    | DescriptorField::Configurable
+                    | DescriptorField::Writable
+            ) {
                 // These fields are stored as the result of ToBoolean, so the
                 // normalized object never carries the original tagged value.
                 function.instruction(&Instruction::LocalGet(present_local));
@@ -12459,7 +12582,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
 
-            if matches!(key, "get" | "set") {
+            if matches!(field, DescriptorField::Get | DescriptorField::Set) {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::LocalGet(tag_local));
@@ -12512,44 +12635,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(result_tag_local));
-        for (key, present_local, payload_local, tag_local) in [
-            (
-                "value",
-                value_present_local,
-                value_payload_local,
-                value_tag_local,
-            ),
-            (
-                "writable",
-                writable_present_local,
-                writable_payload_local,
-                writable_tag_local,
-            ),
-            (
-                "get",
-                getter_present_local,
-                getter_payload_local,
-                getter_tag_local,
-            ),
-            (
-                "set",
-                setter_present_local,
-                setter_payload_local,
-                setter_tag_local,
-            ),
-            (
-                "enumerable",
-                enumerable_present_local,
-                enumerable_payload_local,
-                enumerable_tag_local,
-            ),
-            (
-                "configurable",
-                configurable_present_local,
-                configurable_payload_local,
-                configurable_tag_local,
-            ),
-        ] {
+        // 6.2.6.4 FromPropertyDescriptor's steps 4-9 run in
+        // [`DescriptorField::ALL`] order, which is a *different* permutation
+        // from 6.2.6.5's: this one is value, writable, get, set, enumerable,
+        // configurable. Both orders now come from the one table each belongs
+        // to, so the two can no longer be conflated or silently swapped — which
+        // is a real hazard, since the six keys and the same six locals appear
+        // in both loops.
+        //
+        // Every step here is conditional on presence, so any subset of the six
+        // is a legal result; the four-key form is the codomain only when the
+        // input is complete, which it is not on this path.
+        for field in DescriptorField::ALL {
+            let key = field.key();
+            let (present_local, payload_local, tag_local) = field_locals(field);
             function.instruction(&Instruction::LocalGet(present_local));
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64Ne);
@@ -14066,13 +14165,47 @@ impl<'a> FunctionBuilder<'a> {
             DescriptorClassification::Static(PropertyDescriptorKind::Generic) => {
                 StoredDescriptorKind::Data
             }
-            // The kind is a run-time value. Seed with the side that carries a
-            // `[[Value]]` operand; `restore_existing_accessor_kind_if_runtime_generic`
-            // below is 10.1.6.3 step 4.c's "a generic Desc changes no kind".
-            DescriptorClassification::Dynamic { .. } => match descriptor.value.known() {
-                KnownPresence::No => StoredDescriptorKind::Accessor,
-                KnownPresence::Yes | KnownPresence::AtRuntime => StoredDescriptorKind::Data,
-            },
+            // The kind is a run-time value. The seed is derived from the **two
+            // sides' terms**, not from `[[Value]]`.
+            //
+            // Deriving it from `[[Value]]` alone was a second, independent
+            // derivation of the 6.2.6.1/6.2.6.2 partition — spelling 5 restated
+            // — and it was wrong in the same direction 6.2.6.2 warns about:
+            // IsDataDescriptor is false only if the descriptor has *neither*
+            // `[[Value]]` *nor* `[[Writable]]`, so
+            // `{writable: <runtime>, enumerable: e, configurable: c}` is a data
+            // descriptor with no `[[Value]]`, and testing `[[Value]]` seeded it
+            // **Accessor** — writing an accessor entry with undefined get/set
+            // where 6.2.6.2 and 6.2.6.6 step 3 require a data property.
+            DescriptorClassification::Dynamic { .. } => {
+                match (data_terms.is_possible(), accessor_terms.is_possible()) {
+                    // 6.2.6.1 cannot hold, so 6.2.6.2 or 6.2.6.3 does, and
+                    // 6.2.6.6 step 3 sends both to a data property.
+                    (_, false) => StoredDescriptorKind::Data,
+                    // 6.2.6.2 cannot hold and 6.2.6.1 can.
+                    (false, true) => StoredDescriptorKind::Accessor,
+                    // Both sides are possible when the program runs, so no
+                    // *static* seed is correct in general and the stored kind
+                    // is really a run-time value this emitter has no
+                    // representation for. Reachable only through
+                    // `PartialDescriptor::from_runtime_checked` — `validate()`
+                    // returns `NeedsRuntimeCheck` for exactly this shape — whose
+                    // emitted 6.2.6.5 step-9 throw dominates both of today's
+                    // callers and leaves exactly one side live on each branch:
+                    // the accessor branch supplies `[[Get]]`/`[[Set]]` operands
+                    // and no `[[Value]]` operand, the data branch the reverse.
+                    // So the operand the caller materialised is the seed.
+                    // Ledger row **LN9**: a caller that materialises operands on
+                    // both sides needs a run-time seed, which is a larger change
+                    // than this one and is not reachable today.
+                    (true, true) => match descriptor.value.known() {
+                        KnownPresence::No => StoredDescriptorKind::Accessor,
+                        KnownPresence::Yes | KnownPresence::AtRuntime => {
+                            StoredDescriptorKind::Data
+                        }
+                    },
+                }
+            }
         };
         let mut kind_word = DescriptorKindWord::seed(seed, descriptor_kind_local, function);
         kind_word.apply_writable(descriptor.writable, function);
@@ -14082,14 +14215,16 @@ impl<'a> FunctionBuilder<'a> {
             Presence::Present(flag_local)
             | Presence::Runtime {
                 value: flag_local, ..
-            } => kind_word.set_bit_if_nonzero(DescriptorBit::Enumerable, flag_local, function),
+            } => kind_word.set_attribute_if_nonzero(AttributeBit::Enumerable, flag_local, function),
         }
         match descriptor.configurable {
             Presence::Absent => {}
             Presence::Present(flag_local)
             | Presence::Runtime {
                 value: flag_local, ..
-            } => kind_word.set_bit_if_nonzero(DescriptorBit::Configurable, flag_local, function),
+            } => {
+                kind_word.set_attribute_if_nonzero(AttributeBit::Configurable, flag_local, function)
+            }
         }
         match descriptor.value {
             Presence::Absent => {
@@ -14170,11 +14305,35 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        // Step 4.a. Emitted only when presence is a run-time question: a
-        // statically known field carries no flag to test, and those callers are
-        // internal defines that discharge step 4 by construction.
+        // Step 4.a. Emitted only when presence is a run-time question.
+        //
+        // `Presence::Present` is **not** "the field is absent"; it is "the field
+        // is there and the compiler chose it". Steps 4.a/4.b/4.d/4.e all fire on
+        // *Desc has the field*, so a `Present` field is exempt only because the
+        // compiler chose the value too, which is true of exactly two callers —
+        // `emit_object_define_accessor_with_flag_local` (whose `Present` fields
+        // are the `enumerable`/`configurable` constants it just stored) and
+        // `emit_object_define_entry`'s positional adapter, whose `Present`
+        // fields are the same two. It is not true of anything a program supplies.
+        //
+        // That exemption is recorded here and in each arm, and **not** in a
+        // type: open ledger row **LN10**. Under the pre-`Presence` code the same
+        // situation was spelled `presence: None`, which at least claimed
+        // nothing; `Present` claims the field is there and then behaves like
+        // `Absent`.
         match descriptor.configurable {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 value: configurable_payload_local,
@@ -14200,7 +14359,18 @@ impl<'a> FunctionBuilder<'a> {
         }
         // Step 4.b.
         match descriptor.enumerable {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 value: enumerable_payload_local,
@@ -14250,7 +14420,18 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         // Step 4.e, first bullet.
         match descriptor.writable {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 value: writable_payload_local,
@@ -14281,7 +14462,18 @@ impl<'a> FunctionBuilder<'a> {
         }
         // Step 4.e, second bullet.
         match descriptor.value {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 ..
@@ -14342,7 +14534,18 @@ impl<'a> FunctionBuilder<'a> {
         }
         // Step 4.d, `[[Get]]`.
         match descriptor.get {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 ..
@@ -14392,7 +14595,18 @@ impl<'a> FunctionBuilder<'a> {
         }
         // Step 4.d, `[[Set]]`.
         match descriptor.set {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 ..
@@ -14444,7 +14658,18 @@ impl<'a> FunctionBuilder<'a> {
         // Step 5 / step 8: a field the incoming descriptor does not have leaves
         // the existing property's `[[Value]]` alone.
         match descriptor.value {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 ..
@@ -14483,38 +14708,44 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         match descriptor.enumerable {
-            Presence::Absent | Presence::Present(_) => {}
+            // 6.2.6: the record does not have `[[Enumerable]]`, so there is
+            // nothing to carry over from the seed's `false` default.
+            Presence::Absent => {}
+            // The record *has* it and the compiler knows it, so the bit is
+            // already in the word: `set_attribute_if_nonzero` ran above with no
+            // presence flag to gate it.
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 ..
-            } => kind_word.carry_bit_from_existing(
-                DescriptorBit::Enumerable,
+            } => kind_word.carry_attribute_from_existing(
+                AttributeBit::Enumerable,
                 present_local,
                 existing_descriptor_kind_local,
                 function,
             ),
         }
         match descriptor.configurable {
-            Presence::Absent | Presence::Present(_) => {}
+            Presence::Absent => {}
+            Presence::Present(_) => {}
             Presence::Runtime {
                 present: present_local,
                 ..
-            } => kind_word.carry_bit_from_existing(
-                DescriptorBit::Configurable,
+            } => kind_word.carry_attribute_from_existing(
+                AttributeBit::Configurable,
                 present_local,
                 existing_descriptor_kind_local,
                 function,
             ),
         }
-        // Step 4.c: a *generic* descriptor changes no kind. The predicate is
-        // the conjunction of "absent at run time" over exactly the fields that
-        // have a run-time flag — the statically absent ones contribute a
-        // constant `true` and no instruction, which is why this is now shorter
-        // than the four-way conjunction it replaces at both call sites.
-        let mut runtime_kind_terms = data_terms.runtime_flags();
-        runtime_kind_terms.extend(accessor_terms.runtime_flags());
+        // Step 4.c: a *generic* descriptor changes no kind. The antecedent is
+        // IsGenericDescriptor(Desc) — neither 6.2.6.1 nor 6.2.6.2 holds — so
+        // both sides' terms go in, and a side that is statically true disables
+        // the correction outright rather than contributing nothing to a flat
+        // list of run-time flags.
         kind_word.restore_existing_accessor_kind_if_runtime_generic(
-            &runtime_kind_terms,
+            &data_terms,
+            &accessor_terms,
             existing_descriptor_kind_local,
             function,
         );
@@ -14878,9 +15109,12 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// One obligation, from one side's [`KindTerms`]. The predicate is the
     /// spec's own disjunction — 6.2.6.1 IsAccessorDescriptor for the accessor
-    /// side, 6.2.6.2 IsDataDescriptor for the data side — over exactly the
-    /// fields whose presence is a run-time question. A side with no such fields
-    /// emits nothing, which is the internal-define case.
+    /// side, 6.2.6.2 IsDataDescriptor for the data side.
+    ///
+    /// That disjunction is `statically_true OR (the run-time terms)`, and the
+    /// old body read only the run-time half — returning early on
+    /// `runtime_flags().is_empty()`, which conflated three different situations.
+    /// They are now four exhaustive cases:
     fn emit_descriptor_kind_change_throw(
         &mut self,
         side: DescriptorSide,
@@ -14888,16 +15122,42 @@ impl<'a> FunctionBuilder<'a> {
         existing_descriptor_kind_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let presence_locals = terms.runtime_flags();
-        if presence_locals.is_empty() {
-            return Ok(());
-        }
-        for (index, present_local) in presence_locals.iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(*present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            if index > 0 {
-                function.instruction(&Instruction::I32Or);
+        match (terms.statically_true, terms.is_dynamic()) {
+            // The side is **impossible**: 6.2.6.1/6.2.6.2 is false whatever the
+            // program does, so step 6.a/7.a's antecedent is false and no check
+            // is owed. This is the only case in which emitting nothing is
+            // unconditionally right.
+            (false, false) => return Ok(()),
+            // The side is **statically and only statically true**: every one of
+            // its fields is `Presence::Present`, so this is one of the internal
+            // defines whose whole descriptor the compiler chose. Step 4's
+            // antecedent is `true` here and the obligation is discharged by
+            // construction at the caller, exactly as it is for the
+            // `Presence::Present` arms of steps 4.a/4.b/4.d/4.e above — the same
+            // unproven caller property, recorded once as open ledger row
+            // **LN10**. Reading `runtime_flags()` reached this outcome by
+            // accident; this reaches it by decision.
+            (true, false) => return Ok(()),
+            // **Mixed**: one field is `Present` and another is `Runtime`, so the
+            // spec's antecedent is unconditionally true and the run-time
+            // disjunct alone is *not* it. Emitting `value_present != 0` here
+            // would under-fire on precisely the descriptor the static field
+            // already makes a data (or accessor) descriptor. No caller has this
+            // shape today, so this arm costs nothing and is the one that keeps
+            // the next one honest.
+            (true, true) => {
+                function.instruction(&Instruction::I32Const(1));
+            }
+            // Purely run-time: the OR-fold *is* 6.2.6.1/6.2.6.2.
+            (false, true) => {
+                for (index, present_local) in terms.runtime_flags().iter().enumerate() {
+                    function.instruction(&Instruction::LocalGet(*present_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    if index > 0 {
+                        function.instruction(&Instruction::I32Or);
+                    }
+                }
             }
         }
         function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));

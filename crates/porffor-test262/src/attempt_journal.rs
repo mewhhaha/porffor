@@ -47,14 +47,29 @@
 //!   `Option::is_some` rather than a separate boolean somebody can forget to
 //!   check against a `0` sentinel.
 //! * [`QueuedCase`] holds its `TestCase` privately, and [`CaseAdmission`] is
-//!   the only value [`AttemptJournal::admit`] returns. A worker therefore
-//!   *cannot* obtain a runnable `TestCase` from a queue pop without going
-//!   through the admission decision that journals it. "Forgot to check the
-//!   quarantine" is a compile error, not a silent re-attempt loop.
+//!   the only value [`AttemptJournal::admit`] returns. Its `Run` arm carries an
+//!   [`AdmittedCase`], whose field is private and whose only non-test
+//!   constructor is `admit` itself, and [`crate::run_case_entry`] accepts
+//!   nothing else. A worker therefore *cannot* run a case it did not admit:
+//!   "forgot to check the quarantine" is an E0603, not a silent re-attempt
+//!   loop. The earlier shape stopped at [`QueuedCase`], which closed the
+//!   queue-pop path but left `run_case_entry(&cases[0])` compiling from inside
+//!   the very worker closure that captures `cases`.
+//!
+//! # Strikes are charged for a death and forgiven by a completion
+//!
+//! A strike says "this case was in flight when the process died", and with
+//! `--threads 2` a death charges *both* in-flight cases — at most one of which
+//! is the culprit. [`AttemptJournal::retire`] therefore clears the retired
+//! case's strike: returning from `run_case_entry` is positive evidence that
+//! this case did not kill the process. The true poison never retires, so its
+//! strike is untouched and convergence on it is unchanged, while the bystander
+//! stops carrying a charge that a later, unrelated death would promote into a
+//! fabricated `OutcomeKind::Crash`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -75,6 +90,13 @@ const fn nonzero(value: u32) -> NonZeroU32 {
         None => panic!("attempt-journal strike constants are non-zero by construction"),
     }
 }
+
+/// One worker: the phase width that makes a death attributable to a single
+/// case. Same const-stable spelling as [`nonzero`].
+const SERIAL: NonZeroUsize = match NonZeroUsize::new(1) {
+    Some(value) => value,
+    None => panic!("one is not zero"),
+};
 
 /// How many process deaths a case has been charged with.
 ///
@@ -149,11 +171,35 @@ impl core::fmt::Display for CrashStrikeLimit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QueuedCase(TestCase);
 
+/// A case that has been journalled and cleared to run.
+///
+/// The field is private and the only non-test constructor is
+/// [`AttemptJournal::admit`], so [`crate::run_case_entry`] — which takes this
+/// and nothing else — cannot be reached with a case that was never admitted.
+/// That matters because the worker closure has the whole `&[TestCase]` in
+/// scope; before this type existed, `run_case_entry(.., &cases[0], ..)`
+/// compiled there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AdmittedCase(TestCase);
+
+impl AdmittedCase {
+    pub(crate) fn case(&self) -> &TestCase {
+        &self.0
+    }
+
+    /// Test-only. Named so that a reviewer can see at the call site that this
+    /// path bypassed the journal on purpose.
+    #[cfg(test)]
+    pub(crate) fn admitted_by_test(case: TestCase) -> Self {
+        Self(case)
+    }
+}
+
 /// The only value [`AttemptJournal::admit`] returns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CaseAdmission {
     /// Journalled and cleared to run.
-    Run(TestCase),
+    Run(AdmittedCase),
     /// At the strike limit. Not run; recorded as a crash result by the caller.
     Quarantined { path: String, strikes: CaseStrikes },
 }
@@ -214,21 +260,24 @@ impl AttemptJournal {
     /// A resume run reads whatever the previous process left; a fresh run
     /// starts from an empty journal, because a fresh run is a fresh accounting
     /// and must not inherit a stale node's strikes.
-    pub(crate) fn open(
-        path: PathBuf,
-        resume: bool,
-        limit: CrashStrikeLimit,
-    ) -> Result<Self, String> {
+    ///
+    /// Infallible, and deliberately not `Result<Self, String>`: [`read_journal`]
+    /// answers `AttemptJournalFile::fresh()` for a missing file, a version
+    /// mismatch and a parse error alike, so there was never a failing path for
+    /// a `?` at the call site to take. A `Result` with no `Err` is a state that
+    /// cannot occur, which AGENTS.md ("Code Invariants Before Test Invariants")
+    /// says not to represent.
+    pub(crate) fn open(path: PathBuf, resume: bool, limit: CrashStrikeLimit) -> Self {
         let state = if resume {
             read_journal(&path)
         } else {
             AttemptJournalFile::fresh()
         };
-        Ok(Self {
+        Self {
             path,
             limit,
             state: Mutex::new(state),
-        })
+        }
     }
 
     /// Charges one strike to every entry left in flight by a dead process,
@@ -307,20 +356,70 @@ impl AttemptJournal {
             });
         }
         self.persist()?;
-        Ok(CaseAdmission::Run(case))
+        Ok(CaseAdmission::Run(AdmittedCase(case)))
     }
 
-    /// Retires a worker slot's entry. Must be called after every attempt on
-    /// every path — including the panic path, which `run_case_entry` already
-    /// converts into an ordinary returned `TestResult`.
+    /// Retires a worker slot's entry, and forgives that case's strikes.
+    ///
+    /// Must be called after every attempt on every path — including the panic
+    /// path, which `run_case_entry` already converts into an ordinary returned
+    /// `TestResult`, so its `-> TestResult` (not `-> Result<..>`) signature is
+    /// what makes "retire runs on every path this process survives" a fact
+    /// about the types rather than about a test.
+    ///
+    /// # Why the strike is cleared and not merely the slot
+    ///
+    /// A death charges every case that was in flight, and a `--threads 2` sweep
+    /// has two. At most one of them is the culprit; the other is a bystander
+    /// that has now demonstrably completed. Keeping its strike would leave it
+    /// one unrelated death away from a fabricated `OutcomeKind::Crash` for the
+    /// remaining life of the node's journal — a wrong answer in the very
+    /// conformance number this module exists to unblock, and one that can never
+    /// self-correct, because a quarantined case enters `completed_paths` and is
+    /// excluded from `remaining` on every later resume.
+    ///
+    /// Convergence is unaffected: a case that kills the process never reaches
+    /// this function, so the poison's strikes only ever rise.
     pub(crate) fn retire(&self, worker_slot: usize) -> Result<(), String> {
         {
             let mut state = self.lock()?;
+            let retired = state
+                .in_flight
+                .iter()
+                .position(|attempt| attempt.worker_slot == worker_slot)
+                .map(|index| state.in_flight.remove(index));
+            if let Some(attempt) = retired {
+                state.strikes.remove(&attempt.case_path);
+            }
+            // `admit` clears the slot before pushing, so a second entry for the
+            // same slot should not exist; drop any anyway rather than leaving
+            // one behind to be read as a death.
             state
                 .in_flight
                 .retain(|attempt| attempt.worker_slot != worker_slot);
         }
         self.persist()
+    }
+
+    /// Removes the journal file. Called on a clean exit only.
+    ///
+    /// Without this a node that finished cleanly leaves its `.attempts` file
+    /// behind holding every strike charged during it, and
+    /// `execute_matrix_node` forms the same `(snapshot_name, manifest_hash)`
+    /// pair deterministically — so a re-run at the same test262 pin inherits
+    /// stale strikes. Deleting it also upgrades the startup signal from
+    /// "non-empty journal ⇒ the previous process died" to the strictly stronger
+    /// "the journal exists ⇒ the previous process died", and keeps one file per
+    /// node from accumulating in a snapshot directory that is already 423 MB.
+    pub(crate) fn discard(self) -> Result<(), String> {
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(format!(
+                "failed to remove attempt journal {}: {err}",
+                self.path.display()
+            )),
+        }
     }
 
     pub(crate) fn limit(&self) -> CrashStrikeLimit {
@@ -375,7 +474,7 @@ pub(crate) fn simulate_process_death_with_cases_in_flight(
     path: PathBuf,
     cases: &[TestCase],
 ) -> Result<(), String> {
-    let journal = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT)?;
+    let journal = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
     for (worker_slot, case) in cases.iter().enumerate() {
         let admission = journal.admit(worker_slot, QueuedCase(case.clone()))?;
         assert!(
@@ -388,14 +487,23 @@ pub(crate) fn simulate_process_death_with_cases_in_flight(
 }
 
 /// One phase of a run: a case list and the worker count it runs under.
+///
+/// The worker count is [`NonZeroUsize`] rather than `usize` because a phase
+/// with cases and no workers is a *silent skip*: `execute_cases` spawns
+/// `0..worker_count` workers, so a zero would leave the queue undrained and
+/// every case in the phase would vanish from `results` without appearing in
+/// `completed_paths`, in `failures`, or in any outcome count. That is precisely
+/// the class of loss this module exists to end, and AGENTS.md ("Correctness
+/// Rules") bans it outright, so it is spelled as a type the value cannot take
+/// rather than a clamp somebody has to remember.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RunPhase {
-    worker_count: usize,
+    worker_count: NonZeroUsize,
     cases: Vec<TestCase>,
 }
 
 impl RunPhase {
-    pub(crate) fn worker_count(&self) -> usize {
+    pub(crate) fn worker_count(&self) -> NonZeroUsize {
         self.worker_count
     }
 
@@ -423,7 +531,7 @@ impl RunPhase {
 pub(crate) fn plan_run_phases(
     suspects: &[StruckCase],
     scheduled_cases: Vec<TestCase>,
-    worker_count: usize,
+    worker_count: NonZeroUsize,
 ) -> Vec<RunPhase> {
     let suspect_paths = suspects
         .iter()
@@ -443,8 +551,10 @@ pub(crate) fn plan_run_phases(
     let (suspect_cases, rest): (Vec<TestCase>, Vec<TestCase>) = scheduled_cases
         .into_iter()
         .partition(|case| suspect_paths.contains(case.path.as_str()));
+    // Serial by construction: one worker is what makes the next death name
+    // exactly one of the suspects.
     let mut phases = vec![RunPhase {
-        worker_count: 1,
+        worker_count: SERIAL,
         cases: suspect_cases,
     }];
     if !rest.is_empty() {
@@ -535,6 +645,12 @@ mod tests {
         }
     }
 
+    /// Test-side spelling of a phase width, so the assertions below read as
+    /// plainly as they did when this was a bare `usize`.
+    fn workers(count: usize) -> NonZeroUsize {
+        NonZeroUsize::new(count).expect("test phase widths are non-zero")
+    }
+
     fn journal_path(label: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -568,17 +684,18 @@ mod tests {
     #[test]
     fn attempt_journal_admission_records_before_it_hands_back_the_case() {
         let path = journal_path("admit-records-first");
-        let journal = AttemptJournal::open(path.clone(), false, CrashStrikeLimit::DEFAULT)
-            .expect("journal should open");
+        let journal = AttemptJournal::open(path.clone(), false, CrashStrikeLimit::DEFAULT);
         let admission = journal
-            .admit(0, QueuedCase(case("built-ins/Array/prototype/map/poison.js")))
+            .admit(
+                0,
+                QueuedCase(case("built-ins/Array/prototype/map/poison.js")),
+            )
             .expect("admission should work");
         assert!(matches!(admission, CaseAdmission::Run(_)));
 
         // Read the file back through the product reader: the entry must be on
         // disk already, not merely in memory.
-        let reopened = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
+        let reopened = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
         assert_eq!(
             reopened.in_flight_paths(),
             vec!["built-ins/Array/prototype/map/poison.js".to_string()]
@@ -588,20 +705,94 @@ mod tests {
     #[test]
     fn attempt_journal_retire_clears_the_slot_so_a_clean_exit_charges_nothing() {
         let path = journal_path("retire-clears");
-        let journal = AttemptJournal::open(path.clone(), false, CrashStrikeLimit::DEFAULT)
-            .expect("journal should open");
+        let journal = AttemptJournal::open(path.clone(), false, CrashStrikeLimit::DEFAULT);
         journal
             .admit(3, QueuedCase(case("language/statements/try/clean.js")))
             .expect("admission should work");
         journal.retire(3).expect("retire should work");
 
-        let reopened = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
+        let reopened = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
         assert!(reopened.in_flight_paths().is_empty());
         assert!(reopened
             .charge_strikes_for_survivors()
             .expect("charging should work")
             .is_empty());
+    }
+
+    /// The bystander case. With `--threads 2` a death charges both in-flight
+    /// cases, so the innocent one starts the next resume carrying a strike;
+    /// completing it must clear that strike, or one further unrelated death
+    /// quarantines a case that never killed anything and records it as
+    /// `OutcomeKind::Crash` forever.
+    #[test]
+    fn attempt_journal_retire_forgives_the_strike_of_a_case_that_then_completed() {
+        let path = journal_path("retire-forgives");
+        let poison = case("built-ins/poison.js");
+        let bystander = case("built-ins/bystander.js");
+
+        // One death, two cases in flight, exactly as `--threads 2` leaves it.
+        simulate_process_death_with_cases_in_flight(
+            path.clone(),
+            &[poison.clone(), bystander.clone()],
+        )
+        .expect("seeded death should write the journal");
+        let resume = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT);
+        assert_eq!(
+            resume
+                .charge_strikes_for_survivors()
+                .expect("charging should work")
+                .len(),
+            2,
+            "a two-worker death charges both in-flight cases; only one of them is the culprit"
+        );
+        assert_eq!(
+            resume.strikes_for(&bystander.path),
+            Some(CaseStrikes::FIRST)
+        );
+
+        // The bystander is re-run in the narrowing phase and completes.
+        assert!(matches!(
+            resume
+                .admit(0, QueuedCase(bystander.clone()))
+                .expect("admission should work"),
+            CaseAdmission::Run(_)
+        ));
+        resume.retire(0).expect("retire should work");
+
+        // Durably forgiven, not merely forgotten in memory.
+        let reopened = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT);
+        assert_eq!(
+            reopened.strikes_for(&bystander.path),
+            None,
+            "completing a case is positive evidence it did not kill the process"
+        );
+        assert_eq!(
+            reopened.strikes_for(&poison.path),
+            Some(CaseStrikes::FIRST),
+            "the case that never retired keeps its strike, so convergence is unchanged"
+        );
+        drop(reopened);
+
+        // ... so a second death on the poison alone quarantines the poison and
+        // leaves the bystander admissible.
+        simulate_process_death_with_cases_in_flight(path.clone(), std::slice::from_ref(&poison))
+            .expect("second seeded death should write the journal");
+        let second = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
+        second
+            .charge_strikes_for_survivors()
+            .expect("charging should work");
+        assert!(matches!(
+            second
+                .admit(0, QueuedCase(poison))
+                .expect("admission should work"),
+            CaseAdmission::Quarantined { .. }
+        ));
+        assert!(matches!(
+            second
+                .admit(1, QueuedCase(bystander))
+                .expect("admission should work"),
+            CaseAdmission::Run(_)
+        ));
     }
 
     #[test]
@@ -611,8 +802,7 @@ mod tests {
 
         simulate_process_death_with_cases_in_flight(path.clone(), std::slice::from_ref(&poison))
             .expect("first death should seed");
-        let first_resume = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
+        let first_resume = AttemptJournal::open(path.clone(), true, CrashStrikeLimit::DEFAULT);
         let struck = first_resume
             .charge_strikes_for_survivors()
             .expect("charging should work");
@@ -626,8 +816,7 @@ mod tests {
         ));
 
         // The process dies again with the same case in flight.
-        let second_resume = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT)
-            .expect("journal should reopen");
+        let second_resume = AttemptJournal::open(path, true, CrashStrikeLimit::DEFAULT);
         let struck = second_resume
             .charge_strikes_for_survivors()
             .expect("charging should work");
@@ -652,17 +841,17 @@ mod tests {
             path: "b.js".to_string(),
             strikes: CaseStrikes::FIRST,
         }];
-        let phases = plan_run_phases(&suspects, cases.clone(), 4);
+        let phases = plan_run_phases(&suspects, cases.clone(), workers(4));
         assert_eq!(phases.len(), 1);
-        assert_eq!(phases[0].worker_count(), 4);
+        assert_eq!(phases[0].worker_count(), workers(4));
         assert_eq!(
             phases[0].case_paths(),
             vec!["a.js".to_string(), "b.js".to_string(), "c.js".to_string()]
         );
 
-        let phases = plan_run_phases(&[], cases, 4);
+        let phases = plan_run_phases(&[], cases, workers(4));
         assert_eq!(phases.len(), 1);
-        assert_eq!(phases[0].worker_count(), 4);
+        assert_eq!(phases[0].worker_count(), workers(4));
     }
 
     #[test]
@@ -680,8 +869,8 @@ mod tests {
                 strikes: CaseStrikes::FIRST,
             },
         ];
-        let phases = plan_run_phases(&suspects, cases, 4);
+        let phases = plan_run_phases(&suspects, cases, workers(4));
         assert_eq!(phases.len(), 1);
-        assert_eq!(phases[0].worker_count(), 4);
+        assert_eq!(phases[0].worker_count(), workers(4));
     }
 }

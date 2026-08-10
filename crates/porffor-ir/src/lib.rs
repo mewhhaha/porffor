@@ -90,9 +90,9 @@ pub(crate) use ir::{read_heap_shape_property, summarize_block};
 /// specialization carries. See
 /// `docs/rust-rewrite/contracts/iterator-protocol.md`.
 pub use iterator_obligations::{
-    EmissionSite, GetIteratorDischarge, IntactnessPremise, IteratorCloseDischarge,
-    IteratorObligation, IteratorProtocolWitness, IteratorStepDischarge, IteratorValueDischarge,
-    ObligationDischarge, PremiseKind,
+    ArrayPatternProtocol, EmissionSite, GetIteratorDischarge, IntactnessPremise,
+    IteratorCloseDischarge, IteratorObligation, IteratorProtocolWitness, IteratorStepDischarge,
+    IteratorValueDischarge, ObligationDischarge, PremiseKind,
 };
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub(crate) use lowering_helpers::*;

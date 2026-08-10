@@ -4,12 +4,20 @@
 //! # Why this module exists next to `iterator.rs`
 //!
 //! `iterator.rs` already carries four helper fixtures — `some`, `every`,
-//! `find`, `reduce`. All four failed, and their cause was a single defect in
+//! `find`, `reduce`. All four failed, and the repair is a single change in
 //! `emit_method_call`: nine of the ten `Iterator.prototype` fast paths acquired
-//! their callee with `emit_function_value_payload`, which for a
-//! `class X extends Iterator` receiver (no explicit constructor) emitted no
-//! call at all. The callback never ran, both destination locals were left
-//! holding stale scratch, and the arm returned `Ok(())`.
+//! their callee with `emit_function_value_payload` rather than with the
+//! ordinary `[[Get]]` the generic tail and the (working) `forEach` block use.
+//! What was **measured** for a `class X extends Iterator` receiver (no explicit
+//! constructor) is that the callback never ran, both destination locals were
+//! left holding stale scratch, and the arm returned `Ok(())` —
+//! `new X().some(cb)` answering `typeof === "object"`. What was **not**
+//! identified is the mechanism inside that acquisition, so treat the four
+//! `iterator.rs` tests flipping green as necessary evidence, not as attribution:
+//! those fixtures also assert IteratorClose obligations that a concurrent round
+//! is changing in the same tree, and they discard the thrown label
+//! (`assert!(output.status.success())` only), so which check failed is unknown
+//! from their output alone.
 //!
 //! Four fixtures over four helpers is not enough to hold that repair down.
 //! `map`, `filter`, `flatMap`, `take` and `drop` carried the identical broken
@@ -118,18 +126,34 @@ fn run_wasm_backend_calls_iterator_prototype_to_array_on_a_class_receiver() {
     assert_helper_fixture_is_ok("wasm_iterator_helper_class_receiver_to_array.js");
 }
 
-/// The permanent guard on the whole fast-path family.
+/// An agreement check across the three key forms — not, despite an earlier
+/// claim here, a permanent guard on the fast path.
 ///
 /// `x.some(cb)` takes the static-key fast path; `x["some"](cb)` and `x[k](cb)`
 /// route to the generic tail. The tail is the measured-correct oracle for this
 /// receiver, so the three forms must be observationally identical — a fast path
 /// may only be faster, never different. This is the oracle the defect would
 /// have failed on day one.
+///
+/// # The one condition it cannot see
+///
+/// It compares runtime output only, so it cannot detect the fast path not being
+/// *selected*. Selection needs `receiver_shape_targets_iterator_helper`
+/// (`porffor-aot-wasm/src/functions.rs`) to resolve `"some"` on the receiver's
+/// `heap_shape` — and `None` there is exactly the state measured for
+/// `class A extends Iterator { constructor() { super(); } }`. If a later
+/// lowering or heap-shape change makes it `None` here too, all three arms run
+/// the generic tail, the records match, this test is green, and the fast path
+/// is untested rather than correct.
+///
+/// Closing that needs an assertion about the *emitted module*, not its output:
+/// `porf inspect` / `debug_dump` is the oracle `frontend.rs` and
+/// `porffor-aot-wasm/tests/emit_golden.rs` already use. Until such an assertion
+/// exists, read a green run here as "the three forms agree", never as "the fast
+/// path ran".
 #[test]
 fn run_wasm_backend_gives_identical_results_for_static_and_computed_helper_keys() {
-    assert_helper_fixture_is_ok(
-        "wasm_iterator_helper_class_receiver_computed_key_differential.js",
-    );
+    assert_helper_fixture_is_ok("wasm_iterator_helper_class_receiver_computed_key_differential.js");
 }
 
 /// `new X().take(1).toArray()`, measured to throw `value is not callable`

@@ -5,8 +5,9 @@ use num_traits::{One, ToPrimitive, Zero};
 use porffor_front::ParseGoal;
 
 use crate::{
-    ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CallableToStringRepresentation,
-    CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp, HostBuiltinId, IrDiagnostic,
+    ArithmeticBinaryOp, ArrayPatternProtocol, BindingMode, BitwiseBinaryOp,
+    CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
+    HostBuiltinId, IrDiagnostic,
     IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage,
     NativeErrorKind, NumericUpdateOp, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
     StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp, UpdateReturnMode, GLOBAL_THIS_NAME,
@@ -842,10 +843,20 @@ pub struct ArrayDestructuringPatternIr {
     /// how its iterator was accounted for is `E0063` at those two lines and
     /// byte-neutral everywhere else.
     ///
+    /// The type is [`ArrayPatternProtocol`], **not** `IteratorProtocolWitness`.
+    /// The bare witness type is the whole witness domain, so
+    /// `protocol: IteratorProtocolWitness::NO_ITERATION` — or
+    /// `::ARRAY_INDEX_WALK`, which assumes away all of 23.1.3.x — compiled at
+    /// both construction sites and every const assertion still passed. The
+    /// newtype has one inhabitant and a private constructor, so any other
+    /// witness here is `E0308`: the guarantee is now "the right constant", not
+    /// "a constant".
+    ///
     /// **The emitter must not read this**, and cannot: every reader of a
-    /// witness's contents is `pub(crate)` to `porffor-ir`, so a
-    /// `porffor-aot-wasm` arm that binds it and branches on it is `E0624`.
-    pub protocol: IteratorProtocolWitness,
+    /// witness's contents — including [`ArrayPatternProtocol::witness`] — is
+    /// `pub(crate)` to `porffor-ir`, so a `porffor-aot-wasm` arm that binds it
+    /// and branches on it is `E0624`.
+    pub protocol: ArrayPatternProtocol,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2253,11 +2264,40 @@ impl ForOfLoweringIr {
         )
     }
 
-    pub fn protocol(&self) -> IteratorProtocolWitness {
-        self.protocol
-    }
-
+    /// The statement and the kind its body evaluates to. The witness is dropped
+    /// here — its work is done by the time the head has lowered — but it is
+    /// *read* on the way out rather than silently discarded.
+    ///
+    /// The `protocol()` accessor this replaces had **zero callers anywhere in
+    /// the workspace** and was `pub`, so no `dead_code` warning fired: the
+    /// "survival by `pub`" shape ledger row I7 exists to delete, one file over
+    /// from where this area diagnoses it. The two conditions below are its
+    /// replacement, and each names a real mistake:
+    ///
+    /// * A head that lowered to *nothing* must carry the bail-out witness.
+    ///   Returning `StatementIr::Empty` with, say,
+    ///   `SYNC_ITERATOR_PROTOCOL` would credit `compile_for_of_iterator` with
+    ///   emitting four obligations for a statement that never runs, which is
+    ///   exactly the attribution K1 and J10 exist to keep honest.
+    /// * A head that lowered to a real for-of specialization must *not* carry
+    ///   it: `NO_ITERATION` says every obligation is vacuous because nothing
+    ///   runs, and one of the three `ForOf*` statements is not nothing.
     pub fn into_statement_and_kind(self) -> (StatementIr, ValueKind) {
+        debug_assert!(
+            !matches!(self.statement, StatementIr::Empty)
+                || self.protocol == IteratorProtocolWitness::NO_ITERATION,
+            "a for-of head that lowered to no statement must carry the NO_ITERATION witness",
+        );
+        debug_assert!(
+            !matches!(
+                self.statement,
+                StatementIr::ForOfArray { .. }
+                    | StatementIr::ForOfString { .. }
+                    | StatementIr::ForOfIterator { .. }
+            ) || self.protocol != IteratorProtocolWitness::NO_ITERATION,
+            "a for-of head that lowered to a real specialization must not claim that no \
+             iteration was lowered",
+        );
         (self.statement, self.result_kind)
     }
 }

@@ -12,29 +12,61 @@ fn is_canonical_array_index_name(name: &str) -> bool {
         .is_ok_and(|index| index <= MAX_ARRAY_LENGTH - 1)
 }
 
-/// The destination local pair of a method call, and the proof that both of its
-/// locals have been written.
+/// The destination local pair of an `Iterator.prototype` helper fast path.
 ///
-/// This exists because of a measured defect, not a hypothetical one. Nine of
-/// the ten `Iterator.prototype` helper fast paths in `emit_method_call`
-/// acquired their callee with `emit_function_value_payload`; for a receiver
-/// that is an instance of a class extending `Iterator` that acquisition
-/// emitted no call at all, so the callback never ran and both destination
-/// locals were left holding stale scratch. The arms still returned `Ok(())`,
-/// which is indistinguishable from success, so nothing failed until a fixture
-/// read the value back — `new X().some(cb)` answered `typeof === "object"`.
+/// # The measured defect
 ///
-/// [`MethodCallDestination`] is passed **by value** into the single helper that
-/// emits those stores, and [`DestinationWritten`] — the only thing that maps
-/// back to the `()` a fast path must return — can only be produced by
-/// [`MethodCallDestination::written`], which consumes the destination. A fast
-/// path that returns without having handed its destination to the emitter can
-/// therefore not be written without also inventing the proof.
+/// Nine of the ten helper fast paths in `emit_method_call` acquired their
+/// callee with `emit_function_value_payload`. For a receiver that is an
+/// instance of a class extending `Iterator`, the callback never ran and both
+/// destination locals were left holding stale scratch, while the arm still
+/// returned `Ok(())` — indistinguishable from success. Nothing failed until a
+/// fixture read the value back: `new X().some(cb)` answered
+/// `typeof === "object"`.
+///
+/// The *symptom* is measured (four-probe discriminator, batch 4/5). The
+/// *mechanism* inside `emit_function_value_payload` for that receiver shape is
+/// **not** identified, and until it is, the five sibling sites in this same
+/// function that still use that acquisition shape — the `String` and `BigInt`
+/// primitive-receiver blocks — are unaudited rather than known-good. They
+/// differ from the repaired family in their receiver, not in their emission,
+/// so do not read this type as evidence about them.
+///
+/// # What this type does and does not prove
+///
+/// It proves that a helper fast path handed its destination to
+/// [`super::Emitter::emit_iterator_prototype_helper_method_call`], which is the
+/// only function that consumes a [`MethodCallDestination`]. That is worth
+/// having — an eleventh helper block cannot be added that forgets the
+/// destination entirely.
+///
+/// It does **not** prove that a store was emitted, and it would not have caught
+/// the nine deleted arms: each of those did pass its destination pair to
+/// `emit_function_handle_call_with_argv`, which reaches `store_call_results`.
+/// The defect was callee *acquisition*, upstream of the destination.
+///
+/// It is also not yet an invariant over `emit_method_call` as a whole. That
+/// function still returns `Result<(), EmitError>` with ~50 other `return`
+/// paths, so an eleventh fast path that returns without storing remains
+/// writable. Making the claim real means threading a `MethodCallDestination`
+/// through `emit_method_call` itself — an internal
+/// `emit_method_call_into(.., destination) -> Result<DestinationWritten, _>`
+/// with the public wrapper constructing the destination, so `new` need not be
+/// visible outside this file. That is a ~50-site mechanical rewrite of a
+/// 1,400-line emitter function and `docs/rust-rewrite/batch-workflow.md`
+/// requires rung G (golden byte-diff) for any refactor of this crate, so it is
+/// left for a lane with build access. Note when doing it that a mechanical
+/// conversion mints a proof for every *existing* path: it constrains future
+/// code, it does not audit present code.
+///
+/// Constructor and witness are `pub(super)`, not `pub(crate)`: forging the
+/// proof with `MethodCallDestination::new(p, t).written()` is still one
+/// expression, but only from inside this file.
 mod method_call_destination {
     /// The `(payload, tag)` locals a method call must store its result into.
     /// Moved rather than copied so the receiving code path has to account for
     /// it.
-    pub(crate) struct MethodCallDestination {
+    pub(super) struct MethodCallDestination {
         payload_local: u32,
         tag_local: u32,
     }
@@ -42,28 +74,28 @@ mod method_call_destination {
     /// Proof that stores into both locals of a [`MethodCallDestination`] have
     /// been emitted on every path out of the emitter.
     #[must_use]
-    pub(crate) struct DestinationWritten(());
+    pub(super) struct DestinationWritten(());
 
     impl MethodCallDestination {
-        pub(crate) fn new(payload_local: u32, tag_local: u32) -> Self {
+        pub(super) fn new(payload_local: u32, tag_local: u32) -> Self {
             Self {
                 payload_local,
                 tag_local,
             }
         }
 
-        pub(crate) fn payload_local(&self) -> u32 {
+        pub(super) fn payload_local(&self) -> u32 {
             self.payload_local
         }
 
-        pub(crate) fn tag_local(&self) -> u32 {
+        pub(super) fn tag_local(&self) -> u32 {
             self.tag_local
         }
 
         /// Consume the destination, witnessing that the code just emitted
         /// stores into both of its locals. Call this only immediately after
         /// the instruction sequence that performs those stores.
-        pub(crate) fn written(self) -> DestinationWritten {
+        pub(super) fn written(self) -> DestinationWritten {
             DestinationWritten(())
         }
     }
@@ -71,7 +103,7 @@ mod method_call_destination {
     impl DestinationWritten {
         /// Discharge the proof into the `()` that `emit_method_call` and its
         /// fast paths return.
-        pub(crate) fn discharge(self) {}
+        pub(super) fn discharge(self) {}
     }
 }
 
@@ -6550,8 +6582,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(param_index as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                // 10.4.4.2/10.4.4.3: the mapping is not a descriptor *kind*, it
+                // is an orthogonal exotic flag with a payload. `DescriptorFlags`
+                // makes bit 5 and the bits-32..63 slot index inseparable, which
+                // the hand-built `ARGUMENTS_DESCRIPTOR_MAPPED as i64 | ((slot as
+                // i64) << 32)` did not: either half could be written without the
+                // other. The `const _` in `heap.rs` proves this reproduces that
+                // word for slot 7; this is what makes the proof load-bearing on
+                // the product path rather than an assertion about unused types.
                 function.instruction(&Instruction::I64Const(
-                    ARGUMENTS_DESCRIPTOR_MAPPED as i64 | ((mapped_slot as i64) << 32),
+                    DescriptorWord::of_data(false, false, false)
+                        .with_flags(DescriptorFlags {
+                            array_own_property: false,
+                            mapped: Some(MappedSlot::new(mapped_slot)),
+                        })
+                        .as_i64(),
                 ));
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::I64Const(0));
@@ -7133,7 +7178,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(32));
+        // The reader of the bits-32..63 mapped-slot payload. `MappedSlot::SHIFT`
+        // rather than a bare literal, so the writer in
+        // `emit_arguments_descriptor_kind_for_index` and both readers move
+        // together.
+        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::LocalSet(mapped_slot_local));
         function.instruction(&Instruction::LocalGet(env_local));
@@ -7218,7 +7267,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(32));
+        // The reader of the bits-32..63 mapped-slot payload. `MappedSlot::SHIFT`
+        // rather than a bare literal, so the writer in
+        // `emit_arguments_descriptor_kind_for_index` and both readers move
+        // together.
+        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::LocalSet(mapped_slot_local));
         function.instruction(&Instruction::LocalGet(env_local));
@@ -9249,8 +9302,28 @@ impl<'a> FunctionBuilder<'a> {
         // array call was therefore unreachable: this block already returned for
         // every array receiver, so `!receiver_is_array` always held by the time
         // control got there and the disjunction was constant `true`. Nothing
-        // between the two blocks matches the key `"flatMap"`, so folding them
-        // is behaviour-preserving.
+        // between the two blocks matches the key `"flatMap"`.
+        //
+        // Two separate claims, and only the first is "behaviour-preserving":
+        //
+        // 1. BLOCK SELECTION is unchanged by the fold. Same receiver
+        //    classification, same two destinations, no interleaved `"flatMap"`
+        //    key.
+        // 2. CALLEE ACQUISITION on the non-array branch is NOT unchanged. It
+        //    was a static reference to `IteratorPrototypeFlatMap`; it is now an
+        //    ordinary `[[Get]]` of `"flatMap"` off the receiver. That is the
+        //    repair, and it is the correct semantics — but it applies to every
+        //    receiver this branch takes, not only to `Iterator` subclasses.
+        //    `receiver_is_array` here tests `receiver.kind`, not
+        //    `possible_kinds` (unlike `drop` below), so a `Dynamic` receiver
+        //    takes this branch. Two paths are consequently unfixtured:
+        //    `function f(x, g) { return x.flatMap(g); }` called with an array,
+        //    and a primitive receiver such as `(5).flatMap(g)`, which used to
+        //    throw a clean `TypeError` from the builtin body and now reaches
+        //    `emit_object_read`. Neither is covered by
+        //    `wasm_iterator_helper_class_receiver_flat_map.js` (literal array +
+        //    `class extends Iterator`), and rung 1c is the only gate that would
+        //    see them.
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "flatMap") {
             let receiver_is_array = receiver.kind == ValueKind::Array
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
@@ -9414,8 +9487,11 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "take") {
-            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
-                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
+            // No `receiver_is_array` here, unlike `drop` below: this block's
+            // only guard is `receiver_is_iterator`, and the binding that used
+            // to sit here was dead — it produced an `unused_variables` warning
+            // that was carried, deliberately, to keep a warning-count baseline
+            // unchanged. Deleting a dead binding cannot raise a warning count.
             let receiver_is_iterator =
                 receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Take);
             if receiver_is_iterator {

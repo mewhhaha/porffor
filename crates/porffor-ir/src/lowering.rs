@@ -28150,7 +28150,34 @@ impl<'a> ScriptLowerer<'a> {
                         ));
                     }
                     let spread_value = self.lower_expression(spread.target());
-                    if spread_value.possible_kinds.contains(ValueKind::Array) {
+                    // 13.2.4.1 ArrayAccumulation for a SpreadElement is
+                    // `GetIterator(spreadObj)` and a real iteration. Desugaring
+                    // it to `Array.prototype.concat` is observationally equal
+                    // only when the operand really *is* an Array, because
+                    // 23.1.3.1 consults IsConcatSpreadable and **appends** a
+                    // non-spreadable operand instead of iterating it.
+                    //
+                    // The predicate is therefore `is_subset_of({Array})` — the
+                    // same one the for-of array walk uses — and not
+                    // `contains(Array)`. `contains` was satisfied by the
+                    // `KindSet::all_runtime_tags()` an un-inferred parameter
+                    // carries, so `function f(x) { return [...x]; }` desugared
+                    // to `[].concat(x)` and, for any non-array iterable `x`,
+                    // produced `[x]` under a completely pristine realm. That is
+                    // not an unproven intactness premise; it is a wrong answer
+                    // for ordinary programs.
+                    //
+                    // Everything that fails this test falls through to the
+                    // `Array.from` desugaring below, which does run the
+                    // iterator protocol (23.1.2.1 steps 4-5). See ledger
+                    // **IC-5** in the IteratorClose contract: the residual gap
+                    // is that a statically-known Array still skips
+                    // `%Array.prototype%[@@iterator]`, which is what
+                    // `ArraySpreadStrategy` is designed to name.
+                    if spread_value
+                        .possible_kinds
+                        .is_subset_of(KindSet::from_kind(ValueKind::Array))
+                    {
                         args.push(spread_value);
                         continue;
                     }
@@ -32310,7 +32337,7 @@ impl<'a> ScriptLowerer<'a> {
         // because this is where the obligation is *incurred*.
         Some(ArrayDestructuringPatternIr {
             elements,
-            protocol: IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+            protocol: ArrayPatternProtocol::ARRAY_DESTRUCTURING,
         })
     }
 
@@ -32371,7 +32398,7 @@ impl<'a> ScriptLowerer<'a> {
         // `assignment` flag rather than by protocol. Same witness.
         Some(ArrayDestructuringPatternIr {
             elements,
-            protocol: IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+            protocol: ArrayPatternProtocol::ARRAY_DESTRUCTURING,
         })
     }
 

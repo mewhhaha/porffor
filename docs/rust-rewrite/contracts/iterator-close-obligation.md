@@ -54,8 +54,10 @@ iterator — and the scope-shaped design that replaces it.
 ## As built (encoder stage, Group A)
 
 Five files changed, all under `crates/porffor-ir/src/`, plus this document and
-the lane note. `git status` shows no `crates/porffor-aot-wasm/` path, which is
-acceptance item §11.7.
+the lane note. Acceptance item §11.7 is "no hunk in `crates/porffor-aot-wasm/` is
+attributable to this contract" — **not** "`git status` is empty there". The
+checkout is shared with concurrent lanes, and a bare `git status` reads as a
+false negative.
 
 | File | What landed |
 |---|---|
@@ -63,7 +65,7 @@ acceptance item §11.7.
 | `operations.rs` | `AbruptDiscipline`, the `discipline` and `calls` columns on `StatementEmissionRow` and their five row values, const asserts **J10/J11/J12/J13**, the `SYNC_PROTOCOL_SITES` citation repair |
 | `ir.rs` | `ArrayDestructuringPatternIr::protocol` — required, no `Default` |
 | `lowering.rs` | the two construction sites `lower_array_binding_pattern` and `lower_array_assignment_pattern` name `ARRAY_DESTRUCTURING_PROTOCOL`. Nothing else. |
-| `lib.rs` | `AbruptDiscipline` added inside the pre-existing `pub use operations::{…}` block. No new `mod` line. |
+| `lib.rs` | `AbruptDiscipline` added inside the pre-existing `pub use operations::{…}` block (round 4 adds `ArrayPatternProtocol` to the `iterator_obligations` block). No new `mod` line. |
 
 Two deletions, because a runtime check that survives beside the compile-time
 check it duplicates is evidence the compile-time one is decoration:
@@ -86,6 +88,26 @@ was added beyond the contract's list, because deleting the redundant runtime
 test left `EmissionSite::name` with no reader and the honest repair turned out
 to be a real invariant — two sites may not name one emitter function
 (mistake class **M3d** in the note).
+
+## Round-4 discrepancy fixes (applied)
+
+Eleven findings from the round-4 dry run were applied. The contract above is
+amended in place; this is the index.
+
+| # | Severity | What changed |
+|---|---|---|
+| J13's claim was empty for a weakened callee | **blocker** | J13 gains a justification clause: a row claiming an abrupt exit must name a callee that can produce one. Containment alone never fires when `Get` is set to `NO_ABRUPT`, because the callee slice goes empty and the loop body never runs. M4b's "after this contract" cell and checklist item 6 are now true. |
+| `ALL_WITNESSES` was a hand-maintained census (IC-4) | bug | `iterator_witnesses!` generates the constants **and** the census from one row list. **K3 retired.** IC-4 is closed by a type, and its stated reason ("not rows a macro can expand twice") is corrected as wrong. |
+| The `protocol` field's type was the whole witness domain (M1a) | bug | `ArrayPatternProtocol` — one inhabitant, private constructor — is the field's type. Any other witness is `E0308`. K2 now asks its question through `ArrayPatternProtocol::ARRAY_DESTRUCTURING.witness()`, which also gives that accessor a const consumer. The same hole on the three `ForOf*` fields is recorded as **IC-7**. |
+| J10 asked "witnessed for *some* obligation" | bug | `StatementEmissionRow` gains `pub obligation: IteratorObligation`; `site_emits(site, obligation)` replaces `site_is_witnessed` at J10. B1's `SYNC_CLOSE_SITES` split becomes a build-time constraint instead of a convention. |
+| `SpreadLoopExitsOnlyWhenDone` was false at two lines | bug | The §9.11 read is complete. Two abrupt exits (`Get(iterator,"next")` and the not-callable TypeError) leave a non-done iterator; the conclusion survives because both are *inside* GetIterator. Renamed `SpreadCloseOwedOnlyAfterAcquisition` with the reason that is true. |
+| IC-5 called a falsified premise "documentation" | bug | `lower_array_literal`'s spread guard narrows from `possible_kinds.contains(Array)` to `is_subset_of({Array})`. `function f(x) { return [...x]; }` was lowering to `[].concat(x)` and appending a non-array iterable instead of iterating it — wrong under a pristine realm. **This is the one emitted-byte change in the batch.** |
+| `into_entry` was `pub` on an all-`pub`-fields struct | polish | Both `into_entry`s are `pub(crate)`; the FORGED-row hole the doc comment claimed to close is now actually closed. Narrowing the structs themselves is **IC-8**. |
+| `AbruptDiscipline::name` had zero callers | polish | A `const` distinctness assertion over `AbruptDiscipline::ALL`, K4's treatment applied to this area's own type. |
+| `ForOfLoweringIr::protocol()` had zero callers | polish | Deleted; `into_statement_and_kind` reads the witness and `debug_assert`s two real conditions instead. |
+| The `CloseOnAbruptExitWithStep4Precedence` doc over-claimed | polish | Reworded to name the two helpers and the two completion classes without asserting every site exercises the break/return branch — `compile_array_destructure_from_value_locals` does not. |
+| J12(b) was `abrupt.len() == 4` | polish | A membership scan over `CompletionAbruptKind::ALL` (new, with a bitmask `const _`), so `&[Throw, Return, Break, Break]` no longer passes. `CONTROL_COMPLETIONS` is defined *from* `ALL`. |
+| Stale citations; §4 B2 "none"; checklist item 7 | polish | `objects.rs` and `lib.rs` citations re-derived or replaced by function names; the nine `(_)`/`(..)` sites are called nine; every `functions.rs` line is marked `+150` and grep-first; B2's "none" becomes the five `lib.rs` `delegate:` lines; item 7 is restated as "no hunk attributable to this contract" with the owned file set named. |
 
 **Not verified here.** This stage ran no `cargo` command — the build lock
 belongs to another batch, and the integrator runs the compile gate. Acceptance
