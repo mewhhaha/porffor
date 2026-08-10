@@ -54,6 +54,12 @@ mod temporal_plain_year_month_methods;
 /// prototype method bodies on the other. `check-module-boundaries.sh` requires
 /// both, so the split cannot silently collapse back.
 mod temporal_zoned_date_time_methods;
+/// The two closed direction domains of that surface. `add`/`subtract` and
+/// `until`/`since` are adjacent arms of one `match` in `standard.rs`; as
+/// `bool`s a transposition compiled and silently inverted the operation.
+pub(crate) use temporal_zoned_date_time_methods::{
+    ZonedDateTimeArithmetic, ZonedDateTimeDifference,
+};
 mod weak_ref;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xC2, 0xA0],       // U+00A0

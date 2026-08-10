@@ -5881,13 +5881,40 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::array_iterator_instance_shape()),
                 ValueInfo::undefined(),
             ),
+            // The fourth member is the `constructor_instance`: the static type
+            // of `new S()` when `S` is a class whose heritage reaches this
+            // builtin and which declares no explicit constructor. A synthetic
+            // derived constructor inherits it verbatim (see the
+            // `inherited_instance` binding in `lower_class`), so spelling it
+            // `ValueInfo::undefined()` here typed every instance of
+            // `class S extends Iterator { ... }` as `undefined`.
+            //
+            // That was the root cause of the whole batch-5 `iterator_helpers`
+            // failure set, measured rather than argued (b6 lane note
+            // `iterator-helper-static-key-call-on-a-class-receiver`): with the
+            // receiver typed nullish, `emit_method_call`'s statically-nullish
+            // shortcut emitted *no call at all* for `find`/`reduce`/`take`/
+            // `map`/`every`/`some`/`filter`, while the runtime value was an
+            // ordinary object, so the emitted nullish test never fired and the
+            // caller read stale scratch. `porf inspect` on
+            // `class D extends Iterator {} new D();` printed
+            // `result=undefined`, against `result=object` for every other
+            // superclass — including a user-defined one.
+            //
+            // The prototype layered here is only what a *direct* construction
+            // would see; the class path immediately overwrites it with the
+            // subclass prototype, which already chains to `Iterator.prototype`
+            // through `heritage_prototype`.
             StandardBuiltinId::IteratorConstructor => (
                 ValueKind::Function,
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorConstructor,
                 )),
-                ValueInfo::undefined(),
+                Self::with_instance_prototype(
+                    Self::fresh_constructed_instance_info(),
+                    Some(Self::iterator_prototype_shape()),
+                ),
             ),
             StandardBuiltinId::IteratorPrototypeToArray => (
                 ValueKind::Function,

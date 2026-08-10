@@ -171,6 +171,16 @@ impl IteratorHelper {
     /// `intrinsics/iterator.rs` installs on `Iterator.prototype`; all eleven
     /// are interned unconditionally by `StringPool::collect`
     /// (`data.rs`), so `strings.payload` cannot miss.
+    ///
+    /// It is also what each helper block in `emit_method_call` matches its
+    /// `PropertyKeyIr::StaticString` against. That was a bare literal per block
+    /// until batch 6, which meant every block named its helper twice from two
+    /// independent sources — once as `"take"` in the guard and once as
+    /// `IteratorHelper::Take` in the emission — and batch 6 added a second
+    /// emission site to each of seven blocks, doubling the pairs that could
+    /// disagree. A disagreement compiles cleanly and silently dispatches the
+    /// wrong helper or none at all, which is precisely the defect class this
+    /// family has already shipped twice.
     pub(crate) fn property_name(self) -> &'static str {
         match self {
             Self::Map => "map",
@@ -9488,7 +9498,8 @@ impl<'a> FunctionBuilder<'a> {
         //    `wasm_iterator_helper_class_receiver_flat_map.js` (literal array +
         //    `class extends Iterator`), and rung 1c is the only gate that would
         //    see them.
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "flatMap") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::FlatMap.property_name())
+        {
             let receiver_is_array = receiver.kind == ValueKind::Array
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             if receiver_is_array {
@@ -9546,7 +9557,8 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "find") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Find.property_name())
+        {
             let receiver_is_array = receiver
                 .possible_kinds
                 .is_subset_of(KindSet::from_kind(ValueKind::Array))
@@ -9650,7 +9662,8 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "reduce") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Reduce.property_name())
+        {
             let receiver_is_iterator =
                 receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Reduce);
             if receiver_is_iterator {
@@ -9680,7 +9693,8 @@ impl<'a> FunctionBuilder<'a> {
                     .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "take") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Take.property_name())
+        {
             // No `receiver_is_array` binding here, unlike `drop` below: this
             // block has no array fast path to protect, so the array case is
             // excluded by the kind restriction inside
@@ -9713,7 +9727,8 @@ impl<'a> FunctionBuilder<'a> {
                     .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "drop") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Drop.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             let receiver_is_iterator =
@@ -9793,7 +9808,8 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "map") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Map.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             let receiver_is_iterator =
@@ -9840,7 +9856,8 @@ impl<'a> FunctionBuilder<'a> {
                     .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "every") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Every.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             let receiver_is_iterator =
@@ -9887,7 +9904,8 @@ impl<'a> FunctionBuilder<'a> {
                     .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "some") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Some.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             let receiver_is_iterator =
@@ -9934,7 +9952,8 @@ impl<'a> FunctionBuilder<'a> {
                     .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "filter") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Filter.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             let receiver_is_iterator =
@@ -9985,7 +10004,7 @@ impl<'a> FunctionBuilder<'a> {
         // ordinary `[[Get]]`, and the one helper measured correct for a
         // `class X extends Iterator` receiver. It is now the same call as the
         // other nine rather than the odd one out.
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "forEach")
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::ForEach.property_name())
             && receiver_shape_targets_iterator_helper(receiver, IteratorHelper::ForEach)
         {
             return self

@@ -230,11 +230,35 @@ run_chunk() {
   # tests/cli/frontend_test262_subset.rs). What they DO buy: the CLI suite
   # compiles hundreds of distinct sources, and the module and program tiers are
   # keyed by source text, so they are pure write-and-prune churn here while the
-  # function-stencil tier is keyed per function and converges. The shape is the
-  # sweep's: a large function tier, minimal program/module tiers. The values are
-  # 8 GiB / 512 MiB / 512 MiB against defaults of 1 GiB / 512 MiB / 512 MiB
-  # (`cache.rs`: total 1 GiB, function = total, module and program = total/2), so
-  # only the function tier actually moves, and it moves upward.
+  # function-stencil tier is keyed per function and converges.
+  #
+  # THE VALUES ARE THIS BOX'S, NOT THE DEV MACHINE'S, and that is deliberate.
+  # Batch 6 first wrote 8 GiB / 512 MiB / 512 MiB here, copying the shape of the
+  # sweep invocation in `docs/rust-rewrite/batch-workflow.md` (32 GiB function
+  # tier). Two measurements say that is wrong on this container:
+  #
+  #   * THE CACHE IS ONE SHARED DIRECTORY. `porffor_cache_root()` is
+  #     `$PORFFOR_CACHE_DIR` or `~/.cache/porffor`, with no per-process keying,
+  #     so the Test262 sweep and every CLI-test child manage the SAME bytes. The
+  #     supervisor actually running on this box
+  #     (`target/test262-scratch/sweep-supervisor.sh`, and confirmed in
+  #     `/proc/<pid>/environ` of the live process) uses
+  #     1 GiB / 64 MiB / 64 MiB. A chunk that let the shared directory grow to
+  #     8 GiB would hand the next sweep process 7+ GiB to prune back to 70 % of
+  #     ITS 1 GiB budget: two processes with different budgets over one
+  #     directory undo each other's sizing.
+  #   * THE DISK IS A FIXED PER-SESSION ALLOWANCE. Measured 2026-08-10: 19 GiB
+  #     available, `target/debug` alone 7.3 GiB, `~/.cache/porffor` 948 MiB (at
+  #     the sweep's cap). An 8 GiB tier is a third of the remaining allowance
+  #     spent on a cache, and "no space left on device" mid-chunk looks like
+  #     anything but a disk problem.
+  #
+  # So: match the sweep exactly. The function tier equals the `cache.rs` default
+  # (1 GiB), and the only real movement is the module and program tiers DOWN to
+  # 64 MiB from the 512 MiB default -- which is the actual hygiene win here,
+  # because those two are keyed by source text and never serve a hit across
+  # distinct fixtures. Raise the function tier only together with the sweep
+  # supervisor's, and only after checking `df` on this session.
   #
   # This is the ONLY correct place for them. Every limit is memoised in a
   # `OnceLock` on first use, so `std::env::set_var` inside a test is both useless
@@ -246,9 +270,9 @@ run_chunk() {
   # `PORFFOR_CPU_PERCENT=100` is separately load-bearing: `run-watched.sh` routes
   # through `capped.sh`, which silently pins to half the CPUs.
   PORFFOR_CPU_PERCENT=100 \
-  PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=8589934592 \
-  PORFFOR_MODULE_CACHE_LIMIT_BYTES=536870912 \
-  PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
+  PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=1073741824 \
+  PORFFOR_MODULE_CACHE_LIMIT_BYTES=67108864 \
+  PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=67108864 \
     ./scripts/run-watched.sh --label "rung1c-$name" --stall 900 -- \
     cargo test -p porffor-cli --test cli -- --test-threads=3 "$@"
   rc=$?

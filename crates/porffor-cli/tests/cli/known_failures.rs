@@ -62,7 +62,15 @@
 //!   so **607 compile** (615 minus the 8 behind `spec-exec-oracle`). Settle it
 //!   with `--list`, never by arithmetic on this comment.
 //!
-//!   The source scan below reads `tests/cli/*.rs` from disk, so it sees all 615
+//!   Recounted again by the batch-6 integrator: **617** across
+//!   `tests/cli/*.rs`, so **609 compile** under default features and 608 run.
+//!   The two additions are one `iterator_helpers` test and one `date` test; the
+//!   18th area module, `frontend_test262_subset`, is a *move* of the one
+//!   8.7 GiB `frontend` test into a chunk of its own and adds no test. **609 is
+//!   the number each chunk's `ran + filtered_out` must now sum to**; every
+//!   chunk banked before batch 6 recorded 607 and was right at its own head.
+//!
+//!   The source scan below reads `tests/cli/*.rs` from disk, so it sees all 617
 //!   whether or not the `mod` line landed — while the compiled target would see
 //!   none of an undeclared module's tests. That gap is not hypothetical:
 //!   `iterator_helpers.rs` shipped with 13 tests, its own `run_chunk` line, and
@@ -107,37 +115,43 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// `unfilled-allowed-until` header into a real expiry rather than a comment: an
 /// `unfilled` row that outlives its deadline fails [`ledger_is_well_formed`].
 ///
-/// # Why this still reads 3 in batch 5, said out loud rather than let slide
+/// # Why the `unfilled` row outlived its first deadline, said out loud
 ///
-/// The header in `known-failures.tsv` reads `batch-4`, so bumping this to 4
-/// while the `unfilled` row is alive turns rung 1c red. The bump and the fill
-/// are therefore ONE edit, and the fill needs a completed rung 1c. It is not
-/// completed:
+/// This read 3 through batches 4 and 5, because the header in
+/// `known-failures.tsv` read `batch-4` and bumping the constant while the
+/// `unfilled` row is alive turns rung 1c red. The bump and the fill are ONE
+/// edit, and the fill needs a completed rung 1c.
 ///
-/// - Batch 4 banked **262 of 593** compiled tests as chunks and its container
-///   died inside `frontend::`. Batch 5 measured no further chunk, so
-///   `typed_array` (58), `array` (84), `language` (105), `binary_data` (38) and
-///   `frontend` (46) have still never been run. Deleting the row on that
-///   evidence declares "these are all the expected non-green outcomes" about a
-///   suite that is more than half unmeasured.
-/// - Two failing sets ARE known, and neither yields an honest row today. The
-///   four `iterator::run_wasm_backend_succeeds_for_iterator_prototype_*` tests
-///   are being repaired in this same batch, so a row would be a declaration
-///   that libtest reports as `test did not panic as expected` the moment the
-///   repair lands. `frontend::inspect_reports_phase_eighteen_global_ir_shape`
-///   asserts `global_bindings=64` against a measured 65 -- a stale expectation,
-///   not a defect, so its remedy is a one-token test fix and a row would
-///   declare a defect that does not exist.
+/// Rung 1c is still not complete at batch 6, and the measurement has moved
+/// enough that the old text here was wrong in both directions:
 ///
-/// Leaving this at 3 is the honest reading, and it is NOT a silent slide: the
-/// header stays at `batch-4`, so the very next bump reddens
-/// [`ledger_is_well_formed`] until the row is replaced by the surviving set.
-/// That tripwire firing is the mechanism working, not a regression. Resume the
-/// measurement with `scripts/rung1c-chunks.sh`.
-const CURRENT_BATCH: u32 = 3;
+/// - Batch 5 banked **12 of 17** chunks, **276 of 607** executing tests, in
+///   four container windows. `frontend` (46), `typed_array` (58), `array` (84),
+///   `language` (105) and `binary_data` (38) have still never produced a
+///   verdict at any head. Deleting the row on that evidence would declare
+///   "these are all the expected non-green outcomes" about a suite that is
+///   more than half unmeasured.
+/// - `frontend::inspect_reports_phase_eighteen_global_ir_shape` -- named here
+///   for two batches as asserting `global_bindings=64` against a measured 65 --
+///   was fixed by the batch-5 integrator and measured `ok` in batch 5 session 3.
+///   It is not a candidate row.
+/// - The known failing set is 13 tests, all in `iterator::` (4) and
+///   `iterator_helpers::` (9), and all owned by the batch-6 iterator lane, whose
+///   repair landed in this checkout. Rows for them would be declarations that
+///   libtest reports as `test did not panic as expected` the moment the repair
+///   is confirmed. Two of the three symptom classes also carry unstable panic
+///   text (a value read from unrelated memory; a raw `handle@...` address), so a
+///   `should_panic(expected = ...)` over them would go red for the wrong reason.
+///
+/// So batch 6 takes the alternative the assertion names in its own message: the
+/// constant is bumped to the batch this checkout actually is, and the header is
+/// extended by one batch. Both are visible one-line diffs, which is the point --
+/// this is a deliberate extension, not a slide. The row's own `reason` column
+/// carries the current measurement. Resume with `scripts/rung1c-chunks.sh`.
+const CURRENT_BATCH: u32 = 6;
 
 /// Header line carrying the `unfilled` expiry, e.g.
-/// `# unfilled-allowed-until: batch-4`.
+/// `# unfilled-allowed-until: batch-7`.
 const UNFILLED_HEADER_PREFIX: &str = "# unfilled-allowed-until: batch-";
 
 /// The only test name an `unfilled` row may carry. Keeping the sentinel out of

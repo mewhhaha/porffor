@@ -55,6 +55,53 @@
 
 use super::super::*;
 
+/// Which of the two arithmetic members is being emitted.
+///
+/// This was a `bool` named `subtract`, copying
+/// `emit_temporal_plain_date_time_add_or_subtract`. The two call sites are
+/// adjacent arms of one `match` in `builtins/standard.rs` spelled
+/// `(false, function)` and `(true, function)`, so a transposition compiles,
+/// formats, passes every type check, and makes `zdt.add(d)` subtract — a
+/// silent wrong answer in the exact family this lane exists to fix. The
+/// closed set gets a closed type, and the delegate it maps to is a total
+/// function rather than an `if` inside the emitter.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ZonedDateTimeArithmetic {
+    Add,
+    Subtract,
+}
+
+impl ZonedDateTimeArithmetic {
+    /// The `Temporal.PlainDateTime.prototype` member this delegates to. The
+    /// sign flip lives inside that one body, which is the only place in the
+    /// tree that knows how to negate all ten duration slots.
+    fn plain_date_time_builtin(self) -> StandardBuiltinId {
+        match self {
+            Self::Add => StandardBuiltinId::TemporalPlainDateTimePrototypeAdd,
+            Self::Subtract => StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract,
+        }
+    }
+}
+
+/// Which of the two difference members is being emitted. Same reasoning as
+/// [`ZonedDateTimeArithmetic`]: `until` and `since` differ only in operand
+/// order, so a transposed `bool` produces a correctly-shaped `Temporal.Duration`
+/// with the wrong sign.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ZonedDateTimeDifference {
+    Until,
+    Since,
+}
+
+impl ZonedDateTimeDifference {
+    fn plain_date_time_builtin(self) -> StandardBuiltinId {
+        match self {
+            Self::Until => StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+            Self::Since => StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+        }
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
     /// Temporal proposal 6.3.x `Temporal.ZonedDateTime.prototype.withCalendar`.
     ///
@@ -173,7 +220,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `months` means.
     pub(crate) fn emit_temporal_zoned_date_time_add_or_subtract(
         &mut self,
-        subtract: bool,
+        arithmetic: ZonedDateTimeArithmetic,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
@@ -226,11 +273,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(plain_tag_local));
 
         // Leg 2: the calendar arithmetic itself, unchanged and unduplicated.
-        let arithmetic_builtin = if subtract {
-            StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract
-        } else {
-            StandardBuiltinId::TemporalPlainDateTimePrototypeAdd
-        };
+        let arithmetic_builtin = arithmetic.plain_date_time_builtin();
         let arithmetic_meta = self
             .functions
             .get(&arithmetic_builtin.function_id())
@@ -342,7 +385,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `target/lane-notes/zdt-arithmetic-surface-b6-integration.md`.
     pub(crate) fn emit_temporal_zoned_date_time_until_or_since(
         &mut self,
-        since: bool,
+        difference: ZonedDateTimeDifference,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
@@ -489,11 +532,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        let difference_builtin = if since {
-            StandardBuiltinId::TemporalPlainDateTimePrototypeSince
-        } else {
-            StandardBuiltinId::TemporalPlainDateTimePrototypeUntil
-        };
+        let difference_builtin = difference.plain_date_time_builtin();
         let difference_meta = self
             .functions
             .get(&difference_builtin.function_id())

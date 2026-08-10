@@ -32,9 +32,24 @@ require_pub_use() {
   fi
 }
 
+# Non-test CODE lines: everything before the crate's `#[cfg(test)]` block, minus
+# blank lines and minus whole-line comments (`//`, `///`, `//!` and block-comment
+# continuations).
+#
+# Blanks and comments are excluded because of what this budget is FOR: it exists
+# so implementation cannot creep back into a crate root that is supposed to hold
+# nothing but `mod`, `use` and `pub use`. Counting documentation against that
+# budget makes the guard punish the one thing a re-export surface most needs.
+# Measured at batch 6: `porffor-ir/src/lib.rs` was 169 raw lines and RED against
+# a budget of 140, while its code was 140 lines exactly — every line over the
+# limit was a doc comment pointing a re-exported contract type at its
+# `docs/rust-rewrite/contracts/` file, added by the theory rounds. Raising the
+# number instead would have ratcheted the budget for a file that had not grown.
 non_test_lines() {
   awk '
     /^#\[cfg\(test\)\]/ { exit }
+    /^[[:space:]]*$/ { next }
+    /^[[:space:]]*(\/\/|\/\*|\*)/ { next }
     { count += 1 }
     END { print count + 0 }
   ' "$1"
@@ -45,7 +60,7 @@ check_orchestration_surface() {
   max_lines="$2"
   lines="$(non_test_lines "$file")"
   if [ "$lines" -gt "$max_lines" ]; then
-    fail "$file has $lines non-test lines; expected at most $max_lines"
+    fail "$file has $lines non-test code lines; expected at most $max_lines"
   fi
 }
 

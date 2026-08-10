@@ -37116,16 +37116,28 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_zoned_date_time_with_calendar(function)?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeAdd => {
-                self.emit_temporal_zoned_date_time_add_or_subtract(false, function)?;
+                self.emit_temporal_zoned_date_time_add_or_subtract(
+                    ZonedDateTimeArithmetic::Add,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => {
-                self.emit_temporal_zoned_date_time_add_or_subtract(true, function)?;
+                self.emit_temporal_zoned_date_time_add_or_subtract(
+                    ZonedDateTimeArithmetic::Subtract,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeUntil => {
-                self.emit_temporal_zoned_date_time_until_or_since(false, function)?;
+                self.emit_temporal_zoned_date_time_until_or_since(
+                    ZonedDateTimeDifference::Until,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
-                self.emit_temporal_zoned_date_time_until_or_since(true, function)?;
+                self.emit_temporal_zoned_date_time_until_or_since(
+                    ZonedDateTimeDifference::Since,
+                    function,
+                )?;
             }
             StandardBuiltinId::IntlGetCanonicalLocales => {
                 self.emit_intl_get_canonical_locales(function)?;

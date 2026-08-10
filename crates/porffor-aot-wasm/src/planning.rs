@@ -331,7 +331,9 @@ mod tests {
         // — so it is deliberately not in the loop above. It still needs the
         // ZonedDateTime prototype global, which its own arm roots.
         let mut plan = RuntimeBootstrapPlan::default();
-        plan.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar);
+        plan.require_standard_builtin(
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+        );
         assert!(plan
             .standard_roots
             .contains(&StandardBuiltinId::TemporalZonedDateTimeConstructor));
