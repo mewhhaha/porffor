@@ -672,7 +672,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 2, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1211,7 +1211,6 @@ impl<'a> FunctionBuilder<'a> {
             "derived constructor may only return object or undefined",
             self.result_local,
             self.result_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -1303,10 +1302,9 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -2530,10 +2528,9 @@ impl<'a> FunctionBuilder<'a> {
             proto_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             proto_payload_local,
             proto_tag_local,
-            2,
             function,
         )?;
         self.emit_is_heap_object_like_tag_i32(proto_tag_local, function);
@@ -4578,7 +4575,14 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_function_or_proxy_call_with_throw_extra_depth(
+    /// `emit_function_or_proxy_call_leave_throw_completion` plus the throw
+    /// propagation, for callers that want the throw routed to the active
+    /// handler rather than left in the completion tuple.
+    ///
+    /// Was `..._with_throw_extra_depth`: the trailing `u32` declared how many
+    /// raw frames the caller had open, which the branch arithmetic could not
+    /// see. It can see them now, so there is nothing to declare.
+    pub(crate) fn emit_function_or_proxy_call_with_throw_propagation(
         &mut self,
         callee_payload_local: u32,
         callee_tag_local: u32,
@@ -4587,7 +4591,6 @@ impl<'a> FunctionBuilder<'a> {
         args: &[(u32, u32)],
         payload_local: u32,
         tag_local: u32,
-        throw_extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_function_or_proxy_call_leave_throw_completion(
@@ -4600,15 +4603,16 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            throw_extra_depth,
             function,
         )
     }
 
-    pub(crate) fn emit_function_handle_call_with_throw_extra_depth(
+    /// See [`Self::emit_function_or_proxy_call_with_throw_propagation`] for why
+    /// this no longer takes a depth.
+    pub(crate) fn emit_function_handle_call_with_throw_propagation(
         &mut self,
         callee_payload_local: u32,
         callee_tag_local: u32,
@@ -4616,7 +4620,6 @@ impl<'a> FunctionBuilder<'a> {
         args: &[(u32, u32)],
         payload_local: u32,
         tag_local: u32,
-        throw_extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argc_local = self.reserve_temp_local();
@@ -4630,7 +4633,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            Some(throw_extra_depth),
+            PropagateCallThrow::ToActiveHandler,
             function,
         )?;
         self.release_temp_local(argv_local);
@@ -4657,7 +4660,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            Some(1),
+            PropagateCallThrow::ToActiveHandler,
             function,
         )
     }
@@ -4681,7 +4684,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            None,
+            PropagateCallThrow::LeaveInCompletion,
             function,
         )
     }
@@ -5019,7 +5022,7 @@ impl<'a> FunctionBuilder<'a> {
         argv_local: u32,
         payload_local: u32,
         tag_local: u32,
-        propagate_throw_extra_depth: Option<u32>,
+        propagate_throw: PropagateCallThrow,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if self.outline_function_call {
@@ -5049,21 +5052,23 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(payload_local, tag_local, function);
-                if let Some(extra_depth) = propagate_throw_extra_depth {
-                    self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                        payload_local,
-                        tag_local,
-                        extra_depth.saturating_sub(1),
-                        function,
-                    )?;
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                } else {
-                    function.instruction(&Instruction::LocalGet(self.completion_local));
-                    function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    function.instruction(&Instruction::End);
+                match propagate_throw {
+                    PropagateCallThrow::ToActiveHandler => {
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            payload_local,
+                            tag_local,
+                            function,
+                        )?;
+                        self.set_completion_kind(CompletionKind::Normal, function);
+                    }
+                    PropagateCallThrow::LeaveInCompletion => {
+                        function.instruction(&Instruction::LocalGet(self.completion_local));
+                        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.set_completion_kind(CompletionKind::Normal, function);
+                        function.instruction(&Instruction::End);
+                    }
                 }
                 return Ok(());
             }
@@ -5094,8 +5099,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(callee_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "value is not callable",
@@ -5103,10 +5107,9 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            propagate_throw_extra_depth.unwrap_or(0),
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -5703,21 +5706,23 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
         self.store_call_results(payload_local, tag_local, function);
-        if let Some(extra_depth) = propagate_throw_extra_depth {
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                extra_depth,
-                function,
-            )?;
-            self.set_completion_kind(CompletionKind::Normal, function);
-        } else {
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.set_completion_kind(CompletionKind::Normal, function);
-            function.instruction(&Instruction::End);
+        match propagate_throw {
+            PropagateCallThrow::ToActiveHandler => {
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.set_completion_kind(CompletionKind::Normal, function);
+            }
+            PropagateCallThrow::LeaveInCompletion => {
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::End);
+            }
         }
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error(
@@ -5727,13 +5732,15 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if let Some(extra_depth) = propagate_throw_extra_depth {
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                extra_depth,
-                function,
-            )?;
+        match propagate_throw {
+            PropagateCallThrow::ToActiveHandler => {
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            PropagateCallThrow::LeaveInCompletion => {}
         }
         function.instruction(&Instruction::End);
 
@@ -5818,10 +5825,9 @@ impl<'a> FunctionBuilder<'a> {
             call_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             call_payload_local,
             call_tag_local,
-            0,
             function,
         )?;
         // Construct consumes the base constructor's completion.  Its produced
@@ -6819,7 +6825,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to arguments.callee", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to arguments.callee", function)?;
         function.instruction(&Instruction::End);
 
         self.release_temp_local(write_succeeded_local);
@@ -7416,7 +7422,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to arguments index", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to arguments index", function)?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(write_succeeded_local));
@@ -7625,7 +7631,7 @@ impl<'a> FunctionBuilder<'a> {
         // active `finally` blocks run before the throw reaches its handler (or
         // returns from the function). The dispatch is nested inside this
         // null-test `if`, hence the extra branch depth.
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -7712,8 +7718,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.compile_nullish_tagged_i32(source_tag_local, function)?;
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread argument is not iterable",
@@ -7762,8 +7767,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread argument is not iterable",
@@ -7792,8 +7796,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread iterator method must return object",
@@ -7824,8 +7827,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread iterator next must be callable",
@@ -7837,10 +7839,8 @@ impl<'a> FunctionBuilder<'a> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            let iterator_exit = self.push_control(ControlFrameKind::Block);
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            let iterator_loop = self.push_control(ControlFrameKind::Loop);
+            let iterator_exit = self.open_frame(ControlFrameKind::Block, function);
+            let iterator_loop = self.open_frame(ControlFrameKind::Loop, function);
 
             self.emit_function_or_proxy_call_leave_throw_completion(
                 next_payload_local,
@@ -7859,8 +7859,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread iterator next result must be object",
@@ -7886,7 +7885,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_propagate_current_completion_if_throw(function);
             self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-            self.emit_branch_if_to_target(iterator_exit, 0, function);
+            self.emit_branch_if_to_target(iterator_exit, function);
 
             function.instruction(&Instruction::I64Const(self.strings.payload("value")));
             function.instruction(&Instruction::LocalSet(key_local));
@@ -7912,7 +7911,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::LocalSet(argc_local));
-            self.emit_branch_to_target(iterator_loop, 0, function);
+            self.emit_branch_to_target(iterator_loop, function);
 
             self.pop_control(ControlFrameKind::Loop);
             function.instruction(&Instruction::End);
@@ -8187,7 +8186,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             if let Some(target) = self.active_throw_target() {
-                self.emit_branch_to_target(target, 0, function);
+                self.emit_branch_to_target(target, function);
             } else {
                 self.emit_return_current_completion(function);
             }
@@ -10002,7 +10001,7 @@ impl<'a> FunctionBuilder<'a> {
                         argv_local,
                         payload_local,
                         tag_local,
-                        Some(0),
+                        PropagateCallThrow::ToActiveHandler,
                         function,
                     )?;
                 } else {
@@ -10100,10 +10099,9 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -10550,7 +10548,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             if let Some(target) = self.active_throw_target() {
-                self.emit_branch_to_target(target, 0, function);
+                self.emit_branch_to_target(target, function);
             } else {
                 self.emit_return_current_completion(function);
             }

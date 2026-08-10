@@ -223,6 +223,58 @@ fn run_wasm_backend_succeeds_for_temporal_instant_statics_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_zoned_date_time_era.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+
+    // Asserted in three halves, because the three carry different mechanisms
+    // and one combined `contains` would report any of them as a failure of the
+    // first.
+    //
+    // (1) The accessor pair itself: `"ce"`/1970 for a gregory receiver and
+    // `undefined` for an iso8601 one. The `undefined` half is the one that used
+    // to "pass" in Test262 because the property did not exist at all.
+    assert!(
+        stdout.contains("temporal-zdt-era:ce|1970|undefined|undefined|"),
+        "{stdout}"
+    );
+    // (2) The year-0 boundary from both sides, through `Temporal.ZonedDateTime.from`.
+    // `bce` counts backwards from ISO year 1, so ISO 0 is bce 1 and ISO -1 is
+    // bce 2; a getter that read the local ISO year as an unconverted f64 bit
+    // pattern would answer `ce` for all three of these.
+    assert!(stdout.contains("1/ce/1|0/bce/1|-1/bce/2|"), "{stdout}");
+    // (3) `toPlainDateTime`, rendered component by component rather than through
+    // `toString`, so a wrong component cannot hide inside a formatted string.
+    // The four rows are: the `bce` property-bag receiver, a positive
+    // sub-millisecond instant, a pre-epoch instant (the negative-remainder
+    // correction), and the same instant as row 1 of the boundary pair read
+    // through a -12:00 offset, which moves it across the era boundary.
+    assert!(
+        stdout.contains(
+            "-1-6-15T12:34:0.0.0.0/bce/2|\
+             1976-11-18T14:23:30.123.456.789/ce/1976|\
+             1969-7-24T16:50:35.0.0.1/ce/1969|\
+             0-12-31T12:0:0.0.0.0/bce/1"
+        ),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_date_to_json_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")

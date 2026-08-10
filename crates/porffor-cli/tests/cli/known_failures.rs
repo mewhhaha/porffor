@@ -534,8 +534,14 @@ pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
 
 const _: fn() = crate::binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture;
 const _: fn() = crate::heap::run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture;
-const _: fn() =
-    crate::language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name;
+// The T24 assertion
+// (`language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name`)
+// was retired together with its ledger row when the repair landed:
+// `emit_runtime_error_object` now defines `message` from its message argument,
+// and `data.rs`'s `RUNTIME_ERROR_MESSAGE_LITERALS` interns the strings that
+// makes possible. `ledger_is_well_formed` rejects an assertion with no row, so
+// this had to go in the same patch as the row. The test itself stays and now
+// passes.
 
 // -------------------------------------------------------------------------
 // Routing: which `porf` invocations must run as a guarded subprocess.

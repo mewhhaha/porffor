@@ -1025,8 +1025,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_is_bigint_tag_i32(lhs_tag, function);
                     self.emit_is_bigint_tag_i32(rhs_tag, function);
                     function.instruction(&Instruction::I32And);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.push_control(ControlFrameKind::If);
+                    self.open_frame(ControlFrameKind::If, function);
                     self.emit_bigint_binary_op_to_locals(
                         BigIntHelperOp::from_arithmetic(*op),
                         lhs_payload,
@@ -1663,7 +1662,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -2078,15 +2077,13 @@ impl<'a> FunctionBuilder<'a> {
         // of its later operations. Optional computed keys are emitted after
         // their short-circuit test; ordinary computed keys retain the usual
         // key-evaluation-before-RequireObjectCoercible order.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::Block, function);
         for operation in chain {
             match operation {
                 OptionalChainOperationIr::Property { key, shorted } => {
                     if *shorted {
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         function.instruction(&Instruction::I64Const(0));
                         function.instruction(&Instruction::LocalSet(payload_local));
                         function
@@ -2107,8 +2104,7 @@ impl<'a> FunctionBuilder<'a> {
                         // Only `?.` short-circuits. A later ordinary property
                         // access still performs RequireObjectCoercible.
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         self.emit_throw_runtime_error(
                             TYPE_ERROR_NAME,
                             "Cannot read properties of null or undefined",
@@ -2161,8 +2157,7 @@ impl<'a> FunctionBuilder<'a> {
                 } => {
                     if *shorted {
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         function.instruction(&Instruction::I64Const(0));
                         function.instruction(&Instruction::LocalSet(payload_local));
                         function
@@ -2232,16 +2227,14 @@ impl<'a> FunctionBuilder<'a> {
                     if *boundary_before {
                         self.pop_control(ControlFrameKind::Block);
                         function.instruction(&Instruction::End);
-                        function.instruction(&Instruction::Block(BlockType::Empty));
-                        self.push_control(ControlFrameKind::Block);
+                        self.open_frame(ControlFrameKind::Block, function);
                     }
 
                     if *shorted {
                         // Optional call tests the callee before evaluating any
                         // arguments and exits the active contiguous segment.
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         function.instruction(&Instruction::I64Const(0));
                         function.instruction(&Instruction::LocalSet(payload_local));
                         function
@@ -2274,8 +2267,7 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::LocalGet(has_reference_local));
                             function.instruction(&Instruction::I64Const(0));
                             function.instruction(&Instruction::I64Ne);
-                            function.instruction(&Instruction::If(BlockType::Empty));
-                            self.push_control(ControlFrameKind::If);
+                            self.open_frame(ControlFrameKind::If, function);
                             function.instruction(&Instruction::LocalGet(reference_receiver_local));
                             function.instruction(&Instruction::LocalSet(call_this_local));
                             function

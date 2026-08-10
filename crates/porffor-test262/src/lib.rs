@@ -513,6 +513,14 @@ pub struct MatrixTriageEntry {
     pub bug: usize,
 }
 
+/// One failure family: the unit a fix lane owns.
+///
+/// `detail_hash` is the family's identity, computed by `hash_detail` from the
+/// detail with build-local heap addresses erased (`FailureDetailIdentity`), and
+/// recomputed here rather than read from the snapshot so an already-recorded
+/// corpus groups correctly too. `detail` is the *verbatim* text of the first
+/// representative test, address and all: the address is removed from the
+/// identity, never from the report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureDetailGroup {
     pub outcome: OutcomeKind,
@@ -20988,7 +20996,7 @@ fn run_one_case_in_child_process(
     let child_snapshot_name = format!(
         "{}-case-{}",
         run_config.snapshot_name,
-        hash_detail(&case.path)
+        hash_case_path(&case.path)
     );
     let child_config = SuiteConfig {
         snapshot_dir: child_snapshot_dir.clone(),
@@ -23571,26 +23579,49 @@ pub fn load_matrix_failure_details(
     let snapshot = snapshot_from_file(file)
         .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
 
-    let mut grouped =
-        BTreeMap::<(u64, OutcomeKind, FailureKind, FailureOrigin, String), Vec<String>>::new();
+    // Group by *identity*, not by the stored `detail_hash` and not by the raw
+    // detail text.
+    //
+    // Two reasons, and neither is cosmetic. The raw detail embeds a heap
+    // address, so keying on it splits one defect into one group per case — the
+    // exact failure this grouping exists to prevent. And the stored
+    // `detail_hash` was computed by whichever binary wrote the snapshot, so a
+    // snapshot recorded before this normalization landed still carries a
+    // per-address hash; recomputing here is what lets the same `failure-details`
+    // invocation collapse an *existing* corpus instead of only future runs.
+    //
+    // The raw detail survives into the report below, taken verbatim from the
+    // first representative test.
+    let mut grouped = BTreeMap::<
+        (u64, OutcomeKind, FailureKind, FailureOrigin, String),
+        Vec<(String, String)>,
+    >::new();
     for failure in &snapshot.failures {
         grouped
             .entry((
-                failure.detail_hash,
+                hash_detail(&failure.detail),
                 failure.outcome,
                 failure.kind,
                 failure.origin,
-                failure.detail.clone(),
+                FailureDetailIdentity::of(&failure.detail).into_string(),
             ))
             .or_default()
-            .push(failure.test_path.clone());
+            .push((failure.test_path.clone(), failure.detail.clone()));
     }
     let mut groups = grouped
         .into_iter()
         .map(
-            |((detail_hash, outcome, kind, origin, detail), mut tests)| {
+            |((detail_hash, outcome, kind, origin, _identity), mut tests)| {
                 tests.sort();
                 let count = tests.len();
+                let (_, detail) = tests
+                    .first()
+                    .cloned()
+                    .expect("a grouping entry exists only because a failure was pushed into it");
+                let mut tests = tests
+                    .into_iter()
+                    .map(|(test_path, _)| test_path)
+                    .collect::<Vec<_>>();
                 tests.truncate(5);
                 FailureDetailGroup {
                     outcome,
@@ -24329,6 +24360,12 @@ fn sorted_set_values(values: Option<&BTreeSet<String>>) -> Vec<String> {
 /// otherwise make identical failure modes hash differently across machines or
 /// runs.
 fn normalize_backlog_detail(detail: &str) -> String {
+    // Heap handles belong in the same class as absolute paths and timestamps,
+    // and for a stronger reason: they are unstable between two builds *on the
+    // same machine*. This is not a token-level rule because the address arrives
+    // embedded in `object(handle@5397552)`, which `normalize_detail_token` sees
+    // as one opaque core.
+    let detail = erase_volatile_handles(detail);
     detail
         .replace('\\', "/")
         .split_whitespace()
@@ -25055,9 +25092,105 @@ fn hash_manifest_case_paths(
     hasher.finish()
 }
 
+/// The identity of a failure detail: the detail text with every value that is
+/// an artefact of *this build* erased, and nothing else changed.
+///
+/// This type exists because `detail_hash` is supposed to name a *defect*, and a
+/// failure family is the unit a fix lane owns. A hash that carries a nonce does
+/// not name anything: it mints one singleton group per case, so a list of
+/// failure families reads as a list of cases and every triage pass re-derives
+/// the same shared cause by hand.
+///
+/// The nonce is the heap handle. The Wasm-AOT engine renders a thrown heap
+/// object as `handle@<raw linear-memory address>`, and that address is:
+///
+/// - **not stable across builds** — batch 3 measured every `Temporal.
+///   ZonedDateTime` handle in a fixed set of cases shifting by exactly `+136`
+///   bytes between two builds of the same source, from a bootstrap layout
+///   change alone; and
+/// - **not resolvable to anything** — no handle-to-allocation-site mapping
+///   exists anywhere in this tree, and none of the `PORFFOR_*` knobs
+///   (`WASM_DUMP`, `WASM_TRACE`, `WASM_TRACE_DUMP`, `LOWER_TRACE`,
+///   `EMIT_SIZE_REPORT[_PATH]`) touch the heap.
+///
+/// Measured basis: ~2,488 Wasm-AOT cases carry
+/// `uncaught throw: <Name>: wasm-aot completion: <kind>(handle@N)` across
+/// ~1,743 distinct addresses.
+///
+/// The raw detail is **not** modified for display — see
+/// `FailureDetailGroup::detail`, which keeps a representative case's verbatim
+/// text. The address is deleted from the identity, never from the report.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct FailureDetailIdentity(String);
+
+impl FailureDetailIdentity {
+    /// The only constructor. Taking one is the whole point: a caller cannot
+    /// hash a raw detail by accident, because the hashing entry point below
+    /// builds this first.
+    fn of(detail: &str) -> Self {
+        Self(erase_volatile_handles(detail))
+    }
+
+    fn into_string(self) -> String {
+        self.0
+    }
+}
+
+/// Renderings whose numeric tail is a raw address, produced by
+/// `render_wasmtime_completion` in `porffor-engine`.
+///
+/// Closed list, and deliberately spelled with the `@` so it cannot match a
+/// spec message that happens to contain the word "handle".
+const VOLATILE_ADDRESS_PREFIXES: &[&str] = &["handle@", "symbol@"];
+
+/// What replaces the digits. Kept in the string rather than dropped so a reader
+/// of a normalized detail can see that an address *was* there.
+const VOLATILE_ADDRESS_PLACEHOLDER: &str = "<addr>";
+
+fn erase_volatile_handles(detail: &str) -> String {
+    let mut out = String::with_capacity(detail.len());
+    let mut rest = detail;
+    'scan: while !rest.is_empty() {
+        for &prefix in VOLATILE_ADDRESS_PREFIXES {
+            let Some(after) = rest.strip_prefix(prefix) else {
+                continue;
+            };
+            let tail = after.trim_start_matches(|character: char| character.is_ascii_digit());
+            let digits = after.len() - tail.len();
+            if digits == 0 {
+                continue;
+            }
+            out.push_str(prefix);
+            out.push_str(VOLATILE_ADDRESS_PLACEHOLDER);
+            rest = &after[digits..];
+            continue 'scan;
+        }
+        let character = rest
+            .chars()
+            .next()
+            .expect("loop guard proved the remainder is non-empty");
+        out.push(character);
+        rest = &rest[character.len_utf8()..];
+    }
+    out
+}
+
+/// Hash a failure detail *by identity*, so two cases that fail the same way
+/// land in the same group whatever addresses their handles happened to get.
 fn hash_detail(detail: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
-    detail.hash(&mut hasher);
+    let identity = FailureDetailIdentity::of(detail);
+    identity.into_string().hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Hash a case path. Separate from `hash_detail` on purpose: this one feeds
+/// child-snapshot *file names*, it is not a defect identity, and normalizing it
+/// would be meaningless. Keeping the two apart is what stops a later change to
+/// detail normalization from quietly renaming every child snapshot.
+fn hash_case_path(case_path: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    case_path.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -25096,6 +25229,103 @@ mod tests {
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_test262")
+    }
+
+    /// Two Wasm-AOT failures that differ only in the heap address must be one
+    /// failure family.
+    ///
+    /// These two strings are real: they are the recorded details of
+    /// `intl402/DateTimeFormat/this-value-ignored.js` and
+    /// `intl402/DateTimeFormat/prototype/resolvedOptions/basic.js` at batch 3's
+    /// commit. Before this normalization they hashed differently and
+    /// `failure-details` reported them as two families of one case each, which
+    /// is why the batch-4 brief could describe ~2,488 cases over ~1,743
+    /// addresses as if the signature grouped anything.
+    #[test]
+    fn detail_hash_ignores_the_heap_address_in_a_wasm_aot_throw() {
+        let left = "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+                    object(handle@5265496)";
+        let right = "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+                     object(handle@5397552)";
+        assert_ne!(left, right, "the fixture strings must actually differ");
+        assert_eq!(
+            hash_detail(left),
+            hash_detail(right),
+            "two cases failing the same way must share one detail_hash"
+        );
+
+        // ...and the erasure is not a blanket "digits do not count": a detail
+        // that differs in something real still hashes differently.
+        let other = "[origin:wasm-aot] uncaught throw: RangeError: wasm-aot completion: \
+                     object(handle@5265496)";
+        assert_ne!(
+            hash_detail(left),
+            hash_detail(other),
+            "a different error name is a different defect"
+        );
+    }
+
+    /// The address is deleted from the identity and from nothing else.
+    #[test]
+    fn detail_hash_identity_erases_the_address_but_the_raw_detail_is_preserved() {
+        let detail = "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+                      object(handle@5265496)";
+        let identity = FailureDetailIdentity::of(detail).into_string();
+        assert_eq!(
+            identity,
+            "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+             object(handle@<addr>)"
+        );
+        assert!(
+            detail.contains("handle@5265496"),
+            "`of` must not mutate its input; the caller keeps the raw text for display"
+        );
+        assert!(
+            !identity.contains("5265496"),
+            "the identity must not carry the address"
+        );
+    }
+
+    #[test]
+    fn detail_hash_erasure_leaves_ordinary_text_alone() {
+        for unchanged in [
+            "",
+            "TypeError: RegExp.prototype.exec unsupported pattern",
+            // No digits after the `@`, so nothing to erase.
+            "handle@",
+            // A number that is not an address must survive: it is data.
+            "expected 5265496 to equal 3",
+            // The word alone must not trigger; the marker is `handle@`.
+            "iterator handle 5265496",
+        ] {
+            assert_eq!(
+                erase_volatile_handles(unchanged),
+                unchanged,
+                "unexpectedly rewrote {unchanged:?}"
+            );
+        }
+        assert_eq!(
+            erase_volatile_handles("symbol@42 and handle@7 and handle@8"),
+            "symbol@<addr> and handle@<addr> and handle@<addr>"
+        );
+        // Multi-byte input must not be sliced mid-character.
+        assert_eq!(
+            erase_volatile_handles("héllo handle@12 wörld"),
+            "héllo handle@<addr> wörld"
+        );
+    }
+
+    /// A case path is not a defect identity, so it must not go through the
+    /// erasure. This pins the split rather than leaving it to a comment.
+    #[test]
+    fn detail_hash_and_case_path_hash_are_separate_domains() {
+        let path = "built-ins/Temporal/ZonedDateTime/prototype/era/prop-desc.js";
+        assert_eq!(hash_case_path(path), hash_case_path(path));
+        assert_ne!(
+            hash_case_path("handle@1"),
+            hash_case_path("handle@2"),
+            "two distinct paths must keep distinct child-snapshot names"
+        );
     }
 
     fn repo_root() -> PathBuf {
@@ -35557,7 +35787,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let child_snapshot_name = format!(
             "{}-case-{}",
             run_config.snapshot_name,
-            hash_detail(&case.path)
+            hash_case_path(&case.path)
         );
         let existing_snapshot_paths =
             snapshot_paths_for_name(&config, &child_snapshot_name, child_manifest.manifest_hash);
@@ -36563,6 +36793,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(
             normalize_backlog_detail("boom   at\t/home/alice/porffor/case.js line 3"),
             "boom at <abs-path> line 3"
+        );
+        // A heap address is unstable between two builds on the *same* machine,
+        // so it belongs in this scrub even more clearly than an absolute path.
+        assert_eq!(
+            normalize_backlog_detail(
+                "uncaught throw: TypeError: wasm-aot completion: object(handle@5397552)"
+            ),
+            "uncaught throw: TypeError: wasm-aot completion: object(handle@<addr>)"
         );
         assert_eq!(
             normalize_backlog_detail(r"failed C:\-less path (/var/ci/x.js)"),

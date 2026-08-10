@@ -1538,9 +1538,10 @@ pub(crate) fn for_in_loop_binding_storage_name(
     )
 }
 
-pub(crate) fn tdz_binding_storage_name(source_name: &str) -> String {
-    format!("{TDZ_BINDING_STORAGE_PREFIX}{source_name}")
-}
+// `tdz_binding_storage_name` lived here. It is now
+// `binding_lifecycle::TdzPlaceholderName::for_source_name`, the sole constructor
+// of the `$tdz.` name domain; a bare `String` is no longer accepted where a
+// placeholder name is wanted.
 
 pub(crate) fn for_of_loop_binding_storage_name(for_of: &ForOfLoop, source_name: &str) -> String {
     let span = for_of.iterable().span();

@@ -3,29 +3,29 @@ use super::*;
 /// Wasm blocks opened by the **runtime** strictness guard on an object write.
 ///
 /// PutValue 3.d asks whether `V.[[Strict]]` is true. When that answer is only
-/// available at run time — inside the outlined write helper, and now inside
-/// every Reference write under `expressions.rs`'s `with_reference_strictness` —
-/// the guard is an `If(BlockType::Empty)` around the throw, which the
-/// compile-time arm does not open. Wasm `Br` immediates are relative to the
-/// label stack, so **every** branch emitted inside the guard is one label
-/// deeper than the same branch in the compile-time arm.
+/// available at run time — inside the outlined write helper, and inside every
+/// Reference write under `expressions.rs`'s `with_reference_strictness` — the
+/// guard is an `If(BlockType::Empty)` around the throw, which the compile-time
+/// arm does not open.
 ///
-/// Named once because the two arms of one helper had already disagreed:
-/// `emit_object_write_non_extensible_failure` added `+ 1` to its sloppy
-/// abandon-branch and left its throw's `extra_depth` at the inline value, and
+/// Only **one** consumer of that fact is left: the sloppy-mode abandon branch
+/// in [`FunctionBuilder::emit_object_write_non_extensible_failure`], which is a
+/// raw `Br` to a frame the *caller* opened and closes. Raw branch immediates
+/// are relative to the position they are written at, so that one still has to
+/// account for the guard's own label by hand — and it is a self-contained
+/// two-line region, which is exactly the case `code_sink.rs` says to leave as
+/// a raw `Br`.
+///
+/// Every `ControlTarget`-relative branch that used to add this constant no
+/// longer does. Those branches now take their immediate from the real label
+/// depth, which already includes the guard's `If`, so adding it was a double
+/// count. That is what closed the disagreement recorded here before: the
+/// non-extensible helper added `+ 1` to its sloppy abandon branch and left its
+/// throw's `extra_depth` at the inline value, while
 /// `emit_object_write_set_failure_else` forwarded the caller's `extra_depth`
-/// unchanged into a guard it had just opened. That was invisible while the
-/// `Some` arm was reachable only from emitted helper bodies, where
-/// `emit_throw_runtime_error_to_active_handler` ignores `extra_depth`
-/// (`!is_main()` returns a completion instead of branching). A Reference's
-/// carried `[[Strict]]` makes the `Some` arm live in `main`, where the value is
-/// a real `Br` immediate: `"use strict"; try { a.length = 0 } catch (e) {}`
-/// with a non-writable `length` branched one label too shallow.
+/// unchanged into a guard it had just opened. `"use strict"; try { a.length = 0
+/// } catch (e) {}` with a non-writable `length` branched one label too shallow.
 const RUNTIME_STRICT_GUARD_BLOCK_DEPTH: u32 = 1;
-
-/// Depth from the non-extensible failure site to the enclosing write's throw
-/// target, in the compile-time arm. Was a bare `5` written twice.
-const NON_EXTENSIBLE_THROW_EXTRA_DEPTH: u32 = 5;
 
 fn static_array_index_name(name: &str) -> Option<u64> {
     if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -2407,8 +2407,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 self.compile_nullish_tagged_i32(source_tag_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::Else);
                 self.emit_value_to_object_locals(
                     source_payload_local,
@@ -2714,10 +2713,9 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            self.emit_propagate_throw_from_locals_if_needed(
                 payload_local,
                 tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -4058,37 +4056,27 @@ impl<'a> FunctionBuilder<'a> {
                     // is `ValueKind::Array` in this match arm, so `target_tag_local`
                     // is never the `Object` or `Function` tag.
                     //
-                    // OPEN DEFECT, pre-existing, made visible by that deletion.
-                    // The `If` opened above is a raw `Instruction::If`, so it is
-                    // NOT on `control_stack` and `depth_to` cannot see it. Any
-                    // `Br` emitted underneath it — and this call reaches
-                    // `emit_propagate_throw_from_locals_if_needed`, which emits
-                    // `Br(depth_to(target) + 1)` where the `+ 1` covers only the
-                    // propagator's own raw `If` — is therefore off by the number
-                    // of untracked frames in between. There were two here before
-                    // the deletion and there is one after, so the deletion moved
-                    // the landing point from `f_pre(i + 1)` to `f_pre(i)`; only
-                    // `i == 0` is the same program point, because nothing is
-                    // emitted between the two `End`s.
+                    // CLOSED DEFECT, recorded here because this is where it was
+                    // first written down. The `If` opened above is a raw
+                    // `Instruction::If`, so it was not on `control_stack` and
+                    // `depth_to` could not see it. Every `Br` emitted underneath
+                    // it — including the one this call reaches through
+                    // `emit_propagate_throw_from_locals_if_needed` — was off by
+                    // the number of such frames in between. Observable on the
+                    // named-property path too (`a.zzz` behaved identically), so
+                    // it was common upstream code: a property read that throws
+                    // inside a `for` landed on the loop back edge instead of the
+                    // handler and the loop spun until it trapped, and inside a
+                    // `switch` the throw was discarded silently. A flat
+                    // `try { ... } catch` worked, which is why every probe passed.
                     //
-                    // Observable today, on the untouched named-property path too
-                    // (`a.zzz` behaves identically), so this is common upstream
-                    // code and not something the deletion introduced: wrap a
-                    // property read that throws in a `for` and the throw lands on
-                    // the loop back-edge instead of the handler and the loop
-                    // spins until it traps; wrap it in a `switch` and the throw is
-                    // discarded silently. A flat `try { ... } catch` is `i == 0`
-                    // and works, which is why every probe so far has passed.
-                    //
-                    // The repair is to stop lying to `depth_to`:
-                    // `push_control(ControlFrameKind::If)` / `pop_control` around
-                    // this raw frame, as `emit_value_to_string_payload` already
-                    // does around its own. That changes branch targets at all 16
-                    // `emit_object_read_with_key_tag` call sites, which sit at
-                    // differing untracked depths, so it needs a build and a run —
-                    // neither rung G (a `Br` immediate is the same width either
-                    // way) nor wasm validation (both indices are in range) can
-                    // tell a correct depth from an incorrect one.
+                    // Branch immediates are now taken from the real Wasm label
+                    // depth, which counts this `If` like any other, so there is
+                    // nothing here to declare and nothing to get wrong. Neither
+                    // rung G (a `Br` immediate is the same width either way) nor
+                    // wasm validation (both indices are in range) could tell the
+                    // two apart, so the evidence is a run:
+                    // `crates/porffor-cli/tests/cli/throw_propagation.rs`.
                     self.emit_object_read_with_key_tag(
                         target_local,
                         target_tag_local,
@@ -4883,10 +4871,9 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
                     tag_local,
-                    1,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -5005,8 +4992,7 @@ impl<'a> FunctionBuilder<'a> {
         // Dispatch before compiling the key. A computed key therefore appears
         // in each runtime arm but executes in exactly one selected arm, after
         // the optional-chain nullish check performed by the caller.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::Block, function);
         for kind in [
             ValueKind::Object,
             ValueKind::Function,
@@ -5021,8 +5007,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(target_tag_local));
             function.instruction(&Instruction::I64Const(kind.tag() as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             let runtime_target = TypedExpr::from_info(ValueInfo::new(kind), ExprIr::Undefined);
             self.compile_property_read_from_locals(
                 &runtime_target,
@@ -5333,26 +5318,25 @@ impl<'a> FunctionBuilder<'a> {
     /// over `crates/` — 7 in this file, 11 in `builtins/standard.rs`, 32 in
     /// `builtins/array.rs`, 1 in `builtins/iterators.rs`).
     ///
-    /// **Constraint on new call sites.** The throw propagation below is
-    /// computed at `extra_depth = 0`, i.e. it assumes the tracked control stack
-    /// is the whole story at the point of call. That is true for every call
-    /// site today only because they are all inside hand-emitted builtin bodies,
-    /// where `active_throw_target()` is always `None` — `throw_handler_stack`
-    /// and `finally_stack` are pushed only from user `try` lowering — so
-    /// `emit_propagate_throw_from_locals_if_needed` degrades to
-    /// `emit_return_current_completion` and the depth is never used. Several of
-    /// those sites sit inside raw `If`/`Block` frames the control stack does not
-    /// track and compensate for it in their *own* follow-up propagation (see
-    /// `emit_propagate_throw_from_locals_if_needed_with_extra_depth` in
-    /// `builtins/array.rs`), which this seam does not do. A user-code call site
-    /// added inside untracked frames within a `try` would therefore branch
-    /// several frames too shallow and still validate, because every frame is
-    /// `BlockType::Empty`. Adding one means giving this seam an `extra_depth`
-    /// parameter first — the codebase already has that shape in
-    /// `emit_object_read_without_throw_propagation`. Do not guess the number
-    /// from a neighbouring call: the existing compensations are not internally
-    /// consistent (`builtins/array.rs` passes 0 and 3 for two arms of one
-    /// `if`/`else` chain), which is itself unresolved.
+    /// **The constraint this used to carry is retired.** The throw propagation
+    /// below used to be computed at `extra_depth = 0`, i.e. it assumed the
+    /// tracked control stack was the whole story at the point of call. That
+    /// held for every call site only because they are all inside hand-emitted
+    /// builtin bodies, where `active_throw_target()` is always `None` —
+    /// `throw_handler_stack` and `finally_stack` are pushed only from user
+    /// `try` lowering — so `emit_propagate_throw_from_locals_if_needed`
+    /// degraded to `emit_return_current_completion` and the depth was never
+    /// used. Several of those sites sit inside raw `If`/`Block` frames the
+    /// control stack did not track, and compensated for it in their *own*
+    /// follow-up propagation with numbers that disagreed (`builtins/array.rs`
+    /// passed 0 and 3 for two arms of one `if`/`else` chain). A user-code call
+    /// site added inside untracked frames within a `try` would have branched
+    /// several frames too shallow and still validated, because every frame is
+    /// `BlockType::Empty`.
+    ///
+    /// Branch immediates now come from the real Wasm label depth
+    /// (`code_sink.rs`), so an untracked frame is not a thing that exists and a
+    /// new call site needs no depth argument, here or anywhere.
     pub(crate) fn emit_typed_array_or_object_index_read_from_locals(
         &mut self,
         target_local: u32,
@@ -6537,7 +6521,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write_set_failure_else(
                         "Cannot assign to array length",
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -6630,7 +6613,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write_set_failure_else(
                         "Cannot assign to array length",
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -6958,7 +6940,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write_set_failure_else(
                         "Cannot assign to array length",
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -8033,7 +8014,6 @@ impl<'a> FunctionBuilder<'a> {
                 "Cannot delete property",
                 self.result_local,
                 self.result_tag_local,
-                0,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -8199,7 +8179,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -8214,7 +8194,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 0, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -8292,7 +8272,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 3, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -8438,7 +8418,6 @@ impl<'a> FunctionBuilder<'a> {
                 "private element cannot be installed on non-extensible object",
                 self.result_local,
                 self.result_tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -8460,7 +8439,6 @@ impl<'a> FunctionBuilder<'a> {
                 "private element already installed on object",
                 self.result_local,
                 self.result_tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -8797,7 +8775,6 @@ impl<'a> FunctionBuilder<'a> {
             "private accessor has no getter",
             self.result_local,
             self.result_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8837,14 +8814,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_GETTER as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_with_throw_extra_depth(
+        self.emit_function_handle_call_with_throw_propagation(
             getter_payload_local,
             getter_tag_local,
             Some((target_payload_local, Some(target_tag_local))),
             &[],
             payload_local,
             tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8963,7 +8939,6 @@ impl<'a> FunctionBuilder<'a> {
             "private element has no setter",
             self.result_local,
             self.result_tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -8979,14 +8954,13 @@ impl<'a> FunctionBuilder<'a> {
             setter_tag_local,
             function,
         );
-        self.emit_function_handle_call_with_throw_extra_depth(
+        self.emit_function_handle_call_with_throw_propagation(
             setter_payload_local,
             setter_tag_local,
             Some((target_payload_local, Some(target_tag_local))),
             &[(value_payload_local, value_tag_local)],
             setter_result_payload_local,
             setter_result_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -9034,7 +9008,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 2, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -9048,7 +9022,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 1, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -10986,7 +10960,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -10994,7 +10968,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::I64Const(1));
@@ -12567,7 +12540,7 @@ impl<'a> FunctionBuilder<'a> {
             key_local,
             payload_local,
             tag_local,
-            Some(8),
+            AccessorThrowRouting::BreakToOrdinaryReadExit,
             function,
         )
     }
@@ -12604,7 +12577,7 @@ impl<'a> FunctionBuilder<'a> {
             key_local,
             payload_local,
             tag_local,
-            None,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )
     }
@@ -12619,7 +12592,7 @@ impl<'a> FunctionBuilder<'a> {
         key_local: u32,
         payload_local: u32,
         tag_local: u32,
-        accessor_throw_extra_depth: Option<u32>,
+        accessor_throw: AccessorThrowRouting,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let current_local = self.reserve_temp_local();
@@ -12998,29 +12971,24 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_is_callable_i32(getter_tag_local, getter_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(extra_depth) = accessor_throw_extra_depth {
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                getter_payload_local,
-                getter_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                &[],
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.emit_break_current_completion_if_throw(extra_depth.saturating_sub(1), function);
-        } else {
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                getter_payload_local,
-                getter_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                &[],
-                payload_local,
-                tag_local,
-                function,
-            )?;
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            getter_payload_local,
+            getter_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            &[],
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        match accessor_throw {
+            AccessorThrowRouting::BreakToOrdinaryReadExit => {
+                self.emit_break_current_completion_if_throw(
+                    AccessorThrowRouting::ORDINARY_READ_EXIT_BREAK_DEPTH,
+                    function,
+                );
+            }
+            AccessorThrowRouting::LeaveInCompletion => {}
         }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -14815,7 +14783,6 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_object_write_set_failure_else(
         &mut self,
         message: &str,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match self.object_write_strict_flag_local {
@@ -14830,9 +14797,6 @@ impl<'a> FunctionBuilder<'a> {
                     message,
                     self.result_local,
                     self.result_tag_local,
-                    // Inside the runtime guard's extra block. See
-                    // `RUNTIME_STRICT_GUARD_BLOCK_DEPTH`.
-                    extra_depth + RUNTIME_STRICT_GUARD_BLOCK_DEPTH,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -14845,7 +14809,6 @@ impl<'a> FunctionBuilder<'a> {
                         message,
                         self.result_local,
                         self.result_tag_local,
-                        extra_depth,
                         function,
                     )?;
                 }
@@ -14916,11 +14879,6 @@ impl<'a> FunctionBuilder<'a> {
                     "Cannot add property to non-extensible object",
                     self.result_local,
                     self.result_tag_local,
-                    // Both branches below sit inside the guard's extra block:
-                    // the throw's branch to the active handler as much as the
-                    // sloppy abandon branch. Compensating one and not the other
-                    // is what these two numbers used to do.
-                    NON_EXTENSIBLE_THROW_EXTRA_DEPTH + RUNTIME_STRICT_GUARD_BLOCK_DEPTH,
                     function,
                 )?;
                 function.instruction(&Instruction::Else);
@@ -14936,7 +14894,6 @@ impl<'a> FunctionBuilder<'a> {
                         "Cannot add property to non-extensible object",
                         self.result_local,
                         self.result_tag_local,
-                        NON_EXTENSIBLE_THROW_EXTRA_DEPTH,
                         function,
                     )?;
                 } else {
@@ -15331,7 +15288,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to array length", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to array length", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(array_index_write_handled_local));
@@ -15376,7 +15333,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to array property", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to array property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(array_index_write_handled_local));
@@ -15473,7 +15430,6 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_object_write_set_failure_else(
             "Cannot assign to read only property",
-            9,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -15514,7 +15470,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_break_current_completion_if_throw(0, function);
         self.emit_object_write_set_failure_else(
             "Cannot assign to read only property",
-            9,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -15796,7 +15751,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_object_write_set_failure_else(
             "Cannot assign to inherited read only property",
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -15833,7 +15787,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_break_current_completion_if_throw(0, function);
         self.emit_object_write_set_failure_else(
             "Cannot assign to inherited accessor without setter",
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18309,12 +18262,11 @@ impl<'a> FunctionBuilder<'a> {
     /// Routes a pending throw completion (left in `result_local`/`result_tag_local`
     /// by a shared-helper call) to the active handler, or returns it, mirroring
     /// [`Self::emit_throw_runtime_error_to_active_handler`] but for a completion
-    /// that already exists. Uses `BrIf` so no extra wasm frame is introduced and
-    /// `extra_throw_depth` keeps the same meaning callers already pass (the count
-    /// of untracked wasm frames wrapping the call site).
+    /// that already exists. Uses `BrIf` so no extra wasm frame is introduced;
+    /// the branch immediate comes from the target's recorded label, so callers
+    /// declare nothing about the frames they have open.
     fn emit_route_pending_throw_to_active_handler(
         &mut self,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) {
         if self.is_main() {
@@ -18322,7 +18274,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.completion_local));
                 function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                 function.instruction(&Instruction::I64Eq);
-                self.emit_branch_if_to_target(target, extra_throw_depth, function);
+                self.emit_branch_if_to_target(target, function);
                 return;
             }
         }
@@ -18344,7 +18296,6 @@ impl<'a> FunctionBuilder<'a> {
         object_tag_local: u32,
         result_payload_local: u32,
         result_tag_local: u32,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let helper = self
@@ -18361,7 +18312,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalSet(result_tag_local));
-        self.emit_route_pending_throw_to_active_handler(extra_throw_depth, function);
+        self.emit_route_pending_throw_to_active_handler(function);
         Ok(())
     }
 
@@ -18373,7 +18324,6 @@ impl<'a> FunctionBuilder<'a> {
         object_payload_local: u32,
         object_tag_local: u32,
         result_local: u32,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let helper_payload_local = self.reserve_temp_local();
@@ -18400,28 +18350,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(helper_payload_local));
         function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::End);
-        self.emit_route_pending_throw_to_active_handler(extra_throw_depth, function);
+        self.emit_route_pending_throw_to_active_handler(function);
         self.release_temp_local(helper_tag_local);
         self.release_temp_local(helper_payload_local);
         Ok(())
-    }
-
-    pub(crate) fn emit_object_get_prototype_of(
-        &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        result_payload_local: u32,
-        result_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_object_get_prototype_of_with_depth(
-            object_payload_local,
-            object_tag_local,
-            result_payload_local,
-            result_tag_local,
-            0,
-            function,
-        )
     }
 
     pub(crate) fn emit_object_get_prototype_of_without_proxy(
@@ -18499,13 +18431,12 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_object_get_prototype_of_with_depth(
+    pub(crate) fn emit_object_get_prototype_of(
         &mut self,
         object_payload_local: u32,
         object_tag_local: u32,
         result_payload_local: u32,
         result_tag_local: u32,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if self.outline_object_get_prototype_of {
@@ -18518,7 +18449,6 @@ impl<'a> FunctionBuilder<'a> {
                     object_tag_local,
                     result_payload_local,
                     result_tag_local,
-                    extra_throw_depth,
                     function,
                 );
             }
@@ -18563,7 +18493,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18598,18 +18527,16 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        // This call site sits 3 untracked `If`s deep (object-tag check, proxy-handler
-        // check, trap-is-callable check above), matching the nesting the sibling
-        // `emit_throw_runtime_error_to_active_handler(..., extra_throw_depth + 3, ...)`
-        // calls in this function account for. `emit_function_handle_call` bakes in a
-        // fixed extra depth of 1 (matched to being called from untracked-nesting depth
-        // 0), which under-counts here and misroutes an abrupt completion from the trap
-        // itself (e.g. the trap throwing directly) to the wrong wasm block instead of
-        // the active catch/return path — silently swallowing the throw when this is
-        // reached from inside a non-top-level function. `throw_extra_depth` must be
-        // `extra_throw_depth + 2` (not `+ 3`) because the underlying propagate helper
-        // already adds its own `+ 1` for its internal `if` wrapper.
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        // This call site sits 3 `If`s deep (object-tag check, proxy-handler check,
+        // trap-is-callable check above). That used to matter: those frames were
+        // untracked, every branch out of here had to declare them by hand, and
+        // the sibling calls in this function each carried a different
+        // hand-counted number for the same nesting. The sink counts them, so
+        // the propagation below needs nothing declared — which is also what
+        // stopped an abrupt completion from the trap itself (the trap throwing
+        // directly) from being misrouted to the wrong wasm block and silently
+        // swallowed when this is reached from inside a non-top-level function.
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -18617,7 +18544,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 2,
             function,
         )?;
 
@@ -18633,7 +18559,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy getPrototypeOf trap result must be object or null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18642,7 +18567,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             target_extensible_local,
-            extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(target_extensible_local));
@@ -18653,7 +18577,6 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             target_proto_payload_local,
             target_proto_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         self.emit_tagged_payload_same_value_i32(
@@ -18670,7 +18593,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy getPrototypeOf trap result does not match target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18700,7 +18622,6 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             result_payload_local,
             result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -18709,7 +18630,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy getPrototypeOf trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18832,27 +18752,6 @@ impl<'a> FunctionBuilder<'a> {
         result_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_object_set_prototype_of_i32_with_depth(
-            object_payload_local,
-            object_tag_local,
-            proto_payload_local,
-            proto_tag_local,
-            result_local,
-            0,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_object_set_prototype_of_i32_with_depth(
-        &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        proto_payload_local: u32,
-        proto_tag_local: u32,
-        result_local: u32,
-        extra_throw_depth: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
         let handled_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
         let handler_tag_local = self.reserve_temp_local();
@@ -18898,7 +18797,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18934,7 +18832,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -18945,7 +18843,6 @@ impl<'a> FunctionBuilder<'a> {
             ],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 2,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -18961,7 +18858,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             target_extensible_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(target_extensible_local));
@@ -18972,7 +18868,6 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             target_proto_payload_local,
             target_proto_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         self.emit_tagged_payload_same_value_i32(
@@ -18989,7 +18884,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy setPrototypeOf trap result incompatible with non-extensible target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 6,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19017,7 +18911,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy setPrototypeOf trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19524,7 +19417,6 @@ impl<'a> FunctionBuilder<'a> {
             object_tag_local,
             result_local,
             4,
-            0,
             function,
         )
     }
@@ -19535,7 +19427,6 @@ impl<'a> FunctionBuilder<'a> {
         object_tag_local: u32,
         result_local: u32,
         proxy_depth: u8,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let handled_local = self.reserve_temp_local();
@@ -19581,7 +19472,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19616,7 +19506,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -19624,7 +19514,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -19644,11 +19533,10 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         } else {
-            self.emit_object_is_extensible_i32_with_depth(
+            self.emit_object_is_extensible_i32(
                 target_payload_local,
                 target_tag_local,
                 target_extensible_local,
-                extra_throw_depth + 5,
                 function,
             )?;
         }
@@ -19661,7 +19549,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy preventExtensions trap returned true for extensible target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 6,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19694,7 +19581,6 @@ impl<'a> FunctionBuilder<'a> {
                 target_tag_local,
                 result_local,
                 proxy_depth - 1,
-                extra_throw_depth + 5,
                 function,
             )?;
         }
@@ -19715,7 +19601,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy preventExtensions trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19759,30 +19644,12 @@ impl<'a> FunctionBuilder<'a> {
         result_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_object_is_extensible_i32_with_depth(
-            object_payload_local,
-            object_tag_local,
-            result_local,
-            0,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_object_is_extensible_i32_with_depth(
-        &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        result_local: u32,
-        extra_throw_depth: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
         if self.outline_object_is_extensible {
             if self.object_is_extensible_helper_function_index().is_some() {
                 return self.emit_call_object_is_extensible_helper(
                     object_payload_local,
                     object_tag_local,
                     result_local,
-                    extra_throw_depth,
                     function,
                 );
             }
@@ -19830,7 +19697,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19863,7 +19729,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -19871,7 +19737,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -19883,7 +19748,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             target_result_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(result_local));
@@ -19895,7 +19759,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy isExtensible trap result does not match target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19912,7 +19775,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             result_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -19921,7 +19783,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy isExtensible trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);

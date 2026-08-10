@@ -21,6 +21,173 @@ use std::sync::OnceLock;
 pub(crate) const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
     (1_u64 << 32) | u32::from_le_bytes(*b"NRGT") as u64;
 
+/// Runtime-error message literals that no other interning path reaches.
+///
+/// Why this table exists at all, stated once so it is not rediscovered a fourth
+/// time. `emit_runtime_error_object` (`builtins/errors.rs`) used to define the
+/// error's `message` property from its *name* payload and throw the message
+/// argument away, so `e.message === e.name` for every error the runtime threw.
+/// The obvious one-token repair could not land alone: `StringPool::payload`
+/// takes `&self`, cannot extend the pool during emission, and **panics** with
+/// ``string `..` must exist in pool``. Because that function never asked the
+/// pool for a message, the messages that reach only it were never required to
+/// be interned -- and were not. Landing the repair without this table turns
+/// `null.x` into a compiler panic.
+///
+/// The list is measured, not guessed. Every call site of the seven throw entry
+/// points (`emit_throw_runtime_error`, `_to_active_handler`,
+/// `_with_prototype_local` and the four `emit_throw_current_function_realm_*`
+/// wrappers) was walked transitively through the `&str` parameters they forward
+/// through, giving 903 reachable message literals; the 125 below are the ones
+/// absent from both this file and
+/// `builtins::intl_date_time_format_pool_strings()`.
+///
+/// It over-approximates on purpose. A string interned twice costs nothing --
+/// `intern_string` returns early on a hit -- while a string missed once is a
+/// compiler panic on a program as ordinary as `null.x`. Two families here are
+/// reachable only through an enum-selected `match` arm
+/// (`Map`/`WeakMap`/`Set`/`WeakSet` constructor messages, `yield*` iterator
+/// protocol messages), which a call-site-literal audit alone does not see.
+///
+/// KNOWN INCOMPLETENESS, and the reason this is a table rather than a claim:
+/// a static audit cannot resolve every `&'static str` that reaches a throw
+/// through a local binding or a helper's parameter. If a message is still
+/// missing, the pool says so loudly at run time by name. That is the correct
+/// failure mode and it is deliberately not softened -- see the standing
+/// instruction on `emit_runtime_error_object` never to fall back to the name.
+///
+/// The right long-term shape is one `RUNTIME_ERROR_MESSAGES` domain that the
+/// emitters index into, so "add a message" is one edit and "forgot to intern"
+/// is a compile error. That is a refactor across ~1,120 call sites and does not
+/// belong to this lane; this table is the honest intermediate.
+pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
+    "Atomics.wait cannot suspend the current agent",
+    "BigInt division by zero",
+    "Cannot add property to non-extensible array",
+    "Cannot assign inherited typed array index on receiver",
+    "Cannot assign to arguments index",
+    "Cannot assign to arguments.callee",
+    "Cannot assign to array index",
+    "Cannot assign to array length",
+    "Cannot assign to array property",
+    "Cannot assign to inherited accessor without setter",
+    "Cannot assign to inherited read only property",
+    "Cannot change enumerable flag of non-configurable arguments accessor",
+    "Cannot change enumerable flag of non-configurable arguments property",
+    "Cannot change enumerable flag of non-configurable arguments.callee",
+    "Cannot change kind of non-configurable arguments.callee",
+    "Cannot change non-configurable arguments accessor",
+    "Cannot change non-configurable arguments.callee accessor",
+    "Cannot change non-writable arguments.callee",
+    "Cannot change value of non-writable arguments property",
+    "Cannot define array length",
+    "Cannot make non-configurable arguments property writable",
+    "Cannot make non-configurable arguments.callee writable",
+    "Cannot read properties of null or undefined",
+    "Cannot redefine non-configurable arguments accessor",
+    "Cannot redefine non-configurable arguments property",
+    "Cannot redefine non-configurable arguments.callee",
+    "Cannot replace non-configurable accessor arguments property",
+    "Cannot replace non-configurable data arguments property",
+    "Function has non-object prototype in instanceof check",
+    "Get target is not an object",
+    "Map constructor iterator method is not callable",
+    "Map constructor iterator method must return an object",
+    "Map constructor iterator next method is not callable",
+    "Map constructor iterator next result must be an object",
+    "Map constructor iterator value must be an object",
+    "Map constructor requires new",
+    "Map constructor set method is not callable",
+    "Map.prototype.forEach callback must be callable",
+    "Object.prototype.__proto__ setter called on null or undefined",
+    "Object.prototype.__proto__ setter could not set prototype",
+    "Object.prototype.hasOwnProperty called on null or undefined",
+    "Promise cannot resolve to itself",
+    "Promise capability constructor is not a constructor",
+    "Promise capability did not initialize callable resolving functions",
+    "Promise capability executor called more than once",
+    "Promise constructor property is not an object",
+    "Promise constructor requires new",
+    "Promise executor is not callable",
+    "Promise species is not a constructor",
+    "Promise.all constructor resolve property is not callable",
+    "Promise.all input is not iterable",
+    "Promise.all iterable contains too many values",
+    "Promise.all iterator method is not callable",
+    "Promise.all iterator method must return an object",
+    "Promise.all iterator next method is not callable",
+    "Promise.all iterator next result must be an object",
+    "Promise.prototype.finally called on non-object receiver",
+    "Promise.prototype.then called on incompatible receiver",
+    "Promise.race constructor resolve property is not callable",
+    "Promise.race input is not iterable",
+    "Promise.race iterator method is not callable",
+    "Promise.race iterator method must return an object",
+    "Promise.race iterator next method is not callable",
+    "Promise.race iterator next result must be an object",
+    "Proxy ownKeys trap result contained a duplicate key",
+    "Proxy ownKeys trap result contained a non-property key",
+    "Proxy ownKeys trap result contains an extra key for a non-extensible target",
+    "Proxy ownKeys trap result does not match non-extensible target",
+    "Proxy ownKeys trap result must be an object",
+    "RegExp compiled program matcher failed",
+    "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+    "RegExp.prototype[Symbol.matchAll] receiver is not object",
+    "RegExp.prototype[Symbol.replace] exec result is not an object or null",
+    "RegExp.prototype[Symbol.replace] receiver is not an object",
+    "RegExp.prototype[Symbol.split] constructor is not an object",
+    "RegExp.prototype[Symbol.split] exec result is not an object or null",
+    "RegExp.prototype[Symbol.split] species is not a constructor",
+    "Set constructor add method is not callable",
+    "Set constructor iterator method is not callable",
+    "Set constructor iterator method must return an object",
+    "Set constructor iterator next method is not callable",
+    "Set constructor iterator next result must be an object",
+    "Set constructor requires new",
+    "Set.prototype.forEach callback must be callable",
+    "String method RegExp flags must contain g",
+    "TypedArray allocation size is too large",
+    "TypedArray iterator method must be callable",
+    "TypedArray iterator method must return an object",
+    "TypedArray iterator next method must be callable",
+    "TypedArray iterator next result must be an object",
+    "WeakMap constructor iterator method is not callable",
+    "WeakMap constructor iterator method must return an object",
+    "WeakMap constructor iterator next method is not callable",
+    "WeakMap constructor iterator next result must be an object",
+    "WeakMap constructor iterator value must be an object",
+    "WeakMap constructor requires new",
+    "WeakMap constructor set method is not callable",
+    "assignment to immutable destructuring target",
+    "assignment to unresolvable reference",
+    "cannot get function realm from a revoked Proxy",
+    "for-await-of async iterator next result must be object",
+    "for-await-of async iterator return result must be object",
+    "for-await-of iterator method must be callable",
+    "for-await-of iterator method must return object",
+    "for-await-of iterator next must be callable",
+    "for-await-of iterator next result must be object",
+    "for-await-of iterator return must be callable",
+    "for-await-of iterator return result must be object",
+    "for-await-of target is not iterable",
+    "lexical binding accessed before initialization",
+    "private accessor has no getter",
+    "private element already installed on object",
+    "private element cannot be installed on non-extensible object",
+    "private element has no setter",
+    "private environment is missing its declared name",
+    "right-hand side of private in is not an object",
+    "unbound identifier",
+    "yield* iterator has no throw method",
+    "yield* iterator method must be callable",
+    "yield* iterator method must return object",
+    "yield* iterator result must be object",
+    "yield* next method must be callable",
+    "yield* return method must be callable",
+    "yield* target is not iterable",
+    "yield* throw method must be callable",
+];
+
 #[derive(Debug)]
 struct StringRef {
     offset: u32,
@@ -1606,6 +1773,15 @@ impl StringPool {
             "</sup>",
             "&quot;",
         ] {
+            pool.intern_string(value);
+        }
+        // Unconditional, and it must stay unconditional: these are the messages
+        // `emit_runtime_error_object` now reads out of the pool, and the paths
+        // that throw them (`null.x`, an unbound identifier, a TDZ read) are
+        // reachable from any program at all. Gating them behind a feature
+        // predicate would reintroduce the exact `string must exist in pool`
+        // panic this table exists to prevent.
+        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
             pool.intern_string(value);
         }
         // Every `TemporalCalendarId` spelling and canonical form, plus every
@@ -3986,6 +4162,89 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
 
     let mut state = vec![0; program.instructions.len()];
     (0..program.instructions.len()).any(|pc| visit(pc, &program.instructions, &mut state))
+}
+
+#[cfg(test)]
+mod runtime_error_message_pool_tests {
+    use super::*;
+
+    /// The pool has no silent miss, and this is what makes the standing
+    /// instruction on `emit_runtime_error_object` enforceable rather than
+    /// advisory: a message that was never interned must *panic by name*, not
+    /// quietly resolve to something plausible.
+    ///
+    /// The old behaviour -- defining `message` from the error's `name` -- was
+    /// exactly a silent fallback, and it survived several batches because
+    /// nothing in the tree observed it. Softening `payload` into an
+    /// `Option`-returning lookup with a name fallback would restore that,
+    /// harder to find. So the panic is asserted.
+    #[test]
+    #[should_panic(expected = "must exist in pool")]
+    fn payload_panics_for_a_message_that_was_never_interned() {
+        let pool = StringPool::default();
+        let _ = pool.payload("a message that is deliberately absent from the pool");
+    }
+
+    #[test]
+    fn every_runtime_error_message_literal_resolves_to_a_payload() {
+        let mut pool = StringPool::default();
+        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
+            pool.intern_string(value);
+        }
+        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
+            // `payload` panics on a miss, so reaching the assertion is the
+            // check; the assertion pins the encoding as well.
+            let payload = pool.payload(value);
+            let len = (payload as u64 & 0xFFFF_FFFF) as usize;
+            assert_eq!(
+                len,
+                StringPool::runtime_bytes_for_string(value).len(),
+                "`{value}` interned with the wrong byte length"
+            );
+        }
+    }
+
+    /// Sorted and unique. Not cosmetic: this table is maintained by hand, it is
+    /// appended to under time pressure exactly when a `must exist in pool`
+    /// panic has just fired, and a duplicate or an out-of-order insert is how a
+    /// hand-maintained list starts drifting from the audit that produced it.
+    #[test]
+    fn the_runtime_error_message_table_is_sorted_and_unique() {
+        let mut previous: Option<&str> = None;
+        for &value in RUNTIME_ERROR_MESSAGE_LITERALS {
+            assert!(!value.is_empty(), "empty message literal in the table");
+            if let Some(previous) = previous {
+                assert!(
+                    previous < value,
+                    "`{previous}` and `{value}` are out of order or duplicated"
+                );
+            }
+            previous = Some(value);
+        }
+        assert!(
+            RUNTIME_ERROR_MESSAGE_LITERALS.len() >= 125,
+            "the table shrank; a message removed from it is a `must exist in pool` panic waiting \
+             for whichever program still throws it"
+        );
+    }
+
+    /// A spot check against the reason the table exists: the message
+    /// `null.x` throws must be present. It is the single most reachable
+    /// runtime-thrown message in the language and it was one of the strings
+    /// with zero occurrences in this file before this table landed.
+    #[test]
+    fn the_most_reachable_runtime_error_message_is_in_the_table() {
+        for value in [
+            "Cannot read properties of null or undefined",
+            "unbound identifier",
+            "lexical binding accessed before initialization",
+        ] {
+            assert!(
+                RUNTIME_ERROR_MESSAGE_LITERALS.contains(&value),
+                "`{value}` must be interned; it is thrown from the most ordinary programs there are"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

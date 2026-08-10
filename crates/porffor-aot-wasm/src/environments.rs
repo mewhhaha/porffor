@@ -887,7 +887,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1020,7 +1020,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 1, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -1295,12 +1295,13 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        // Extra depth 1: the propagation helper opens its own `if`, and this
-        // site sits inside the presence-check `if` as well.
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        // This site sits inside the presence-check `if`, and the propagation
+        // helper opens one more of its own. Both are counted by the sink, so
+        // neither needs declaring here — this comment used to be attached to a
+        // hand-written `1`.
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -1361,12 +1362,12 @@ impl<'a> FunctionBuilder<'a> {
                 error_tag_local,
                 function,
             )?;
-            // Extra depth 1: the propagation helper opens its own `if`, and
-            // this site sits inside the `[[Delete]] returned false` `if`.
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            // This site sits inside the `[[Delete]] returned false` `if`, and
+            // the propagation helper opens one more of its own. Both are
+            // counted by the sink; this comment used to justify a `1`.
+            self.emit_propagate_throw_from_locals_if_needed(
                 error_payload_local,
                 error_tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);

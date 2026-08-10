@@ -589,8 +589,9 @@ mod tests {
     /// [`RuntimeHelperId`] it is handed, the clearing of that helper's own
     /// inline seam.
     ///
-    /// Nothing in the type system can forbid a fourth site: `Function` comes
-    /// from `wasm_encoder` and anyone may construct one. But the failure mode
+    /// Nothing in the type system can forbid a fourth site: `Function` is
+    /// `code_sink::Function` and anyone in the crate may construct one. But the
+    /// failure mode
     /// of a new `compile_x_helper` that copies the constructor instead of
     /// calling `begin_helper_body` is invisible to every cheap check — the
     /// helper's body reaches its own seam and emits `call $itself`, which

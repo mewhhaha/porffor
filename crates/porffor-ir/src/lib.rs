@@ -54,6 +54,10 @@ use porffor_front::{ParseGoal, SourceUnit};
 use regress::Regex;
 
 mod analysis;
+/// Environment Record binding lifecycle (ECMA-262 9.1.1.1): the `Initialization`
+/// state that lives on `BindingInfo`, and the `$tdz.` name domain. See
+/// `docs/rust-rewrite/contracts/environment-record-tdz.md`.
+mod binding_lifecycle;
 mod binding_names;
 mod builtins;
 mod diagnostics;
@@ -73,6 +77,7 @@ mod operations;
 mod regexp;
 mod well_known;
 pub(crate) use analysis::*;
+pub(crate) use binding_lifecycle::*;
 pub use builtins::{CallableToStringRepresentation, HostBuiltinId, StandardBuiltinId};
 pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, LoweringStage};
 pub(crate) use early_errors::validate_derived_constructor_body;

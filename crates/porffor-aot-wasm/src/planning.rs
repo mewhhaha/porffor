@@ -2047,6 +2047,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -2059,8 +2061,15 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
                 self.temporal_object = true;
+                // `toPlainDateTime` hands back a `Temporal.PlainDateTime`, the
+                // mirror of the `TemporalZonedDateTimeConstructor` requirement
+                // the PlainDateTime arm above carries for `toZonedDateTime`.
+                // Without it `emit_alloc_temporal_plain_date_time` reads a
+                // prototype global nothing has bootstrapped.
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalZonedDateTimeConstructor,
@@ -2071,6 +2080,8 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
@@ -2083,6 +2094,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
                 ] {
                     self.standard_roots.insert(dependency);
@@ -5975,6 +5987,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -5985,7 +5999,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
-        | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => 0,
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
         | StandardBuiltinId::EncodeUri

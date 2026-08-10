@@ -689,6 +689,10 @@ spec_operations! {
     ToString => "ToString", SpecOperationIr::ToString;
     ToObject => "ToObject", SpecOperationIr::ToObject;
     ToPropertyKey => "ToPropertyKey", SpecOperationIr::ToPropertyKey;
+    // 7.1.5's codomain is ℤ ∪ {+∞, −∞}; 7.1.20 and 7.1.22 land in
+    // [0, 2^53−1] ∩ ℤ. `normal_result` below reflects exactly that, and a
+    // `const _` at the end of this file asserts it. See
+    // `docs/rust-rewrite/contracts/numeric-conversion-codomains.md` §2.6.
     ToIntegerOrInfinity => "ToIntegerOrInfinity", SpecOperationIr::ToIntegerOrInfinity;
     ToLength => "ToLength", SpecOperationIr::ToLength;
     ToIndex => "ToIndex", SpecOperationIr::ToIndex;
@@ -1311,6 +1315,38 @@ pub fn completion_abi_slots() -> &'static [CompletionAbiSlot] {
 pub fn find_completion_abi_slot(kind: CompletionKindIr) -> Option<&'static CompletionAbiSlot> {
     COMPLETION_ABI_SLOTS.iter().find(|slot| slot.kind == kind)
 }
+
+/// Ties the catalog's descriptive [`NormalResult`] rows to the codomain types in
+/// [`crate::numeric_conversions`], so the two cannot drift.
+///
+/// [`NormalResult`] is a *descriptive tag* for the catalog's rendered "returns"
+/// column, not a codomain — nothing constructs a value of it — and this
+/// assertion deliberately does not promote it to one. What it pins is the
+/// claim each row makes.
+///
+/// `ToIntegerOrInfinity` is `Number`, **not** `Integer`, because 7.1.5's
+/// codomain is ℤ ∪ {+∞, −∞} and `±∞` are not integers — the same fact that
+/// forces [`crate::IntegerOrInfinity`] to have three variants rather than
+/// wrapping an `i32`. If someone "tidies" this row to `Integer` on the grounds
+/// that the operation has "Integer" in its name, this assertion fails the
+/// build. `ToLength` and `ToIndex` are `Integer` because 7.1.20 step 3 and
+/// 7.1.22 step 3 both land in `[0, 2^53−1] ∩ ℤ`.
+///
+/// See `docs/rust-rewrite/contracts/numeric-conversion-codomains.md` §2.6.
+const _: () = {
+    assert!(matches!(
+        SpecOperationIr::ToIntegerOrInfinity.normal_result(),
+        NormalResult::Number
+    ));
+    assert!(matches!(
+        SpecOperationIr::ToLength.normal_result(),
+        NormalResult::Integer
+    ));
+    assert!(matches!(
+        SpecOperationIr::ToIndex.normal_result(),
+        NormalResult::Integer
+    ));
+};
 
 #[cfg(test)]
 mod tests {

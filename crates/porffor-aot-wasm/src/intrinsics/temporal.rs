@@ -971,6 +971,18 @@ impl<'a> FunctionBuilder<'a> {
                 "calendarId",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
             ),
+            // Spec property order puts `era`/`eraYear` between `calendarId` and
+            // `year`. This list and
+            // `lowering::temporal_zoned_date_time_prototype_shape` must gain the
+            // same names in the same order — `Object.keys` sees it.
+            (
+                "era",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            ),
             (
                 "year",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
@@ -1077,6 +1089,23 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
             "withTimeZone",
             with_time_zone_meta,
+            function,
+        )?;
+        let to_plain_date_time_meta = self
+            .functions
+            .get(
+                &StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
+                    .function_id(),
+            )
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.toPlainDateTime`",
+                )
+            })?;
+        self.emit_object_define_function_data(
+            prototype_object_local,
+            "toPlainDateTime",
+            to_plain_date_time_meta,
             function,
         )?;
         function.instruction(&Instruction::I64Const(

@@ -4,6 +4,12 @@ pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
 pub(crate) const COMPLETION_KIND_EXPORT: &str = "completion_kind";
 pub(crate) const COMPLETION_AUX_EXPORT: &str = "completion_aux";
 pub(crate) const THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
+/// Companion export to `THROW_ERROR_NAME_EXPORT`. The host reads both at an
+/// uncaught throw so a failure detail can name the defect
+/// (`TypeError: RegExp.prototype.exec unsupported pattern`) instead of printing
+/// a raw linear-memory address (`TypeError: object(handle@5397552)`), which is
+/// neither stable across builds nor resolvable to an allocation site.
+pub(crate) const THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
 
 pub(crate) const HOST_IMPORT_MODULE: &str = "porf_host";
 pub(crate) const HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
@@ -165,8 +171,22 @@ pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX: u32 = 131;
 pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 132;
 pub(crate) const INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX: u32 = 133;
 pub(crate) const INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 134;
+// Appended after the previous maximum so no existing index moves. The registry
+// is dense and position-indexed (`global_index_registry_is_unique_and_dense`),
+// so the matching `GlobalIndexSlot` row goes at the END of
+// `GLOBAL_INDEX_REGISTRY`, not next to `throw_error_name_heap`: a row inserted
+// beside its sibling would renumber every global after it.
+pub(crate) const THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX: u32 = 135;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
+/// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
+///
+/// A module compiled without a heap emits four globals, so both throw-diagnostic
+/// exports land on the same i64 slot and clobber each other. That is
+/// unobservable rather than merely tolerated: the host reads either global only
+/// when the completion value is a heap object (`Object`/`Array`/`Function`/
+/// `Arguments`), and a module with no heap cannot produce one.
+pub(crate) const THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
 pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 2;
 pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 3;
@@ -730,6 +750,15 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     GlobalIndexSlot {
         name: "Intl.DateTimeFormat",
         index: INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    // Last, and it must stay last while it holds the highest index: this
+    // registry is asserted to be dense with `index == position`, and
+    // `emit.rs` emits `GLOBAL_INDEX_REGISTRY.len()` globals. Its sibling
+    // `throw_error_name_heap` sits at index 64 and cannot be joined here
+    // without renumbering 70 globals.
+    GlobalIndexSlot {
+        name: "throw_error_message_heap",
+        index: THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX,
     },
 ];
 
@@ -1727,6 +1756,14 @@ pub(crate) const fn throw_error_name_global_index(uses_heap: bool) -> u32 {
     }
 }
 
+pub(crate) const fn throw_error_message_global_index(uses_heap: bool) -> u32 {
+    if uses_heap {
+        THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX
+    } else {
+        THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX
+    }
+}
+
 pub(crate) fn error_prototype_global_index(name: &str) -> u32 {
     match name {
         ERROR_NAME => ERROR_PROTOTYPE_GLOBAL_INDEX,
@@ -1981,8 +2018,20 @@ mod tests {
             "no-heap throw-error-name export intentionally aliases the heap pointer slot"
         );
         assert_eq!(
+            THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX, HEAP_PTR_GLOBAL_INDEX,
+            "no-heap throw-error-message export aliases the same slot as its name sibling; a \
+             heap-less module cannot produce an object completion, so neither is ever read"
+        );
+        assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX as usize + 1,
+            "the registry length tracks the highest index, and `emit.rs` emits exactly this many \
+             globals for a heap module"
+        );
+        assert!(
+            THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX > INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+            "the throw-error-message slot was appended after the previous maximum precisely so no \
+             existing global index moved"
         );
     }
 

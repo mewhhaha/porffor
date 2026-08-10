@@ -20,6 +20,7 @@ mod language;
 mod object;
 mod regexp;
 mod string;
+mod throw_propagation;
 mod typed_array;
 
 use std::ffi::OsStr;

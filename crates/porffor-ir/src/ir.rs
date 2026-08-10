@@ -24,6 +24,22 @@ pub mod reference;
 
 pub use reference::{carried_put_value_failure, PutValueFailure, Strictness};
 
+/// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
+/// See `docs/rust-rewrite/contracts/numeric-conversion-codomains.md`.
+///
+/// Declared here rather than in `lib.rs` for the same reason as `reference`:
+/// `lib.rs` is a single-lane hub owned by another area this round, and the
+/// `#[path]` keeps the module a sibling file on disk.
+#[path = "numeric_conversions.rs"]
+pub mod numeric_conversions;
+
+pub use numeric_conversions::{
+    fold_number_format, reference_to_index, reference_to_int32, reference_to_length,
+    reference_to_uint16, reference_to_uint32, residue_pow2_i64, ExtendedInteger, FiniteInteger,
+    FractionDigits, IntegerOrInfinity, NonFiniteReceiverOrder, NumberFormatFold, Precision,
+    RangeChecked, ToIndexOutcome, Uint16, Uint32, MAX_SAFE_INTEGER_U64,
+};
+
 pub type FunctionId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1096,6 +1112,20 @@ impl TypedExpr {
         )
     }
 
+    /// **Reachable only from tests as of `091487732`.** Measured: this
+    /// constructor has exactly two references workspace-wide besides its own
+    /// definition, and both sit inside `#[cfg(test)]` modules — `ir.rs:3856`
+    /// (gate at `ir.rs:3451`) and `crates/porffor-aot-wasm/src/lib.rs:1468`
+    /// (gate at `lib.rs:109`). AGENTS.md wants unreachable-from-product code to
+    /// fail to build; deleting this requires editing an aot-wasm test module,
+    /// which is outside this area's lane. Ledger **LN4** in
+    /// `docs/rust-rewrite/contracts/numeric-conversion-codomains.md`.
+    ///
+    /// Of the 31 `pub fn spec_*` constructors in this file, these three were the
+    /// ones verified line by line. Do not delete this from this lane; do not
+    /// add a product call site to make the count look better either — the
+    /// codomain of 7.1.5 that a real call site would need is
+    /// [`crate::IntegerOrInfinity`], not the `ValueKind::Number` claimed here.
     pub fn spec_to_integer_or_infinity(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Number),
@@ -1106,6 +1136,11 @@ impl TypedExpr {
         )
     }
 
+    /// **Reachable only from tests as of `091487732`.** Measured: exactly two
+    /// references besides this definition, both inside `#[cfg(test)]` modules —
+    /// `ir.rs:3878` (gate at `ir.rs:3451`) and
+    /// `crates/porffor-aot-wasm/src/lib.rs:1486` (gate at `lib.rs:109`).
+    /// Ledger **LN4**; see `spec_to_integer_or_infinity` above.
     pub fn spec_to_length(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Number),
@@ -1116,6 +1151,13 @@ impl TypedExpr {
         )
     }
 
+    /// **Reachable only from tests as of `091487732`.** Measured: exactly two
+    /// references besides this definition, both inside `#[cfg(test)]` modules —
+    /// `ir.rs:3900` (gate at `ir.rs:3451`) and
+    /// `crates/porffor-aot-wasm/src/lib.rs:1503` (gate at `lib.rs:109`).
+    /// Ledger **LN4**; see `spec_to_integer_or_infinity` above. 7.1.22 is the
+    /// one *partial* conversion in this area — see
+    /// [`crate::ToIndexOutcome`] — and `ValueKind::Number` cannot say so.
     pub fn spec_to_index(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Number),

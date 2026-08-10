@@ -468,6 +468,16 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
 /// either at top level shadows it for the whole merged scope — and, for
 /// `let`/`const`/`class`, poisons it with a TDZ that no placement of the prelude
 /// can dodge.
+///
+/// Premise **P1** of
+/// `docs/rust-rewrite/contracts/environment-record-tdz.md`. The comment above
+/// describes the correct 16.1.7 step 17 behaviour, and as of the binding
+/// lifecycle retrofit the compiler actually produces that TDZ at module top
+/// level for the first time. **Do not remove this bail-out on that basis
+/// alone.** Removing it additionally requires premise **P2** — a merged-scope
+/// `Object` whose `porffor-aot-wasm` `BindingStorage` lands on `Fixed` or
+/// `Dynamic` gets no runtime uninitialized check at all, so the emitted program
+/// would read a zero tag, which is `ValueKind::Undefined`.
 fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     for unit in &graph.units {
         // A unit that does not evaluate inline declares nothing in the merged
@@ -566,6 +576,9 @@ fn collect_namespace_aliases(
                 // `const` in the merged scope. `const Object = ...` would put
                 // `Object` in TDZ for the whole script, and the prelude's very
                 // first statement is `Object.create(null)`.
+                //
+                // Premise **P1**, as above: gated on **P2** before removal. See
+                // `docs/rust-rewrite/contracts/environment-record-tdz.md`.
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!(

@@ -33,11 +33,19 @@ use porffor_ir::{
     TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
     UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
-use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
+// `Function` is deliberately absent from this list. The name is bound below to
+// `code_sink::Function`, the wrapper that counts real Wasm label depth, and
+// every submodule of this crate reaches `Function` through this one binding
+// (`use super::*` / `use super::super::*`). That is what lets ~600 `&mut
+// Function` signatures and ~77,000 `function.instruction(..)` calls keep their
+// exact text while the branch arithmetic underneath them becomes correct.
+// See `code_sink.rs`.
+use wasm_encoder::{BlockType, Ieee64, Instruction, MemArg, ValType};
 
 mod abi;
 mod bigint;
 mod builtins;
+mod code_sink;
 mod control_flow;
 mod data;
 mod emission_sites;
@@ -59,11 +67,13 @@ mod runtime_helpers;
 use abi::*;
 use bigint::BigIntHelperOp;
 use builtins::*;
+use code_sink::{Function, LabelDepth};
 use data::*;
 pub use emit::emit;
 pub(crate) use emit::{
-    BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder, IteratorCloseOnThrowLocals,
-    LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
+    AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder,
+    IteratorCloseOnThrowLocals, LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission,
+    PropagateCallThrow, ReturnAbi,
 };
 // `FunctionBodySize` and `FunctionLocalCount` are part of the public face
 // because `EmittedFunctionSummary` carries them: a `pub` struct whose fields

@@ -36,8 +36,12 @@
 use std::num::NonZeroU32;
 
 use porffor_ir::{FunctionId, HostBuiltinId, StandardBuiltinId};
-use wasm_encoder::{CodeSection, Function, NameMap, NameSection};
+use wasm_encoder::{CodeSection, NameMap, NameSection};
 
+// The body handed to `EmittedFunction::new` is the label-counting sink, not the
+// raw encoder type: `Function::into_body` is what asserts the body closed every
+// frame it opened. See `code_sink.rs`.
+use crate::code_sink::Function;
 use crate::module::EmitError;
 use crate::runtime_helpers::RuntimeHelperId;
 
@@ -366,7 +370,8 @@ impl core::fmt::Display for FunctionBodySize {
 #[derive(Debug, Clone)]
 pub(crate) struct EmittedFunction {
     identity: FunctionIdentity,
-    /// The body in the form `Function::into_raw_body` produces: the local
+    /// The body in the form `code_sink::Function::into_body().into_raw_body()`
+    /// produces: the local
     /// declaration followed by the instruction bytes, with no length prefix.
     /// `CodeSection::raw` prepends the same length prefix `CodeSection::function`
     /// would, so this is byte-identical to pushing the `Function` itself, and it
@@ -378,7 +383,11 @@ pub(crate) struct EmittedFunction {
 
 impl EmittedFunction {
     pub(crate) fn new(identity: FunctionIdentity, body: Function) -> Self {
-        let raw_body = body.into_raw_body();
+        // `into_body` asserts the label stack is empty, so an emitter that
+        // opened a frame and never closed it fails here — naming the identity
+        // it was building — instead of as an anonymous wasmtime validation
+        // error inside whichever Test262 case happened to compile it.
+        let raw_body = body.into_body().into_raw_body();
         let body_bytes = FunctionBodySize::of(&raw_body);
         let declared_locals = FunctionLocalCount::decode(&raw_body);
         Self {

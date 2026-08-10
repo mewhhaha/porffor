@@ -3,6 +3,7 @@ use super::array::{
     ArrayCallbackReceiverKind, ArraySortOutput, TypedArrayFindKind, TypedArrayQuantifierKind,
 };
 use super::string::UriCodecKind;
+use super::temporal::ZonedDateTimeField;
 
 const ITERATOR_ZIP_MODE_SHORTEST: u64 = 0.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_LONGEST: u64 = 1.0_f64.to_bits();
@@ -37047,23 +37048,71 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter => {
                 self.emit_temporal_zoned_date_time_calendar_id(function)?;
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
-                self.emit_temporal_zoned_date_time_iso_field(builtin, function)?;
+            // One arm per accessor rather than an or-pattern that forwards
+            // `builtin`: this is the only `StandardBuiltinId ->
+            // ZonedDateTimeField` conversion, and spelling it here means the
+            // emitter never has to match a several-hundred-variant enum with a
+            // catch-all. Adding a ZonedDateTime accessor is a compile error in
+            // this match until it names its field.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Era, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::EraYear,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Year, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Month, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::MonthCode,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Day, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Hour, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Minute, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Second, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::Millisecond,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::Microsecond,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::Nanosecond,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
                 self.emit_temporal_zoned_date_time_equals(function)?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => {
                 self.emit_temporal_zoned_date_time_to_instant(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => {
+                self.emit_temporal_zoned_date_time_to_plain_date_time(function)?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
                 self.emit_temporal_zoned_date_time_with_time_zone(function)?;

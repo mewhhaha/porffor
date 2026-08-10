@@ -1826,29 +1826,28 @@ fn run_wasm_backend_ignores_sloppy_reference_property_write_inside_top_level_try
 
 /// A runtime-thrown error's `message` must not be its `name`.
 ///
-/// **Declared failure (T24).** `emit_runtime_error_object`
-/// (`crates/porffor-aot-wasm/src/builtins/errors.rs`) defines `message` from the
-/// error's *name* payload and ignores the message argument entirely — its
-/// parameter is spelled `_message`, so not even an unused-parameter warning
-/// mentions it. The one-token repair cannot land alone: `StringPool::payload`
-/// panics for a string that was never interned, and 92 distinct message literals
-/// across 120 call sites reach that function without being in the pool, precisely
-/// because it never asks for them. The repair has to land with the `data.rs`
-/// interning.
+/// **Was the T24 declared failure; repaired, so the declaration is gone.**
+/// `emit_runtime_error_object` (`crates/porffor-aot-wasm/src/builtins/errors.rs`)
+/// used to define `message` from the error's *name* payload and ignore the
+/// message argument entirely — its parameter was spelled `_message`, so not even
+/// an unused-parameter warning mentioned it. The one-token repair could not land
+/// alone: `StringPool::payload` panics for a string that was never interned, and
+/// the message literals reaching that function were not in the pool precisely
+/// because it never asked for them. It landed together with
+/// `data.rs`'s `RUNTIME_ERROR_MESSAGE_LITERALS`.
 ///
-/// This test exists because nothing else observes the defect. No Test262 case
-/// reads a runtime-thrown error's message (audited: the nine files that assert
-/// on a caught error's `.message` all throw it themselves), and no other CLI
-/// fixture did either — so the tree stayed green while the defect stayed, which
-/// is exactly the shape `known-failures.tsv` exists to end. When the repair
-/// lands this test starts passing and libtest reports `test did not panic as
-/// expected`, which is the signal to delete the row.
+/// The ledger row, this test's `#[should_panic]` and the `const _` line in
+/// `known_failures.rs` were retired in that same patch, because a declared
+/// failure that starts passing is a rung-1c red by design
+/// (`test did not panic as expected`).
 ///
-/// `pub(crate)` so `known_failures.rs` can assert at compile time that this
-/// function still exists under this name.
+/// The test stays. Nothing else observes this: no Test262 case reads a
+/// runtime-thrown error's message (audited — the nine files that assert on a
+/// caught error's `.message` all throw it themselves), and no other CLI fixture
+/// does either, so deleting the observer would let the defect come back with
+/// every suite green. That is exactly the shape it took the first time.
 #[test]
-#[should_panic(expected = "runtime error message equals its name")]
-pub(crate) fn run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name() {
+fn run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")
@@ -1868,7 +1867,7 @@ pub(crate) fn run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(
         stdout.contains("string(message-differs)"),
-        "runtime error message equals its name (T24, \
-         emit_runtime_error_object ignores its `_message`): {stdout}"
+        "runtime error message equals its name (emit_runtime_error_object must define \
+         `message` from its message argument, not from the name payload): {stdout}"
     );
 }

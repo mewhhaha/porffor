@@ -1029,6 +1029,8 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1041,6 +1043,7 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {}
         }
 

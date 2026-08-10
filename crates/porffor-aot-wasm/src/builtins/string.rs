@@ -649,7 +649,6 @@ impl<'a> FunctionBuilder<'a> {
                 arg_tag_local,
                 self.result_local,
                 self.result_tag_local,
-                0,
                 function,
             )?;
         } else if matches!(builtin, StandardBuiltinId::StringPrototypeMatchAll) {
@@ -6497,7 +6496,6 @@ impl<'a> FunctionBuilder<'a> {
         arg_tag_local: u32,
         payload_local: u32,
         tag_local: u32,
-        throw_extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let pattern_payload_local = self.reserve_temp_local();
@@ -6523,10 +6521,9 @@ impl<'a> FunctionBuilder<'a> {
             primitive_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             primitive_payload_local,
             primitive_tag_local,
-            throw_extra_depth + 2,
             function,
         )?;
         self.emit_primitive_to_string_payload_to_local_without_throw_return(
@@ -6535,10 +6532,9 @@ impl<'a> FunctionBuilder<'a> {
             pattern_payload_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            throw_extra_depth + 2,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -13900,7 +13896,6 @@ impl<'a> FunctionBuilder<'a> {
             arg_tag_local,
             payload_local,
             tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -13929,7 +13924,6 @@ impl<'a> FunctionBuilder<'a> {
             arg_tag_local,
             payload_local,
             tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -13964,7 +13958,6 @@ impl<'a> FunctionBuilder<'a> {
             arg_tag_local,
             payload_local,
             tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -15964,10 +15957,9 @@ impl<'a> FunctionBuilder<'a> {
             last_index_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            1,
             function,
         )?;
         self.emit_to_length_i64_from_value_locals_without_throw_return(
@@ -15976,10 +15968,9 @@ impl<'a> FunctionBuilder<'a> {
             last_index_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            1,
             function,
         )?;
 
@@ -16035,10 +16026,9 @@ impl<'a> FunctionBuilder<'a> {
             last_index_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            2,
             function,
         )?;
         self.emit_object_write_strict(
@@ -16049,10 +16039,9 @@ impl<'a> FunctionBuilder<'a> {
             last_index_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -16496,10 +16485,9 @@ impl<'a> FunctionBuilder<'a> {
             number_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -17335,10 +17323,9 @@ impl<'a> FunctionBuilder<'a> {
             last_index_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            4,
             function,
         )?;
         self.emit_to_length_i64_from_value_locals_without_throw_return(
@@ -17347,10 +17334,9 @@ impl<'a> FunctionBuilder<'a> {
             last_index_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            4,
             function,
         )?;
 
@@ -17824,10 +17810,9 @@ impl<'a> FunctionBuilder<'a> {
             number_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            5,
             function,
         )?;
         function.instruction(&Instruction::End);

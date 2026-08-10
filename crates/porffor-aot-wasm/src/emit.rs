@@ -17,10 +17,14 @@ use porffor_ir::{
 // without an identity and records the body's measured size; keeping the raw
 // section unnameable here is what makes "emit a body without attributing it"
 // a compile error rather than a review finding. See `emitted_function.rs`.
+// `Function` is deliberately absent from this list too: it names
+// `code_sink::Function`, reached through the glob below. Importing the encoder
+// type here would shadow the sink in this file alone, which is precisely the
+// hole the sink exists to close.
 use wasm_encoder::{
-    ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, Function,
-    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemorySection,
-    MemoryType, Module, RefType, TableSection, TableType, TypeSection, ValType,
+    ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, FunctionSection,
+    GlobalSection, GlobalType, ImportSection, Instruction, MemorySection, MemoryType, Module,
+    RefType, TableSection, TableType, TypeSection, ValType,
 };
 
 use super::*;
@@ -32,10 +36,63 @@ pub(crate) enum ControlFrameKind {
     Loop,
 }
 
+/// What a call site wants done with a throw the callee left behind.
+///
+/// This was spelled `Option<u32>`: `Some(n)` meant "route it to the active
+/// handler, and by the way the caller has `n` raw Wasm frames open that the
+/// branch arithmetic cannot see", `None` meant "leave it in the completion
+/// tuple". The depth half is gone — branch immediates come from the real label
+/// depth now — but the choice half is a real, closed decision, so it is an enum
+/// rather than a `bool`: `Some(0)` and `Some(1)` read like tuning and were the
+/// same decision spelled two ways.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PropagateCallThrow {
+    /// Emit the propagation, so the throw reaches the enclosing `try`/`finally`
+    /// (or returns the completion when there is none).
+    ToActiveHandler,
+    /// Leave `completion_local == THROW` for the caller to inspect.
+    LeaveInCompletion,
+}
+
+/// What the ordinary property-read path does with a throw raised by a getter.
+///
+/// This one is deliberately **not** the same mechanism as
+/// [`PropagateCallThrow`]. `BreakToOrdinaryReadExit` emits a raw `Br` out of
+/// frames the read path opened and closes itself, not a `ControlTarget`
+/// branch, so it survives the retirement of the hand-counted `extra_depth`
+/// arguments (see the closing section of `code_sink.rs`). It used to be spelled
+/// `Option<u32>` with `Some(8)` at its single call site, and the `8` was then
+/// `saturating_sub(1)`-ed inside the callee — a number that crossed a module
+/// boundary to be adjusted at the far end. Now nothing crosses: the depth is a
+/// constant beside the code that emits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AccessorThrowRouting {
+    /// Break out to the ordinary-read exit the caller opened.
+    BreakToOrdinaryReadExit,
+    /// Leave `completion_local == THROW` in place.
+    LeaveInCompletion,
+}
+
+impl AccessorThrowRouting {
+    /// Labels between the getter-call site and the ordinary-read exit block,
+    /// counted from inside the `is_callable` `If`. Was `Some(8) - 1` written at
+    /// the call site.
+    pub(crate) const ORDINARY_READ_EXIT_BREAK_DEPTH: u32 = 7;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ControlTarget {
+    /// Index into `FunctionBuilder::control_stack`. This is an *identity* —
+    /// it orders two targets (`innermost_target`, `finalizer_crosses_branch`)
+    /// and names one in the completion dispatcher's `target_id`. It is no
+    /// longer used to compute a branch immediate; `label` is.
     pub(crate) frame: usize,
     pub(crate) environment_depth: u32,
+    /// The real Wasm label this frame opened, recorded by
+    /// `ControlFlow::open_frame` from the sink immediately after the frame
+    /// instruction was written. Subtracting it from the sink's current depth
+    /// is the whole branch arithmetic; see `code_sink.rs`.
+    pub(crate) label: LabelDepth,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -248,7 +305,7 @@ pub(crate) struct FunctionBuilder<'a> {
     /// arithmetic expressions, so outlining it keeps user functions below
     /// Cranelift's per-function virtual-register limit.
     pub(crate) outline_value_to_numeric: bool,
-    /// When false, `emit_object_get_prototype_of_with_depth` inlines the
+    /// When false, `emit_object_get_prototype_of` inlines the
     /// proxy-aware `[[GetPrototypeOf]]` state machine instead of emitting a call
     /// to the shared helper. Set false only while compiling that helper itself.
     /// The proxy get-prototype-of expansion (which mutually inlines the
@@ -257,7 +314,7 @@ pub(crate) struct FunctionBuilder<'a> {
     /// what keeps `instanceof other.X` reading functions from blowing past
     /// Cranelift's per-function code-size limit.
     pub(crate) outline_object_get_prototype_of: bool,
-    /// When false, `emit_object_is_extensible_i32_with_depth` inlines the
+    /// When false, `emit_object_is_extensible_i32` inlines the
     /// proxy-aware `[[IsExtensible]]` state machine instead of emitting a call to
     /// the shared helper. Set false only while compiling that helper itself.
     pub(crate) outline_object_is_extensible: bool,
@@ -3020,17 +3077,11 @@ impl<'a> FunctionBuilder<'a> {
             return function;
         }
 
-        let local_declaration =
-            Function::new([(planned_local_count, ValType::I64)]).into_raw_body();
-        let mut body_bytes = function.into_raw_body();
-        assert!(
-            body_bytes.starts_with(&local_declaration),
-            "function local declaration does not match planned local count {planned_local_count}"
-        );
-        let instruction_bytes = body_bytes.split_off(local_declaration.len());
-        let mut function = Function::new([(emitted_local_count, ValType::I64)]);
-        function.raw(instruction_bytes);
-        function
+        // The rebuild itself lives in `code_sink.rs`: it is the one operation
+        // that reconstructs a body from raw bytes, and going through the public
+        // constructors here would reset the label depth to "fresh body" on a
+        // body that is already closed.
+        function.rewrite_local_declaration(planned_local_count, emitted_local_count)
     }
 
     fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
@@ -3196,10 +3247,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.result_tag_local,
                 &mut function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            self.emit_propagate_throw_from_locals_if_needed(
                 self.result_local,
                 self.result_tag_local,
-                0,
                 &mut function,
             )?;
         }
@@ -3618,7 +3668,7 @@ impl<'a> FunctionBuilder<'a> {
             4,
             self.result_local,
             self.result_tag_local,
-            None,
+            AccessorThrowRouting::LeaveInCompletion,
             &mut function,
         )?;
         self.pop_scope();
@@ -3878,7 +3928,7 @@ impl<'a> FunctionBuilder<'a> {
             5,
             self.result_local,
             self.result_tag_local,
-            None,
+            PropagateCallThrow::LeaveInCompletion,
             &mut function,
         )?;
         self.pop_scope();
@@ -4299,12 +4349,11 @@ impl<'a> FunctionBuilder<'a> {
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_get_prototype_of_with_depth(
+        self.emit_object_get_prototype_of(
             0,
             1,
             self.result_local,
             self.result_tag_local,
-            0,
             &mut function,
         )?;
         self.pop_scope();
@@ -4329,7 +4378,7 @@ impl<'a> FunctionBuilder<'a> {
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_is_extensible_i32_with_depth(0, 1, self.result_local, 0, &mut function)?;
+        self.emit_object_is_extensible_i32(0, 1, self.result_local, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));

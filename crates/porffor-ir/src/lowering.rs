@@ -18,6 +18,9 @@ pub(crate) struct BindingInfo {
     pub(crate) possible_kinds: KindSet,
     pub(crate) heap_shape: Option<Box<HeapShape>>,
     pub(crate) function_targets: BTreeSet<FunctionId>,
+    /// ECMA-262 9.1.1.1: whether InitializeBinding (9.1.1.1.4) has run for this
+    /// binding. Mandatory and undefaulted — see `binding_lifecycle::Initialization`.
+    pub(crate) initialization: Initialization,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -475,7 +478,6 @@ pub(crate) struct ScriptLowerer<'a> {
     current_owner_id: String,
     scopes: Vec<BTreeMap<String, BindingInfo>>,
     direct_lexical_scopes: Vec<bool>,
-    tdz_scopes: Vec<BTreeSet<String>>,
     var_bindings: BTreeMap<String, VarBindingInfo>,
     function_signatures: BTreeMap<FunctionId, FunctionSignature>,
     visible_function_names: BTreeMap<String, FunctionId>,
@@ -1688,6 +1690,21 @@ impl<'a> ScriptLowerer<'a> {
                 "calendarId",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
             ),
+            // `era`/`eraYear` sit between `calendarId` and `year`, which is
+            // both the spec's order and the order
+            // `temporal_plain_date_time_prototype_shape` already uses. This
+            // list and the accessor loop in
+            // `install_temporal_zoned_date_time_constructor_intrinsics` must
+            // stay in lockstep: property order is observable through
+            // `Object.keys`.
+            (
+                "era",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            ),
             (
                 "year",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
@@ -1757,6 +1774,13 @@ impl<'a> ScriptLowerer<'a> {
             "withTimeZone".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toPlainDateTime".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime.function_id(),
                 false,
             )),
         );
@@ -6865,6 +6889,28 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            // Declared exactly as the PlainDate / PlainDateTime / PlainYearMonth
+            // era pair already is, so the four cannot disagree. `era` is filed
+            // under `Undefined` and `eraYear` under `Dynamic`; that asymmetry
+            // is inherited, not invented here, and it is measured non-fatal —
+            // the `intl402/Temporal/PlainDate` node is 488/488 with
+            // `prototype/era/basic.js` (`era === "ce"`) inside it, so this
+            // declaration does not fold a gregory era to `undefined`. It is
+            // still a wrong declaration for a two-calendar backend; see the
+            // lane note's finding on it.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
@@ -6882,6 +6928,12 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
             ),
             StandardBuiltinId::RegExpConstructor => (
                 ValueKind::Object,
@@ -7623,6 +7675,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: value_info.possible_kinds,
                 heap_shape: value_info.heap_shape,
                 function_targets: value_info.function_targets,
+                initialization: Initialization::Initialized,
             },
         );
         name
@@ -7688,9 +7741,20 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lexical_storage_name(&mut self, source_name: &str) -> String {
         let shadows_scope_binding = self.scopes.iter().rev().any(|scope| {
-            scope
-                .get(source_name)
-                .is_some_and(|binding| !Self::is_tdz_binding_storage_name(&binding.storage_name))
+            scope.get(source_name).is_some_and(|binding| {
+                // A *placeholder* entry (14.7.5.5 head binding, 10.2.11 step 21
+                // parameter) backs no slot in its scope, so it is not a claim on
+                // the name; an entry the sweep created (`Allocated`) and an
+                // initialized entry both are. The match is exhaustive on
+                // purpose: a third storage disposition must be decided here
+                // rather than default to "does not shadow", which is the silent
+                // slot-sharing bug this replaces.
+                match binding.initialization {
+                    Initialization::Uninitialized(UninitializedStorage::Placeholder) => false,
+                    Initialization::Uninitialized(UninitializedStorage::Allocated)
+                    | Initialization::Initialized => true,
+                }
+            })
         });
         let shadows_var_binding = self
             .var_bindings
@@ -7703,11 +7767,67 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// The storage name an InitializeBinding (9.1.1.1.4) must write.
+    ///
+    /// If BlockDeclarationInstantiation already created this binding in the
+    /// current scope, that creation allocated the slot and this returns it.
+    /// Recomputing instead is the M2b trap: the script top level and every
+    /// function body are not direct-lexical scopes, so `lexical_storage_name`
+    /// answers `$lexN` once the created entry is in scope, and the declarator
+    /// would write a slot that nothing — neither an earlier read nor the
+    /// capture analysis' `EnvironmentPlan` — resolves to. The token
+    /// `PendingInitialization` carries the same name for the paths that take
+    /// one; this covers the destructuring paths of ledger entry L2, which do
+    /// not.
     fn direct_lexical_storage_name(&mut self, source_name: &str, span: boa_ast::Span) -> String {
+        let created = self
+            .scopes
+            .last()
+            .and_then(|scope| scope.get(source_name))
+            .filter(|binding| {
+                binding.initialization
+                    == Initialization::Uninitialized(UninitializedStorage::Allocated)
+            })
+            .map(|binding| binding.storage_name.clone());
+        if let Some(created) = created {
+            return created;
+        }
         if self.direct_lexical_scopes.last().copied().unwrap_or(false) {
             return scoped_lexical_binding_storage_name(source_name, span);
         }
         self.lexical_storage_name(source_name)
+    }
+
+    /// CreateMutableBinding (9.1.1.1.2) / CreateImmutableBinding (9.1.1.1.3) for
+    /// one lexically scoped name, as `LexicalScopeInstantiation` performs them.
+    ///
+    /// `pub(crate)` only so the sweep — whose exhaustive `boa_ast::Declaration`
+    /// match lives in `binding_lifecycle` — can reach it; it is not a general
+    /// declaration entry point.
+    pub(crate) fn create_lexical_binding(
+        &mut self,
+        source_name: &str,
+        mode: BindingMode,
+        span: boa_ast::Span,
+    ) -> String {
+        let storage_name = self.direct_lexical_storage_name(source_name, span);
+        self.declare_binding(
+            source_name.to_string(),
+            BindingInfo {
+                mode,
+                storage_name: storage_name.clone(),
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+                initialization: Initialization::Uninitialized(UninitializedStorage::Allocated),
+            },
+        );
+        storage_name
+    }
+
+    pub(crate) fn interner(&self) -> &'a Interner {
+        self.interner
     }
 
     fn new(
@@ -7727,7 +7847,6 @@ impl<'a> ScriptLowerer<'a> {
             current_owner_id,
             scopes: vec![BTreeMap::new()],
             direct_lexical_scopes: vec![false],
-            tdz_scopes: vec![BTreeSet::new()],
             var_bindings: BTreeMap::new(),
             function_signatures: BTreeMap::new(),
             visible_function_names: BTreeMap::new(),
@@ -8365,9 +8484,12 @@ impl<'a> ScriptLowerer<'a> {
         prepass.function_signatures = self.function_signatures.clone();
         prepass.is_prepass = true;
         prepass.hoist_root_statement_items(script.statements().statements());
+        let prepass_scope =
+            LexicalScopeInstantiation::instantiate(&mut prepass, script.statements().statements());
         let _ = prepass.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
+            prepass_scope,
         );
         if let Some(root_scope) = prepass.scopes.first() {
             for (name, binding) in root_scope {
@@ -8463,9 +8585,14 @@ impl<'a> ScriptLowerer<'a> {
             eprintln!("porffor lower trace: final-functions: {:?}", tp.elapsed());
         }
         let tp = std::time::Instant::now();
+        // 16.1.7 step 17: the script's `lexDeclarations` are created on the
+        // global lexical Environment Record before the body evaluates.
+        let scope =
+            LexicalScopeInstantiation::instantiate(self, script.statements().statements());
         let body = self.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
+            scope,
         );
         if lower_trace {
             eprintln!("porffor lower trace: final-body: {:?}", tp.elapsed());
@@ -9447,19 +9574,34 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         items: &[StatementListItem],
         root_functions: &[PendingFunction<'a>],
+        scope: LexicalScopeInstantiation,
     ) -> BlockIr {
         let root_function_bindings = root_functions
             .iter()
             .map(|function| (function.name.clone(), function.id.clone()))
             .collect::<Vec<_>>();
-        self.lower_root_statement_items_with_function_bindings(items, &root_function_bindings)
+        self.lower_root_statement_items_with_function_bindings(
+            items,
+            &root_function_bindings,
+            scope,
+        )
     }
 
+    /// The statement-list entry for the script top level (16.1.7
+    /// GlobalDeclarationInstantiation step 17) **and every function body**
+    /// (10.2.11 FunctionDeclarationInstantiation step 30).
+    ///
+    /// Both moments create the whole `lexDeclarations` list uninitialized before
+    /// the body evaluates, and neither used to do so here — which is why
+    /// `x; let x;` read slot `x` at the top level while the same program inside
+    /// a block already threw. `scope` is the witness that the sweep ran.
     fn lower_root_statement_items_with_function_bindings(
         &mut self,
         items: &[StatementListItem],
         root_functions: &[(String, FunctionId)],
+        scope: LexicalScopeInstantiation,
     ) -> BlockIr {
+        let mut scope = scope;
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
 
@@ -9488,7 +9630,7 @@ impl<'a> ScriptLowerer<'a> {
                 StatementListItem::Declaration(declaration)
                     if self.is_static_generator_declaration(declaration) => {}
                 _ => {
-                    let (statement, kind) = self.lower_statement_list_item(item);
+                    let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
                     statements.push(statement);
                     result_kind = kind;
                 }
@@ -9502,7 +9644,17 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
-    fn lower_statement_items(&mut self, items: &[StatementListItem]) -> BlockIr {
+    /// Lowers one statement list against the BlockDeclarationInstantiation that
+    /// created its lexical bindings.
+    ///
+    /// `scope` is taken by value and its only constructors perform the sweep, so
+    /// a statement-list entry cannot be written that forgets to predeclare.
+    fn lower_statement_items(
+        &mut self,
+        items: &[StatementListItem],
+        scope: LexicalScopeInstantiation,
+    ) -> BlockIr {
+        let mut scope = scope;
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
 
@@ -9529,7 +9681,7 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item);
+            let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
             statements.push(statement);
             result_kind = kind;
         }
@@ -9629,6 +9781,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: dynamic_info.possible_kinds,
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     name
@@ -9855,9 +10008,13 @@ impl<'a> ScriptLowerer<'a> {
             .collect()
     }
 
+    /// A switch case body. It shares the CaseBlock's single instantiation with
+    /// every other case (14.12.4), so the token map is borrowed rather than
+    /// owned.
     fn lower_statement_items_without_function_initialization(
         &mut self,
         items: &[StatementListItem],
+        scope: &mut LexicalScopeInstantiation,
     ) -> BlockIr {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
@@ -9882,7 +10039,7 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item);
+            let (statement, kind) = self.lower_statement_list_item(item, scope);
             statements.push(statement);
             result_kind = kind;
         }
@@ -9942,6 +10099,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: KindSet::from_kind(ValueKind::Function),
                     heap_shape: function_info.heap_shape,
                     function_targets: BTreeSet::from([function_id.clone()]),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -10005,14 +10163,18 @@ impl<'a> ScriptLowerer<'a> {
             .contains_key(&async_generator_declaration_key(function))
     }
 
-    fn lower_statement_list_item(&mut self, item: &StatementListItem) -> (StatementIr, ValueKind) {
+    fn lower_statement_list_item(
+        &mut self,
+        item: &StatementListItem,
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         match item {
             StatementListItem::Statement(statement) => self.lower_statement(statement),
             StatementListItem::Declaration(declaration) => {
                 if self.is_static_generator_declaration(declaration.as_ref()) {
                     (StatementIr::Empty, ValueKind::Undefined)
                 } else {
-                    self.lower_declaration(declaration)
+                    self.lower_declaration(declaration, scope)
                 }
             }
         }
@@ -10290,6 +10452,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: object.possible_kinds,
                     heap_shape: object.heap_shape.clone(),
                     function_targets: object.function_targets.clone(),
+                    initialization: Initialization::Initialized,
                 },
             );
             name
@@ -10312,8 +10475,12 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_block(&mut self, block: &Block) -> BlockIr {
-        self.predeclare_block_lexical_bindings(block.statement_list().statements());
-        let mut lowered = self.lower_statement_items(block.statement_list().statements());
+        // 14.3.1.2 BlockDeclarationInstantiation: the whole statement list's
+        // lexically scoped declarations are created before any statement of the
+        // block is evaluated.
+        let scope =
+            LexicalScopeInstantiation::instantiate(self, block.statement_list().statements());
+        let mut lowered = self.lower_statement_items(block.statement_list().statements(), scope);
         lowered.lexical_environment = self.lower_materialized_lexical_environment(
             self.analysis
                 .block_environment_ids
@@ -10547,7 +10714,10 @@ impl<'a> ScriptLowerer<'a> {
                 for bound in bound_names {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, *pattern_mode),
+                        BindingInfo::tdz_placeholder(
+                            *pattern_mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
                 let target = self.lower_expression(for_in.target());
@@ -10599,6 +10769,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: key_info.possible_kinds,
                     heap_shape: key_info.heap_shape.clone(),
                     function_targets: key_info.function_targets.clone(),
+                    initialization: Initialization::Initialized,
                 },
             );
         } else {
@@ -10611,6 +10782,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: key_info.possible_kinds,
                     heap_shape: key_info.heap_shape.clone(),
                     function_targets: key_info.function_targets.clone(),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -10726,26 +10898,21 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         self.push_scope();
-        self.declare_binding(name.to_string(), Self::tdz_binding_info(name, mode));
+        self.declare_binding(
+            name.to_string(),
+            BindingInfo::tdz_placeholder(mode, TdzPlaceholderName::for_source_name(name)),
+        );
         let lowered = self.lower_expression(expression);
         self.pop_scope();
         lowered
     }
 
-    fn tdz_binding_info(name: &str, mode: BindingMode) -> BindingInfo {
-        BindingInfo {
-            mode,
-            storage_name: tdz_binding_storage_name(name),
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: BTreeSet::new(),
-        }
-    }
-
-    fn is_tdz_binding_storage_name(storage_name: &str) -> bool {
-        storage_name.starts_with(TDZ_BINDING_STORAGE_PREFIX)
-    }
+    // `tdz_binding_info` is now `BindingInfo::tdz_placeholder`, which takes a
+    // `TdzPlaceholderName` so the reserved spelling and the `Placeholder` state
+    // are minted together. `is_tdz_binding_storage_name` is gone: a storage-name
+    // prefix is a name domain, not a lifecycle state, and no site decides
+    // whether to throw by testing it any more. The name-domain question that
+    // does survive is `TdzPlaceholderName::names_a_placeholder`.
 
     fn lower_for_in_initializer_prefix(
         &mut self,
@@ -11802,6 +11969,7 @@ impl<'a> ScriptLowerer<'a> {
             possible_kinds: info.possible_kinds,
             heap_shape: info.heap_shape,
             function_targets: info.function_targets,
+            initialization: Initialization::Initialized,
         }
     }
 
@@ -12862,7 +13030,10 @@ impl<'a> ScriptLowerer<'a> {
                     for bound in bound_names {
                         self.declare_binding(
                             bound.source_name.clone(),
-                            Self::tdz_binding_info(&bound.source_name, mode),
+                            BindingInfo::tdz_placeholder(
+                                mode,
+                                TdzPlaceholderName::for_source_name(&bound.source_name),
+                            ),
                         );
                     }
                 }
@@ -13350,7 +13521,10 @@ impl<'a> ScriptLowerer<'a> {
                 for bound in bound_names {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, *pattern_mode),
+                        BindingInfo::tdz_placeholder(
+                            *pattern_mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
                 let iterable = self.lower_expression(for_of.iterable());
@@ -13443,6 +13617,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: element_info.possible_kinds,
                 heap_shape: element_info.heap_shape.clone(),
                 function_targets: element_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         let mut pattern_prefix = if let Some(access) = access_initializer.as_ref() {
@@ -13659,7 +13834,10 @@ impl<'a> ScriptLowerer<'a> {
         let before_globals = self.global_properties.clone();
         self.push_direct_lexical_scope();
         self.breakable_depth += 1;
-        self.predeclare_switch_lexical_bindings(switch);
+        // 14.12.4 CaseBlockEvaluation instantiates the CaseBlock's
+        // LexicallyScopedDeclarations once for the whole block, not per case, so
+        // one token map is shared by every case body below.
+        let mut scope = LexicalScopeInstantiation::instantiate_switch(self, switch);
 
         let mut last_function_by_name = BTreeMap::new();
         for case in switch.cases() {
@@ -13700,8 +13878,10 @@ impl<'a> ScriptLowerer<'a> {
         {
             self.var_bindings = case_vars;
             self.global_properties = case_globals;
-            let body = self
-                .lower_statement_items_without_function_initialization(case.body().statements());
+            let body = self.lower_statement_items_without_function_initialization(
+                case.body().statements(),
+                &mut scope,
+            );
             merged_vars = self.merge_var_bindings(&merged_vars, &self.var_bindings);
             merged_globals = self.merge_global_properties(&merged_globals, &self.global_properties);
             if let Some(kind) = result_kind {
@@ -13735,77 +13915,14 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn predeclare_block_lexical_bindings(&mut self, items: &[StatementListItem]) {
-        for item in items {
-            self.predeclare_direct_lexical_binding(item);
-        }
-    }
-
-    fn predeclare_switch_lexical_bindings(&mut self, switch: &AstSwitch) {
-        for case in switch.cases() {
-            for item in case.body().statements() {
-                self.predeclare_direct_lexical_binding(item);
-            }
-        }
-    }
-
-    fn predeclare_direct_lexical_binding(&mut self, item: &StatementListItem) {
-        let StatementListItem::Declaration(declaration) = item else {
-            return;
-        };
-        match declaration.as_ref() {
-            Declaration::Lexical(lexical) => {
-                let (mode, variables) = match lexical {
-                    LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
-                    // A `using` binding is immutable like `const` (ECMA-262
-                    // 14.3.4) and is in TDZ until its declaration runs.
-                    LexicalDeclaration::Const(variables)
-                    | LexicalDeclaration::Using(variables)
-                    | LexicalDeclaration::AwaitUsing(variables) => (BindingMode::Const, variables),
-                };
-                for variable in variables.as_ref() {
-                    let Some(bound_names) =
-                        supported_bound_names(self.interner, variable.binding())
-                    else {
-                        continue;
-                    };
-                    for bound in bound_names {
-                        let storage_name =
-                            self.direct_lexical_storage_name(&bound.source_name, bound.span);
-                        self.declare_binding(
-                            bound.source_name.clone(),
-                            BindingInfo {
-                                mode,
-                                storage_name,
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                        );
-                        self.mark_tdz_binding(&bound.source_name);
-                    }
-                }
-            }
-            Declaration::ClassDeclaration(class) => {
-                let name = self.interner.resolve_expect(class.name().sym()).to_string();
-                let storage_name = self.direct_lexical_storage_name(&name, class.name().span());
-                self.declare_binding(
-                    name.clone(),
-                    BindingInfo {
-                        mode: BindingMode::Let,
-                        storage_name,
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                );
-                self.mark_tdz_binding(&name);
-            }
-            _ => {}
-        }
-    }
+    // `predeclare_block_lexical_bindings`, `predeclare_switch_lexical_bindings`
+    // and `predeclare_direct_lexical_binding` lived here. They are now
+    // `LexicalScopeInstantiation::instantiate` / `::instantiate_switch`
+    // (`binding_lifecycle.rs`), which the three statement-list lowering entries
+    // take **by value** — so a statement list can no longer be lowered without
+    // BlockDeclarationInstantiation having run for it, and the
+    // `boa_ast::Declaration` match that used to end in `_ => {}` is exhaustive.
+    // The per-name creation half is `Self::create_lexical_binding`.
 
     fn lower_labelled(&mut self, labelled: &AstLabelled) -> (StatementIr, ValueKind) {
         if let Some(function) = labelled_function_declaration(labelled) {
@@ -14028,6 +14145,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: init.possible_kinds,
                 heap_shape: init.heap_shape.clone(),
                 function_targets: init.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         Some(ForLexicalInitIr {
@@ -14673,6 +14791,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: function_info.possible_kinds,
                     heap_shape: function_info.heap_shape,
                     function_targets: function_info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -14689,7 +14808,7 @@ impl<'a> ScriptLowerer<'a> {
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
                 }
-            } else if name != source_name || Self::is_tdz_binding_storage_name(name) {
+            } else if name != source_name || TdzPlaceholderName::names_a_placeholder(name) {
                 ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -14777,6 +14896,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -14791,6 +14911,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -14807,14 +14928,24 @@ impl<'a> ScriptLowerer<'a> {
             })
             .collect::<Vec<_>>();
         for name in &parameter_names {
-            lowerer.declare_binding(name.clone(), Self::tdz_binding_info(name, BindingMode::Let));
-            lowerer.mark_tdz_binding(name);
+            // 10.2.11 step 21: every BoundName of the formals is created
+            // before any default initializer evaluates, so `function f(a = b, b)`
+            // throws. Step 24/27 initializes them left to right, which is the
+            // `declare_binding` further down that overwrites this entry with an
+            // `Initialization::Initialized` one — the old `clear_tdz_binding`
+            // loop was a second, separately ordered spelling of that overwrite
+            // and is gone.
+            lowerer.declare_binding(
+                name.clone(),
+                BindingInfo::tdz_placeholder(
+                    BindingMode::Let,
+                    TdzPlaceholderName::for_source_name(name),
+                ),
+            );
         }
         for (index, parameter) in parameters.as_ref().iter().enumerate() {
             let binding = parameter.variable().binding();
             let name = binding_parameter_storage_name(self.interner, binding, index);
-            let mut bound_names = Vec::new();
-            collect_binding_names(self.interner, binding, &mut bound_names);
             let context_signature =
                 lowerer.exact_signature_for_function(&function.id, context_key_override.as_ref());
             let param_info = context_signature
@@ -14849,11 +14980,6 @@ impl<'a> ScriptLowerer<'a> {
             let default_init = parameter
                 .init()
                 .map(|expression| lowerer.lower_expression(expression));
-            if matches!(binding, Binding::Identifier(_)) {
-                for bound_name in &bound_names {
-                    lowerer.clear_tdz_binding(bound_name);
-                }
-            }
             // When an argument is omitted, the default initializer runs and its
             // value becomes the parameter's runtime value — it is never actually
             // `undefined`. Call-site observation alone (`merge_omitted_signature_
@@ -14879,6 +15005,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: param_info.possible_kinds,
                     heap_shape: param_info.heap_shape,
                     function_targets: param_info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
             lowerer.current_param_names.push(name.clone());
@@ -14899,9 +15026,15 @@ impl<'a> ScriptLowerer<'a> {
 
         lowerer.hoist_root_statement_items(function.body.statements());
 
+        // 10.2.11 step 30: a function body is a statement-list scope too, and
+        // its `let`/`const`/`class` names are uninitialized until their
+        // declarators run.
+        let body_scope =
+            LexicalScopeInstantiation::instantiate(&mut lowerer, function.body.statements());
         let lowered_body = lowerer.lower_root_statement_items(
             function.body.statements(),
             function.root_functions.as_slice(),
+            body_scope,
         );
         if let Some(planned_suspensions) = lowerer
             .current_resumable_plan
@@ -15651,6 +15784,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: object_info.possible_kinds,
                 heap_shape: object_info.heap_shape.clone(),
                 function_targets: object_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         let mut statements = vec![StatementIr::Lexical {
@@ -15763,6 +15897,7 @@ impl<'a> ScriptLowerer<'a> {
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
                         function_targets: BTreeSet::new(),
+                        initialization: Initialization::Initialized,
                     },
                 );
                 let (condition_yield_statement, _) = self.lower_linear_generator_yield(
@@ -15890,6 +16025,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     statements.push(StatementIr::Lexical {
@@ -15970,9 +16106,13 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_declaration(&mut self, declaration: &Declaration) -> (StatementIr, ValueKind) {
+    fn lower_declaration(
+        &mut self,
+        declaration: &Declaration,
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         match declaration {
-            Declaration::Lexical(lexical) => self.lower_lexical_declaration(lexical),
+            Declaration::Lexical(lexical) => self.lower_lexical_declaration(lexical, scope),
             Declaration::FunctionDeclaration(function) => (
                 self.lower_function_declaration(function),
                 ValueKind::Undefined,
@@ -15997,7 +16137,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_async_generator_declaration(function),
                 ValueKind::Undefined,
             ),
-            Declaration::ClassDeclaration(class) => self.lower_class_declaration(class),
+            Declaration::ClassDeclaration(class) => self.lower_class_declaration(class, scope),
         }
     }
 
@@ -16024,6 +16164,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -16054,6 +16195,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -16087,6 +16229,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -16120,6 +16263,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -16177,12 +16321,13 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_lexical_declaration(
         &mut self,
         declaration: &LexicalDeclaration,
+        scope: &mut LexicalScopeInstantiation,
     ) -> (StatementIr, ValueKind) {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
             LexicalDeclaration::Using(list) | LexicalDeclaration::AwaitUsing(list) => {
-                return self.lower_using_declaration(list.as_ref());
+                return self.lower_using_declaration(list.as_ref(), scope);
             }
         };
 
@@ -16191,6 +16336,11 @@ impl<'a> ScriptLowerer<'a> {
             match variable.binding() {
                 Binding::Identifier(identifier) => {
                     let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    // 14.3.1.2 step 5 InitializeReferencedBinding: claim the
+                    // obligation BlockDeclarationInstantiation left for this
+                    // name. Every arm below either discharges it or drops it
+                    // (`unsupported`), and none can discharge it twice.
+                    let pending = scope.take(&name);
                     if self.current_async_resume_state.is_some()
                         && matches!(variable.init(), Some(Expression::Await(_)))
                     {
@@ -16223,7 +16373,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16320,7 +16471,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16342,7 +16494,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16390,7 +16543,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16442,19 +16596,28 @@ impl<'a> ScriptLowerer<'a> {
                         self.static_to_string_regexp_object_bindings.remove(&name);
                     }
 
-                    let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
-                    self.clear_tdz_binding(&name);
-                    self.declare_binding(
-                        name.clone(),
-                        BindingInfo {
-                            mode,
-                            storage_name: storage_name.clone(),
-                            kind: init.kind,
-                            possible_kinds: init.possible_kinds,
-                            heap_shape: init.heap_shape.clone(),
-                            function_targets: init.function_targets.clone(),
-                        },
-                    );
+                    // 14.3.1.2 steps 4-5. The initializer above is already
+                    // lowered, which is what makes `LoweredInitializer` cheap
+                    // here and what makes the reverse order unwritable.
+                    let init = LoweredInitializer::evaluated(init);
+                    let (storage_name, info, init) = match pending {
+                        Some(pending) => pending.initialize(init),
+                        None => {
+                            // Not a name this statement list created: a for-head
+                            // binding, or a declarator form the sweep could not
+                            // resolve. Allocate as before.
+                            let storage_name =
+                                self.direct_lexical_storage_name(&name, identifier.span());
+                            let init = init.into_expr();
+                            let info = BindingInfo::initialized(
+                                mode,
+                                storage_name.clone(),
+                                init.value_info(),
+                            );
+                            (storage_name, info, init)
+                        }
+                    };
+                    self.declare_binding(name.clone(), info);
                     statements.push(StatementIr::Lexical {
                         mode,
                         name: storage_name,
@@ -16489,7 +16652,11 @@ impl<'a> ScriptLowerer<'a> {
     /// `AddDisposableResource` (27.3.1.1) against the enclosing scope's
     /// DisposeCapability. The matching `DisposeResources` call is emitted by
     /// [`Self::finish_using_frame`] once the whole statement list is lowered.
-    fn lower_using_declaration(&mut self, list: &[Variable]) -> (StatementIr, ValueKind) {
+    fn lower_using_declaration(
+        &mut self,
+        list: &[Variable],
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         let mut statements = Vec::with_capacity(list.len() * 3);
         for variable in list {
             let Binding::Identifier(identifier) = variable.binding() else {
@@ -16501,6 +16668,7 @@ impl<'a> ScriptLowerer<'a> {
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let pending = scope.take(&name);
             let init = variable
                 .init()
                 .map(|expression| self.lower_expression(expression))
@@ -16508,19 +16676,21 @@ impl<'a> ScriptLowerer<'a> {
             self.static_iterator_binding_values.remove(&name);
             self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
-            let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
-            self.clear_tdz_binding(&name);
-            self.declare_binding(
-                name.clone(),
-                BindingInfo {
-                    mode: BindingMode::Const,
-                    storage_name: storage_name.clone(),
-                    kind: init.kind,
-                    possible_kinds: init.possible_kinds,
-                    heap_shape: init.heap_shape.clone(),
-                    function_targets: init.function_targets.clone(),
-                },
-            );
+            let init = LoweredInitializer::evaluated(init);
+            let (storage_name, info, init) = match pending {
+                Some(pending) => pending.initialize(init),
+                None => {
+                    let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
+                    let init = init.into_expr();
+                    let info = BindingInfo::initialized(
+                        BindingMode::Const,
+                        storage_name.clone(),
+                        init.value_info(),
+                    );
+                    (storage_name, info, init)
+                }
+            };
+            self.declare_binding(name.clone(), info);
             statements.push(StatementIr::Lexical {
                 mode: BindingMode::Const,
                 name: storage_name,
@@ -17107,23 +17277,17 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        if let Some(binding) = self.lookup_binding(&name) {
-            if Self::is_tdz_binding_storage_name(&binding.storage_name)
-                || self.is_tdz_binding(&name)
-            {
-                return TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::RuntimeThrow {
-                        name: NativeErrorKind::ReferenceError,
-                        message: "lexical binding accessed before initialization",
-                    },
-                );
-            }
+        // GetBindingValue (9.1.1.1.6). The state test used to be a disjunction
+        // of a storage-name prefix and a parallel string set; it is now the one
+        // field on the resolved record, and the `Uninitialized` arm has to be
+        // written. 13.5.3 step 3 exempts only an *unresolvable* Reference, so
+        // this covers `typeof x` too.
+        let binding = match self.resolve_binding_reference(&name) {
+            BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+            BindingResolution::Initialized(binding) => Some(binding),
+            BindingResolution::Unresolvable => None,
+        };
+        if let Some(binding) = binding {
             let mut info = ValueInfo {
                 kind: binding.kind,
                 possible_kinds: binding.possible_kinds,
@@ -17830,6 +17994,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
+                initialization: Initialization::Initialized,
             },
         );
 
@@ -17857,6 +18022,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds,
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
             lowerer.current_param_names.push(name.clone());
@@ -18457,13 +18623,28 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_class_declaration(&mut self, class: &ClassDeclaration) -> (StatementIr, ValueKind) {
+    fn lower_class_declaration(
+        &mut self,
+        class: &ClassDeclaration,
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         let name = self.interner.resolve_expect(class.name().sym()).to_string();
+        let pending = scope.take(&name);
+        // Allocated here, before ClassDefinitionEvaluation, exactly as before:
+        // `direct_lexical_storage_name` can consume a `$lexN` temporary index,
+        // and moving that consumption past `lower_class_common` would renumber
+        // every generated name inside the class body. When `pending` is `Some`
+        // the reuse rule returns the created name without allocating anything.
         let storage_name = self.direct_lexical_storage_name(&name, class.name().span());
         let constructor_execution_key = class
             .constructor()
             .map(class_constructor_key)
             .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
+        // 15.7.16 step 1: ClassDefinitionEvaluation runs *before*
+        // InitializeBoundName, so the class body evaluates while the class name
+        // is still uninitialized in the enclosing scope. That is why the
+        // `LoweredInitializer` is minted from the already-computed result rather
+        // than the binding being initialized first.
         let init = self.lower_class_common(
             Some(name.clone()),
             class_declaration_source_slice(class, self.source_text),
@@ -18472,18 +18653,21 @@ impl<'a> ScriptLowerer<'a> {
             class.constructor(),
             class.elements(),
         );
-        self.clear_tdz_binding(&name);
-        self.declare_binding(
-            name.clone(),
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: storage_name.clone(),
-                kind: init.kind,
-                possible_kinds: init.possible_kinds,
-                heap_shape: init.heap_shape.clone(),
-                function_targets: init.function_targets.clone(),
-            },
-        );
+        // 15.7.16 step 2: InitializeBoundName(className, value, env).
+        let init = LoweredInitializer::evaluated(init);
+        let (storage_name, info, init) = match pending {
+            Some(pending) => pending.initialize(init),
+            None => {
+                let init = init.into_expr();
+                let info = BindingInfo::initialized(
+                    BindingMode::Let,
+                    storage_name.clone(),
+                    init.value_info(),
+                );
+                (storage_name, info, init)
+            }
+        };
+        self.declare_binding(name.clone(), info);
         (
             StatementIr::Lexical {
                 mode: BindingMode::Let,
@@ -18580,6 +18764,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -19870,6 +20055,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -19888,6 +20074,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: function_info.possible_kinds,
                     heap_shape: function_info.heap_shape,
                     function_targets: function_info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -19901,6 +20088,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
+                initialization: Initialization::Initialized,
             },
         );
 
@@ -19916,8 +20104,20 @@ impl<'a> ScriptLowerer<'a> {
             })
             .collect::<Vec<_>>();
         for name in &parameter_names {
-            lowerer.declare_binding(name.clone(), Self::tdz_binding_info(name, BindingMode::Let));
-            lowerer.mark_tdz_binding(name);
+            // 10.2.11 step 21: every BoundName of the formals is created
+            // before any default initializer evaluates, so `function f(a = b, b)`
+            // throws. Step 24/27 initializes them left to right, which is the
+            // `declare_binding` further down that overwrites this entry with an
+            // `Initialization::Initialized` one — the old `clear_tdz_binding`
+            // loop was a second, separately ordered spelling of that overwrite
+            // and is gone.
+            lowerer.declare_binding(
+                name.clone(),
+                BindingInfo::tdz_placeholder(
+                    BindingMode::Let,
+                    TdzPlaceholderName::for_source_name(name),
+                ),
+            );
         }
         for (index, parameter) in parameters.as_ref().iter().enumerate() {
             let binding = parameter.variable().binding();
@@ -19928,16 +20128,9 @@ impl<'a> ScriptLowerer<'a> {
                 continue;
             }
             let name = binding_parameter_storage_name(self.interner, binding, index);
-            let mut bound_names = Vec::new();
-            collect_binding_names(self.interner, binding, &mut bound_names);
             let default_init = parameter
                 .init()
                 .map(|expression| lowerer.lower_expression(expression));
-            if matches!(binding, Binding::Identifier(_)) {
-                for bound_name in &bound_names {
-                    lowerer.clear_tdz_binding(bound_name);
-                }
-            }
             lowerer.declare_binding(
                 name.clone(),
                 BindingInfo {
@@ -19955,6 +20148,7 @@ impl<'a> ScriptLowerer<'a> {
                     },
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
             lowerer.current_param_names.push(name.clone());
@@ -19990,9 +20184,12 @@ impl<'a> ScriptLowerer<'a> {
             })
             .unwrap_or_default();
         lowerer.hoist_root_statement_items(body.statements());
+        // 10.2.11 step 30, as above.
+        let body_scope = LexicalScopeInstantiation::instantiate(&mut lowerer, body.statements());
         let lowered_body = lowerer.lower_root_statement_items_with_function_bindings(
             body.statements(),
             &root_function_bindings,
+            body_scope,
         );
         let mut statements = prefix_statements;
         statements.extend(parameter_prefix_statements);
@@ -20256,6 +20453,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -20268,6 +20466,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
+                initialization: Initialization::Initialized,
             },
         );
         let return_value = lowerer.lower_expression(expression);
@@ -20690,34 +20889,35 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                 }
+                // 21.1.3.2. The receiver-finiteness guard and the hand-rolled
+                // `RuntimeThrow` that used to sit here are gone: the ordering
+                // is now `NonFiniteReceiverOrder::ReceiverFirst` inside the
+                // helper, and "the spec requires a RangeError" is a variant
+                // rather than the same `None` that means "I could not fold
+                // this". The match has **no `_` arm** on purpose — a catch-all
+                // would silently absorb a fourth outcome, which is the mistake
+                // class this closes.
                 if field_name == "toExponential" {
-                    if self
-                        .static_number_to_string_receiver_value(access.target())
-                        .is_some_and(|value| value.is_finite())
-                        && self.static_number_fraction_digits_is_invalid(args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                    let fold = self.static_number_to_exponential_call(access.target(), args);
+                    match fold {
+                        NumberFormatFold::Formatted(value) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::String),
+                                ExprIr::String(value),
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::undefined(),
-                            ExprIr::RuntimeThrow {
-                                name: NativeErrorKind::RangeError,
-                                message:
-                                    "Number.prototype.toExponential fraction digits out of range",
-                            },
-                        );
-                    }
-                    if let Some(value) =
-                        self.static_number_to_exponential_call(access.target(), args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                        NumberFormatFold::RangeError => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return Self::static_number_format_range_error(
+                                "Number.prototype.toExponential fraction digits out of range",
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
+                        NumberFormatFold::NotStatic => {}
                     }
                 }
                 if field_name == "valueOf" {
@@ -20736,43 +20936,61 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                 }
+                // 21.1.3.5. This is the site that never had a range check at
+                // all: its `RangeError` arm is new, and the message string with
+                // it. It could not have been fixed by calling the old shared
+                // `[0, 100]` predicate — step 5 here is `p < 1 or p > 100`.
                 if field_name == "toPrecision" {
-                    if let Some(value) = self.static_number_to_precision_call(access.target(), args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                    let fold = self.static_number_to_precision_call(access.target(), args);
+                    match fold {
+                        NumberFormatFold::Formatted(value) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::String),
+                                ExprIr::String(value),
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
+                        NumberFormatFold::RangeError => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return Self::static_number_format_range_error(
+                                "Number.prototype.toPrecision precision out of range",
+                            );
+                        }
+                        NumberFormatFold::NotStatic => {}
                     }
                 }
+                // 21.1.3.3. Steps 4-5 precede step 6, so the range check wins
+                // over the non-finite receiver here and `Infinity.toFixed(101)`
+                // is a RangeError. The old guard's `.is_some()` (versus
+                // `toExponential`'s `.is_some_and(is_finite)` sixty lines up)
+                // was exactly this ordering, spelled as a coincidence of two
+                // adjacent predicates; it is now
+                // `NonFiniteReceiverOrder::RangeCheckFirst`.
                 if field_name == "toFixed" {
-                    if self
-                        .static_number_to_string_receiver_value(access.target())
-                        .is_some()
-                        && self.static_number_fraction_digits_is_invalid(args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                    let fold = self.static_number_to_fixed_call(access.target(), args);
+                    match fold {
+                        NumberFormatFold::Formatted(value) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::String),
+                                ExprIr::String(value),
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::undefined(),
-                            ExprIr::RuntimeThrow {
-                                name: NativeErrorKind::RangeError,
-                                message: "Number.prototype.toFixed fraction digits out of range",
-                            },
-                        );
-                    }
-                    if let Some(value) = self.static_number_to_fixed_call(access.target(), args) {
-                        for arg in args {
-                            self.lower_expression(arg);
+                        NumberFormatFold::RangeError => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return Self::static_number_format_range_error(
+                                "Number.prototype.toFixed fraction digits out of range",
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
+                        NumberFormatFold::NotStatic => {}
                     }
                 }
             }
@@ -24475,6 +24693,18 @@ impl<'a> ScriptLowerer<'a> {
             if elements.len() >= MAX_STATIC_ARRAY_SHAPE_INDEX {
                 return None;
             }
+            // The static generator enumerates a finite arithmetic progression.
+            // A non-finite induction variable means the progression is not one,
+            // so decline the fold here rather than folding `ToUint16(±∞) = 0`
+            // into a `"\0"` element. Hoisted out of
+            // `static_string_from_char_code_value` so that helper can state
+            // 7.1.9's totality; it must stay *inside* the loop and before the
+            // call, since without it a `for (let i = Infinity; i > 0; i--)`
+            // generator would iterate to `MAX_STATIC_ARRAY_SHAPE_INDEX` before
+            // declining, turning an immediate decline into a compile-time stall.
+            if !current.is_finite() {
+                return None;
+            }
             let value = Self::static_string_from_char_code_value(current)?;
             let include = match &body {
                 StaticStringGeneratorLoopBody::FromCharCode => true,
@@ -24655,12 +24885,21 @@ impl<'a> ScriptLowerer<'a> {
         Regex::with_flags(&pattern, flags.as_str()).ok()
     }
 
+    /// 22.1.2.1 `String.fromCharCode ( ...codeUnits )` step 2.a: the code unit
+    /// whose numeric value is `ℝ(? ToUint16(next))`.
+    ///
+    /// The remaining `None` has exactly **one** cause: a lone surrogate, which
+    /// `String::from_utf16` refuses and Rust's `String` cannot hold.
+    /// `String.fromCharCode(0xD800)` is a perfectly valid JS string, so that
+    /// decline is a limitation of this *fold's output type*, not of ToUint16 —
+    /// which is total. Five CLI fixtures depend on it; do not remove it.
+    ///
+    /// The old `!value.is_finite()` early return moved to the caller, because
+    /// it belongs to the static generator's domain (an arithmetic progression
+    /// with a non-finite induction variable is not one) rather than to 7.1.9,
+    /// whose step 2 sends `±∞` to `+0𝔽`.
     fn static_string_from_char_code_value(value: f64) -> Option<String> {
-        if !value.is_finite() {
-            return None;
-        }
-        let unit = value.trunc().rem_euclid(65536.0) as u16;
-        String::from_utf16(&[unit]).ok()
+        String::from_utf16(&[Uint16::of_number(value).code_unit()]).ok()
     }
 
     fn static_string_typed_expr(value: String) -> TypedExpr {
@@ -27220,11 +27459,26 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            // Same declaration as the PlainDate / PlainDateTime / PlainYearMonth
+            // era pair; see the sibling comment on the kind table above.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => Some(
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => Some(
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
             ),
             StandardBuiltinId::RegExpConstructor => Some(Self::value_info_from_shape(Some(
                 Self::regexp_prototype_shape(),
@@ -30581,6 +30835,26 @@ impl<'a> ScriptLowerer<'a> {
 
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let value = self.lower_expression(rhs);
+                // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
+                // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
+                // and neither was checked here before. Ledger **L4**: the RHS is
+                // lowered above, so the throw follows its side effects where
+                // 13.15.4 steps 1-2 put it before them; the resolution is placed
+                // at the existing `lookup_binding` line rather than hoisted over
+                // ~300 lines of arm without a runtime oracle.
+                match self.resolve_binding_reference(&name) {
+                    BindingResolution::Uninitialized(violation) => {
+                        let error = violation.into_throw();
+                        return TypedExpr::from_info(
+                            error.value_info(),
+                            ExprIr::Comma {
+                                lhs: Box::new(value),
+                                rhs: Box::new(error),
+                            },
+                        );
+                    }
+                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+                }
                 let binding = self.lookup_binding(&name);
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
@@ -30830,6 +31104,15 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("logical assignment");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
+                // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
+                // immutability test below, which is the only test this arm used
+                // to make. The RHS is not lowered yet here, so the throw is in
+                // the right place.
+                match self.resolve_binding_reference(&name) {
+                    BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+                }
                 let binding = self.lookup_binding(&name);
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
@@ -30931,6 +31214,15 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
+                // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
+                // immutability test below, which is the only test this arm used
+                // to make. The RHS is not lowered yet here, so the throw is in
+                // the right place.
+                match self.resolve_binding_reference(&name) {
+                    BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+                }
                 let binding = self.lookup_binding(&name);
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
@@ -31053,6 +31345,24 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_identifier_assign_value(&mut self, name: String, value: TypedExpr) -> TypedExpr {
+        // SetMutableBinding (9.1.1.1.5) step 3 runs *before* the immutability
+        // test of step 6/7, and does not consult `S`: an assignment to an
+        // uninitialized binding is a ReferenceError in sloppy mode too. The RHS
+        // has already been evaluated (13.15.2 step 1.e), so its effects are kept
+        // ahead of the throw.
+        match self.resolve_binding_reference(&name) {
+            BindingResolution::Uninitialized(violation) => {
+                let error = violation.into_throw();
+                return TypedExpr::from_info(
+                    error.value_info(),
+                    ExprIr::Comma {
+                        lhs: Box::new(value),
+                        rhs: Box::new(error),
+                    },
+                );
+            }
+            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+        }
         if let Some(binding) = self.lookup_binding(&name) {
             let storage_name = binding.storage_name.clone();
             if binding.mode == BindingMode::Const {
@@ -31307,7 +31617,10 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, mode),
+                        BindingInfo::tdz_placeholder(
+                            mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
             }
@@ -31332,7 +31645,10 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, mode),
+                        BindingInfo::tdz_placeholder(
+                            mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
             }
@@ -31374,7 +31690,10 @@ impl<'a> ScriptLowerer<'a> {
                 .last()
                 .is_some_and(|scope| scope.contains_key(name))
             {
-                self.declare_binding(name.clone(), Self::tdz_binding_info(name, mode));
+                self.declare_binding(
+                    name.clone(),
+                    BindingInfo::tdz_placeholder(mode, TdzPlaceholderName::for_source_name(name)),
+                );
             }
         }
 
@@ -31605,11 +31924,18 @@ impl<'a> ScriptLowerer<'a> {
                     let storage_name = storage_names
                         .and_then(|storage_names| storage_names.get(&target_name))
                         .cloned();
+                    // Ledger **L2**: the destructuring paths take no
+                    // `PendingInitialization`. Their ordering is already correct
+                    // (the pattern's value and default are lowered before this
+                    // runs) and `direct_lexical_storage_name` reuses the name the
+                    // sweep allocated, so this is a missing *proof*, not a
+                    // missing check.
                     statements.push(self.lower_lexical_binding_value(
                         mode,
                         target_name,
                         ident.span(),
-                        value,
+                        LoweredInitializer::evaluated(value),
+                        None,
                         storage_name,
                     ));
                 }
@@ -31657,7 +31983,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31667,6 +32000,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     properties.push(ObjectDestructuringPropertyIr {
@@ -31723,7 +32057,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31733,6 +32074,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::from_kind(ValueKind::Object),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     rest = Some(DestructuringTargetIr::Binding {
@@ -31780,7 +32122,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31790,6 +32139,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     ArrayDestructuringElementIr::Target {
@@ -31814,7 +32164,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31824,6 +32181,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     ArrayDestructuringElementIr::Rest {
@@ -32034,6 +32392,19 @@ impl<'a> ScriptLowerer<'a> {
         ident: boa_ast::expression::Identifier,
     ) -> Option<DestructuringTargetIr> {
         let source_name = self.interner.resolve_expect(ident.sym()).to_string();
+        match self.resolve_binding_reference(&source_name) {
+            // 13.15.5.3 routes this element through PutValue, so 9.1.1.1.5
+            // step 3 applies. Ledger **L5**: `DestructuringTargetIr` has no
+            // throwing target variant and `ir.rs` is outside this area's owned
+            // files, so the violation cannot be turned into the runtime
+            // ReferenceError here. It is reported as a lowering gap instead of
+            // silently writing the slot, which is what happened before.
+            BindingResolution::Uninitialized(_) => {
+                self.unsupported("destructuring assignment to an uninitialized lexical binding");
+                return None;
+            }
+            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+        }
         if let Some(binding) = self.lookup_binding(&source_name) {
             let immutable = binding.mode == BindingMode::Const;
             let storage_name = binding.storage_name;
@@ -32130,30 +32501,43 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
+    /// InitializeBinding (9.1.1.1.4) for one `LexicalBinding`, and the sole
+    /// place the identifier-declarator paths make the transition.
+    ///
+    /// `init` is a [`LoweredInitializer`] rather than a `TypedExpr` because
+    /// 14.3.1.2 step 4 must precede step 5: there is no value of that type until
+    /// the initializer has been lowered, so "clear the TDZ, then lower the
+    /// initializer" — the ordering the deleted `clear_tdz_binding` call left to
+    /// convention at ten sites — cannot be written. `let x = x;` therefore
+    /// lowers its `x` read against the still-uninitialized binding.
+    ///
+    /// `pending` is the obligation BlockDeclarationInstantiation left. When it
+    /// is present the storage name comes from the *creation* and cannot be
+    /// recomputed here, and `initialize` consumes it, so 9.1.1.1.4 step 2's
+    /// "must be uninitialized" assertion is `error[E0382]` rather than a review
+    /// item.
     fn lower_lexical_binding_value(
         &mut self,
         mode: BindingMode,
         name: String,
         span: boa_ast::Span,
-        init: TypedExpr,
+        init: LoweredInitializer,
+        pending: Option<PendingInitialization>,
         storage_name: Option<String>,
     ) -> StatementIr {
         self.static_string_bindings.remove(&name);
         self.static_to_string_regexp_object_bindings.remove(&name);
-        let storage_name =
-            storage_name.unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
-        self.clear_tdz_binding(&name);
-        self.declare_binding(
-            name.clone(),
-            BindingInfo {
-                mode,
-                storage_name: storage_name.clone(),
-                kind: init.kind,
-                possible_kinds: init.possible_kinds,
-                heap_shape: init.heap_shape.clone(),
-                function_targets: init.function_targets.clone(),
-            },
-        );
+        let (storage_name, info, init) = match pending {
+            Some(pending) => pending.initialize(init),
+            None => {
+                let storage_name = storage_name
+                    .unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
+                let init = init.into_expr();
+                let info = BindingInfo::initialized(mode, storage_name.clone(), init.value_info());
+                (storage_name, info, init)
+            }
+        };
+        self.declare_binding(name, info);
         StatementIr::Lexical {
             mode,
             name: storage_name,
@@ -32932,6 +33316,13 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        // 13.4.4 / 13.4.5 UpdateExpression: GetValue then PutValue, so
+        // 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 both apply. `x++` on an
+        // uninitialized binding used to read the slot.
+        match self.resolve_binding_reference(&name) {
+            BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+        }
         let (binding_storage_name, update_kind) = if let Some(binding) = self.lookup_binding(&name)
         {
             if binding.mode == BindingMode::Const {
@@ -34710,95 +35101,154 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// The folded form of a 21.1.3.x RangeError.
+    ///
+    /// One builder, three call sites, so the `ExprIr::RuntimeThrow` shape
+    /// cannot drift between the clauses; only the per-clause message differs,
+    /// and each of the three matches the message the runtime path throws.
+    fn static_number_format_range_error(message: &'static str) -> TypedExpr {
+        TypedExpr::from_info(
+            ValueInfo::undefined(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::RangeError,
+                message,
+            },
+        )
+    }
+
+    /// 21.1.3.2 `Number.prototype.toExponential ( fractionDigits )`, folded.
+    ///
+    /// The clause's ordering — step 4 (non-finite receiver) before step 5 (the
+    /// range check) — is named once, as `NonFiniteReceiverOrder::ReceiverFirst`,
+    /// instead of being an emergent property of a guard at the dispatch site.
     fn static_number_to_exponential_call(
         &self,
         receiver: &Expression,
         args: &[Expression],
-    ) -> Option<String> {
+    ) -> NumberFormatFold {
         if args.len() > 1 {
-            return None;
+            return NumberFormatFold::NotStatic;
         }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
-        let fraction_digits = match args.first() {
-            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                Some(self.static_to_integer_or_zero_expr(arg)?)
-            }
-            _ => None,
+        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
+            return NumberFormatFold::NotStatic;
         };
-        if let Some(fraction_digits) = fraction_digits {
-            if !(0..=100).contains(&fraction_digits) {
-                return None;
+        // 21.1.3.2 step 12.a distinguishes `fractionDigits === undefined` from
+        // `f === 0`, so the `Option` inside the `RangeChecked` is spec-shaped
+        // and not a convenience.
+        let digits = match args.first() {
+            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
+                let Some(f) = self.static_to_integer_or_infinity_expr(arg) else {
+                    return NumberFormatFold::NotStatic;
+                };
+                f.fraction_digits().map(Some)
             }
-        }
-        Self::static_number_to_exponential(value, fraction_digits.map(|value| value as usize))
+            _ => RangeChecked::InBounds(None),
+        };
+        fold_number_format(
+            value,
+            digits,
+            NonFiniteReceiverOrder::ReceiverFirst,
+            Self::js_number_to_string,
+            |value, digits: Option<FractionDigits>| {
+                Self::static_number_to_exponential(value, digits.map(FractionDigits::as_usize))
+            },
+        )
     }
 
+    /// 21.1.3.3 `Number.prototype.toFixed ( fractionDigits )`, folded.
+    ///
+    /// Steps 4–5 (the range check) precede step 6 (the non-finite receiver
+    /// return), which is why `Infinity.toFixed(101)` is a **RangeError** and
+    /// `Infinity.toExponential(101)` is `"Infinity"`. The two clauses differ
+    /// here and the difference is observable; that is the whole reason
+    /// `NonFiniteReceiverOrder` is a required argument.
     fn static_number_to_fixed_call(
         &self,
         receiver: &Expression,
         args: &[Expression],
-    ) -> Option<String> {
+    ) -> NumberFormatFold {
         if args.len() > 1 {
-            return None;
+            return NumberFormatFold::NotStatic;
         }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
-        let fraction_digits = match args.first() {
+        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
+            return NumberFormatFold::NotStatic;
+        };
+        let digits = match args.first() {
             Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                self.static_to_integer_or_zero_expr(arg)?
+                let Some(f) = self.static_to_integer_or_infinity_expr(arg) else {
+                    return NumberFormatFold::NotStatic;
+                };
+                f.fraction_digits()
             }
-            _ => 0,
+            // Step 3: `fractionDigits` undefined ⇒ `f` is 0.
+            _ => RangeChecked::InBounds(FractionDigits::ZERO),
         };
-        if !(0..=100).contains(&fraction_digits) {
-            return None;
-        }
-        Self::static_number_to_fixed(value, fraction_digits as usize)
+        fold_number_format(
+            value,
+            digits,
+            NonFiniteReceiverOrder::RangeCheckFirst,
+            Self::js_number_to_string,
+            |value, digits: FractionDigits| Self::static_number_to_fixed(value, digits.as_usize()),
+        )
     }
 
-    fn static_number_fraction_digits_is_invalid(&self, args: &[Expression]) -> bool {
-        if args.len() != 1 {
-            return false;
-        }
-        let digits = Self::unwrap_parenthesized_expr(&args[0]);
-        if self.is_static_undefined_expr(digits) {
-            return false;
-        }
-        let Some(value) = self.static_to_number_like_expr(digits) else {
-            return false;
-        };
-        if value.is_nan() {
-            return false;
-        }
-        if !value.is_finite() {
-            return true;
-        }
-        let integer = value.trunc();
-        !(0.0..=100.0).contains(&integer)
-    }
-
+    /// 21.1.3.5 `Number.prototype.toPrecision ( precision )`, folded.
+    ///
+    /// The accepted interval here is `[1, 100]`, not `[0, 100]`, which is why
+    /// this calls `precision()` and gets a [`Precision`] rather than calling
+    /// `fraction_digits()` and getting a [`FractionDigits`]. The deleted
+    /// `static_number_fraction_digits_is_invalid` hard-coded `[0, 100]` and was
+    /// therefore never callable here: doing so would have made
+    /// `(1.5).toPrecision(0)` fold instead of throw.
     fn static_number_to_precision_call(
         &self,
         receiver: &Expression,
         args: &[Expression],
-    ) -> Option<String> {
+    ) -> NumberFormatFold {
         if args.len() > 1 {
-            return None;
+            return NumberFormatFold::NotStatic;
         }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
+        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
+            return NumberFormatFold::NotStatic;
+        };
         let precision = match args.first() {
             Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                self.static_to_integer_or_zero_expr(arg)?
+                let Some(p) = self.static_to_integer_or_infinity_expr(arg) else {
+                    return NumberFormatFold::NotStatic;
+                };
+                p.precision()
             }
-            _ => return Some(Self::js_number_to_string(value)),
+            // Step 2: `precision` undefined returns `! ToString(x)` *before*
+            // step 3's coercion, so `undefined` never reaches 7.1.5 here.
+            _ => return NumberFormatFold::Formatted(Self::js_number_to_string(value)),
         };
-        Self::static_number_to_precision(value, precision)
+        fold_number_format(
+            value,
+            precision,
+            NonFiniteReceiverOrder::ReceiverFirst,
+            Self::js_number_to_string,
+            |value, precision: Precision| Self::static_number_to_precision(value, precision.get()),
+        )
     }
 
-    fn static_to_integer_or_zero_expr(&self, expr: &Expression) -> Option<i32> {
-        let value = self.static_to_number_like_expr(expr)?;
-        if !value.is_finite() || value == 0.0 || value.is_nan() {
-            return Some(0);
-        }
-        Some(value.trunc() as i32)
+    /// 7.1.5 ToIntegerOrInfinity over a statically-known argument.
+    ///
+    /// The `Option` means "not statically decidable", which is this compiler's
+    /// business; 7.1.5 itself is **total**, so the payload is an
+    /// [`IntegerOrInfinity`] and not an `Option<IntegerOrInfinity>` on the
+    /// inside.
+    ///
+    /// This replaces `static_to_integer_or_zero_expr`, which had three defects
+    /// in six lines and all three are now unrepresentable: its `Option<i32>`
+    /// codomain could not hold `±∞`; it tested `!value.is_finite()` *before*
+    /// distinguishing the two infinities, collapsing both onto `Some(0)`; and
+    /// its `value.trunc() as i32` saturated, turning `truncate(1e300)` into
+    /// `i32::MAX` — the same mechanism as the backend defect where a
+    /// saturating truncation precedes 5.2.5's modulo.
+    fn static_to_integer_or_infinity_expr(&self, expr: &Expression) -> Option<IntegerOrInfinity> {
+        Some(IntegerOrInfinity::of_number(
+            self.static_to_number_like_expr(expr)?,
+        ))
     }
 
     fn static_to_number_like_expr(&self, expr: &Expression) -> Option<f64> {
@@ -34948,10 +35398,22 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
-    fn static_number_to_precision(value: f64, precision: i32) -> Option<String> {
-        if !(1..=100).contains(&precision) {
-            return None;
-        }
+    fn static_number_to_precision(value: f64, precision: u8) -> Option<String> {
+        // 21.1.3.5 step 5 (`p < 1 or p > 100`) is discharged by `Precision`'s
+        // one constructor before this is reached, and step 4's non-finite
+        // receiver return is discharged by
+        // `NonFiniteReceiverOrder::ReceiverFirst` in `fold_number_format`.
+        // Ledger **LN3**: the parameter is a primitive because the rest of this
+        // body is outside this area's owned region, so the lower bound is
+        // re-stated here as an assertion rather than re-tested as a branch.
+        //
+        // The former `!(1..=100).contains(&precision)` guard also *preceded*
+        // the `±Infinity` arms below, inverting 21.1.3.5 steps 4 and 5. The
+        // retrofit removes the inversion by construction rather than by
+        // reordering two `if`s; the arms below are now unreachable and their
+        // deletion is recorded as a follow-up in
+        // `target/lane-notes/numeric-conversion-codomains-theory-integration.md`.
+        debug_assert!((1..=100).contains(&precision));
         if value == f64::INFINITY {
             return Some("Infinity".to_string());
         }
@@ -36463,13 +36925,16 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// 21.3.2.11 `Math.clz32 ( x )` steps 1–3.
+    ///
+    /// The early `!is_finite() || == 0.0` guard is gone, and its absence is the
+    /// point: 7.1.7 step 2 already sends NaN, `±0` and `±∞` to `+0𝔽`, and
+    /// `0u32.leading_zeros()` is 32, so the guard was a restatement of the
+    /// codomain rather than a substitute for it. The hand-rolled
+    /// `trunc().rem_euclid(4294967296.0)` is likewise gone: 5.2.5's residue is
+    /// stated once, in [`Uint32::of_number`].
     fn static_clz32(value: f64) -> f64 {
-        if !value.is_finite() || value == 0.0 {
-            return 32.0;
-        }
-        let truncated = value.trunc();
-        let modulo = truncated.rem_euclid(4294967296.0) as u32;
-        modulo.leading_zeros() as f64
+        f64::from(Uint32::of_number(value).leading_zeros())
     }
 
     fn static_round(value: f64) -> f64 {
@@ -37232,7 +37697,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn is_script_global_var_capture(&self, name: &str, capture: &CaptureBindingPlan) -> bool {
-        if Self::is_tdz_binding_storage_name(name) {
+        if TdzPlaceholderName::names_a_placeholder(name) {
             return false;
         }
         name == capture.source_name
@@ -37536,9 +38001,23 @@ impl<'a> ScriptLowerer<'a> {
                         possible_kinds: binding.possible_kinds,
                         heap_shape,
                         function_targets,
+                        initialization: Initialization::Initialized,
                     })
                 })
             })
+    }
+
+    /// ResolveBinding (9.1.2.1) followed by the 9.1.1.1.6 step 2 / 9.1.1.1.5
+    /// step 3 state test, for the seven sites that perform GetValue or PutValue
+    /// on an Environment Record Reference.
+    ///
+    /// `lookup_binding` stays as it is for the other call sites, which ask
+    /// metadata questions (`is_some`, `possible_kinds`, `storage_name` as a map
+    /// key) and must not be forced to decide what TDZ means for them. This is
+    /// the only accessor that answers the lifecycle question, and the only way
+    /// to obtain a [`TdzViolation`].
+    fn resolve_binding_reference(&self, name: &str) -> BindingResolution {
+        BindingResolution::of(self.lookup_binding(name))
     }
 
     fn set_binding_kind(&mut self, name: &str, kind: ValueKind) -> Option<()> {
@@ -37783,7 +38262,6 @@ impl<'a> ScriptLowerer<'a> {
     fn push_scope(&mut self) {
         self.scopes.push(BTreeMap::new());
         self.direct_lexical_scopes.push(false);
-        self.tdz_scopes.push(BTreeSet::new());
     }
 
     fn push_direct_lexical_scope(&mut self) {
@@ -37797,39 +38275,14 @@ impl<'a> ScriptLowerer<'a> {
     fn pop_scope(&mut self) {
         self.scopes.pop();
         self.direct_lexical_scopes.pop();
-        self.tdz_scopes.pop();
     }
 
-    fn mark_tdz_binding(&mut self, name: &str) {
-        self.tdz_scopes
-            .last_mut()
-            .expect("TDZ scope stack must match binding scope stack")
-            .insert(name.to_string());
-    }
-
-    fn clear_tdz_binding(&mut self, name: &str) {
-        self.tdz_scopes
-            .last_mut()
-            .expect("TDZ scope stack must match binding scope stack")
-            .remove(name);
-    }
-
-    fn is_tdz_binding(&self, name: &str) -> bool {
-        self.scopes
-            .iter()
-            .rev()
-            .zip(self.tdz_scopes.iter().rev())
-            .find_map(|(bindings, tdz_bindings)| {
-                if tdz_bindings.contains(name) {
-                    Some(true)
-                } else if bindings.contains_key(name) {
-                    Some(false)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false)
-    }
+    // `mark_tdz_binding`, `clear_tdz_binding` and `is_tdz_binding` lived here,
+    // over a `tdz_scopes: Vec<BTreeSet<String>>` that was zipped positionally
+    // against `scopes`. The state is now a field of the binding record itself
+    // (`BindingInfo::initialization`), so the two stacks cannot fall out of step
+    // — there is one stack, and a re-introduction of the second is
+    // `error[E0609] no field 'tdz_scopes' on type 'ScriptLowerer'`.
 
     fn unsupported_expr(&mut self, feature: &str) -> TypedExpr {
         self.unsupported_with_message(format!(

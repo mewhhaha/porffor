@@ -473,6 +473,8 @@ use crate::{
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID,
@@ -485,6 +487,7 @@ use crate::{
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
@@ -1111,6 +1114,8 @@ pub enum StandardBuiltinId {
     TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
     TemporalZonedDateTimePrototypeTimeZoneIdGetter,
     TemporalZonedDateTimePrototypeCalendarIdGetter,
+    TemporalZonedDateTimePrototypeEraGetter,
+    TemporalZonedDateTimePrototypeEraYearGetter,
     TemporalZonedDateTimePrototypeYearGetter,
     TemporalZonedDateTimePrototypeMonthGetter,
     TemporalZonedDateTimePrototypeMonthCodeGetter,
@@ -1123,6 +1128,7 @@ pub enum StandardBuiltinId {
     TemporalZonedDateTimePrototypeNanosecondGetter,
     TemporalZonedDateTimePrototypeEquals,
     TemporalZonedDateTimePrototypeToInstant,
+    TemporalZonedDateTimePrototypeToPlainDateTime,
     TemporalZonedDateTimePrototypeWithTimeZone,
     IntlGetCanonicalLocales,
     IntlLocaleConstructor,
@@ -1683,6 +1689,8 @@ impl StandardBuiltinId {
             | Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | Self::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | Self::TemporalZonedDateTimePrototypeEraGetter
+            | Self::TemporalZonedDateTimePrototypeEraYearGetter
             | Self::TemporalZonedDateTimePrototypeYearGetter
             | Self::TemporalZonedDateTimePrototypeMonthGetter
             | Self::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1695,6 +1703,7 @@ impl StandardBuiltinId {
             | Self::TemporalZonedDateTimePrototypeNanosecondGetter
             | Self::TemporalZonedDateTimePrototypeEquals
             | Self::TemporalZonedDateTimePrototypeToInstant
+            | Self::TemporalZonedDateTimePrototypeToPlainDateTime
             | Self::TemporalZonedDateTimePrototypeWithTimeZone
             | Self::IntlGetCanonicalLocales
             | Self::IntlLocaleConstructor
@@ -2850,6 +2859,12 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter => {
                 "get Temporal.ZonedDateTime.prototype.calendarId"
             }
+            Self::TemporalZonedDateTimePrototypeEraGetter => {
+                "get Temporal.ZonedDateTime.prototype.era"
+            }
+            Self::TemporalZonedDateTimePrototypeEraYearGetter => {
+                "get Temporal.ZonedDateTime.prototype.eraYear"
+            }
             Self::TemporalZonedDateTimePrototypeYearGetter => {
                 "get Temporal.ZonedDateTime.prototype.year"
             }
@@ -2883,6 +2898,9 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeEquals => "Temporal.ZonedDateTime.prototype.equals",
             Self::TemporalZonedDateTimePrototypeToInstant => {
                 "Temporal.ZonedDateTime.prototype.toInstant"
+            }
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime => {
+                "Temporal.ZonedDateTime.prototype.toPlainDateTime"
             }
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 "Temporal.ZonedDateTime.prototype.withTimeZone"
@@ -4357,6 +4375,12 @@ impl StandardBuiltinId {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID
                     .to_string()
             }
+            Self::TemporalZonedDateTimePrototypeEraGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeEraYearGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID.to_string()
+            }
             Self::TemporalZonedDateTimePrototypeYearGetter => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID.to_string()
             }
@@ -4394,6 +4418,10 @@ impl StandardBuiltinId {
             }
             Self::TemporalZonedDateTimePrototypeToInstant => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID
+                    .to_string()
             }
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID.to_string()
@@ -5914,6 +5942,12 @@ impl StandardBuiltinId {
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeCalendarIdGetter)
             }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEraGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEraYearGetter)
+            }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeYearGetter)
             }
@@ -5949,6 +5983,9 @@ impl StandardBuiltinId {
             }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeToInstant)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeToPlainDateTime)
             }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeWithTimeZone)
@@ -6878,6 +6915,8 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
             Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter,
+            Self::TemporalZonedDateTimePrototypeEraGetter,
+            Self::TemporalZonedDateTimePrototypeEraYearGetter,
             Self::TemporalZonedDateTimePrototypeYearGetter,
             Self::TemporalZonedDateTimePrototypeMonthGetter,
             Self::TemporalZonedDateTimePrototypeMonthCodeGetter,
@@ -6890,6 +6929,7 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeNanosecondGetter,
             Self::TemporalZonedDateTimePrototypeEquals,
             Self::TemporalZonedDateTimePrototypeToInstant,
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime,
             Self::TemporalZonedDateTimePrototypeWithTimeZone,
             Self::IntlGetCanonicalLocales,
             Self::IntlLocaleConstructor,
@@ -7919,6 +7959,8 @@ impl StandardBuiltinId {
             }
             Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter => Some("get timeZoneId"),
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter => Some("get calendarId"),
+            Self::TemporalZonedDateTimePrototypeEraGetter => Some("get era"),
+            Self::TemporalZonedDateTimePrototypeEraYearGetter => Some("get eraYear"),
             Self::TemporalZonedDateTimePrototypeYearGetter => Some("get year"),
             Self::TemporalZonedDateTimePrototypeMonthGetter => Some("get month"),
             Self::TemporalZonedDateTimePrototypeMonthCodeGetter => Some("get monthCode"),
@@ -7931,6 +7973,7 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeNanosecondGetter => Some("get nanosecond"),
             Self::TemporalZonedDateTimePrototypeEquals => Some("equals"),
             Self::TemporalZonedDateTimePrototypeToInstant => Some("toInstant"),
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime => Some("toPlainDateTime"),
             Self::TemporalZonedDateTimePrototypeWithTimeZone => Some("withTimeZone"),
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::RegExpSpeciesGetter => Some("get [Symbol.species]"),
@@ -8585,6 +8628,19 @@ mod tests {
     #[test]
     fn temporal_zoned_date_time_civil_accessors_and_equals_are_registered() {
         for (builtin, native_name) in [
+            // `era`/`eraYear` sit here rather than in their own test because
+            // they are the same kind of thing as the ten civil accessors: a
+            // zero-argument prototype getter that reads the receiver's record.
+            // The only difference is that their answer can be `undefined`,
+            // which is a codegen fact, not a registration one.
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+                "get era",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+                "get eraYear",
+            ),
             (
                 StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
                 "get year",
@@ -8653,6 +8709,28 @@ mod tests {
             "Temporal.ZonedDateTime.prototype.withTimeZone"
         );
         assert_eq!(builtin.native_function_name(), Some("withTimeZone"));
+        assert!(!builtin.constructable());
+        assert!(StandardBuiltinId::all_functions().contains(&builtin));
+    }
+
+    /// `toPlainDateTime` is the inverse of
+    /// `Temporal.PlainDateTime.prototype.toZonedDateTime`, and the only way the
+    /// `intl402/Temporal/ZonedDateTime/**/era-boundary-gregory.js` family can
+    /// observe a ZonedDateTime's calendar fields at all — `TemporalHelpers`
+    /// asserts on a `PlainDateTime`, never on the zoned value.
+    #[test]
+    fn temporal_zoned_date_time_to_plain_date_time_is_registered_as_a_nonconstructable_method() {
+        let builtin = StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime;
+
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&builtin.function_id()),
+            Some(builtin)
+        );
+        assert_eq!(
+            builtin.debug_name(),
+            "Temporal.ZonedDateTime.prototype.toPlainDateTime"
+        );
+        assert_eq!(builtin.native_function_name(), Some("toPlainDateTime"));
         assert!(!builtin.constructable());
         assert!(StandardBuiltinId::all_functions().contains(&builtin));
     }

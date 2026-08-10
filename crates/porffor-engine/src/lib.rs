@@ -32,6 +32,7 @@ pub use module_loader::{
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
+const WASM_THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
 const WASM_HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
@@ -2821,31 +2822,23 @@ impl Engine {
                 "wasm completion_kind export had unexpected type",
             ));
         };
+        // Read the throw diagnostics *before* rendering, because the rendering
+        // is what consumes them: without the message, a thrown heap object
+        // renders as nothing but its address.
+        let thrown_error = if completion_kind != 0 {
+            ThrownErrorText::read(&instance, &mut store, result_kind)?
+        } else {
+            ThrownErrorText::NONE
+        };
         let note = render_wasmtime_completion(
             result_tag,
             payload,
             wasmtime_exported_memory(&instance, &mut store),
             &mut store,
+            thrown_error.message(),
         )?;
         if completion_kind != 0 {
-            let error_name = if matches!(
-                result_kind,
-                ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments
-            ) {
-                let memory = wasmtime_exported_memory(&instance, &mut store);
-                read_wasmtime_string_payload_global(
-                    &instance,
-                    &mut store,
-                    WASM_THROW_ERROR_NAME_EXPORT,
-                    memory,
-                )?
-            } else {
-                None
-            };
-            let prefix = error_name
-                .filter(|name| !name.is_empty())
-                .map(|name| format!("{name}: "))
-                .unwrap_or_default();
+            let prefix = thrown_error.name_prefix();
             return Err(EngineError::new(format!("uncaught throw: {prefix}{note}")));
         }
 
@@ -2905,6 +2898,77 @@ fn read_wasmtime_shared_memory(
     Ok(())
 }
 
+/// What an uncaught throw carried out of the module, as the module itself
+/// reported it: the error's `name` and its `message`.
+///
+/// Both come from exported globals the emitter sets at every throw site
+/// (`builtins/errors.rs`), and both are `None` for a completion that is not a
+/// throw of a heap object — which is also the only case where either global
+/// could be read at all, since a heap-less module aliases the two exports onto
+/// one slot.
+///
+/// The type exists so the two are read *together*, once, at one place. They
+/// used to be one lonely string read inline at the throw site, and the result
+/// was that `render_wasmtime_completion` had nothing to print for an object
+/// except `handle@{payload}` — a raw linear-memory address that is not stable
+/// across builds (batch 3 measured a fixed set of handles shifting by exactly
+/// +136 bytes between two builds of the same source) and maps to no allocation
+/// site anywhere in this tree. ~2,488 measured Wasm-AOT failures across ~1,743
+/// distinct addresses therefore carried one bit of information between them.
+struct ThrownErrorText {
+    name: Option<String>,
+    message: Option<String>,
+}
+
+impl ThrownErrorText {
+    const NONE: Self = Self {
+        name: None,
+        message: None,
+    };
+
+    fn read(
+        instance: &wasmtime::Instance,
+        store: &mut WasmtimeStore<WasmHostState>,
+        result_kind: ValueKind,
+    ) -> Result<Self, EngineError> {
+        if !matches!(
+            result_kind,
+            ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments
+        ) {
+            return Ok(Self::NONE);
+        }
+        let memory = wasmtime_exported_memory(instance, store);
+        let name = read_wasmtime_string_payload_global(
+            instance,
+            store,
+            WASM_THROW_ERROR_NAME_EXPORT,
+            memory,
+        )?;
+        let memory = wasmtime_exported_memory(instance, store);
+        let message = read_wasmtime_string_payload_global(
+            instance,
+            store,
+            WASM_THROW_ERROR_MESSAGE_EXPORT,
+            memory,
+        )?;
+        Ok(Self {
+            name: name.filter(|value| !value.is_empty()),
+            message: message.filter(|value| !value.is_empty()),
+        })
+    }
+
+    fn name_prefix(&self) -> String {
+        self.name
+            .as_ref()
+            .map(|name| format!("{name}: "))
+            .unwrap_or_default()
+    }
+
+    fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+}
+
 fn read_wasmtime_string_payload_global(
     instance: &wasmtime::Instance,
     store: &mut WasmtimeStore<WasmHostState>,
@@ -2936,11 +3000,20 @@ fn read_wasmtime_string_payload_global(
         .map_err(|err| EngineError::new(format!("wasm string result is not utf-8: {err}")))
 }
 
+/// Render a completion value for a human.
+///
+/// `thrown_message` is `Some` only for an uncaught throw of a heap object, and
+/// it is the difference between a detail that names a defect and a detail that
+/// names an address. It is appended to the handle rather than replacing it: the
+/// address is worthless as an *identity* (see `ThrownErrorText`), but it is
+/// still the only thing that distinguishes two live objects while debugging, so
+/// it stays in the text and is erased only from the runner's `detail_hash`.
 fn render_wasmtime_completion(
     tag: WasmRuntimeValueTag,
     payload: i64,
     memory: Option<WasmtimeExportedMemory>,
     store: &mut WasmtimeStore<WasmHostState>,
+    thrown_message: Option<&str>,
 ) -> Result<String, EngineError> {
     let (kind, rendered) = match tag {
         WasmRuntimeValueTag::HeapBigInt => {
@@ -2988,10 +3061,10 @@ fn render_wasmtime_completion(
                         EngineError::new(format!("wasm string result is not utf-8: {err}"))
                     })?
                 }
-                ValueKind::Object => format!("handle@{}", payload as u64),
-                ValueKind::Array => format!("handle@{}", payload as u64),
-                ValueKind::Function => format!("handle@{}", payload as u64),
-                ValueKind::Arguments => format!("handle@{}", payload as u64),
+                ValueKind::Object
+                | ValueKind::Array
+                | ValueKind::Function
+                | ValueKind::Arguments => render_heap_handle(payload, thrown_message),
                 ValueKind::Symbol => format!("symbol@{}", payload as u64),
                 ValueKind::BigInt => format!("{}n", payload),
                 ValueKind::Dynamic => {
@@ -3007,6 +3080,18 @@ fn render_wasmtime_completion(
         "wasm-aot completion: {}({rendered})",
         kind.as_str()
     ))
+}
+
+/// `handle@5397552` on its own, or `handle@5397552: <message>` when the module
+/// told us what was thrown.
+///
+/// A normal completion whose value happens to be an object keeps the bare form:
+/// there is no message, because nothing was thrown.
+fn render_heap_handle(payload: i64, thrown_message: Option<&str>) -> String {
+    match thrown_message {
+        Some(message) => format!("handle@{}: {message}", payload as u64),
+        None => format!("handle@{}", payload as u64),
+    }
 }
 
 #[cfg(test)]
@@ -4018,6 +4103,12 @@ report;
                 WASM_RESULT_TAG_EXPORT,
                 WASM_COMPLETION_KIND_EXPORT,
                 WASM_THROW_ERROR_NAME_EXPORT,
+                // If this one is missing, the emitter's export section was not
+                // updated alongside the `throw_error_message` global and every
+                // uncaught throw silently loses its message again. Asserting it
+                // here makes that a named failure instead of a quiet
+                // regression to `object(handle@N)`.
+                WASM_THROW_ERROR_MESSAGE_EXPORT,
             ] {
                 assert!(
                     exports.contains(&export.to_string()),
@@ -4060,6 +4151,66 @@ report;
             err.message()
                 .contains("uncaught throw: TypeError: wasm-aot completion: object(handle@"),
             "error: {err}"
+        );
+        // The handle alone is not a diagnosis. This assertion is the enforcement
+        // half of the throw-message repair: without it the improvement is
+        // something a reader observes once and a later refactor removes without
+        // any test noticing, which is exactly how `object(handle@N)` became the
+        // shared signature of ~2,488 unrelated failures.
+        assert!(
+            err.message().contains("boom"),
+            "an uncaught throw must carry the thrown error's message, not just its address: {err}"
+        );
+
+        // ...and a runtime-thrown error, whose message the runtime supplies
+        // rather than the script. This is the same repair seen from the other
+        // side: before it, `message` was defined from the error's `name`, so
+        // there was no message to report even in principle.
+        let runtime_err = engine()
+            .run_script(
+                "null.x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("reading a property of null should throw");
+        assert!(
+            runtime_err.message().contains("uncaught throw: TypeError: "),
+            "error: {runtime_err}"
+        );
+        assert!(
+            runtime_err
+                .message()
+                .contains("Cannot read properties of null or undefined"),
+            "a runtime-thrown error must report its own message: {runtime_err}"
+        );
+    }
+
+    /// The message is appended **only** when something was thrown.
+    ///
+    /// This is what keeps the sibling assertions elsewhere in this file correct
+    /// by construction rather than by having been loosened: the ones that pin
+    /// `object(handle@` and `function(handle@` — `check()` returning `this`,
+    /// `globalThis.f`, and the two `catch (e) { e; }` cases in the new.target
+    /// table — are all *normal* completions whose value happens to be a heap
+    /// object. Nothing was thrown, `ThrownErrorText` is `NONE`, and they keep
+    /// the bare form. They were re-read and deliberately left alone.
+    #[test]
+    fn render_wasmtime_completion_appends_the_thrown_message_only_when_there_is_one() {
+        assert_eq!(render_heap_handle(5_397_552, None), "handle@5397552");
+        assert_eq!(
+            render_heap_handle(5_397_552, Some("RegExp.prototype.exec unsupported pattern")),
+            "handle@5397552: RegExp.prototype.exec unsupported pattern"
+        );
+        // An empty message is normalised to `None` by `ThrownErrorText::read`,
+        // so it can never reach here as `Some("")` and produce a dangling
+        // separator. Pinned so a later caller cannot reintroduce one.
+        assert_eq!(
+            render_heap_handle(1, Some("x")),
+            "handle@1: x",
+            "the separator is `: ` and nothing else"
         );
     }
 

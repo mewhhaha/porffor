@@ -1,7 +1,61 @@
 use super::super::*;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
-use super::temporal_plain_date::TemporalCalendarId;
+use super::temporal_plain_date::{TemporalCalendarId, TemporalEraField};
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
+
+/// Which `Temporal.ZonedDateTime.prototype` accessor
+/// [`FunctionBuilder::emit_temporal_zoned_date_time_iso_field`] is producing.
+///
+/// The emitter used to take a [`StandardBuiltinId`] and end its dispatch in
+/// `_ => unreachable!()` — a catch-all over a several-hundred-variant enum,
+/// which is precisely the shape `AGENTS.md` bans: "you added a getter and
+/// forgot an arm" became a live `unreachable!()` in the compiler instead of a
+/// compile error. The parameter is now a closed twelve-variant domain matched
+/// with no catch-all, so the omission fails to build.
+///
+/// The other direction — `StandardBuiltinId -> ZonedDateTimeField` — lives in
+/// `compile_standard_builtin`'s flat exhaustive match, which already fails to
+/// build on a builtin with no arm. So a new ZonedDateTime accessor cannot reach
+/// this emitter without naming its field here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ZonedDateTimeField {
+    Era,
+    EraYear,
+    Year,
+    Month,
+    MonthCode,
+    Day,
+    Hour,
+    Minute,
+    Second,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
+}
+
+/// Where a [`ZonedDateTimeField`] arm leaves its answer.
+///
+/// Nine arms push exactly one `i64` that is an `f64` bit pattern and let the
+/// tail of the emitter tag it `Number`. `MonthCode` writes a String result pair
+/// itself; `Era` and `EraYear` delegate to
+/// [`FunctionBuilder::emit_temporal_calendar_era_field`], which writes the pair
+/// itself and whose answer may be a String, a Number *or* Undefined.
+///
+/// Before this enum the distinction was a `!=` against one specific builtin id.
+/// Adding a second self-writing getter under that rule appended
+/// `LocalSet(result_local)` + a `Number` tag after the callee had already
+/// written the pair — so an `undefined` era would have been reported as a
+/// number, from a stack the arm never pushed to. Two named states cannot be
+/// confused that way, and the value is produced by the same `match` that emits
+/// the arm, so the two cannot drift.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ZdtFieldResult {
+    /// The arm left exactly one `i64` on the stack and did not touch the result
+    /// pair.
+    NumberOnStack,
+    /// The arm wrote both halves of the result pair and left the stack empty.
+    WrittenByCallee,
+}
 
 /// The three options `Temporal.ZonedDateTime.from` reads, in read order.
 ///
@@ -2608,29 +2662,47 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    pub(crate) fn emit_temporal_zoned_date_time_iso_field(
+    /// `GetISODateTimeFor(timeZone, epochNanoseconds)`: the receiver's epoch
+    /// nanoseconds shifted by its time zone's offset and split into the seven
+    /// components `emit_date_components_from_time` produces, plus the
+    /// sub-millisecond `remainder_local` those components do not carry.
+    ///
+    /// Extracted verbatim from `emit_temporal_zoned_date_time_iso_field` so
+    /// `toPlainDateTime` runs the *same* sequence rather than a second copy of
+    /// it. A copy would be free to drift on the two subtleties this body
+    /// carries: the negative-remainder correction that turns a truncating
+    /// `I64DivS` into a floor, and the two-limb heap-BigInt path for epoch
+    /// values outside the inline range.
+    ///
+    /// The `component_locals` array is `[year, month, day, hour, minute,
+    /// second, millisecond]` and every entry comes back as an **f64 bit
+    /// pattern**, with `month` **0-based**. `remainder_local` is the exception:
+    /// a plain non-negative `i64` nanosecond count inside the millisecond.
+    /// Callers that want integers must reinterpret and truncate.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_temporal_zoned_date_time_local_components(
         &mut self,
-        builtin: StandardBuiltinId,
+        record_local: u32,
+        nanoseconds_payload_local: u32,
+        nanoseconds_tag_local: u32,
+        milliseconds_local: u32,
+        remainder_local: u32,
+        negative_local: u32,
+        offset_seconds_local: u32,
+        time_zone_payload_local: u32,
+        local_time_payload_local: u32,
+        component_locals: [u32; 7],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
-        let time_zone_payload_local = self.reserve_temp_local();
-        let local_time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let day_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let millisecond_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
+        let [
+            year_payload_local,
+            month_payload_local,
+            day_payload_local,
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            millisecond_payload_local,
+        ] = component_locals;
         self.load_i64_to_local_from_offset(
             record_local,
             HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
@@ -2724,48 +2796,113 @@ impl<'a> FunctionBuilder<'a> {
             millisecond_payload_local,
             function,
         );
+        Ok(())
+    }
 
-        match builtin {
-            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter => {
+    /// The local ISO date-time fields of a `Temporal.ZonedDateTime`, one
+    /// accessor at a time.
+    ///
+    /// Every arm shares the epoch-nanoseconds -> local-components sequence at
+    /// the top; `field` selects which component comes back and, through
+    /// [`ZdtFieldResult`], how it was delivered.
+    pub(crate) fn emit_temporal_zoned_date_time_iso_field(
+        &mut self,
+        field: ZonedDateTimeField,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        let nanoseconds_payload_local = self.reserve_temp_local();
+        let nanoseconds_tag_local = self.reserve_temp_local();
+        let milliseconds_local = self.reserve_temp_local();
+        let remainder_local = self.reserve_temp_local();
+        let negative_local = self.reserve_temp_local();
+        let offset_seconds_local = self.reserve_temp_local();
+        let time_zone_payload_local = self.reserve_temp_local();
+        let local_time_payload_local = self.reserve_temp_local();
+        let year_payload_local = self.reserve_temp_local();
+        let month_payload_local = self.reserve_temp_local();
+        let day_payload_local = self.reserve_temp_local();
+        let hour_payload_local = self.reserve_temp_local();
+        let minute_payload_local = self.reserve_temp_local();
+        let second_payload_local = self.reserve_temp_local();
+        let millisecond_payload_local = self.reserve_temp_local();
+
+        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
+        self.emit_temporal_zoned_date_time_local_components(
+            record_local,
+            nanoseconds_payload_local,
+            nanoseconds_tag_local,
+            milliseconds_local,
+            remainder_local,
+            negative_local,
+            offset_seconds_local,
+            time_zone_payload_local,
+            local_time_payload_local,
+            [
+                year_payload_local,
+                month_payload_local,
+                day_payload_local,
+                hour_payload_local,
+                minute_payload_local,
+                second_payload_local,
+                millisecond_payload_local,
+            ],
+            function,
+        )?;
+
+        // Exhaustive over `ZonedDateTimeField`, no catch-all: a new accessor
+        // must state both what it emits and how it delivered it, in the same
+        // place.
+        let delivery = match field {
+            ZonedDateTimeField::Year => {
                 function.instruction(&Instruction::LocalGet(year_payload_local));
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter => {
+            ZonedDateTimeField::Month => {
                 function.instruction(&Instruction::LocalGet(month_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
                 function.instruction(&Instruction::F64Add);
                 function.instruction(&Instruction::I64ReinterpretF64);
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter => {
+            ZonedDateTimeField::Day => {
                 function.instruction(&Instruction::LocalGet(day_payload_local));
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter => {
+            ZonedDateTimeField::Hour => {
                 function.instruction(&Instruction::LocalGet(hour_payload_local));
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter => {
+            ZonedDateTimeField::Minute => {
                 function.instruction(&Instruction::LocalGet(minute_payload_local));
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter => {
+            ZonedDateTimeField::Second => {
                 function.instruction(&Instruction::LocalGet(second_payload_local));
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter => {
+            ZonedDateTimeField::Millisecond => {
                 function.instruction(&Instruction::LocalGet(millisecond_payload_local));
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter => {
+            ZonedDateTimeField::Microsecond => {
                 function.instruction(&Instruction::LocalGet(remainder_local));
                 function.instruction(&Instruction::I64Const(1_000));
                 function.instruction(&Instruction::I64DivU);
                 function.instruction(&Instruction::F64ConvertI64U);
                 function.instruction(&Instruction::I64ReinterpretF64);
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
+            ZonedDateTimeField::Nanosecond => {
                 function.instruction(&Instruction::LocalGet(remainder_local));
                 function.instruction(&Instruction::I64Const(1_000));
                 function.instruction(&Instruction::I64RemU);
                 function.instruction(&Instruction::F64ConvertI64U);
                 function.instruction(&Instruction::I64ReinterpretF64);
+                ZdtFieldResult::NumberOnStack
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter => {
+            ZonedDateTimeField::MonthCode => {
                 let month_number_local = self.reserve_temp_local();
                 function.instruction(&Instruction::LocalGet(month_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
@@ -2789,16 +2926,221 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 self.release_temp_local(month_number_local);
+                ZdtFieldResult::WrittenByCallee
             }
-            _ => unreachable!(),
-        }
-        if builtin != StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter {
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            ZonedDateTimeField::Era => {
+                self.emit_temporal_zoned_date_time_era_field(
+                    record_local,
+                    year_payload_local,
+                    TemporalEraField::Era,
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::EraYear => {
+                self.emit_temporal_zoned_date_time_era_field(
+                    record_local,
+                    year_payload_local,
+                    TemporalEraField::EraYear,
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+        };
+        match delivery {
+            ZdtFieldResult::NumberOnStack => {
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
+            ZdtFieldResult::WrittenByCallee => {}
         }
 
         for local in [
+            millisecond_payload_local,
+            second_payload_local,
+            minute_payload_local,
+            hour_payload_local,
+            day_payload_local,
+            month_payload_local,
+            year_payload_local,
+            local_time_payload_local,
+            time_zone_payload_local,
+            offset_seconds_local,
+            negative_local,
+            remainder_local,
+            milliseconds_local,
+            nanoseconds_tag_local,
+            nanoseconds_payload_local,
+            record_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
+    /// `era` / `eraYear` for a `Temporal.ZonedDateTime`, from the receiver's
+    /// `[[Calendar]]` and its *local* ISO year.
+    ///
+    /// The answer comes out of [`Self::emit_temporal_calendar_era_field`], the
+    /// same emitter `PlainDate`, `PlainDateTime` and `PlainYearMonth` use, so
+    /// ZonedDateTime cannot disagree with them about where the year-0 boundary
+    /// falls or which era codes exist. That emitter writes both halves of the
+    /// result pair, which is why the caller reports
+    /// [`ZdtFieldResult::WrittenByCallee`].
+    ///
+    /// The one unit conversion is load-bearing.
+    /// `emit_date_components_from_time` leaves every component as an **f64 bit
+    /// pattern** (each of its arms ends in `I64ReinterpretF64`), whereas
+    /// `emit_temporal_calendar_era_field` takes a plain `i64` ISO year, the way
+    /// `PlainDate` hands it one straight out of its record. Passing the bit
+    /// pattern through unconverted would compare a reinterpreted double against
+    /// `0` and put essentially every year in the `ce` branch — a bug invisible
+    /// for positive years, which is exactly why
+    /// `wasm_temporal_zoned_date_time_era.js` drives the `bce` side.
+    /// `I64TruncF64S` is exact here: the value is an integral f64 well inside
+    /// the `i64` range, since `ISODateTimeWithinLimits` bounds the year to
+    /// ±275,760.
+    fn emit_temporal_zoned_date_time_era_field(
+        &mut self,
+        record_local: u32,
+        year_payload_local: u32,
+        field: TemporalEraField,
+        function: &mut Function,
+    ) {
+        let calendar_payload_local = self.reserve_temp_local();
+        let iso_year_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+            calendar_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(year_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::LocalSet(iso_year_local));
+        self.emit_temporal_calendar_era_field(
+            calendar_payload_local,
+            iso_year_local,
+            field,
+            function,
+        );
+        self.release_temp_local(iso_year_local);
+        self.release_temp_local(calendar_payload_local);
+    }
+
+    /// `Temporal.ZonedDateTime.prototype.toPlainDateTime`.
+    ///
+    /// The inverse of [`Self::emit_temporal_plain_date_time_to_zoned_date_time`]
+    /// and the keystone of the era-boundary corpus: every
+    /// `intl402/Temporal/ZonedDateTime/**/era-boundary-gregory.js` file asserts
+    /// through `TemporalHelpers.assertPlainDateTime`, which requires a real
+    /// `Temporal.PlainDateTime`, never the zoned value.
+    ///
+    /// It reuses the epoch-nanoseconds -> local-components sequence that
+    /// [`Self::emit_temporal_zoned_date_time_iso_field`] already runs, then
+    /// hands the nine ISO fields plus **the receiver's own calendar payload** to
+    /// `CreateTemporalDateTime`. Carrying the calendar is what makes
+    /// `result.era` answer `"bce"` rather than `undefined`; the ISO fields alone
+    /// would produce an `iso8601` PlainDateTime that reports no era at all.
+    pub(crate) fn emit_temporal_zoned_date_time_to_plain_date_time(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        let nanoseconds_payload_local = self.reserve_temp_local();
+        let nanoseconds_tag_local = self.reserve_temp_local();
+        let milliseconds_local = self.reserve_temp_local();
+        let remainder_local = self.reserve_temp_local();
+        let negative_local = self.reserve_temp_local();
+        let offset_seconds_local = self.reserve_temp_local();
+        let time_zone_payload_local = self.reserve_temp_local();
+        let local_time_payload_local = self.reserve_temp_local();
+        let year_payload_local = self.reserve_temp_local();
+        let month_payload_local = self.reserve_temp_local();
+        let day_payload_local = self.reserve_temp_local();
+        let hour_payload_local = self.reserve_temp_local();
+        let minute_payload_local = self.reserve_temp_local();
+        let second_payload_local = self.reserve_temp_local();
+        let millisecond_payload_local = self.reserve_temp_local();
+        let calendar_payload_local = self.reserve_temp_local();
+        let field_locals = self.reserve_temporal_plain_date_time_field_locals();
+
+        self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
+        self.emit_temporal_zoned_date_time_local_components(
+            record_local,
+            nanoseconds_payload_local,
+            nanoseconds_tag_local,
+            milliseconds_local,
+            remainder_local,
+            negative_local,
+            offset_seconds_local,
+            time_zone_payload_local,
+            local_time_payload_local,
+            [
+                year_payload_local,
+                month_payload_local,
+                day_payload_local,
+                hour_payload_local,
+                minute_payload_local,
+                second_payload_local,
+                millisecond_payload_local,
+            ],
+            function,
+        )?;
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+            calendar_payload_local,
+            function,
+        );
+
+        // The components arrive as f64 bit patterns; a `PlainDateTime` record
+        // stores plain integers. `month_payload_local` is 0-based, matching
+        // `emit_date_components_from_time`, so it gains the same `+ 1` the
+        // `month` accessor applies.
+        for (payload_local, field_local) in [
+            (year_payload_local, field_locals[0]),
+            (day_payload_local, field_locals[2]),
+            (hour_payload_local, field_locals[3]),
+            (minute_payload_local, field_locals[4]),
+            (second_payload_local, field_locals[5]),
+            (millisecond_payload_local, field_locals[6]),
+        ] {
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::I64TruncF64S);
+            function.instruction(&Instruction::LocalSet(field_local));
+        }
+        function.instruction(&Instruction::LocalGet(month_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(field_locals[1]));
+        // `remainder_local` is the sub-millisecond nanosecond count, already a
+        // plain non-negative `i64` — the one component that is not a bit
+        // pattern, because it never went through `emit_date_components_from_time`.
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(1_000));
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::LocalSet(field_locals[7]));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(1_000));
+        function.instruction(&Instruction::I64RemU);
+        function.instruction(&Instruction::LocalSet(field_locals[8]));
+
+        self.emit_alloc_temporal_plain_date_time(
+            &field_locals,
+            calendar_payload_local,
+            None,
+            function,
+        )?;
+
+        self.release_temporal_plain_date_time_field_locals(field_locals);
+        for local in [
+            calendar_payload_local,
             millisecond_payload_local,
             second_payload_local,
             minute_payload_local,

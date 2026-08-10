@@ -15,6 +15,14 @@ pub const DERIVED_ACTIVATION_THIS_NAME: &str = "$derived.this";
 pub const DERIVED_ACTIVATION_THIS_STATUS_NAME: &str = "$derived.thisStatus";
 pub const DERIVED_ACTIVATION_NEW_TARGET_NAME: &str = "$derived.newTarget";
 pub const DERIVED_ACTIVATION_FUNCTION_NAME: &str = "$derived.activeFunction";
+/// The reserved storage *spelling* for a placeholder scope entry — a
+/// for-in/for-of head binding (14.7.5.5) and a formal parameter before its
+/// initialization (10.2.11 step 21).
+///
+/// This is a name domain, not a lifecycle state. The state lives on
+/// `BindingInfo::initialization` (`binding_lifecycle::Initialization`), and no
+/// read or write site may decide whether to throw by testing for this prefix.
+/// Mint and test it only through `binding_lifecycle::TdzPlaceholderName`.
 pub(crate) const TDZ_BINDING_STORAGE_PREFIX: &str = "$tdz.";
 
 /// `[[ExportName]]` shared by every `export default` form (16.2.3.7).

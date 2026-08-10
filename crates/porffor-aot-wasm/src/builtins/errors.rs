@@ -417,33 +417,37 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Allocate the error object for a runtime-thrown error.
     ///
-    /// KNOWN DEFECT, deliberately still present: the `message` property is
-    /// defined from `_message`'s *name* payload, so every error thrown by the
-    /// runtime reports `e.message === e.name`. Reproduced on the b3 binary with
+    /// `message` is defined from the message, not from the name. That reads as
+    /// a tautology; it is the repair. This function used to define `message`
+    /// from `self.strings.payload(name)` and spell its message parameter
+    /// `_message`, so not even an unused-parameter warning mentioned it, and
+    /// every error the runtime threw reported `e.message === e.name`:
     ///
     /// ```text
     /// try { null.x } catch (e) { print(e.name); print(e.message); }
-    /// // TypeError / TypeError
+    /// // TypeError / TypeError     (before)
+    /// // TypeError / Cannot read properties of null or undefined   (after)
     /// ```
     ///
-    /// The one-token repair (`self.strings.payload(_message)`, exactly as the
-    /// sibling `emit_throw_runtime_error_with_prototype_local` already does)
-    /// cannot land on its own: `StringPool::payload` panics with
-    /// ``string `..` must exist in pool`` for a string that was never interned,
-    /// and 92 distinct message literals across 120 call sites reach here without
-    /// being in the pool — precisely because this function never asks for them.
-    /// The repair therefore has to land together with the `data.rs` interning,
-    /// which is a different owner. The audit, the full 92-string list and the
-    /// ready-to-apply patch are in
-    /// `target/lane-notes/dead-branch-and-runtime-error-message-defects-b3-integration.md`.
+    /// The repair is one token here and could not land alone.
+    /// `StringPool::payload` takes `&self`, cannot extend the pool during
+    /// emission, and panics with ``string `..` must exist in pool``; because
+    /// this function never asked the pool for a message, the messages reaching
+    /// only it were never required to be interned. `data.rs`'s
+    /// `RUNTIME_ERROR_MESSAGE_LITERALS` is the other half, and the two are one
+    /// patch: either alone is compile-time clean and run-time fatal.
     ///
-    /// Do not "fix" this by making the message fall back to the name when the
-    /// pool lookup misses: that is the silent fallback the current behaviour
-    /// already is, only harder to find.
+    /// STANDING INSTRUCTION, unchanged in force: do **not** make the message
+    /// fall back to the name when the pool lookup misses. That fallback is
+    /// precisely the defect above, only harder to find — the program would run,
+    /// report a plausible-looking `message`, and no test would notice. A miss
+    /// must stay a named panic naming the missing string, which is what turns
+    /// "someone added a message and forgot to intern it" into a one-line fix
+    /// instead of an archaeology exercise.
     pub(crate) fn emit_runtime_error_object(
         &mut self,
         name: &str,
-        _message: &str,
+        message: &str,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -485,7 +489,9 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("message")));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+        // The message, not the name. See the doc comment: the `payload(name)`
+        // that used to sit here is the T24 defect.
+        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
@@ -520,6 +526,15 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_runtime_error_object(name, message, payload_local, tag_local, function)?;
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        // Companion to the name global. Without it an uncaught throw reaches the
+        // host as `TypeError: wasm-aot completion: object(handle@5397552)` — a
+        // raw linear-memory address that is not stable across builds and maps to
+        // no allocation site, so ~2,488 measured cases across ~1,743 addresses
+        // carried one bit of information between them.
+        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
             self.uses_heap,
         )));
         function.instruction(&Instruction::LocalGet(payload_local));
@@ -689,6 +704,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
             self.uses_heap,
         )));
+        // Same pairing as `emit_throw_runtime_error`: whenever the name global
+        // is set at a throw site, the message global is set beside it, so the
+        // host never has to render a bare address.
+        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -726,6 +748,20 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Capture, for the host, what a `throw` of an arbitrary value was.
+    ///
+    /// Two globals, read together by `render_wasmtime_completion`: the error's
+    /// `name` (falling back to `constructor.name`, because a `Test262Error`
+    /// carries no own `name`) and its `message`. The message half is what stops
+    /// an uncaught user throw from reaching the host as nothing but
+    /// `object(handle@5397552)`.
+    ///
+    /// The message global is zeroed **here**, not by the caller. The name
+    /// global's callers each zero it themselves before calling
+    /// (`control_flow.rs`'s `StatementIr::Throw`, `promise.rs`'s rejection
+    /// path), and that convention is exactly why a *new* global would inherit a
+    /// stale value from a previous throw at any call site that forgot. Zeroing
+    /// on entry makes it impossible to forget from outside this function.
     pub(crate) fn emit_capture_throw_error_name(
         &mut self,
         payload_local: u32,
@@ -736,7 +772,14 @@ impl<'a> FunctionBuilder<'a> {
         let constructor_tag_local = self.reserve_temp_local();
         let name_payload_local = self.reserve_temp_local();
         let name_tag_local = self.reserve_temp_local();
+        let message_payload_local = self.reserve_temp_local();
+        let message_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
 
         self.emit_is_heap_object_like_tag_i32(tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -756,6 +799,32 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(name_payload_local));
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::End);
+        // `.message`, read with the same non-calling data-property read as
+        // `.name` so capturing a diagnostic can never run user code and change
+        // the very completion it is describing. There is deliberately no
+        // `constructor.message` fallback: `.name` has one because the error
+        // classes put `name` on the prototype, whereas a missing `message` means
+        // the thrown value simply has none, and inventing one would put the host
+        // back to guessing.
+        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_data_property_read_no_call(
+            payload_local,
+            tag_local,
+            key_local,
+            message_payload_local,
+            message_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(message_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(message_payload_local));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
             self.uses_heap,
         )));
         function.instruction(&Instruction::End);
@@ -802,6 +871,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(key_local);
+        self.release_temp_local(message_tag_local);
+        self.release_temp_local(message_payload_local);
         self.release_temp_local(name_tag_local);
         self.release_temp_local(name_payload_local);
         self.release_temp_local(constructor_tag_local);

@@ -68,10 +68,9 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            self.emit_propagate_throw_from_locals_if_needed(
                 payload_local,
                 tag_local,
-                0,
                 function,
             )?;
             self.release_temp_local(argv_local);
@@ -91,10 +90,9 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            0,
             function,
         )?;
         if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
@@ -199,7 +197,7 @@ impl<'a> FunctionBuilder<'a> {
             // has to skip that extra frame when it branches to an active catch
             // handler; without it the branch lands on the guard's own `End` and
             // execution falls through as if nothing had been thrown.
-            self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+            self.emit_dispatch_current_completion(function)?;
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(rhs_tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -244,7 +242,7 @@ impl<'a> FunctionBuilder<'a> {
         // Same extra frame as the callability guard above: the dispatch is
         // nested inside this `If`, so an active catch handler is one level
         // further away than the default depth assumes.
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(lhs_tag_local));
@@ -272,12 +270,11 @@ impl<'a> FunctionBuilder<'a> {
             .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
         {
-            self.emit_object_get_prototype_of_with_depth(
+            self.emit_object_get_prototype_of(
                 search_local,
                 search_tag_local,
                 next_proto_local,
                 next_proto_tag_local,
-                3,
                 function,
             )?;
         } else {
@@ -1247,7 +1244,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1274,7 +1271,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1347,7 +1344,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1500,7 +1497,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1568,7 +1565,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1615,7 +1612,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1683,7 +1680,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1707,7 +1704,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1722,7 +1719,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1798,7 +1795,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1826,7 +1823,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1903,7 +1900,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1930,7 +1927,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1985,8 +1982,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 self.compile_nullish_tagged_i32(source_tag_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::Else);
                 self.emit_value_to_object_locals(
                     source_payload_local,
@@ -2298,35 +2294,19 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// There used to be a `_with_extra_depth` twin of this, for call sites that
+    /// sat some number of untracked wasm blocks deeper than
+    /// `self.control_stack` reflected (e.g. already inside a manually-emitted
+    /// `If`), so that the internal throw propagation's `Br` reached the correct
+    /// active handler. Branch immediates come from the real label depth now, so
+    /// there is nothing for such a caller to declare and one entry point does
+    /// both jobs.
     pub(crate) fn compile_expr_to_primitive_locals(
         &mut self,
         expr: &TypedExpr,
         hint: ToPrimitiveHint,
         payload_local: u32,
         tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.compile_expr_to_primitive_locals_with_extra_depth(
-            expr,
-            hint,
-            payload_local,
-            tag_local,
-            0,
-            function,
-        )
-    }
-
-    /// Same as `compile_expr_to_primitive_locals`, but for call sites that sit
-    /// `extra_depth` untracked wasm blocks deeper than `self.control_stack`
-    /// reflects (e.g. already inside a manually-emitted `If`), so the internal
-    /// throw propagation's `Br` reaches the correct active handler.
-    pub(crate) fn compile_expr_to_primitive_locals_with_extra_depth(
-        &mut self,
-        expr: &TypedExpr,
-        hint: ToPrimitiveHint,
-        payload_local: u32,
-        tag_local: u32,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if expr.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
@@ -2350,12 +2330,12 @@ impl<'a> FunctionBuilder<'a> {
         // in `payload_local`/`tag_local` rather than branching internally (see
         // `emit_object_to_primitive_locals_locals_inner`). Propagate here to
         // reach the active in-function try/catch handler (or return the
-        // completion when there is none); `extra_depth` accounts for any
-        // untracked wasm blocks the caller already has open at this point.
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        // completion when there is none); the branch immediate accounts for
+        // every wasm block the caller has open, tracked or not, because it is
+        // read from the sink rather than from `control_stack`.
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            extra_depth,
             function,
         )?;
         self.release_temp_local(raw_tag_local);
@@ -2364,7 +2344,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `emit_tagged_to_primitive_locals` plus the throw propagation that
-    /// `compile_expr_to_primitive_locals_with_extra_depth` performs, for
+    /// `compile_expr_to_primitive_locals` performs, for
     /// callers that need to split "evaluate the operand" from "coerce it".
     fn emit_to_primitive_from_raw_locals(
         &mut self,
@@ -2383,10 +2363,9 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            0,
             function,
         )
     }
@@ -2620,7 +2599,8 @@ impl<'a> FunctionBuilder<'a> {
     /// exactly the state the inline body leaves on a throw: the thrown value in
     /// the output locals *and* in `result_local`/`result_tag_local`, with
     /// `completion_local == THROW`. So the seam adopts the completion tuple,
-    /// needs no `extra_depth` parameter, and emits no branch of its own.
+    /// needs no depth argument (no such argument exists any more), and emits no
+    /// branch of its own.
     ///
     /// Param 6 forwards [`Self::current_env_local`], and the two conflicting
     /// in-tree precedents are reconciled as follows rather than picked between.
@@ -3971,17 +3951,15 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             payload_local,
             tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
 
         self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_bigint_binary_op_to_locals(
             BigIntHelperOp::from_arithmetic(op),
             lhs_payload_local,
@@ -4643,9 +4621,9 @@ impl<'a> FunctionBuilder<'a> {
         // the same `i64.or` the inline body's Symbol arm emits. Everything else
         // pays one call.
         //
-        // The propagation is emitted *after* the `end` of the seam's `if`, at
-        // depth 0, so it keeps the `extra_depth = 0` this function has always
-        // passed — the same shape `emit_value_to_number_payload`'s seam uses.
+        // The propagation is emitted *after* the `end` of the seam's `if`, so
+        // it stands at the same label depth the inline body would have — the
+        // same shape `emit_value_to_number_payload`'s seam uses.
         //
         // Param 6 forwards `current_env_local` for the reason spelled out on
         // `emit_value_to_primitive_via_helper_if_outlined`: inline, this body ran
@@ -4676,10 +4654,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(payload_local, tag_local, function);
                 function.instruction(&Instruction::End);
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
                     tag_local,
-                    0,
                     function,
                 )?;
                 return Ok(());
@@ -4700,10 +4677,9 @@ impl<'a> FunctionBuilder<'a> {
         // `emit_tagged_to_primitive_locals` deliberately leaves abrupt
         // completions in locals. This call site has no manually-emitted Wasm
         // blocks open, so no additional untracked depth is needed here.
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             primitive_payload_local,
             primitive_tag_local,
-            0,
             function,
         )?;
 
@@ -6189,8 +6165,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::LocalGet(completed_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_tagged_to_primitive_locals(
             ToPrimitiveHint::Default,
             lhs_raw_payload,
@@ -7682,8 +7657,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::LocalGet(payload_local));
                 function.instruction(&Instruction::LocalSet(result_payload_local));
                 function.instruction(&Instruction::Else);
