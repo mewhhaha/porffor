@@ -458,7 +458,7 @@ impl IteratorProtocolWitness {
 /// a row preserves (ledger **L1**'s shape), and an assertion that cannot detect
 /// its own omission is decoration.
 ///
-/// An alias row is written `NAME => Self::OTHER`, which is how
+/// An alias row is written `NAME => IteratorProtocolWitness::OTHER`, which is how
 /// `ARRAY_INDEX_WALK_RESUMABLE` stays a *named* desugaring without a second
 /// value — and why the census is written over names rather than over values.
 macro_rules! iterator_witnesses {
