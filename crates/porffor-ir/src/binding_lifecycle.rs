@@ -142,22 +142,32 @@ impl TdzPlaceholderName {
 /// therefore lowers its `x` read against the still-`Uninitialized` binding,
 /// which is 9.1.1.1.6 step 2.
 ///
-/// [`Self::evaluated`] is the one loophole, and it is named rather than left
-/// implicit. Its callers are the declarator paths whose "initializer" is not a
-/// plain `Expression`: the four async/generator staging paths of
-/// `lower_lexical_declaration` (which lower an `await`/`yield` into a temporary
-/// and read it back), the static-generator substitution
-/// (`array_iterator_from_static_generator_values` replaces the lowered
-/// expression outright), and `lower_class_declaration`, whose initializer is the
-/// ClassDefinitionEvaluation result of 15.7.16 step 2. Every one of them has
-/// already produced the value before it calls this.
+/// [`Self::evaluated`] is a **general** constructor, not a named loophole, and
+/// this doc comment used to claim otherwise. It accepts any `TypedExpr`, so
+/// `pending.initialize(LoweredInitializer::evaluated(TypedExpr::undefined()))`
+/// followed by lowering the real initializer compiles and reproduces the exact
+/// defect the type was introduced against. What the type *does* carry is
+/// narrower and is stated in [`PendingInitialization::initialize`]: the
+/// transition consumes the token, so it cannot be made twice.
+///
+/// Its eight call sites, measured rather than asserted (see ledger **L6**):
+/// `lower_lexical_declaration`'s four async/generator staging paths
+/// (`lowering.rs:16376`, `:16474`, `:16497`, `:16546`, which lower an
+/// `await`/`yield` into a temporary and read it back), the ordinary identifier
+/// declarator (`:16602`), `lower_using_declaration` (`:16679`),
+/// `lower_class_declaration` (`:18657`, whose initializer is the
+/// ClassDefinitionEvaluation result of 15.7.16 step 2), and
+/// `lower_object_pattern_lexical_binding_from_value` (`:31937`). Every one of
+/// them has already produced the value before it calls this — which is a
+/// property of those eight bodies, checked by reading them, not by this type.
 #[derive(Debug)]
 #[must_use = "a lowered initializer that discharges no PendingInitialization is \
               an evaluated expression with no consumer"]
 pub(crate) struct LoweredInitializer(TypedExpr);
 
 impl LoweredInitializer {
-    /// See the type's doc comment for the closed list of call sites.
+    /// See the type's doc comment for the measured list of call sites and for
+    /// what this constructor does and does not prove.
     pub(crate) fn evaluated(value: TypedExpr) -> Self {
         Self(value)
     }
@@ -187,6 +197,7 @@ impl LoweredInitializer {
 #[must_use = "a created binding that is never initialized stays in TDZ for the \
               rest of its scope"]
 pub(crate) struct PendingInitialization {
+    source_name: String,
     mode: BindingMode,
     storage_name: String,
 }
@@ -196,10 +207,18 @@ impl PendingInitialization {
     /// Initializer` and `LexicalBinding : BindingIdentifier` (14.3.1.2 steps 3
     /// and 5).
     ///
-    /// Returns the storage name the creation allocated, the `BindingInfo` the
-    /// caller hands to `declare_binding`, and the initializer value the caller
-    /// puts in its `StatementIr::Lexical`.
-    pub(crate) fn initialize(self, init: LoweredInitializer) -> (String, BindingInfo, TypedExpr) {
+    /// Returns an [`InitializedBinding`], **not** the storage name as a bare
+    /// `String`. That is the M2b-name fix: while the name was returned loose, a
+    /// declarator could take the token, declare the returned record — which
+    /// flips the scope entry to `Initialized` and so makes
+    /// `direct_lexical_storage_name`'s reuse branch stop matching — and then
+    /// recompute `direct_lexical_storage_name` for the emitted
+    /// `StatementIr::Lexical`, writing `$lexN` while every earlier read of the
+    /// name resolved to the created slot. `lower_class_declaration` held both
+    /// spellings in scope simultaneously, so the mistake was one variable
+    /// rename away. There is now no `String` in the caller's hands to
+    /// substitute: 9.1.1.1.2's slot and 9.1.1.1.4's slot are the same value.
+    pub(crate) fn initialize(self, init: LoweredInitializer) -> InitializedBinding {
         let value = init.into_expr();
         let info = BindingInfo {
             mode: self.mode,
@@ -210,7 +229,71 @@ impl PendingInitialization {
             function_targets: value.function_targets.clone(),
             initialization: Initialization::Initialized,
         };
-        (self.storage_name, info, value)
+        InitializedBinding {
+            source_name: self.source_name,
+            mode: self.mode,
+            storage_name: self.storage_name,
+            info,
+            value,
+        }
+    }
+}
+
+/// The completed InitializeBinding (9.1.1.1.4): the scope-record write and the
+/// emitted `StatementIr::Lexical`, held together so the storage name in the IR
+/// node is provably the one CreateMutableBinding (9.1.1.1.2) allocated.
+///
+/// All fields are private and the only exit is [`Self::declare`], which does
+/// both halves. A declarator therefore has no `String` it could swap for a
+/// recomputed one, which is what [`PendingInitialization::initialize`]'s bare
+/// `(String, BindingInfo, TypedExpr)` return used to allow.
+///
+/// [`Self::without_creation`] is the counterpart for the paths where
+/// BlockDeclarationInstantiation did **not** create the name — a for-head
+/// binding, a compiler-generated declarator, or a form the sweep could not
+/// resolve. It is a named constructor rather than an implicit fallback so that
+/// "there was no token" is a decision at the call site, and its four callers
+/// each sit in the `None` arm of a `match` on the token.
+#[derive(Debug)]
+#[must_use = "an initialized binding that is never declared leaves the scope \
+              entry uninitialized and emits no lexical statement"]
+pub(crate) struct InitializedBinding {
+    source_name: String,
+    mode: BindingMode,
+    storage_name: String,
+    info: BindingInfo,
+    value: TypedExpr,
+}
+
+impl InitializedBinding {
+    /// The untokened path: this statement list did not create `source_name`, so
+    /// the caller allocated the storage name itself.
+    pub(crate) fn without_creation(
+        source_name: String,
+        mode: BindingMode,
+        storage_name: String,
+        value: TypedExpr,
+    ) -> Self {
+        let info = BindingInfo::initialized(mode, storage_name.clone(), value.value_info());
+        Self {
+            source_name,
+            mode,
+            storage_name,
+            info,
+            value,
+        }
+    }
+
+    /// Performs the scope-record write and returns the lexical statement, in
+    /// one step. The `name` of the emitted node is `self.storage_name` and
+    /// there is no other way to spell it.
+    pub(crate) fn declare(self, lowerer: &mut ScriptLowerer<'_>) -> StatementIr {
+        lowerer.declare_initialized_binding(self.source_name, self.info);
+        StatementIr::Lexical {
+            mode: self.mode,
+            name: self.storage_name,
+            init: self.value,
+        }
     }
 }
 
@@ -222,11 +305,15 @@ impl PendingInitialization {
 /// without predeclaring**. The three entries — `lower_statement_items`,
 /// `lower_statement_items_without_function_initialization` and
 /// `lower_root_statement_items_with_function_bindings` — take one, and the only
-/// constructors are [`Self::instantiate`] and [`Self::instantiate_switch`],
-/// which perform the sweep. A fourth statement-list entry added later is
-/// `error[E0061]` until its author builds one, rather than compiling into a
-/// scope whose `let`s are never created and whose earlier reads therefore see an
-/// outer binding or a global.
+/// constructors are [`Self::instantiate`], [`Self::instantiate_in_current_scope`]
+/// and [`Self::instantiate_switch`], each of which performs the sweep. A fourth
+/// statement-list entry added later is `error[E0061]` until its author builds
+/// one, rather than compiling into a scope whose `let`s are never created and
+/// whose earlier reads therefore see an outer binding or a global.
+///
+/// The two block-shaped constructors also **own the Environment Record** the
+/// sweep populates: they push it and [`Self::finish`] pops it, so the sweep
+/// cannot run into the enclosing scope. See [`InstantiatedFrame`].
 ///
 /// `#[must_use]`, not `Clone`. Tokens are taken out by source name; whatever is
 /// left when the statement list ends is the set of names whose declarators
@@ -238,22 +325,82 @@ impl PendingInitialization {
               threaded to its declarators re-opens M5"]
 pub(crate) struct LexicalScopeInstantiation {
     pending: BTreeMap<String, PendingInitialization>,
+    frame: InstantiatedFrame,
+}
+
+/// Which Environment Record the sweep created its bindings in.
+///
+/// 14.3.1.2 step 1 is "let `env` be the running execution context's
+/// LexicalEnvironment" — for a Block that is the **new** declarative
+/// Environment Record the Block's evaluation just pushed, not the enclosing
+/// one. The token used to witness only that *a* sweep ran: `instantiate` calls
+/// `create_lexical_binding` -> `declare_binding` -> `scopes.last_mut()`, and
+/// every block-shaped call site performed its push in a different function, so
+/// `let scope = LexicalScopeInstantiation::instantiate(self, items);
+/// self.push_scope(); self.lower_statement_items(items, scope);` compiled,
+/// satisfied M5's `E0061`, and declared every `let` of the inner list into the
+/// *parent* scope — where they outlive the block and shadow its siblings.
+///
+/// The push is therefore part of the constructor and the pop is
+/// [`LexicalScopeInstantiation::finish`], which consumes the token. A caller
+/// that pushes on its own now gets a frame it has no token to pop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstantiatedFrame {
+    /// The constructor pushed the declarative Environment Record the bindings
+    /// live in, and `finish` pops it.
+    Pushed,
+    /// The bindings were created in the frame the caller already owns and whose
+    /// lifetime it already manages: the script/module top level and a function
+    /// body, whose Environment Record is 16.1.7's global lexical record and
+    /// 10.2.11's `lexEnv` respectively, both established before the statement
+    /// list is reached. `finish` pops nothing.
+    Current,
 }
 
 impl LexicalScopeInstantiation {
-    /// 14.3.1.2 BlockDeclarationInstantiation / 16.1.7 GlobalDeclarationInstantiation
-    /// step 17 / 10.2.11 FunctionDeclarationInstantiation step 30.
-    ///
-    /// Declares every lexically scoped name of `items` into the current scope as
+    /// 14.3.1.2 BlockDeclarationInstantiation, in full: push the block's
+    /// declarative Environment Record, then create every lexically scoped name
+    /// of `items` in it as
     /// `Initialization::Uninitialized(UninitializedStorage::Allocated)` — the
-    /// whole list, before any statement of the list is lowered — and keeps one
+    /// whole list, before any statement of the list is lowered — and keep one
     /// token per name.
+    ///
+    /// The push is here rather than at the call site because the scope the
+    /// sweep populates must be the scope the statement list is lowered in; see
+    /// [`InstantiatedFrame`]. Pair every call with
+    /// [`Self::finish`], which the statement-list entries perform.
     pub(crate) fn instantiate(
+        lowerer: &mut ScriptLowerer<'_>,
+        items: &[StatementListItem],
+    ) -> Self {
+        lowerer.push_instantiation_scope();
+        let mut scope = Self {
+            pending: BTreeMap::new(),
+            frame: InstantiatedFrame::Pushed,
+        };
+        for item in items {
+            scope.instantiate_item(lowerer, item);
+        }
+        scope
+    }
+
+    /// 16.1.7 GlobalDeclarationInstantiation step 17 and 10.2.11
+    /// FunctionDeclarationInstantiation step 30, whose Environment Record
+    /// (`env` / `lexEnv`) is established by the caller before the body's
+    /// statement list is reached and outlives it.
+    ///
+    /// Three call sites, all of them a root statement list, none of them a
+    /// Block: the script prepass and the script final body
+    /// (`lowering.rs:8488`, `:8591`) and the two function-body lowering paths
+    /// (`:15033`, `:20188`). Anything block-shaped uses [`Self::instantiate`],
+    /// which owns its frame.
+    pub(crate) fn instantiate_in_current_scope(
         lowerer: &mut ScriptLowerer<'_>,
         items: &[StatementListItem],
     ) -> Self {
         let mut scope = Self {
             pending: BTreeMap::new(),
+            frame: InstantiatedFrame::Current,
         };
         for item in items {
             scope.instantiate_item(lowerer, item);
@@ -264,10 +411,12 @@ impl LexicalScopeInstantiation {
     /// 14.12.4 CaseBlockEvaluation instantiates the whole CaseBlock's
     /// LexicallyScopedDeclarations **once**, not once per case, so the sweep is
     /// the union over every case's statement list and the resulting token map is
-    /// shared by all of them.
+    /// shared by all of them. Like [`Self::instantiate`] it owns the frame.
     pub(crate) fn instantiate_switch(lowerer: &mut ScriptLowerer<'_>, switch: &AstSwitch) -> Self {
+        lowerer.push_instantiation_scope();
         let mut scope = Self {
             pending: BTreeMap::new(),
+            frame: InstantiatedFrame::Pushed,
         };
         for case in switch.cases() {
             for item in case.body().statements() {
@@ -275,6 +424,21 @@ impl LexicalScopeInstantiation {
             }
         }
         scope
+    }
+
+    /// Ends the statement list: pops the Environment Record the constructor
+    /// pushed, and nothing otherwise.
+    ///
+    /// Consumes the token, so the frame is popped exactly once and only by the
+    /// value that pushed it. Whatever obligations are left in `pending` are the
+    /// names whose declarators lowering never reached; those bindings stay
+    /// uninitialized for the rest of the scope, which is the correct answer for
+    /// an unreached declarator.
+    pub(crate) fn finish(self, lowerer: &mut ScriptLowerer<'_>) {
+        match self.frame {
+            InstantiatedFrame::Pushed => lowerer.pop_instantiation_scope(),
+            InstantiatedFrame::Current => {}
+        }
     }
 
     /// LexicallyScopedDeclarations (8.2.6) for one StatementListItem.
@@ -344,8 +508,14 @@ impl LexicalScopeInstantiation {
         span: boa_ast::Span,
     ) {
         let storage_name = lowerer.create_lexical_binding(&source_name, mode, span);
-        self.pending
-            .insert(source_name, PendingInitialization { mode, storage_name });
+        self.pending.insert(
+            source_name.clone(),
+            PendingInitialization {
+                source_name,
+                mode,
+                storage_name,
+            },
+        );
     }
 
     /// Claims the obligation for one source name. `None` means this statement
@@ -360,11 +530,19 @@ impl LexicalScopeInstantiation {
 /// The result of ResolveBinding (9.1.2.1) at a site that is about to perform
 /// GetBindingValue (9.1.1.1.6) or SetMutableBinding (9.1.1.1.5).
 ///
-/// Three variants, matched exhaustively at every Reference-shaped site. The
-/// point is the `Uninitialized` arm: with `lookup_binding`'s bare
-/// `Option<BindingInfo>` a site that forgets step 2 / step 3 compiles and
-/// answers `undefined`; with this, the arm must be written, and the only thing
-/// that can be done with a [`TdzViolation`] is turn it into the throw.
+/// Three variants, matched exhaustively at every Reference-shaped site. What
+/// this discharges, exactly: with `lookup_binding`'s bare `Option<BindingInfo>`
+/// a site that forgets step 2 / step 3 compiles and answers `undefined`; with
+/// this, **the `Uninitialized` arm must exist**, and the only value that arm
+/// can be handed is a [`TdzViolation`] whose only method is `into_throw`.
+///
+/// It does **not** force the arm to *use* it. `#[must_use]` on a struct fires
+/// for a discarded expression statement, never for a value bound or wildcarded
+/// in a `match` pattern, so `BindingResolution::Uninitialized(_) => {}`
+/// compiles silently — and `lower_array_assignment_identifier_target`
+/// (`lowering.rs:32402`) writes exactly that pattern for a legitimate reason.
+/// The contents of the seven arms are ledger entry **L8**: a review item, not a
+/// proof.
 #[must_use = "the 9.1.1.1.6 step 2 / 9.1.1.1.5 step 3 test is the reason this \
               exists; discarding it is the mistake it prevents"]
 pub(crate) enum BindingResolution {
@@ -391,8 +569,12 @@ impl BindingResolution {
 }
 
 /// An uninitialized binding reached by a Reference. Not `Clone`, private field;
-/// the single consumer is [`Self::into_throw`], so the `Uninitialized` arm
-/// cannot be written as a no-op that falls through to the ordinary read.
+/// the single consumer is [`Self::into_throw`], so an `Uninitialized` arm can do
+/// exactly one useful thing with the value it is handed.
+///
+/// Rust cannot make a value undroppable, so it *can* still be discarded by
+/// binding it to `_`. See [`BindingResolution`] and ledger entry **L8** for the
+/// honest statement of what this carries.
 #[derive(Debug)]
 #[must_use = "an uninitialized binding that is read or written must throw"]
 pub(crate) struct TdzViolation(());

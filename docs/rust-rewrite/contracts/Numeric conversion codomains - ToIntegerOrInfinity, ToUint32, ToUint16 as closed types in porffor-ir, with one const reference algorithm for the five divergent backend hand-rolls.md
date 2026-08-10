@@ -451,10 +451,12 @@ begins with `use super::*;`, matching `reference.rs:24`.
 | I4 | Comparisons in 21.1.3.x are on the **extended** integers | `fraction_digits()` / `precision()` are the only readers; no `PartialOrd<i32>` exists | 2.2 |
 | I5 | "Out of range" is a **RangeError**, never a fold decline | `RangeChecked<T>` — deliberately not `Option` | 2.2 |
 | I6 | `[0,100]` and `[1,100]` are different intervals belonging to different clauses | two distinct newtypes `FractionDigits` / `Precision` | 2.2 |
-| I7 | The non-finite-receiver early return has exactly two positions | `NonFiniteReceiverOrder` (2-variant enum), a **required** parameter | 2.3 |
+| I7 | The non-finite-receiver early return has exactly two positions, **and each clause gets the right one** | `NonFiniteReceiverOrder` (2-variant enum) as a per-clause `const` on the `NumberFormatClause` trait, selected by a type parameter whose `Digits` associated types are pairwise distinct | 2.3 |
+| I7b | Each clause throws **its own** RangeError message | `NumberFormatClause::RANGE_ERROR`, carried out in `NumberFormatFold::RangeError(&'static str)`; no string literal at the three dispatch arms | 2.3 |
 | I8 | A fold has three outcomes, and `RangeError` must be handled | `#[must_use] enum NumberFormatFold`, matched exhaustively with no `_` arm | 2.3 |
 | I9 | ToUint32's residue is 5.2.5 `modulo`, produced in one place | `Uint32`, private field, single constructor `of_number` | 2.4 |
 | I10 | ToUint16 likewise, modulus 2^16 | `Uint16`, ditto | 2.4 |
+| I10b | The **modulus** is tied to the **carrier**, and is never 0 or 64 | `ResidueWidth` (2-variant enum) + `ResidueCarrier` (`const WIDTH`, `of_residue`), so `residue_of_number::<u32>` derives its own modulus | 2.4, 2.5 |
 | I11 | 7.1.6/7.1.7/7.1.9 share steps 2–4 and differ only in step 5 | `residue_pow2_i64` + cross-table `const _: () = assert!` | 2.5, 2.7 |
 | I12 | `NormalResult` rows agree with the codomains | `const _: () = assert!(matches!(...))` in `operations.rs` | 2.6 |
 
@@ -480,7 +482,7 @@ pub enum IntegerOrInfinity {
 /// cannot be spelled anywhere else in the workspace: an outside caller has no
 /// way to obtain the payload. That is what makes `of_number` the *only*
 /// constructor of the enum, not merely the recommended one.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FiniteInteger(f64);
 
 impl IntegerOrInfinity {
@@ -513,12 +515,44 @@ impl IntegerOrInfinity {
 > what makes `PartialEq` on `FiniteInteger` agree with 5.2.5 equality of
 > mathematical values.
 
-**No accessor returning the raw number is provided.** There is deliberately no
-`FiniteInteger::value()`, no `as_f64()`, no `as_i32()`, no `Deref`. The only
-ways out of an `IntegerOrInfinity` are `fraction_digits()` and `precision()`
-(§2.2). Adding a raw accessor would restore mistake class N3 in one line and is
-forbidden by this contract; if a future site genuinely needs one, it arrives
-with its own construction site and its own contract amendment.
+**No accessor returning the raw number is provided, and no `PartialOrd`.** There
+is deliberately no `FiniteInteger::value()`, no `as_f64()`, no `as_i32()`, no
+`Deref`. Adding a raw accessor would restore mistake class N3 in one line.
+
+The first landing derived `PartialOrd` on `FiniteInteger`, and that was the same
+hole by another route — this section's claim that "the only ways out of an
+`IntegerOrInfinity` are `fraction_digits()` and `precision()`" was false while it
+was there. Ordering is all an interval test needs, `Finite` is a public variant,
+and `of_number` is a public source of comparison constants, so any crate
+depending on `porffor-ir` could write
+
+```rust
+match (
+    IntegerOrInfinity::of_number(v),
+    IntegerOrInfinity::of_number(2.0),
+    IntegerOrInfinity::of_number(36.0),
+) {
+    (
+        IntegerOrInfinity::Finite(x),
+        IntegerOrInfinity::Finite(lo),
+        IntegerOrInfinity::Finite(hi),
+    ) => x >= lo && x <= hi,
+    _ => false,
+}
+```
+
+— a hand-rolled `[2, 36]` radix check (21.1.3.4) on the extended integers, with a
+catch-all that silently answers "out of range" for `±∞`. That is N3 rebuilt from
+outside using only the public API. The derive is **deleted**; nothing in the
+module compares two `FiniteInteger`s (`fraction_digits` and `precision` compare
+the destructured `f64` via `(0.0..=100.0).contains(&value)`), so it was pure
+attack surface. `PartialEq` alone cannot express an interval and stays.
+
+If a future clause needs to order the extended integers, the correct primitive is
+an ordering on `IntegerOrInfinity` itself, `NegativeInfinity < Finite <
+PositiveInfinity` — which is the order 21.1.3.x actually evaluates in, and the
+one a `FiniteInteger`-only comparison cannot express. It arrives with its own
+call site and its own amendment, not as a derive.
 
 ### 2.2 `RangeChecked`, `FractionDigits`, `Precision` — I4, I5, I6
 
@@ -635,37 +669,68 @@ pub enum NonFiniteReceiverOrder {
 pub enum NumberFormatFold {
     /// Emit `ExprIr::String`.
     Formatted(String),
-    /// Emit `ExprIr::RuntimeThrow { name: NativeErrorKind::RangeError, .. }`.
-    RangeError,
+    /// Emit `ExprIr::RuntimeThrow { name: NativeErrorKind::RangeError, .. }`
+    /// with the carried, clause-owned message.
+    RangeError(&'static str),
     /// Not statically decidable; fall through to the runtime call path.
     NotStatic,
 }
 
+/// One of the three clauses, as a **type**. This is what closes N4″.
+pub trait NumberFormatClause {
+    /// The clause's already-range-checked digit argument. Pairwise distinct
+    /// across the three impls, which is what makes naming the wrong clause a
+    /// type error rather than a silent reordering.
+    type Digits;
+    const ORDER: NonFiniteReceiverOrder;
+    const RANGE_ERROR: &'static str;
+}
+
+pub enum ToExponential {}   // 21.1.3.2
+pub enum ToFixed {}         // 21.1.3.3
+pub enum ToPrecision {}     // 21.1.3.5
+
+impl NumberFormatClause for ToExponential {
+    /// Step 12.a needs `undefined` observably distinct from `f === 0`.
+    type Digits = Option<FractionDigits>;
+    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::ReceiverFirst;
+    const RANGE_ERROR: &'static str = "Number.prototype.toExponential fraction digits out of range";
+}
+impl NumberFormatClause for ToFixed {
+    type Digits = FractionDigits;
+    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::RangeCheckFirst;
+    const RANGE_ERROR: &'static str = "Number.prototype.toFixed fraction digits out of range";
+}
+impl NumberFormatClause for ToPrecision {
+    type Digits = Precision;
+    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::ReceiverFirst;
+    const RANGE_ERROR: &'static str = "Number.prototype.toPrecision precision out of range";
+}
+
 /// The single driver for 21.1.3.2 / 21.1.3.3 / 21.1.3.5. All three clauses are
-/// this function with different arguments; there is no fourth spelling.
-pub fn fold_number_format<T>(
+/// this function at different type arguments; there is no fourth spelling.
+pub fn fold_number_format<C: NumberFormatClause>(
     receiver: f64,
-    digits: RangeChecked<T>,
-    order: NonFiniteReceiverOrder,
+    digits: RangeChecked<C::Digits>,
     number_to_string: impl FnOnce(f64) -> String,
-    format: impl FnOnce(f64, T) -> Option<String>,
+    format: impl FnOnce(f64, C::Digits) -> Option<String>,
 ) -> NumberFormatFold {
-    let finish = |digits: T| match format(receiver, digits) {
+    let finish = |digits: C::Digits| match format(receiver, digits) {
         Some(text) => NumberFormatFold::Formatted(text),
         None => NumberFormatFold::NotStatic,
     };
-    match order {
+    match C::ORDER {
         NonFiniteReceiverOrder::ReceiverFirst => {
             if !receiver.is_finite() {
                 return NumberFormatFold::Formatted(number_to_string(receiver));
             }
             match digits {
-                RangeChecked::RangeError => NumberFormatFold::RangeError,
+                RangeChecked::RangeError => NumberFormatFold::RangeError(C::RANGE_ERROR),
                 RangeChecked::InBounds(d) => finish(d),
             }
         }
         NonFiniteReceiverOrder::RangeCheckFirst => match digits {
-            RangeChecked::RangeError => NumberFormatFold::RangeError,
+            RangeChecked::RangeError => NumberFormatFold::RangeError(C::RANGE_ERROR),
             RangeChecked::InBounds(d) => {
                 if !receiver.is_finite() {
                     return NumberFormatFold::Formatted(number_to_string(receiver));
@@ -689,15 +754,38 @@ of the three call sites re-derives the order by hand, which is what they do
 today at `lowering.rs:20696-20698`, `:20738-20740` and `:20754-20756`. With it,
 the order is a required argument from a closed domain.
 
-**Refused: a typestate builder.** The area brief lists "typestate builders that
-will not emit until ordering obligations are met" as a favoured form. It is the
-wrong form here and is deliberately not used. A typestate encodes an ordering
-the *caller* performs step by step; here the ordering is a per-clause constant
-that the caller merely names. A `Builder<ReceiverChecked>` phantom would add
-three types and two methods to express what one enum argument already makes
-mandatory, and would not reject a single additional program. That is decoration
-under AGENTS.md's own test, and this contract refuses it explicitly so a later
-round does not add it back as an improvement.
+**N4″ is closeable after all, and the clause trait closes it.** This section
+originally stopped at "the required enum argument makes *omitting* the decision
+`E0061` and a third order `E0004`; naming the **wrong** one is still one
+identifier". That was true and it was not good enough: swapping `ReceiverFirst`
+and `RangeCheckFirst` at any of the three `*_call` helpers compiles and makes
+`Infinity.toFixed(101)` answer `"Infinity"` instead of throwing. The same shape
+applied to the message: three adjacent dispatch arms each spelled a `&'static
+str` literal, so pasting `toFixed`'s text into the `toPrecision` arm compiled.
+
+Making the clause a **type parameter** closes both, and it costs one trait and
+three uninhabited marker types:
+
+- `C::Digits` is `Option<FractionDigits>` / `FractionDigits` / `Precision`,
+  pairwise distinct, so naming the wrong clause is **`E0308`** on the `digits`
+  argument. The `Option` is not incidental: 21.1.3.2 step 12.a is why
+  `toExponential` alone carries it, so the discrimination is spec-derived.
+- `C::ORDER` and `C::RANGE_ERROR` are properties *of the clause*, not values the
+  caller supplies, so there is nothing left at the call site to transpose or
+  paste. `fold_number_format` takes **four** arguments, not five, and the three
+  dispatch arms in `lowering.rs` contain no string literal.
+- Inference cannot pick `C` from `RangeChecked<C::Digits>` (associated types are
+  not injective), so the turbofish is mandatory — naming the clause is a
+  required, single, spelled decision.
+
+**Still refused: a typestate builder.** The area brief lists "typestate builders
+that will not emit until ordering obligations are met" as a favoured form. It is
+the wrong form here. A typestate encodes an ordering the *caller* performs step
+by step; here the ordering is a per-clause constant. A `Builder<ReceiverChecked>`
+phantom would add three types and two methods and would reject no program the
+clause trait does not already reject. The clause trait passes AGENTS.md's test —
+it turns two plausible mistakes into compile errors — where the builder does
+not, and that difference is the whole reason one is taken and the other is not.
 
 ### 2.4 `Uint32` and `Uint16` — I9, I10
 
@@ -780,13 +868,42 @@ pub const MAX_SAFE_INTEGER_U64: u64 = 9_007_199_254_740_991;
 /// `I64TruncSatF64S` applied before this step destroys the residue outright
 /// (§1.5, §1.6).
 ///
-/// Two's complement is the residue system modulo 2^64, so masking the low
-/// `bits` is the exact residue (Theorem C). No floating point, no `rem_euclid`,
+/// Two's complement is the residue system modulo 2^64, so masking the low `N`
+/// bits is the exact residue (Theorem C). No floating point, no `rem_euclid`,
 /// no libm — which is what lets it be `const` on stable and lets §2.7's tables
 /// be checked by the compiler.
-pub const fn residue_pow2_i64(int: i64, bits: u32) -> u64 {
-    debug_assert!(bits > 0 && bits < 64);
-    ((int as u64) & (((1u64 << bits) - 1)))
+///
+/// `width` is a closed domain, not a `u32`. This item is `pub` and is the
+/// normative algorithm the LN2 backend retrofit will call; with a bare `bits`,
+/// `residue_pow2_i64(x, 64)` and `(x, 0)` compiled, and in **release** — where
+/// the `debug_assert!` is gone — `1u64 << 64` is a masked shift evaluating to
+/// `1`, the mask becomes `0`, and the function silently returns `0` for every
+/// input. Only `const` callers were protected, because `1u64 << 64` is a hard
+/// error in const evaluation.
+pub enum ResidueWidth { Bits16, Bits32 }
+
+impl ResidueWidth {
+    pub const fn mask(self) -> u64 {
+        match self {
+            Self::Bits16 => (1u64 << 16) - 1,
+            Self::Bits32 => (1u64 << 32) - 1,
+        }
+    }
+}
+
+pub const fn residue_pow2_i64(int: i64, width: ResidueWidth) -> u64 {
+    (int as u64) & width.mask()
+}
+
+/// Ties the modulus to the destination carrier, which were two independent bare
+/// integers at the two `of_number` sites. Editing `Uint32::of_number` to
+/// `residue_of_number(number, 16) as u32` compiled and produced 7.1.9's residue
+/// in 7.1.7's carrier — `Math.clz32(65537)` would have answered `31` instead of
+/// `15`. `residue_of_number::<u32>(number)` now derives its own modulus and
+/// there is no second number to get wrong.
+pub trait ResidueCarrier: Copy {
+    const WIDTH: ResidueWidth;
+    fn of_residue(residue: u64) -> Self;
 }
 
 /// 7.1.6 steps 4–5, given `truncate(ℝ(number))` reduced into an `i64`.
@@ -866,8 +983,15 @@ pub const fn reference_to_index(integer: ExtendedInteger) -> ToIndexOutcome {
 > pinned toolchain (`rustc 1.94.1`, edition 2021). Do **not** rewrite
 > `residue_pow2_i64` in terms of `i64::rem_euclid` or `f64::rem_euclid`: the
 > point of the mask formulation is that it needs no const-stability gamble and
-> no floating point. `debug_assert!` in a `const fn` is permitted and is a
-> no-op in const evaluation.
+> no floating point.
+>
+> **Correction.** An earlier revision of this note said `debug_assert!` in a
+> `const fn` "is a no-op in const evaluation". It is not: with
+> `debug_assertions` on it *is* evaluated during const evaluation. It happened
+> to pass for 16 and 32, so nothing broke, but the claim was wrong and the
+> integration note's §11.3 mitigation rested on the same misreading. The
+> `debug_assert!` is gone anyway — `ResidueWidth` makes the states it guarded
+> unrepresentable, which is the form AGENTS.md asks for.
 
 `reference_to_int32` has **no runtime caller** in `porffor-ir` — there is no
 ToInt32 site in this crate — and that is stated rather than hidden. Its
@@ -1031,11 +1155,11 @@ in this area. Each row carries the reason a type cannot carry the invariant.
 
 | # | Invariant | Why no type | Where it is checked instead |
 |---|---|---|---|
-| **LN1** | `residue_of_number`'s `\|x\| ≥ 2^63` branch (`f64::rem_euclid`) agrees with the const-asserted integer core. | The bridge is Theorem B — a statement about IEEE-754 `fmod` exactness, i.e. about the hardware. Rust's type system has no vocabulary for "this float operation is exact", and `f64::trunc`/`rem_euclid` are not usable in a `const` block on the pinned toolchain, so the float branch cannot be evaluated at build time. | One `#[cfg(test)]` differential in `numeric_conversions.rs` over the boundary: `2^63 − 2048`, `2^63`, `2^63 + 2048`, `−2^63`, `−(2^63 + 2048)`, `2^84`, `1e300`, `−1e300`, `2^32`, `2^32 − 1`, `−1`, `±0`, `±∞`, `NaN`. Expected values are in §1.6's table. |
+| **LN1** | `residue_of_number`'s `\|x\| ≥ 2^63` branch (`f64::rem_euclid`) agrees with the const-asserted integer core. | The bridge is Theorem B — a statement about IEEE-754 `fmod` exactness, i.e. about the hardware — and no type can carry it **for this formulation**. That is the honest wording; the row previously said "no type can carry this", which is stronger than the evidence. The branch does not need `rem_euclid`: for `\|x\| ≥ 2^63`, decomposing `x.to_bits()` as `m · 2^e` with `m` a 53-bit integer and `e ≥ 11` gives `x mod 2^N` as `0` when `e ≥ N` and `(m & ((1 << (N − e)) − 1)) << e` otherwise — pure `u64` integer arithmetic, `const`-evaluable on stable, exact by construction rather than by appeal to IEEE-754 §5.3.1. Rewriting it that way would move the 18-case boundary table into a third `const _` block and retire this row. Not taken this round; recorded so the choice is visible. | One `#[cfg(test)]` differential in `numeric_conversions.rs` over the boundary: `2^63 − 2048`, `2^63`, `2^63 + 2048`, `−2^63`, `−(2^63 + 2048)`, `2^84`, `1e300`, `−1e300`, `2^32`, `2^32 − 1`, `−1`, `±0`, `±∞`, `NaN`. Expected values are in §1.6's table. |
 | **LN2** | The five `porffor-aot-wasm` emitters compute the same functions as §2.5's reference algorithms. | `porffor-ir` cannot see `porffor-aot-wasm`; this is the same crate-boundary shape as the existing ledger **L2** in the spec-operation contract. | `target/lane-notes/numeric-conversion-codomains-theory-integration.md` carries the retrofit and the acceptance gate. Out of this lane. |
 | **LN3** | `Precision::get() ≥ 1`, relied on by `static_number_to_precision`'s body for `precision as usize - 1` (`lowering.rs:34965`). | The body is outside this area's owned region and takes a primitive; a dependent range type would require editing unowned lines. | `Precision` has one constructor, which tests `(1.0..=100.0)`. A `debug_assert!((1..=100).contains(&precision))` replaces the deleted range check at `lowering.rs:34952`. |
 | **LN4** | `spec_to_integer_or_infinity`, `spec_to_length` and `spec_to_index` are reachable only from `#[cfg(test)]`. | Deleting them requires editing `crates/porffor-aot-wasm/src/lib.rs`'s test module (`:1468`, `:1486`, `:1503`), which is outside this lane and inside batch 2's crate. | **Measured and recorded only** (§0.1, §4.5). Handed to the integrator. |
-| **LN5** | `static_number_expr` (`lowering.rs:35774`) resolves the *identifiers* `Infinity` and `NaN` to their float values without checking for shadowing, so `let Infinity = 5; Math.clz32(Infinity)` would fold wrongly. | Pre-existing, and `lowering.rs:35774` is outside this area's named regions. | **Recorded only.** Not caused by, not fixed by, and not worsened by this contract. Noted because §6's traces depend on the fold firing at all. |
+| **LN5** | ~~`static_number_expr` resolves the identifiers `Infinity` and `NaN` by spelling alone.~~ **Closed.** The row was both understated and wrong about impact. Four resolvers tested the spelling with no scope lookup, not one: `static_number_expr`, `static_to_number_expr`, `static_number_to_string_receiver_value` and `is_static_undefined_expr`. And "not worsened by this contract" was **false at the `toPrecision` site**: `function f(){ let Infinity = 5; return (1.5).toPrecision(Infinity); }` used to reach the deleted `!(1..=100)` guard, decline, and give the correct runtime answer `"1.5000"`; with the new 21.1.3.5 step 5 arm it folded to `PositiveInfinity` → `RangeChecked::RangeError` → an emitted `RangeError` throw. A latent defect became a shipped wrong answer. | Nothing — this was never an invariant a type could not carry. The guard already existed in the same file (`expression_is_builtin_symbol_intrinsic`, `identifier_is_builtin_native_error`), with a doc comment recording that the class had already shipped two silent wrong answers; it simply was not called. | **Now a type-adjacent single helper.** The four clauses (9.1.1: no active `with`, no Environment Record binding, global proven present, source still `Builtin`) are one predicate, `ScriptLowerer::identifier_resolves_to_builtin_global`; the two pre-existing guards were rewritten to call it, and `static_global_number_identifier` wraps it for the three number-valued spellings. All four resolvers route through it. A fifth resolver that maps a spelling to a value is still a review item, which is what remains of this row. |
 
 Five rows is the whole ledger. Everything else in §2.0 is a compile error.
 
@@ -1053,7 +1177,8 @@ Five rows is the whole ledger. Everything else in §2.0 is a compile error.
 | **N3′** — collapsing `+∞` into `+0` | `IntegerOrInfinity::of_number` returning `Finite(FiniteInteger(0.0))` for `f64::INFINITY`. | Not a compile error — it is a wrong function body, and the type cannot prevent a wrong body. It **is** caught by the §6.4 and §6.7 dry-run traces and by the LN1 differential, which include `±∞` explicitly. Stated here so the encoder does not believe the type does this work. |
 | **N4** — a validity guard that is optional at the call site | Folding `toPrecision` without the range check, as `lowering.rs:20738-20748` does today. | `static_number_to_precision_call` returns `NumberFormatFold`, which is `#[must_use]` and has three variants. The dispatch matches it exhaustively with **no `_` arm**, so failing to handle `NumberFormatFold::RangeError` is **`E0004`**. Separately, `static_number_fraction_digits_is_invalid` is **deleted**, so there is no longer a guard to forget to call. |
 | **N4′** — reusing the wrong interval | Calling `fraction_digits()` where 21.1.3.5 requires `precision()`. | **`E0308`**: `RangeChecked<FractionDigits>` is not `RangeChecked<Precision>`, and `Precision` is not constructible from a `FractionDigits`. This is why they are two types rather than one `u8` (fact F2). |
-| **N4″** — putting the non-finite-receiver return on the wrong side | "Unifying" `toFixed`'s receiver guard with `toExponential`'s, which is a plausible tidy-up given they sit 60 lines apart and differ only by `.is_some()` vs `.is_some_and(is_finite)`. | The guard is deleted from both call sites; the position becomes `NonFiniteReceiverOrder`, a **required** argument to `fold_number_format` (**`E0061`** if omitted) drawn from a two-variant enum matched with no `_` arm (**`E0004`** if a third order appears). The wrong *choice* is still expressible — it is one identifier — but it is now a single named decision per clause with the spec step in its doc comment, rather than an emergent property of two guards 60 lines apart. |
+| **N4″** — putting the non-finite-receiver return on the wrong side | "Unifying" `toFixed`'s receiver guard with `toExponential`'s, which is a plausible tidy-up given they sit 60 lines apart and differ only by `.is_some()` vs `.is_some_and(is_finite)`. | **Closed.** The guard is deleted from both call sites and the position is `<C as NumberFormatClause>::ORDER`, a per-clause constant rather than an argument. Because `C::Digits` is `Option<FractionDigits>` / `FractionDigits` / `Precision` — pairwise distinct — naming the wrong clause at a `*_call` helper is **`E0308`** on the `digits` argument, and inference cannot supply `C` (associated types are not injective), so the clause must be spelled. A third order is still **`E0004`** at the match over `NonFiniteReceiverOrder`. This row previously conceded that the wrong *choice* was expressible; it no longer is. |
+| **N4‴** — giving a clause another clause's RangeError message | Copy-pasting `"Number.prototype.toFixed fraction digits out of range"` into the `toPrecision` dispatch arm, three adjacent arms that each spelled a `&'static str` literal. | **Closed by the same construct.** The message is `C::RANGE_ERROR`, carried out of the fold as `NumberFormatFold::RangeError(&'static str)`; the three dispatch arms are `RangeError(message) => …` and contain no string literal, so there is nothing at the call site to paste. |
 | **N5** — bare `u32` Wasm-local-index parameters | `emit_to_length_i64_from_number_payload_local(payload_local, dest_local)`, both `u32`. | **Out of lane.** No compile error is claimed. Carried by the integration note; identical in class to round 1's `IteratorSlot`/`NextMethodSlot`/`DoneSlot` finding. |
 | **N6** — a catalog row claiming an implementation the product path never reaches | The three numeric `spec_*` constructors, whose only callers are in `#[cfg(test)]`. | **Measured and recorded** (ledger LN4). No compile error this round: the deletion requires editing an aot-wasm test module. §4.5 specifies the annotation that goes on them. |
 | **N7** — landing a type nobody constructs | Adding `Int32`, `Length` or `Index` newtypes to match the symmetry of `Uint32`/`Uint16`. | **Refused structurally.** §2.5 ships them as `const fn` + `const _: () = assert!(...)` instead. Every type this contract *does* define has a named construction site with a line number: `IntegerOrInfinity` at `lowering.rs:34796`, `Uint32` at `lowering.rs:36466`, `Uint16` at `lowering.rs:24658`. §7's acceptance criteria require each to be reachable from the product path. |
@@ -1538,7 +1663,81 @@ enumerating the reachable wrong values: `Some(0)` for `±∞`, and `i32::MAX` /
 independent accidents, none of them a type. That is the precise sense in which
 this is latent, and it is what §7 requires the dry-runner to re-derive.
 
+**Two corrections the dry run forced, both of which this enumeration missed.**
+
+1. The enumeration is over the values `static_to_integer_or_zero_expr` could
+   produce for a *correctly resolved* argument. It does not consider an argument
+   whose **identifier is shadowed**, and that is where the latency broke:
+   `function f(){ let Infinity = 5; return (1.5).toPrecision(Infinity); }` used
+   to produce `Some(0)` → the old `!(1..=100)` guard → decline → the correct
+   runtime answer `"1.5000"`. With the new step 5 arm it folded to
+   `PositiveInfinity` → `RangeError`. Ledger **LN5**, now closed by
+   `identifier_resolves_to_builtin_global`.
+2. It does not consider a **receiver that should have thrown**.
+   `static_number_to_string_receiver_value` maps `Number.prototype` to
+   `Some(0.0)` (`lowering.rs:35071`), an ES5 fossil: since ES2015
+   `Number.prototype` is an ordinary object with no `[[NumberData]]`, so
+   21.1.3.5 step 1's `ThisNumberValue` throws a **TypeError** before step 3 is
+   reached. The mapping is pre-existing and already mis-folds
+   `Number.prototype.toFixed(101)` to a RangeError and
+   `Number.prototype.toFixed(1)` to `"0.0"`; this lane adds a third site for it,
+   `Number.prototype.toPrecision(0)` → RangeError where the spec says TypeError.
+   The line is outside this area's owned regions, so it is handed on as a
+   follow-up in the integration note beside F5/F7 rather than deleted here. The
+   fix is to delete the `"prototype" => Some(0.0)` arm or gate it behind a
+   `ThisNumberValue`-shaped predicate.
+
 ---
+
+---
+
+## 5b. DISCREPANCY-FIXER RECORD
+
+Written blind (no `cargo`/`rustc`; the integrator owns the compile gate). Files
+touched: `crates/porffor-ir/src/numeric_conversions.rs`,
+`crates/porffor-ir/src/lowering.rs`, `crates/porffor-ir/src/ir.rs`.
+
+### Fixed in code
+
+| Severity | What | How |
+|---|---|---|
+| **blocker** | The new 21.1.3.5 RangeError arm turned ledger **LN5**'s latent identifier-shadowing hazard into a shipped wrong answer: `function f(){ let Infinity = 5; return (1.5).toPrecision(Infinity); }` emitted a RangeError where the correct answer is `"1.5000"`. Four resolvers tested spelling with no scope lookup, not the one LN5 named. | New `ScriptLowerer::identifier_resolves_to_builtin_global` (9.1.1's four clauses, lifted from the two pre-existing intrinsic guards, which now call it) and `static_global_number_identifier` on top of it. `static_to_number_expr`, `static_number_to_string_receiver_value`, `static_number_expr` and `is_static_undefined_expr` all route through it. |
+| **bug** | **N4″** conceded uncloseable; and the RangeError message was an open `&'static str` domain at three dispatch sites (**N4‴**). | `trait NumberFormatClause { type Digits; const ORDER; const RANGE_ERROR; }` with `ToExponential` / `ToFixed` / `ToPrecision` marker types; `fold_number_format::<C>` loses its `order` parameter; `NumberFormatFold::RangeError` carries `C::RANGE_ERROR`. Wrong clause is `E0308`; wrong message is unspellable. |
+| **bug** | `#[derive(PartialOrd)]` on `FiniteInteger` gave a full ordered-comparison escape hatch to every downstream crate, contradicting §2.1's core claim. | Derive deleted. |
+| **bug** | `residue_pow2_i64`'s `bits: u32` admitted `0` and `64` (silently returning 0 in release), and the modulus was decoupled from the carrier at both `of_number` sites. | `ResidueWidth` (2 variants, `const fn mask`) + `ResidueCarrier` (`const WIDTH`, `of_residue`), so `residue_of_number::<u32>` / `::<u16>` derive their own modulus. `debug_assert!` deleted along with the states it guarded. |
+
+`ir.rs`'s `pub use` list is now **25** names, counted.
+
+### Corrected in this document, not in the code
+
+- §2.1's "the only ways out are `fraction_digits()` and `precision()`" (was
+  false while `PartialOrd` was derived), §2.3's N4″ concession, §2.5's
+  `debug_assert!`-is-a-const-no-op claim, §3's N4″ row, ledger **LN1**'s
+  "no type can carry this" and ledger **LN5** in full.
+- §5.6's "three independent accidents" enumeration missed two cases: a shadowed
+  identifier, and a receiver that should have thrown.
+- §6.1's "currently failing" was derived, not measured; re-stated with the
+  snapshot measurement.
+
+### Handed to the integration note, not fixed here
+
+- `static_number_to_string_receiver_value`'s `"prototype" => Some(0.0)`
+  (`lowering.rs:35071`) — an ES5 fossil that makes `Number.prototype.toPrecision(0)`
+  a RangeError where 21.1.3.5 step 1 requires a TypeError. Outside this area's
+  owned regions; pre-existing at two other sites; this lane adds a third.
+- `MAX_SAFE_INTEGER_U64` (`numeric_conversions.rs`) versus
+  `porffor-aot-wasm/src/heap.rs:10`'s `MAX_SAFE_INTEGER` — two workspace
+  spellings of 2^53−1, this area's own duplication class one crate over. Both
+  are correct today, so this is a tidy-up, not a defect. Measured consumers that
+  one `pub(crate) use` in `heap.rs` would tie: `array.rs:1995`, `:1999`,
+  `:8446`, `:8613`, `:18967`, `:18978`; `standard.rs:21916`, `:21929`,
+  `:22384`, `:22395`; `collections.rs:1664`; `array_from_async.rs:1232`; plus
+  four inline literals at `array.rs:20963`, `standard.rs:42213` and
+  `operations.rs:4098`/`:4105`.
+- **LN1 is reducible.** The `|x| ≥ 2^63` branch can be computed by integer
+  bit-extraction from `x.to_bits()` instead of `f64::rem_euclid`, which would
+  make `residue_of_number` fully `const fn` and retire the row. Not taken;
+  recorded so the choice is visible rather than implied.
 
 ## 6. Dry-run corpus, with the traces the dry-runner must reproduce
 
@@ -1552,9 +1751,26 @@ Asserts `(Number.POSITIVE_INFINITY << 0) === +0`. Trace
 `expressions.rs:1701-1713` symbolically: `F64ReinterpretI64` → `+∞`;
 `I64TruncSatF64S` → `i64::MAX`; `I32WrapI64` → `0xFFFFFFFF`; shift count
 `0 & 0x1f = 0`; `I32Shl` → `0xFFFFFFFF`; `I64ExtendI32S`, `F64ConvertI64S` →
-`-1.0`. 7.1.6 step 2 requires `+0`. **Currently failing; out of lane; fixed by
-the integration note's retrofit.** The file also asserts `NaN << 0` and
-`-0 << 0`, both of which pass today by accident (§1.5).
+`-1.0`. 7.1.6 step 2 requires `+0`. **Derived from the emitted instruction
+sequence; no pinned wasm-aot artifact covers this path.** Out of lane; fixed by
+the integration note's retrofit. The file also asserts `NaN << 0` and `-0 << 0`,
+both of which pass today by accident (§1.5).
+
+> The earlier wording, "currently failing", was a derived verdict presented as a
+> measurement. Measured instead (`test262/snapshots/*.json`, excluding the
+> per-case files): **7** snapshots list
+> `language/expressions/left-shift/S9.5_A1_T1.js` and/or
+> `.../unsigned-right-shift/S9.6_A1.js` in `completed_paths` — four 45-case leaf
+> snapshots, two 11038-case runs and one 23643-case run — **and every one of
+> them carries `"execution_backend": "spec-exec"`**; neither path appears in any
+> `failures` list. The only `wasm-aot` snapshots in the tree are eight
+> `matrix-cache-wasm-aot-*.json` with empty `completed_paths`. `porffor-spec-exec`
+> contains no numeric conversion at all — `execute_script` (`lib.rs:358`) calls
+> `boa_engine`'s `Context::eval` — so those green counts say nothing about
+> `compile_bitwise_number_payload`. The N1 verdict stands on the symbolic trace,
+> which is sound and needs no run; but the F1 retrofit's acceptance gate must
+> not be mistaken for a regression check that already exists, because it does
+> not.
 
 ### 6.2 `.../left-shift/S9.5_A2.1_T1.js` — N1 magnitude class
 
@@ -1719,7 +1935,25 @@ against the code as written, not against this document.
    coverage, and the integration note says so.
 10. The `toPrecision` RangeError message string is new and does not collide:
     `grep -rn "toPrecision precision out of range" crates/` returns exactly the
-    one new site.
+    one site — which is now `ToPrecision::RANGE_ERROR` in
+    `numeric_conversions.rs`, not a literal at the dispatch arm. The three
+    dispatch arms in `lowering.rs` contain **no** string literal at all; that is
+    the check for N4‴.
+12. `grep -rn "fold_number_format" crates/` shows every call carrying an
+    explicit clause turbofish (`::<ToExponential>`, `::<ToFixed>`,
+    `::<ToPrecision>`) and **no** `NonFiniteReceiverOrder` argument. An
+    order argument reappearing is N4″ reopening.
+13. `grep -rn "residue_of_number(" crates/porffor-ir/src/` shows only
+    `::<u32>` and `::<u16>` calls, and `residue_pow2_i64` takes a
+    `ResidueWidth`. An integer `bits` parameter reappearing is I10b reopening.
+14. `grep -rn "PartialOrd" crates/porffor-ir/src/numeric_conversions.rs` is
+    empty. Re-deriving it on `FiniteInteger` reopens N3 from outside the crate
+    (§2.1).
+15. Every identifier-spelling resolver in `lowering.rs` that maps `Infinity`,
+    `NaN` or `undefined` to a value calls
+    `identifier_resolves_to_builtin_global`. Measured today: four of them, plus
+    the two pre-existing intrinsic guards that were rewritten onto the same
+    predicate. A fifth added without it is ledger **LN5**.
 11. `target/lane-notes/numeric-conversion-codomains-theory-integration.md`
     exists and names: the seven owned `lowering.rs` regions, the five backend
     functions with their verdicts, `emit_array_to_uint32_i64_from_number_payload`

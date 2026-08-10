@@ -68,11 +68,7 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                payload_local,
-                tag_local,
-                function,
-            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
             self.release_temp_local(argv_local);
             self.release_temp_local(argc_local);
             self.release_temp_local(callee_tag_local);
@@ -90,11 +86,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
             function.instruction(&Instruction::LocalGet(callee_tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -2333,11 +2325,7 @@ impl<'a> FunctionBuilder<'a> {
         // completion when there is none); the branch immediate accounts for
         // every wasm block the caller has open, tracked or not, because it is
         // read from the sink rather than from `control_stack`.
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         self.release_temp_local(raw_tag_local);
         self.release_temp_local(raw_payload_local);
         Ok(())
@@ -2363,11 +2351,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
     }
 
     /// Evaluates both operands of a binary operator first, and only then runs
@@ -3951,11 +3935,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::End);
 
         self.emit_is_bigint_tag_i32(lhs_tag_local, function);

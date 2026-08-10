@@ -10228,10 +10228,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     self.result_local,
                     self.result_tag_local,
-                    1,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -10475,8 +10474,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(properties_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_direct_js_call(
                     &define_properties_meta,
                     None,
@@ -17715,7 +17713,6 @@ impl<'a> FunctionBuilder<'a> {
                     "Proxy preventExtensions trap returned false",
                     self.result_local,
                     self.result_tag_local,
-                    0,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -34182,10 +34179,9 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     prototype_payload_local,
                     prototype_tag_local,
-                    0,
                     function,
                 )?;
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
@@ -35225,10 +35221,9 @@ impl<'a> FunctionBuilder<'a> {
                         new_object_tag_local,
                         function,
                     )?;
-                    self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                    self.emit_propagate_throw_from_locals_if_needed(
                         new_object_local,
                         new_object_tag_local,
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -38182,10 +38177,9 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     prototype_payload_local,
                     prototype_tag_local,
-                    0,
                     function,
                 )?;
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
@@ -38459,10 +38453,9 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     prototype_payload_local,
                     prototype_tag_local,
-                    0,
                     function,
                 )?;
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
@@ -44967,10 +44960,9 @@ impl<'a> FunctionBuilder<'a> {
                         // untracked `If` deep, the `has_arg_local` check above)
                         // instead of falling through and stamping a bogus
                         // Number tag over the thrown error.
-                        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                        self.emit_propagate_throw_from_locals_if_needed(
                             self.result_local,
                             self.result_tag_local,
-                            1,
                             function,
                         )?;
                         function
@@ -45026,10 +45018,9 @@ impl<'a> FunctionBuilder<'a> {
                         // Nested two untracked `If`s deep here: the
                         // `has_arg_local` check and the Symbol-tag check
                         // above.
-                        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                        self.emit_propagate_throw_from_locals_if_needed(
                             string_arg_primitive_payload_local,
                             string_arg_primitive_tag_local,
-                            2,
                             function,
                         )?;
                         self.emit_primitive_to_string_payload(
@@ -49014,10 +49005,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     self.result_local,
                     self.result_tag_local,
-                    1,
                     function,
                 )?;
                 function.instruction(&Instruction::End);

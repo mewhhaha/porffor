@@ -104,7 +104,15 @@ pub(crate) struct Function {
 const FUNCTION_BODY_LABEL_DEPTH: u32 = 1;
 
 impl Function {
-    /// Mirrors [`wasm_encoder::Function::new`].
+    /// Mirrors [`wasm_encoder::Function::new`] — the run-length form.
+    ///
+    /// Test-only, and marked so rather than left `pub(crate)`: no product path
+    /// declares locals in runs of differing types (every emitted body is one
+    /// run of `i64`), and an unmarked constructor here would compile with no
+    /// call site, which is the shape `AGENTS.md` asks to make impossible.
+    /// `emitted_function`'s decoder tests need mixed runs, so it survives for
+    /// them alone.
+    #[cfg(test)]
     pub(crate) fn new<L>(locals: L) -> Self
     where
         L: IntoIterator<Item = (u32, ValType)>,
@@ -116,7 +124,8 @@ impl Function {
         }
     }
 
-    /// Mirrors [`wasm_encoder::Function::new_with_locals_types`].
+    /// Mirrors [`wasm_encoder::Function::new_with_locals_types`]. The only
+    /// constructor reachable from the product path.
     pub(crate) fn new_with_locals_types<L>(locals: L) -> Self
     where
         L: IntoIterator<Item = ValType>,
@@ -222,7 +231,10 @@ impl Function {
         self.instruction(&Instruction::BrIf(depth.immediate()));
     }
 
-    /// Mirrors [`wasm_encoder::Function::byte_len`].
+    /// Mirrors [`wasm_encoder::Function::byte_len`]. Test-only for the same
+    /// reason as [`Function::new`]: the product path measures a body after
+    /// [`Function::into_body`], through `EmittedFunction`.
+    #[cfg(test)]
     pub(crate) fn byte_len(&self) -> usize {
         self.body.byte_len()
     }
@@ -277,7 +289,7 @@ mod tests {
     use wasm_encoder::BlockType;
 
     fn empty_body() -> Function {
-        Function::new([])
+        Function::new_with_locals_types(std::iter::empty())
     }
 
     #[test]
@@ -376,7 +388,7 @@ mod tests {
 
     #[test]
     fn rewriting_the_local_declaration_keeps_the_depth() {
-        let mut function = Function::new([(4, ValType::I64)]);
+        let mut function = Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, 4));
         function.instruction(&Instruction::Block(BlockType::Empty));
         let inner = function.label_depth();
         let rewritten = function.rewrite_local_declaration(4, 2);

@@ -4603,11 +4603,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
     }
 
     /// See [`Self::emit_function_or_proxy_call_with_throw_propagation`] for why
@@ -5107,11 +5103,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -10099,11 +10091,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::End);
         // 7.2.1 RequireObjectCoercible / 13.3.6.2 EvaluateCall. A receiver that
         // can only be undefined or null always takes the throw above, so the

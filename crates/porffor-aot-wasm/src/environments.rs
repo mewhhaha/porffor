@@ -1299,11 +1299,7 @@ impl<'a> FunctionBuilder<'a> {
         // helper opens one more of its own. Both are counted by the sink, so
         // neither needs declaring here — this comment used to be attached to a
         // hand-written `1`.
-        self.emit_propagate_throw_from_locals_if_needed(
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::End);
         self.emit_object_write(
             object_local,

@@ -1542,6 +1542,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1554,6 +1556,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
         | StandardBuiltinId::IntlGetCanonicalLocales
         | StandardBuiltinId::IntlLocalePrototypeLanguageGetter

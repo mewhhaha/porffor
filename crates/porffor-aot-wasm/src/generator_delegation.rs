@@ -61,14 +61,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(i64::from(resume_state)));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
 
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(i64::from(suspend_state)));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.compile_expr_to_locals(value, value_payload_local, value_tag_local, function)?;
         self.emit_propagate_throw_from_locals_if_needed(
             value_payload_local,
@@ -76,8 +74,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.compile_nullish_tagged_i32(value_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "yield* target is not iterable",
@@ -100,8 +97,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(async_iterator_local));
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(async_iterator_local));
         self.emit_generator_delegate_property_read(
@@ -258,8 +254,7 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_RESUME_KIND_FULFILL as i64,
         ));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.load_i64_to_local_from_offset(
             record_local,
             HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
@@ -298,8 +293,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(awaiting_sync_value_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(argument_payload_local));
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
@@ -333,8 +327,7 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_DELEGATE_PENDING_CLOSE_THROW as i64,
         ));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.store_i64_const_at_offset(
             activation_local,
             HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
@@ -398,8 +391,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(async_iterator_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.store_i64_const_at_offset(
             record_local,
             HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET,
@@ -453,8 +445,7 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.store_i64_const_at_offset(
             activation_local,
             HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
@@ -466,8 +457,7 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
         ));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
@@ -564,8 +554,7 @@ impl<'a> FunctionBuilder<'a> {
             ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
         ));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
             self.load_i64_to_local_from_offset(
                 record_local,
@@ -613,8 +602,7 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             function.instruction(&Instruction::I32Const(0));
         }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
@@ -624,8 +612,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
@@ -635,8 +622,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "yield* iterator has no throw method",
@@ -692,8 +678,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::I32Or);
         }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
@@ -703,8 +688,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(argument_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
@@ -885,14 +869,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(i64::from(resume_state)));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
 
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(i64::from(suspend_state)));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         if let GeneratorResumeModeIr::AssignProperty { target, key } = resume_mode {
             let target_payload_local = self.reserve_temp_local();
             let target_tag_local = self.reserve_temp_local();
@@ -941,8 +923,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.compile_nullish_tagged_i32(value_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "yield* target is not iterable",
@@ -1093,8 +1074,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(resume_kind_local));
         function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_THROW as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
@@ -1104,8 +1084,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_iterator_close(
             iterator_payload_local,
             iterator_tag_local,
@@ -1143,8 +1122,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(resume_kind_local));
         function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_RETURN as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
@@ -1154,8 +1132,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(argument_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
@@ -1207,8 +1184,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             result_payload_local,
             result_tag_local,
@@ -1220,8 +1196,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(resume_kind_local));
         function.instruction(&Instruction::I64Const(GENERATOR_RESUME_KIND_RETURN as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
@@ -1361,8 +1336,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.emit_is_callable_i32(callee_tag_local, callee_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             not_callable_message,
@@ -1377,8 +1351,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(callee_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_function_handle_call(
             callee_payload_local,
             callee_tag_local,
@@ -1494,8 +1467,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             message,

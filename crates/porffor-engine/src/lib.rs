@@ -4177,7 +4177,9 @@ report;
             )
             .expect_err("reading a property of null should throw");
         assert!(
-            runtime_err.message().contains("uncaught throw: TypeError: "),
+            runtime_err
+                .message()
+                .contains("uncaught throw: TypeError: "),
             "error: {runtime_err}"
         );
         assert!(

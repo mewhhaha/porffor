@@ -2694,15 +2694,8 @@ impl<'a> FunctionBuilder<'a> {
         component_locals: [u32; 7],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let [
-            year_payload_local,
-            month_payload_local,
-            day_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            millisecond_payload_local,
-        ] = component_locals;
+        let [year_payload_local, month_payload_local, day_payload_local, hour_payload_local, minute_payload_local, second_payload_local, millisecond_payload_local] =
+            component_locals;
         self.load_i64_to_local_from_offset(
             record_local,
             HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,

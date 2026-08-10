@@ -7784,11 +7784,21 @@ impl<'a> ScriptLowerer<'a> {
             .scopes
             .last()
             .and_then(|scope| scope.get(source_name))
-            .filter(|binding| {
-                binding.initialization
-                    == Initialization::Uninitialized(UninitializedStorage::Allocated)
-            })
-            .map(|binding| binding.storage_name.clone());
+            .and_then(|binding| {
+                // Exhaustive, not `== Uninitialized(Allocated)`: this is the
+                // *second* consumer of `UninitializedStorage`, and an equality
+                // test would let a third storage disposition compile here while
+                // `lexical_storage_name` (above) reported `E0004` — silently
+                // dropping the reuse rule and reopening M2b for the new
+                // variant.
+                match binding.initialization {
+                    Initialization::Uninitialized(UninitializedStorage::Allocated) => {
+                        Some(binding.storage_name.clone())
+                    }
+                    Initialization::Uninitialized(UninitializedStorage::Placeholder)
+                    | Initialization::Initialized => None,
+                }
+            });
         if let Some(created) = created {
             return created;
         }
@@ -7824,6 +7834,30 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         storage_name
+    }
+
+    /// The declarative Environment Record push of 14.3.1.2 step 1, performed by
+    /// `LexicalScopeInstantiation`'s block-shaped constructors.
+    ///
+    /// `pub(crate)` only so the sweep can own the frame it populates; the
+    /// matching pop is [`Self::pop_instantiation_scope`], reachable only through
+    /// `LexicalScopeInstantiation::finish`, which consumes the token.
+    pub(crate) fn push_instantiation_scope(&mut self) {
+        self.push_direct_lexical_scope();
+    }
+
+    /// The matching pop. See [`Self::push_instantiation_scope`].
+    pub(crate) fn pop_instantiation_scope(&mut self) {
+        self.pop_scope();
+    }
+
+    /// InitializeBinding (9.1.1.1.4)'s scope-record write, for
+    /// `InitializedBinding::declare`. `pub(crate)` for the same reason as
+    /// [`Self::create_lexical_binding`]: the typed half of the transition lives
+    /// in `binding_lifecycle`, and its fields stay private there so the storage
+    /// name the creation allocated cannot be swapped for a recomputed one.
+    pub(crate) fn declare_initialized_binding(&mut self, source_name: String, info: BindingInfo) {
+        self.declare_binding(source_name, info);
     }
 
     pub(crate) fn interner(&self) -> &'a Interner {
@@ -8484,8 +8518,13 @@ impl<'a> ScriptLowerer<'a> {
         prepass.function_signatures = self.function_signatures.clone();
         prepass.is_prepass = true;
         prepass.hoist_root_statement_items(script.statements().statements());
-        let prepass_scope =
-            LexicalScopeInstantiation::instantiate(&mut prepass, script.statements().statements());
+        // 16.1.7 step 17 on the global lexical Environment Record, which
+        // `ScriptLowerer::new` already established — hence
+        // `instantiate_in_current_scope`, not `instantiate`.
+        let prepass_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut prepass,
+            script.statements().statements(),
+        );
         let _ = prepass.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
@@ -8586,9 +8625,12 @@ impl<'a> ScriptLowerer<'a> {
         }
         let tp = std::time::Instant::now();
         // 16.1.7 step 17: the script's `lexDeclarations` are created on the
-        // global lexical Environment Record before the body evaluates.
-        let scope =
-            LexicalScopeInstantiation::instantiate(self, script.statements().statements());
+        // global lexical Environment Record — the frame this lowerer was built
+        // with — before the body evaluates.
+        let scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            self,
+            script.statements().statements(),
+        );
         let body = self.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
@@ -9637,6 +9679,12 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
+        // Ends the Environment Record the sweep created its bindings in. A root
+        // statement list joins the frame its caller established, so this pops
+        // nothing here; it is written because the token — not the caller — is
+        // what decides that.
+        scope.finish(self);
+
         self.finish_using_frame(BlockIr {
             statements,
             result_kind,
@@ -9685,6 +9733,12 @@ impl<'a> ScriptLowerer<'a> {
             statements.push(statement);
             result_kind = kind;
         }
+
+        // 14.3.1.2's `env` ends with the statement list. The token pushed it and
+        // the token pops it, so the sweep's scope and the lowering's scope are
+        // the same frame by construction rather than by the caller remembering
+        // to push before constructing.
+        scope.finish(self);
 
         self.finish_using_frame(BlockIr {
             statements,
@@ -10362,9 +10416,12 @@ impl<'a> ScriptLowerer<'a> {
             }
             Statement::Empty => (StatementIr::Empty, ValueKind::Undefined),
             Statement::Block(block) => {
-                self.push_direct_lexical_scope();
+                // The Block's declarative Environment Record (14.3.1.2 step 1)
+                // is pushed and popped by `lower_block`'s
+                // `LexicalScopeInstantiation`; pushing a second, empty frame
+                // here would only give the sweep somewhere else it could have
+                // landed.
                 let block_ir = self.lower_block(block);
-                self.pop_scope();
                 let kind = block_ir.result_kind;
                 (StatementIr::Block(block_ir), kind)
             }
@@ -10475,9 +10532,13 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_block(&mut self, block: &Block) -> BlockIr {
-        // 14.3.1.2 BlockDeclarationInstantiation: the whole statement list's
-        // lexically scoped declarations are created before any statement of the
-        // block is evaluated.
+        // 14.3.1.2 BlockDeclarationInstantiation: the constructor pushes the
+        // Block's declarative Environment Record and creates the whole
+        // statement list's lexically scoped declarations in it, before any
+        // statement of the block is evaluated. `lower_statement_items` ends the
+        // frame by consuming the token, so every caller of `lower_block` is
+        // relieved of the push/pop it used to perform — and can no longer
+        // perform it against a different frame than the sweep populated.
         let scope =
             LexicalScopeInstantiation::instantiate(self, block.statement_list().statements());
         let mut lowered = self.lower_statement_items(block.statement_list().statements(), scope);
@@ -11731,9 +11792,9 @@ impl<'a> ScriptLowerer<'a> {
         let generator_entry_state = self.current_generator_resume_state;
         let async_entry_state = self.current_async_resume_state;
         let uses_preplanned_resumable_states = self.current_resumable_plan.is_some();
-        self.push_direct_lexical_scope();
+        // 14.15.2: the try Block's Environment Record is the Block's own, and
+        // `lower_block` owns it (see `LexicalScopeInstantiation`).
         let try_block = self.lower_block(try_statement.block());
-        self.pop_scope();
         if !uses_preplanned_resumable_states {
             if let Some(state) = self.current_generator_resume_state.as_mut() {
                 *state += 1;
@@ -11748,6 +11809,9 @@ impl<'a> ScriptLowerer<'a> {
         let catch_parts = if let Some(catch) = try_statement.catch() {
             let generator_catch_entry_state = self.current_generator_resume_state;
             let async_catch_entry_state = self.current_async_resume_state;
+            // 14.15.3 step 2's `catchEnv` — the record that holds the catch
+            // *parameter*, and a different Environment Record from the catch
+            // Block's, which `lower_block` pushes for itself. This push stays.
             self.push_direct_lexical_scope();
             let catch_parameter_environment = self.lower_materialized_lexical_environment(
                 catch
@@ -11831,9 +11895,8 @@ impl<'a> ScriptLowerer<'a> {
         let finally_block = if let Some(finally_block) = try_statement.finally() {
             let generator_finally_entry_state = self.current_generator_resume_state;
             let async_finally_entry_state = self.current_async_resume_state;
-            self.push_direct_lexical_scope();
+            // As for the try Block: `lower_block` owns the frame.
             let lowered = self.lower_block(finally_block.block());
-            self.pop_scope();
             if !uses_preplanned_resumable_states {
                 if let Some(state) = self.current_generator_resume_state.as_mut() {
                     *state += 1;
@@ -13832,11 +13895,11 @@ impl<'a> ScriptLowerer<'a> {
         let discriminant = self.lower_expression(switch.val());
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
-        self.push_direct_lexical_scope();
         self.breakable_depth += 1;
-        // 14.12.4 CaseBlockEvaluation instantiates the CaseBlock's
-        // LexicallyScopedDeclarations once for the whole block, not per case, so
-        // one token map is shared by every case body below.
+        // 14.12.4 CaseBlockEvaluation pushes the CaseBlock's Environment Record
+        // and instantiates its LexicallyScopedDeclarations once for the whole
+        // block, not per case, so one token map is shared by every case body
+        // below. The push is the constructor's; the pop is `scope.finish`.
         let mut scope = LexicalScopeInstantiation::instantiate_switch(self, switch);
 
         let mut last_function_by_name = BTreeMap::new();
@@ -13895,7 +13958,7 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         self.breakable_depth -= 1;
-        self.pop_scope();
+        scope.finish(self);
         self.var_bindings = merged_vars;
         self.global_properties = merged_globals;
 
@@ -15028,9 +15091,12 @@ impl<'a> ScriptLowerer<'a> {
 
         // 10.2.11 step 30: a function body is a statement-list scope too, and
         // its `let`/`const`/`class` names are uninitialized until their
-        // declarators run.
-        let body_scope =
-            LexicalScopeInstantiation::instantiate(&mut lowerer, function.body.statements());
+        // declarators run. `lexEnv` is the frame the parameter bindings above
+        // were declared into, so the sweep joins it rather than pushing one.
+        let body_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut lowerer,
+            function.body.statements(),
+        );
         let lowered_body = lowerer.lower_root_statement_items(
             function.body.statements(),
             function.root_functions.as_slice(),
@@ -16600,7 +16666,7 @@ impl<'a> ScriptLowerer<'a> {
                     // lowered, which is what makes `LoweredInitializer` cheap
                     // here and what makes the reverse order unwritable.
                     let init = LoweredInitializer::evaluated(init);
-                    let (storage_name, info, init) = match pending {
+                    let initialized = match pending {
                         Some(pending) => pending.initialize(init),
                         None => {
                             // Not a name this statement list created: a for-head
@@ -16608,21 +16674,15 @@ impl<'a> ScriptLowerer<'a> {
                             // resolve. Allocate as before.
                             let storage_name =
                                 self.direct_lexical_storage_name(&name, identifier.span());
-                            let init = init.into_expr();
-                            let info = BindingInfo::initialized(
+                            InitializedBinding::without_creation(
+                                name.clone(),
                                 mode,
-                                storage_name.clone(),
-                                init.value_info(),
-                            );
-                            (storage_name, info, init)
+                                storage_name,
+                                init.into_expr(),
+                            )
                         }
                     };
-                    self.declare_binding(name.clone(), info);
-                    statements.push(StatementIr::Lexical {
-                        mode,
-                        name: storage_name,
-                        init,
-                    });
+                    statements.push(initialized.declare(self));
                 }
                 Binding::Pattern(pattern) => {
                     let Some(init) = variable.init() else {
@@ -16677,25 +16737,19 @@ impl<'a> ScriptLowerer<'a> {
             self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let init = LoweredInitializer::evaluated(init);
-            let (storage_name, info, init) = match pending {
+            let initialized = match pending {
                 Some(pending) => pending.initialize(init),
                 None => {
                     let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
-                    let init = init.into_expr();
-                    let info = BindingInfo::initialized(
+                    InitializedBinding::without_creation(
+                        name.clone(),
                         BindingMode::Const,
-                        storage_name.clone(),
-                        init.value_info(),
-                    );
-                    (storage_name, info, init)
+                        storage_name,
+                        init.into_expr(),
+                    )
                 }
             };
-            self.declare_binding(name.clone(), info);
-            statements.push(StatementIr::Lexical {
-                mode: BindingMode::Const,
-                name: storage_name,
-                init,
-            });
+            statements.push(initialized.declare(self));
             statements.extend(self.add_disposable_resource_statements(&name, &slot));
         }
 
@@ -18653,29 +18707,21 @@ impl<'a> ScriptLowerer<'a> {
             class.constructor(),
             class.elements(),
         );
-        // 15.7.16 step 2: InitializeBoundName(className, value, env).
+        // 15.7.16 step 2: InitializeBoundName(className, value, env). In the
+        // `Some` arm the outer `storage_name` computed above is deliberately
+        // *not* referenced: the token carries the name the creation allocated,
+        // and there is no `String` here to substitute for it.
         let init = LoweredInitializer::evaluated(init);
-        let (storage_name, info, init) = match pending {
+        let initialized = match pending {
             Some(pending) => pending.initialize(init),
-            None => {
-                let init = init.into_expr();
-                let info = BindingInfo::initialized(
-                    BindingMode::Let,
-                    storage_name.clone(),
-                    init.value_info(),
-                );
-                (storage_name, info, init)
-            }
+            None => InitializedBinding::without_creation(
+                name.clone(),
+                BindingMode::Let,
+                storage_name,
+                init.into_expr(),
+            ),
         };
-        self.declare_binding(name.clone(), info);
-        (
-            StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: storage_name,
-                init,
-            },
-            ValueKind::Undefined,
-        )
+        (initialized.declare(self), ValueKind::Undefined)
     }
 
     fn lower_class_expression(&mut self, class: &ClassExpression) -> TypedExpr {
@@ -20184,8 +20230,11 @@ impl<'a> ScriptLowerer<'a> {
             })
             .unwrap_or_default();
         lowerer.hoist_root_statement_items(body.statements());
-        // 10.2.11 step 30, as above.
-        let body_scope = LexicalScopeInstantiation::instantiate(&mut lowerer, body.statements());
+        // 10.2.11 step 30, as above: `lexEnv` already exists.
+        let body_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut lowerer,
+            body.statements(),
+        );
         let lowered_body = lowerer.lower_root_statement_items_with_function_bindings(
             body.statements(),
             &root_function_bindings,
@@ -20909,13 +20958,11 @@ impl<'a> ScriptLowerer<'a> {
                                 ExprIr::String(value),
                             );
                         }
-                        NumberFormatFold::RangeError => {
+                        NumberFormatFold::RangeError(message) => {
                             for arg in args {
                                 self.lower_expression(arg);
                             }
-                            return Self::static_number_format_range_error(
-                                "Number.prototype.toExponential fraction digits out of range",
-                            );
+                            return Self::static_number_format_range_error(message);
                         }
                         NumberFormatFold::NotStatic => {}
                     }
@@ -20952,13 +20999,11 @@ impl<'a> ScriptLowerer<'a> {
                                 ExprIr::String(value),
                             );
                         }
-                        NumberFormatFold::RangeError => {
+                        NumberFormatFold::RangeError(message) => {
                             for arg in args {
                                 self.lower_expression(arg);
                             }
-                            return Self::static_number_format_range_error(
-                                "Number.prototype.toPrecision precision out of range",
-                            );
+                            return Self::static_number_format_range_error(message);
                         }
                         NumberFormatFold::NotStatic => {}
                     }
@@ -20982,13 +21027,11 @@ impl<'a> ScriptLowerer<'a> {
                                 ExprIr::String(value),
                             );
                         }
-                        NumberFormatFold::RangeError => {
+                        NumberFormatFold::RangeError(message) => {
                             for arg in args {
                                 self.lower_expression(arg);
                             }
-                            return Self::static_number_format_range_error(
-                                "Number.prototype.toFixed fraction digits out of range",
-                            );
+                            return Self::static_number_format_range_error(message);
                         }
                         NumberFormatFold::NotStatic => {}
                     }
@@ -32527,22 +32570,15 @@ impl<'a> ScriptLowerer<'a> {
     ) -> StatementIr {
         self.static_string_bindings.remove(&name);
         self.static_to_string_regexp_object_bindings.remove(&name);
-        let (storage_name, info, init) = match pending {
+        let initialized = match pending {
             Some(pending) => pending.initialize(init),
             None => {
-                let storage_name = storage_name
-                    .unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
-                let init = init.into_expr();
-                let info = BindingInfo::initialized(mode, storage_name.clone(), init.value_info());
-                (storage_name, info, init)
+                let storage_name =
+                    storage_name.unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
+                InitializedBinding::without_creation(name, mode, storage_name, init.into_expr())
             }
         };
-        self.declare_binding(name, info);
-        StatementIr::Lexical {
-            mode,
-            name: storage_name,
-            init,
-        }
+        initialized.declare(self)
     }
 
     fn lower_object_pattern_value_from_value(&self, target: &TypedExpr, key: &str) -> TypedExpr {
@@ -34551,14 +34587,57 @@ impl<'a> ScriptLowerer<'a> {
     /// exactly this question; before this helper existed they asked it with two
     /// byte-identical inline copies of the four clauses, ~5,700 lines apart.
     fn expression_is_builtin_symbol_intrinsic(&self, target_name: &str) -> bool {
-        target_name == SYMBOL_NAME
-            && self.active_with_objects.is_empty()
-            && self.lookup_binding(target_name).is_none()
+        target_name == SYMBOL_NAME && self.identifier_resolves_to_builtin_global(target_name)
+    }
+
+    /// ResolveBinding (9.1.1) for a name a constant fold wants to treat as a
+    /// **builtin global**: true only when nothing shadows it.
+    ///
+    /// The four clauses are the ones the two intrinsic guards below and above
+    /// already spelled inline, lifted so there is one of them:
+    ///
+    /// 1. no active `with` object, whose binding object could supply the name
+    ///    at run time (14.11.2);
+    /// 2. no Environment Record in the chain binds it — 9.1.1 resolves against
+    ///    the environment *before* the global object, so a parameter, `let`,
+    ///    `const`, `var` or catch parameter named `Infinity` wins;
+    /// 3. the global property is proven present, and
+    /// 4. it is still the *builtin* one, not something a `GlobalWrite` replaced.
+    ///
+    /// Testing a fold's precondition by **spelling alone** has already shipped
+    /// wrong answers here three times: the two recorded on
+    /// `identifier_is_builtin_native_error`, and a third at the
+    /// `Number.prototype.toPrecision` fold, where the new 21.1.3.5 step 5
+    /// RangeError arm turned `function f(){ let Infinity = 5; return
+    /// (1.5).toPrecision(Infinity); }` from a correct runtime answer into an
+    /// emitted `RangeError` throw. Any new resolver that maps an identifier
+    /// spelling to a value must call this.
+    fn identifier_resolves_to_builtin_global(&self, name: &str) -> bool {
+        self.active_with_objects.is_empty()
+            && self.lookup_binding(name).is_none()
             && self
-                .lookup_global_property_info(target_name)
+                .lookup_global_property_info(name)
                 .is_some_and(|property| {
                     property.proven_present && property.source == GlobalPropertySource::Builtin
                 })
+    }
+
+    /// The value of `Infinity`, `NaN` or `undefined` **when the identifier
+    /// really is the builtin global** (ECMA-262 19.1.1, 19.1.2, 19.1.3), and
+    /// `None` for every other spelling and for a shadowed one.
+    ///
+    /// `undefined` maps to `NaN` because every caller is inside a `ToNumber`
+    /// (7.1.4 table row `Undefined` → `NaN`); a site that needs to know the
+    /// value *was* `undefined` asks [`Self::is_static_undefined_expr`], which
+    /// carries the same guard.
+    fn static_global_number_identifier(&self, name: &str) -> Option<f64> {
+        let value = match name {
+            "Infinity" => f64::INFINITY,
+            "NaN" | "undefined" => f64::NAN,
+            _ => return None,
+        };
+        self.identifier_resolves_to_builtin_global(name)
+            .then_some(value)
     }
 
     /// The native-error intrinsic `name` denotes, **if** the identifier really
@@ -34581,14 +34660,8 @@ impl<'a> ScriptLowerer<'a> {
     /// visible, and the guard is the same four clauses.
     fn identifier_is_builtin_native_error(&self, name: &str) -> Option<NativeErrorKind> {
         let kind = NativeErrorKind::from_str(name)?;
-        let resolves_to_builtin = self.active_with_objects.is_empty()
-            && self.lookup_binding(name).is_none()
-            && self
-                .lookup_global_property_info(name)
-                .is_some_and(|property| {
-                    property.proven_present && property.source == GlobalPropertySource::Builtin
-                });
-        resolves_to_builtin.then_some(kind)
+        self.identifier_resolves_to_builtin_global(name)
+            .then_some(kind)
     }
 
     /// Whether a `receiver[@@match]`-shaped call may be typed as
@@ -34871,16 +34944,11 @@ impl<'a> ScriptLowerer<'a> {
                 _ => None,
             },
             Expression::Identifier(identifier) => {
-                match self
-                    .interner
-                    .resolve_expect(identifier.sym())
-                    .to_string()
-                    .as_str()
-                {
-                    "Infinity" => Some(f64::INFINITY),
-                    "NaN" | "undefined" => Some(f64::NAN),
-                    _ => None,
-                }
+                // 9.1.1 resolves the name against the environment first, so the
+                // spelling alone is not enough — see
+                // `static_global_number_identifier`.
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                self.static_global_number_identifier(&name)
             }
             Expression::Unary(unary) => match unary.op() {
                 UnaryOp::Plus => self.static_to_number_expr(unary.target()),
@@ -35032,14 +35100,12 @@ impl<'a> ScriptLowerer<'a> {
         }
         match receiver {
             Expression::Identifier(identifier) => {
-                match self
-                    .interner
-                    .resolve_expect(identifier.sym())
-                    .to_string()
-                    .as_str()
-                {
-                    "Infinity" => Some(f64::INFINITY),
-                    "NaN" => Some(f64::NAN),
+                // Same guard as `static_to_number_expr`: `undefined` is not a
+                // receiver this fold accepts, but `Infinity` and `NaN` are, and
+                // both can be shadowed.
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                match name.as_str() {
+                    "Infinity" | "NaN" => self.static_global_number_identifier(&name),
                     _ => None,
                 }
             }
@@ -35104,8 +35170,10 @@ impl<'a> ScriptLowerer<'a> {
     /// The folded form of a 21.1.3.x RangeError.
     ///
     /// One builder, three call sites, so the `ExprIr::RuntimeThrow` shape
-    /// cannot drift between the clauses; only the per-clause message differs,
-    /// and each of the three matches the message the runtime path throws.
+    /// cannot drift between the clauses. The message is no longer a literal any
+    /// of the three arms spells: it is carried out of the fold as
+    /// `NumberFormatFold::RangeError(<C as NumberFormatClause>::RANGE_ERROR)`,
+    /// so a clause cannot be given another clause's text.
     fn static_number_format_range_error(message: &'static str) -> TypedExpr {
         TypedExpr::from_info(
             ValueInfo::undefined(),
@@ -35144,10 +35212,9 @@ impl<'a> ScriptLowerer<'a> {
             }
             _ => RangeChecked::InBounds(None),
         };
-        fold_number_format(
+        fold_number_format::<ToExponential>(
             value,
             digits,
-            NonFiniteReceiverOrder::ReceiverFirst,
             Self::js_number_to_string,
             |value, digits: Option<FractionDigits>| {
                 Self::static_number_to_exponential(value, digits.map(FractionDigits::as_usize))
@@ -35183,10 +35250,9 @@ impl<'a> ScriptLowerer<'a> {
             // Step 3: `fractionDigits` undefined ⇒ `f` is 0.
             _ => RangeChecked::InBounds(FractionDigits::ZERO),
         };
-        fold_number_format(
+        fold_number_format::<ToFixed>(
             value,
             digits,
-            NonFiniteReceiverOrder::RangeCheckFirst,
             Self::js_number_to_string,
             |value, digits: FractionDigits| Self::static_number_to_fixed(value, digits.as_usize()),
         )
@@ -35222,10 +35288,9 @@ impl<'a> ScriptLowerer<'a> {
             // step 3's coercion, so `undefined` never reaches 7.1.5 here.
             _ => return NumberFormatFold::Formatted(Self::js_number_to_string(value)),
         };
-        fold_number_format(
+        fold_number_format::<ToPrecision>(
             value,
             precision,
-            NonFiniteReceiverOrder::ReceiverFirst,
             Self::js_number_to_string,
             |value, precision: Precision| Self::static_number_to_precision(value, precision.get()),
         )
@@ -35506,11 +35571,19 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
+    /// Whether `expr` is statically the `undefined` value.
+    ///
+    /// The identifier arm carries the same 9.1.1 guard as
+    /// [`Self::static_global_number_identifier`]: `function f(undefined) {
+    /// return (1.5).toFixed(undefined); }` binds `undefined` as a parameter, so
+    /// the spelling does not denote 19.1.3's global property and 21.1.3.3
+    /// step 2 must not take the "`fractionDigits` is undefined" branch.
     fn is_static_undefined_expr(&self, expr: &Expression) -> bool {
         match Self::unwrap_parenthesized_expr(expr) {
             Expression::Literal(literal) => matches!(literal.kind(), LiteralKind::Undefined),
             Expression::Identifier(identifier) => {
-                self.interner.resolve_expect(identifier.sym()).to_string() == "undefined"
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                name == "undefined" && self.identifier_resolves_to_builtin_global(&name)
             }
             _ => false,
         }
@@ -36241,10 +36314,12 @@ impl<'a> ScriptLowerer<'a> {
                 _ => None,
             },
             Expression::Identifier(identifier) => {
+                // Ledger row **LN5**'s original site. `let Infinity = 5;
+                // Math.clz32(Infinity)` folded against the builtin's value here
+                // because the test was on the spelling alone.
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 match name.as_str() {
-                    "NaN" => Some(f64::NAN),
-                    "Infinity" => Some(f64::INFINITY),
+                    "NaN" | "Infinity" => self.static_global_number_identifier(&name),
                     _ => None,
                 }
             }

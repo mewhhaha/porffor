@@ -734,14 +734,13 @@ impl<'a> FunctionBuilder<'a> {
         message: &str,
         payload_local: u32,
         tag_local: u32,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
         if !self.is_main() {
             self.emit_return_current_completion(function);
         } else if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }

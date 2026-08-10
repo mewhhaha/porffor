@@ -972,6 +972,10 @@ pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTIO
     "$builtin.Temporal.ZonedDateTime.prototype.timeZoneId.get";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.calendarId.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.era.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.eraYear.get";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.year.get";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID: &str =
@@ -996,6 +1000,8 @@ pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.equals";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.toInstant";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.toPlainDateTime";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.withTimeZone";
 pub const BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID: &str =

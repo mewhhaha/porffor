@@ -1180,10 +1180,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else(
-            "Cannot assign to read only property",
-            function,
-        )?;
+        self.emit_object_write_set_failure_else("Cannot assign to read only property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 

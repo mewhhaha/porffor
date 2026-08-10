@@ -1950,6 +1950,16 @@ fn emit_script_with_forced_builtins(
         ExportKind::Global,
         throw_error_name_global_index(uses_heap),
     );
+    // The message travels beside the name so a host-visible throw reports what
+    // went wrong, not only which error class it was. In a module with no heap
+    // both resolve to the same global index; two exports of one global are
+    // legal Wasm and the pair is unobservable there, because the message is
+    // only read when the completion value is a heap object.
+    exports.export(
+        THROW_ERROR_MESSAGE_EXPORT,
+        ExportKind::Global,
+        throw_error_message_global_index(uses_heap),
+    );
 
     let mut globals = GlobalSection::new();
     globals.global(
@@ -2239,6 +2249,7 @@ fn emit_script_with_forced_builtins(
         format!("export global: {COMPLETION_KIND_EXPORT}"),
         format!("export global: {COMPLETION_AUX_EXPORT}"),
         format!("export global: {THROW_ERROR_NAME_EXPORT}"),
+        format!("export global: {THROW_ERROR_MESSAGE_EXPORT}"),
         format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
     ];
 

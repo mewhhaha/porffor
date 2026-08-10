@@ -260,7 +260,12 @@ at the 26 `lookup_binding` clone sites.
 /// It is Lila's *name-allocation* question, and it exists here so that
 /// `lexical_storage_name` (lowering.rs:7689) can ask it as an exhaustive match
 /// on the binding's own state instead of testing its storage name for a `$tdz.`
-/// prefix. A third storage disposition is `error[E0004]` there.
+/// prefix. A third storage disposition is `error[E0004]` at **both** of its
+/// consumers: `lexical_storage_name` and `direct_lexical_storage_name`'s reuse
+/// branch. The latter first shipped as
+/// `.filter(|b| b.initialization == Uninitialized(Allocated))`, which would
+/// have compiled silently past a new variant and quietly dropped the reuse
+/// rule — reopening M2b for it. It is an exhaustive `match`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UninitializedStorage {
     /// The binding's real storage name is already allocated and is the name the
@@ -453,12 +458,37 @@ not carry") is the failure mode being avoided here by saying so.
 /// LexicalBinding evaluation that initializes one.
 ///
 /// This type exists so that **a statement-list lowering entry cannot be written
-/// without predeclaring**. `lower_statement_items` and
+/// without predeclaring**, and so that the sweep runs into the scope the
+/// statement list is lowered in. `lower_statement_items` and
 /// `lower_root_statement_items_with_function_bindings` take one by value; the
-/// only constructor is `instantiate`, which performs the sweep. A fifth
+/// constructors are `instantiate`, `instantiate_switch` and
+/// `instantiate_in_current_scope`, each of which performs the sweep. A fifth
 /// statement-list entry added later is `error[E0061]`/`error[E0308]` until its
 /// author builds one — which is M5, closed structurally rather than by
 /// remembering to call `predeclare_block_lexical_bindings`.
+///
+/// **M5b — the sweep landing in the wrong Environment Record.** The token as
+/// first written witnessed that *a* sweep ran, not where: `instantiate` reaches
+/// `create_lexical_binding` -> `declare_binding` -> `scopes.last_mut()`, and
+/// the push was in a different function at every block-shaped call site, so
+/// `let scope = LexicalScopeInstantiation::instantiate(self, items);
+/// self.push_scope(); self.lower_statement_items(items, scope);` compiled,
+/// satisfied M5's `E0061`, and declared every `let` of the inner list into the
+/// **parent** scope — where it outlives the block and shadows its siblings.
+/// 14.3.1.2 step 1's `env` is the *new* declarative record, so the push belongs
+/// to the instantiation. It is now a private field:
+///
+/// ```rust
+/// enum InstantiatedFrame { Pushed, Current }
+/// ```
+///
+/// `instantiate` and `instantiate_switch` push (`Pushed`);
+/// `instantiate_in_current_scope` does not (`Current`), for the three root
+/// statement lists whose record — 16.1.7's global lexical record, 10.2.11's
+/// `lexEnv` — the caller established and outlives the list. `finish(self,
+/// lowerer)` consumes the token and pops iff `Pushed`, so the frame is popped
+/// exactly once and only by the value that pushed it, and a caller that pushes
+/// on its own gets a frame it has no token to pop.
 ///
 /// `#[must_use]`, not `Clone`. Tokens are taken out by source name; whatever is
 /// left at `finish` is the set of names whose declarators lowering did not
@@ -563,11 +593,27 @@ fn resolve_binding_reference(&self, name: &str) -> BindingResolution;
 ```
 
 **Honest limit.** This makes the obligation a compile error at the seven sites
-that call it, and makes a *new state* an `E0004` at all seven. It does not make
-an *eighth, newly written* Reference site fail to build, because
-`ExprIr::Identifier(String)` can still be constructed from any `&str`. Closing
-that requires changing `ExprIr::Identifier`'s payload — measured cost in §5,
-open obligation **O1**.
+that call it, and makes a *new state* an `E0004` at all seven. Three things it
+does **not** do, each a ledger entry rather than a claim:
+
+- It does not make an *eighth, newly written* Reference site fail to build,
+  because `ExprIr::Identifier(String)` can still be constructed from any `&str`.
+  Measured cost in §5, open obligation **O1**, ledger **L3**.
+- It does not force the `Uninitialized` arm to *use* the `TdzViolation`.
+  `#[must_use]` on a struct fires for a discarded expression statement, never
+  for a value bound or wildcarded in a `match` pattern, so
+  `BindingResolution::Uninitialized(_) => {}` compiles with no warning — and
+  `lower_array_assignment_identifier_target` (`lowering.rs:32402`) writes
+  exactly that pattern, for the reason ledger **L5** gives. What the type
+  discharges is the weaker obligation that **the arm must exist**. Ledger **L8**.
+- It does not stop a new site from classifying the record *by hand*.
+  `BindingInfo::initialization` is `pub(crate)` and `Initialization` derives
+  `PartialEq`, so
+  `self.lookup_binding(&name).is_some_and(|b| b.initialization == Initialization::Initialized)`
+  gets the classification right, never obtains a `TdzViolation`, and therefore
+  never emits the throw. Adjacent to **L3** but distinct: L3 covers sites that
+  do not test at all; this covers sites that test and then do nothing. Ledger
+  **L8**.
 
 ### 2.7 Refused types, and why
 
@@ -601,12 +647,12 @@ check the reasoning.
 | # | Mistake | Today | After | Compile error |
 |---|---|---|---|---|
 | **M1** | Declare a lexical binding and forget it starts uninitialized. 50 `declare_binding` call sites, 41 `BindingInfo` literals, governed by 4 `mark_tdz_binding` calls. | Compiles silently; the binding reads as initialized. | Every literal must spell `initialization:`. `Var`, catch, capture and temporary literals spell `Initialized` explicitly rather than inherit it by omission. | `error[E0063] missing field 'initialization' in initializer of 'BindingInfo'` — 41 sites. |
-| **M2** | Clear the TDZ before the initializer is lowered. `declare_binding` and `clear_tdz_binding` are separate calls whose order is convention at 10 sites. `let x = x;` must throw (9.1.1.1.6 step 2); the wrong order reads undefined. | Order is a review item. | The transition takes a `LoweredInitializer`, whose only producer is `lower_declarator_initializer`. There is nothing to pass before the initializer is lowered. | `error[E0425] cannot find value 'init'` / `error[E0308] expected 'LoweredInitializer'` at the call, plus `error[E0382] use of moved value: 'token'` on a second initialization. |
-| **M2b** | Initialize a predeclared binding under a *recomputed* storage name. Not in the brief; §2.2 shows it is the trap a naive M5 fix walks into at every non-`direct_lexical` scope. | Would compile and write a slot nothing reads. | `PendingInitialization` returns the storage name it allocated; the declarator has no other source for it. | `error[E0616] field 'storage_name' of struct 'PendingInitialization' is private` if recomputed and compared; structurally, the recomputation has no consumer. |
+| **M2** | Clear the TDZ before the initializer is lowered. `declare_binding` and `clear_tdz_binding` are separate calls whose order is convention at 10 sites. `let x = x;` must throw (9.1.1.1.6 step 2); the wrong order reads undefined. | Order is a review item. | The separate `clear_tdz_binding` call — the thing whose *order* was the hazard at ten sites — no longer exists: the transition **is** the `declare_binding`, and it is built out of a `LoweredInitializer`. | `error[E0382] use of moved value` on a second initialization, and `error[E0061]`/`error[E0308]` on an `initialize` with no `LoweredInitializer` to hand it. **Not** `E0425`, and §2.4's "there is simply no value of this type in scope until then" is false as landed: `LoweredInitializer::evaluated(TypedExpr)` is `pub(crate)` and accepts any `TypedExpr`, so `initialize(evaluated(TypedExpr::undefined()))` followed by lowering the real initializer compiles and reproduces the exact M2 defect. That half is ledger **L6**, whose eight call sites are enumerated there. |
+| **M2b** | Initialize a predeclared binding under a *recomputed* storage name. Not in the brief; §2.2 shows it is the trap a naive M5 fix walks into at every non-`direct_lexical` scope. | Would compile and write a slot nothing reads. | `PendingInitialization::initialize` returns an **`InitializedBinding`** with private fields whose only exit is `declare(&mut ScriptLowerer) -> StatementIr` — it performs the scope-record write *and* emits the `StatementIr::Lexical`, so the declarator never holds the storage name as a `String`. | Structural: on a tokened path there is no `String` in the caller's hands to substitute. The `error[E0616]` this row used to claim fires only for `pending.storage_name`, which nobody would write; while `initialize` returned a bare `(String, BindingInfo, TypedExpr)` a declarator could take the token, `declare_binding` the returned record (flipping the entry to `Initialized`, so `direct_lexical_storage_name`'s `Uninitialized(Allocated)` reuse filter stops matching) and recompute the name for the emitted node — and `lower_class_declaration` held both spellings in scope simultaneously. The **untokened** paths (the four L2 destructuring sites, and the four `InitializedBinding::without_creation` fallbacks) are still governed by `direct_lexical_storage_name`'s reuse rule, a compiler-runtime rule and not a type: ledger **L2**. |
 | **M3** | The two stacks fall out of step. `is_tdz_binding` (`:37817-37831`) zips `scopes.iter().rev()` against `tdz_scopes.iter().rev()` positionally; `mark`/`clear` write `last_mut()` behind an `expect`. A third scope-push entry point that pushes one stack and not the other is a panic or a silent misalignment. | Two entry points (`push_scope` `:37783`, `push_direct_lexical_scope` `:37789`), one shared invariant, no type. | `tdz_scopes`, `mark_tdz_binding`, `clear_tdz_binding` and `is_tdz_binding` are **deleted**. There is one stack. | `error[E0609] no field 'tdz_scopes' on type 'ScriptLowerer'` for any re-introduction; the misalignment has no representation. |
 | **M4** | Two spellings of the same state drift apart. `is_tdz_binding_storage_name` (prefix match) OR `is_tdz_binding` (set membership), OR-ed at `:17111-17113`; nine `analysis.rs` sites re-mint the prefixed name with no relation to either. | A change to what counts as TDZ, or to the prefix, must be made in two files' worth of unrelated string logic. | The reader consumes `Initialization` and nothing else. The prefix is minted and tested only through `TdzPlaceholderName`, whose only constructor is `for_source_name`. | `error[E0599] no function or associated item named 'is_tdz_binding_storage_name'`; `error[E0308]` on any hand-built `format!("$tdz.{…}")` passed where a `TdzPlaceholderName` is wanted. |
 | **M5** | A statement-list scope with no predeclaration. `lower_root_statement_items_with_function_bindings` (`:9458`) calls neither predeclare wrapper, and is the entry for the script top level **and every function body** (§0.4). `x; let x;` reads slot `x` where 9.1.1.1.6 step 2 requires a ReferenceError. | Verified live. Corroborated by the team's own workaround at `namespace.rs:466-478`. | Both statement-list entries take a `LexicalScopeInstantiation` by value; the only constructor performs the sweep. | `error[E0061] this function takes 3 arguments but 2 were supplied` at any new or un-updated statement-list entry. |
-| **M6** | Read-side check without a write-side check. 9.1.1.1.5 step 3 makes an assignment to an uninitialized binding throw, *before* the immutability test of step 6/7. | Seven sites hold a resolved `BindingInfo`; **one** tests TDZ, and it tests it as a string-OR-set disjunction. The other six test `mode == Const` and nothing else. | All seven route through `resolve_binding_reference` and match `BindingResolution` exhaustively. `TdzViolation`'s only consumer is `into_throw`. | `error[E0004] non-exhaustive patterns: 'Uninitialized(_)' not covered`; `error[E0599]` if the arm tries to do anything with a `TdzViolation` but throw. |
+| **M6** | Read-side check without a write-side check. 9.1.1.1.5 step 3 makes an assignment to an uninitialized binding throw, *before* the immutability test of step 6/7. | Seven sites hold a resolved `BindingInfo`; **one** tests TDZ, and it tests it as a string-OR-set disjunction. The other six test `mode == Const` and nothing else. | All seven route through `resolve_binding_reference` and match `BindingResolution` exhaustively. `TdzViolation`'s only *method* is `into_throw`. | `error[E0004] non-exhaustive patterns: 'Uninitialized(_)' not covered` — the **arm must exist**, which is what this row discharges. It does **not** discharge the arm's *content*: `#[must_use]` on a struct does not fire for a value bound (or `_`-bound) in a `match` pattern, so `Uninitialized(_) => {}` compiles with no warning, and `lowering.rs:32402` legitimately writes that shape. The `error[E0599]` this row used to claim never fires. The seven arms' contents are ledger **L8**. |
 | **M6b** | Compound assignment and update skip the *read* check too: the three compound arms and `lower_update` build `ExprIr::Identifier(storage_name)` directly (`:30646`, `:32953`, and the corresponding lines in `:30833`/`:30934`), never passing through `lower_identifier_name_inner`. Not in the brief (§0.7). | `x += 1`, `x &&= 1`, `x \|= 1`, `x++` on an uninitialized binding all read undefined. | Same mechanism as M6; these are four of the seven sites. | As M6. |
 | **M7** | Storage-class dependence. Nothing relates `Initialization` in `porffor-ir` to `allocate_binding`'s `BindingStorage` choice in `porffor-aot-wasm/src/environments.rs:900`. `EnvSlot` gets the runtime uninitialized check (`:876-895`); `Fixed` and `Dynamic` get none, and a `Dynamic` tag local starts at 0 = `ValueKind::Undefined.tag()`. | The same program's answer depends on an unrelated capture-analysis decision. | **Not a compile error this round.** `BindingStorage` is in a crate this area does not edit. Named premise **P2** + integration note (§5). | none — by design, and stated as such. |
 | **M8** | A new `boa_ast::Declaration` variant that binds a name lexically is silently not predeclared. Not in the brief; the `_ => {}` at `:13806` covers 4 of 6 variants. | Silent. | `LexicalScopeInstantiation::instantiate`'s match is exhaustive over all 6. | `error[E0004] non-exhaustive patterns`. |
@@ -704,16 +750,25 @@ InitializeBinding — and Stage 2 rewrites them to obtain the value from
    (M8).
 8. `lower_block` (`:10314-10324`): replace the `predeclare_block_lexical_bindings`
    call with `let scope = LexicalScopeInstantiation::instantiate(self, items);`
-   and pass it to `lower_statement_items`.
+   and pass it to `lower_statement_items`. **The constructor performs the
+   `push_direct_lexical_scope` and `lower_statement_items` performs the matching
+   `finish`**, so `lower_block`'s four callers — the `Statement::Block` arm and
+   `lower_try`'s try/finally pair — drop the push/pop they used to wrap it in.
+   `lower_try`'s *catch* push stays: 14.15.3 step 2's `catchEnv` holds the catch
+   parameter and is a different Environment Record from the catch Block's.
 9. `lower_statement_items` (`:9505`) gains a
    `mut scope: LexicalScopeInstantiation` parameter.
 10. `lower_switch` (`:13662`): `instantiate_switch`, passed to whatever lowers the
-    case bodies. Note `push_direct_lexical_scope()` at `:13660` already precedes
-    it; keep that order — the sweep must run inside the scope it populates.
+    case bodies. The CaseBlock's `push_direct_lexical_scope()` moves **into**
+    `instantiate_switch` and the matching `pop_scope()` becomes `scope.finish(self)`,
+    for the M5b reason in §2.5: keeping the push at the call site is what let the
+    sweep and the lowering address different frames.
 11. **`lower_root_statement_items_with_function_bindings` (`:9458-9503`) gains the
     same parameter.** Its four call sites (`:8368`, `:8466`, `:14902` via
-    `:9446`, `:19993`) build one. This is M5's fix, and it fixes the script top
-    level and every function body in the same edit.
+    `:9446`, `:19993`) build one, with `instantiate_in_current_scope` — these
+    are the three root statement lists whose Environment Record already exists.
+    This is M5's fix, and it fixes the script top level and every function body
+    in the same edit.
 
     Order at each: the sweep must run *after*
     `prepare_root_function_binding_ids` / `root_function_init_statements`
@@ -871,7 +926,8 @@ load-bearing. Each says why a type cannot carry it.
 | **L3** | An *eighth* Reference-shaped site, newly written, that builds `ExprIr::Identifier(name)` from a `&str` without calling `resolve_binding_reference`. | See obligation **O1**. | The seven converted sites are exhaustive over today's tree; a new one is a review item. |
 | **L4** | The three compound-assign arms resolve the binding after lowering the RHS, so the 9.1.1.1.6 step 2 throw follows the RHS's side effects where 13.15.4 puts it before them. | Fixing it means hoisting the resolution above ~300 lines of arm in three places. | Stage 3's recorded finding. Delete this entry when the hoist lands. |
 | **P1** | `report_shadowed_namespace_globals` (`namespace.rs:471`) and the namespace-alias arm (`:561`) refuse to compile a module that shadows `Object`/`Symbol`, on the ground that such a binding is in TDZ for the whole merged scope. | The premise is *the spec behaviour*, which Stage 2 makes real for the first time. Removing the bail-out additionally requires **P2**, because a merged-scope `Object` whose storage is `Dynamic` gets no runtime check. | Annotated comment referencing this contract. Removal is a later lane, gated on P2. |
-| **P2** | Nothing in `porffor-ir` relates `Initialization::Uninitialized` to `allocate_binding`'s `BindingStorage` choice (`porffor-aot-wasm/src/environments.rs:900-945`). `read_binding_to_locals` (`:850`) emits the `ENV_SLOT_UNINITIALIZED_TAG` comparison (`:876-895`) **only** for `BindingStorage::EnvSlot`. `Fixed` and `Dynamic` have no check, and a `Dynamic` tag local is zero-initialized — and `ValueKind::Undefined.tag()` returns `0` (`porffor-ir/src/ir.rs:225`). | `BindingStorage` is defined in a crate this round does not edit; batch 2 holds files in it. | Integration note (see below), plus the fact that the compile-time throw this contract installs at the six IR sites covers every *statically resolved* read and write. P2 governs only the reads that reach a runtime slot: closures over a binding whose storage the capture analysis did not promote to `EnvSlot`. |
+| **P2-read** | Nothing in `porffor-ir` relates `Initialization::Uninitialized` to `allocate_binding`'s `BindingStorage` choice (`porffor-aot-wasm/src/environments.rs:900-945`). `read_binding_to_locals` (`:850`) emits the `ENV_SLOT_UNINITIALIZED_TAG` comparison (`:876-895`) **only** for `BindingStorage::EnvSlot`. `Fixed` and `Dynamic` have no check, and a `Dynamic` tag local is zero-initialized — and `ValueKind::Undefined.tag()` returns `0` (`porffor-ir/src/ir.rs:225`). | `BindingStorage` is defined in a crate this round does not edit; batch 2 holds files in it. | Integration note (see below), plus the fact that the compile-time throw this contract installs at the seven IR sites covers every *statically resolved* read. P2-read governs only the reads that reach a runtime slot: closures over a binding whose storage the capture analysis did not promote to `EnvSlot`. |
+| **P2-write** | `write_binding_from_locals` (`environments.rs:320-348`) emits **no** `ENV_SLOT_UNINITIALIZED_TAG` comparison in *any* arm, `EnvSlot` included — unlike `read_binding_to_locals`. So 9.1.1.1.5 step 3 has no runtime backstop at all for a **closure write** to an uninitialized binding, at every storage class. Nor does the compile-time layer reach it: a captured name enters the inner function as a capture alias declared `Initialization::Initialized` (`lowering.rs:14890-14901`, `:20051`, `:20070`), so `lower_identifier_assign_value` (`:31353`) takes the `Initialized` arm. This is where §7 corpus entry 7 actually lands, and it is **not** covered by P2-read, which scopes itself to reads. | Same crate boundary. | Integration note. The fix is the same `ENV_SLOT_UNINITIALIZED_TAG` comparison-and-throw in `write_binding_from_locals`'s `EnvSlot` arm, with the *initializing* write exempt — 9.1.1.1.4 must be able to write the slot while it is still tagged `-1`. The IR already separates the two: an InitializeBinding is `StatementIr::Lexical` and a SetMutableBinding is `ExprIr::AssignIdentifier`, so the exemption costs nothing to express at the aot-wasm boundary. |
 | **O1** | The obligation "every Environment Record read/write goes through the state" is not total, because `ExprIr::Identifier(String)` and `ExprIr::AssignIdentifier { name: String, .. }` accept a bare `String`. | `ir.rs` is not owned by this area, and the payload change ripples into `porffor-aot-wasm`. **Measured price**: `ExprIr::Identifier(` has **80** construction sites in `porffor-ir` and **30** in `porffor-aot-wasm`; `ExprIr::AssignIdentifier` has **17** and **10**. 137 sites across two crates. | Named here as an open proof obligation with its price, in the round-2 style. Not attempted this round. |
 
 **Integration note (goes in `target/lane-notes/environment-record-tdz-theory-integration.md`).**
@@ -909,7 +965,7 @@ Files touched: `crates/porffor-ir/src/binding_lifecycle.rs` (new),
 | **M6 / M6b** | yes | `BindingResolution` + `TdzViolation`, produced only by `BindingResolution::of`, which is a total function of the resolved record. All seven Reference-shaped sites match it exhaustively; a new state is `E0004` at all seven. |
 | **M8** | yes | The `boa_ast::Declaration` match in `LexicalScopeInstantiation::instantiate_item` is exhaustive over all six variants; the four function forms are named with their spec ground. |
 | **M2** | yes, by a different mechanism than §2.4 predicted | `PendingInitialization::initialize` takes a `LoweredInitializer` and consumes `self`, so double-initialization is `E0382` and initialization-before-lowering has no value to pass. **Additionally** the separate `clear_tdz_binding` call — the thing whose *order* was the hazard at ten sites — no longer exists: the transition is the `declare_binding` that already had to be built out of the lowered initializer. M2's residue is L1 and L2 below. |
-| **M2b** | yes, by two mechanisms | The token carries the created storage name (identifier/`using`/class declarators). `ScriptLowerer::direct_lexical_storage_name` additionally returns the created name whenever the current scope already holds an `Uninitialized(Allocated)` entry, which is what makes the untokened destructuring paths agree. This is not decorative duplication: the token proves the *ordering*, the accessor covers the paths that take no token (L2). |
+| **M2b** | yes, by two mechanisms (**strengthened by the discrepancy-fixer pass — see §5c**) | The token carries the created storage name, and since §5c it does not release it: `initialize` returns an `InitializedBinding` whose only exit performs both the `declare_binding` and the `StatementIr::Lexical`. `ScriptLowerer::direct_lexical_storage_name` additionally returns the created name whenever the current scope already holds an `Uninitialized(Allocated)` entry, which is what makes the untokened destructuring paths agree. This is not decorative duplication: the token proves the *ordering* and now the *name*, the accessor covers the paths that take no token (L2). |
 | **M7** | not attempted, as designed | Premise **P2**; integration note written. |
 
 ### Moved to the ledger, with reasons
@@ -921,12 +977,14 @@ Files touched: `crates/porffor-ir/src/binding_lifecycle.rs` (new),
 | **L3** (unchanged) | An eighth, newly written Reference site. Obligation **O1**. |
 | **L4** (unchanged) | The arithmetic compound-assign arm resolves after lowering the RHS, so its throw follows the RHS's effects where 13.15.4 puts it before them. Recorded at the site. The *logical* and *bitwise* arms resolve before the RHS is lowered, so they are already correct — this entry now covers one arm, not three. |
 | **L5** (NEW) | `lower_array_assignment_identifier_target` returns `Option<DestructuringTargetIr>`, and `DestructuringTargetIr` has no throwing-target variant. `ir.rs` is outside this area's owned files and a second area is editing it this round, so the 9.1.1.1.5 step 3 violation cannot be turned into the runtime ReferenceError there. The arm is written and named, and emits an `unsupported` lowering diagnostic rather than silently writing the slot — which is what happened before. Closing it means adding a throwing target variant to `DestructuringTargetIr`, or a statement sink to that function. |
-| **L6** (NEW) | `LoweredInitializer::evaluated` is `pub(crate)`, so it is a named loophole rather than a closed one. Its six call sites are enumerated in its doc comment: the four async/generator staging paths of `lower_lexical_declaration` (whose "initializer" is a read-back of a suspension temporary), the static-generator substitution, and `lower_class_declaration`'s 15.7.16 step 2 result. §4 item 12 anticipated exactly one such constructor (`from_substituted`); it is spelled `evaluated` and used by the ordinary path too, because a second constructor that differed only in name would have been the decoration AGENTS.md warns about. |
+| **L6** (NEW, corrected) | `LoweredInitializer::evaluated` is `pub(crate)` and accepts any `TypedExpr`, so it is a **general constructor**, not a closed list — the doc comment that claimed six call sites was a doc comment asserting an invariant the type does not carry, which is round 2's finding 8. The measured count is **8**: `lowering.rs:16376`, `:16474`, `:16497`, `:16546` (the four async/generator staging paths), `:16602` (the ordinary identifier declarator, which the old list omitted), `:16679` (`lower_using_declaration`, omitted), `:18657` (class), `:31937` (`lower_object_pattern_lexical_binding_from_value`, omitted). What this leaves open is precisely M2's ordering half: `initialize(evaluated(TypedExpr::undefined()))` followed by lowering the real initializer compiles. Each of the eight bodies has been read and does produce its value first; that is review, not proof. §4 item 12 anticipated one such constructor (`from_substituted`); a second constructor differing only in name would have been the decoration AGENTS.md warns about. |
+| **L8** (NEW) | The **content** of the seven `BindingResolution::Uninitialized` arms. `#[must_use]` on `TdzViolation` fires only for a discarded expression statement, not for a value bound or `_`-bound in a `match` pattern, so `Uninitialized(_) => {}` compiles silently; and `BindingInfo::initialization` is `pub(crate)` with `Initialization: PartialEq`, so a new site can classify by hand and never obtain a `TdzViolation` at all. | Rust cannot make a value undroppable. Making the field private to `binding_lifecycle` and dropping `PartialEq` from `Initialization` would close the second half, but `BindingInfo` derives `PartialEq`/`Eq` and would have to lose them too — a change outside this area's blast radius, priced but not taken. | The seven arms are enumerated in §4 Stage 3's table and each is `return violation.into_throw();` (or, at `lowering.rs:32402`, the L5 `unsupported` diagnostic). Review-checked, not proved. |
+| **L9** (NEW) | The state is **flow-insensitive**. `Initialization` tracks *lowering order*, not control flow, so a `switch` case body that falls through past an earlier case's declarator reads the binding as initialized: `switch (x) { case 1: let a = 1; case 2: a; }` — case 1's declarator runs `scope.take("a")` and flips the shared CaseBlock entry to `Initialized` (`lowering.rs:13840` is one token map; `:13881` lowers the cases in source order into one `scopes.last_mut()` frame), so case 2's read at `:17285` takes the `Initialized` arm. With `x === 2` the binding is uninitialized at run time and 9.1.1.1.6 step 2 requires a ReferenceError. | A compile-time per-binding state cannot be flow-sensitive without a dataflow merge. Pre-existing — the deleted `mark`/`clear` pair had exactly the same order sensitivity — and not a regression. | Nothing, today. Closing it needs either **P2-read**'s runtime sentinel for every lexical binding in a CaseBlock with more than one reachable entry, or a merge over case bodies that re-marks a name `Uninitialized` for cases that do not dominate its declarator. Not attempted in this lane. |
 | **L7** (NEW) | The sweep for `lower_root_statement_items_with_function_bindings` is built by the **caller**, so it runs *before* `prepare_root_function_binding_ids` rather than after, as §4 item 11 asked. The parameter is the point (M5's `E0061`) and the caller-side construction is what makes it one. The order is observationally equivalent: a lexical declaration and a hoisted function declaration that bind the same name in the same scope are an early error, so no name can be reached by both sweeps. |
 
 ### Deviations from §2 and §4 worth the reviewer's attention
 
-1. **`PendingInitialization` has no `source_name` and no `initialize_value`.** §2.4 gave it both; nothing read either once Stage 4 moved to L2, and a field constructed at N sites and read at 0 is round-2 finding 3. It carries `mode` and `storage_name`.
+1. **`PendingInitialization` has no `initialize_value`.** §2.4 gave it one; nothing read it once Stage 4 moved to L2, and a field constructed at N sites and read at 0 is round-2 finding 3. It carries `source_name`, `mode` and `storage_name` — `source_name` was dropped in the encoder pass for the same reason and **restored in §5c**, where `InitializedBinding::declare` gave it a reader.
 2. **`LexicalScopeInstantiation` has no `is_empty`.** Same reason — no consumer.
 3. **The token is threaded through `lower_statement_list_item` -> `lower_declaration` -> `lower_lexical_declaration` / `lower_using_declaration` / `lower_class_declaration`.** §4 assumed this plumbing without pricing it; it is cheap because `lower_statement_list_item` has exactly three call sites (the three statement-list entries) and `lower_declaration`, `lower_lexical_declaration`, `lower_using_declaration` and `lower_class_declaration` have exactly one each.
 4. **`lower_lexical_binding_value` is the single InitializeBinding site for the five identifier-declarator paths** and takes `LoweredInitializer` + `Option<PendingInitialization>`, rather than each path re-spelling the transition.
@@ -934,6 +992,39 @@ Files touched: `crates/porffor-ir/src/binding_lifecycle.rs` (new),
 6. **`lower_class_declaration` still allocates its storage name before ClassDefinitionEvaluation**, not after, because `direct_lexical_storage_name` can consume a `$lexN` temporary index and moving that consumption past `lower_class_common` would renumber every generated name inside the class body.
 
 ---
+
+---
+
+## §5c. DISCREPANCY-FIXER RECORD — what the dry run moved
+
+Written blind (no `cargo`/`rustc`; the integrator owns the compile gate). Files
+touched: `crates/porffor-ir/src/binding_lifecycle.rs`,
+`crates/porffor-ir/src/lowering.rs`.
+
+### Closed by a type this pass
+
+| Obligation | What landed |
+|---|---|
+| **M5b** — the sweep running into the wrong Environment Record | `LexicalScopeInstantiation` gained a private `frame: InstantiatedFrame` field. `instantiate` and `instantiate_switch` perform the `push_direct_lexical_scope`; `instantiate_in_current_scope` (new, three root call sites) does not; `finish(self, lowerer)` consumes the token and pops iff it pushed. `lower_statement_items` and `lower_root_statement_items_with_function_bindings` call `finish` at the end, and `lower_switch` calls it where its `pop_scope()` was. Five caller-side pushes were deleted (`Statement::Block`, `lower_try`'s try and finally, `lower_switch`); the catch push stays, annotated as 14.15.3's `catchEnv`. The pop of an instantiation frame is now reachable only through the token. |
+| **M2b-name** — initializing a predeclared binding under a recomputed name | `PendingInitialization::initialize` returns `InitializedBinding` (private fields, `#[must_use]`) instead of `(String, BindingInfo, TypedExpr)`. Its only exit, `declare(&mut ScriptLowerer) -> StatementIr`, performs the scope write and emits the node, so the tokened paths have no `String` to substitute. Four call sites converted; the untokened halves go through the named `InitializedBinding::without_creation`, which is where L2 now sits. `ScriptLowerer::declare_initialized_binding` is the one new `pub(crate)` accessor this needed. |
+| **`UninitializedStorage`'s second consumer** | `direct_lexical_storage_name`'s reuse branch was `== Uninitialized(Allocated)`; it is an exhaustive `match`, so a third variant is `E0004` at both consumers rather than at one. |
+
+### Corrected in this document, not in the code
+
+- §3 **M2** (`E0425` claim), §3 **M2b** (`E0616` claim), §3 **M6** (`E0599`
+  claim) and §2.4's "no value of this type in scope" all overstated what the
+  types carry. Restated, with the residues moved to ledger **L6** and **L8**.
+- §7 corpus **entry 7**'s trace was wrong end to end (it is a capture-alias
+  write, not a same-scope one) and its verdict changes from "ReferenceError" to
+  "unchanged, open". Premise **P2** is split into **P2-read** and **P2-write**,
+  because the write path has no runtime check in *any* storage arm.
+- §7's two non-program checks both failed as literally written. Restated and
+  re-measured: `grep -c 'initialization:'` is 36 in `lowering.rs` and 3 in
+  `binding_lifecycle.rs`; the tombstone grep is an `-E` word-boundary form that
+  returns only comment lines.
+- New ledger rows **L8** (the arm's content, and the by-hand classification
+  route) and **L9** (flow insensitivity, with the `switch` fall-through
+  witness).
 
 ## §6. Deviations from the area brief
 
@@ -983,7 +1074,7 @@ symbolically against the encoder's landing; no case is run.
 | 4 | `…/let/block-local-use-before-initialization-in-prior-statement.js` | **M1/M4**, regression anchor | `lower_block:10314` → sweep → `:17110` → `Uninitialized(Allocated)` | **already ReferenceError** | unchanged. The working sibling of entry 1 — same program, different scope, different answer today, same answer after |
 | 5 | `…/let/block-local-use-before-initialization-in-declaration-statement.js` | **M2** in a block | The order `PendingInitialization` must preserve: `:16416-16423` lowers, `:16446` clears, `:16447` declares | already correct | unchanged, now unforgeable |
 | 6 | `…/let/global-closure-get-before-initialization.js` — `function f(){ return x+1 } … let x;` | **M7 / P2** | `x` is captured → `allocate_binding:900` picks `EnvSlot` → the runtime check at `:876-895` fires inside `f` | ReferenceError, from the **runtime** check | unchanged. Pair with entry 1: same source-level state, one enforced at compile time and one at run time, by two mechanisms that nothing relates. This pair is why P2 is a named premise |
-| 7 | `…/let/function-local-closure-set-before-initialization.js` — `function f(){ x = 1 } … let x;` inside an IIFE | **M6 + M5** | `f`'s body is a statement-list scope too (§0.4); the write goes to `lower_identifier_assign_value:31056`, which tests `mode == Const` at `:31058` and nothing else | writes the slot; no throw. Note this case needs **both** the sweep (so a binding exists at all) and the write check | ReferenceError from `BindingResolution::Uninitialized` at `:31056`, ahead of the immutability test — 9.1.1.1.5 step 3 before step 6/7 |
+| 7 | `…/let/function-local-closure-set-before-initialization.js` — `function f(){ x = 1 } … let x;` inside an IIFE | **P2-write** (not M6) — **trace corrected** | The `let x` is in the enclosing IIFE body, **not** in `f`'s body, so `f`'s own sweep never creates it. `x` reaches `f` as a **capture alias**, declared `Initialization::Initialized` (`lowering.rs:14890-14901`, `:20051`, `:20070`), so `lower_identifier_assign_value` (`:31353`) takes the `Initialized` arm and the compile-time check cannot fire. Nor is there a runtime backstop: `write_binding_from_locals` (`environments.rs:320-348`) emits no `ENV_SLOT_UNINITIALIZED_TAG` comparison in **any** arm, `EnvSlot` included | writes the slot; no throw | **still writes the slot; no throw.** This entry is not closed by this lane and the earlier claim that it was — "f's body is a statement-list scope too (§0.4)" — was wrong: it confused the scope the *read/write* is in with the scope the *declaration* is in. 9.1.1.1.5 step 3 is unenforced at both layers for every closure write to an uninitialized binding. Ledger **P2-write**. Its sibling entry 6 is the read half, which *is* enforced, by the runtime `EnvSlot` check — the asymmetry between the two is the whole content of the premise |
 | 8 | `…/switch/scope-lex-const.js` | **M3** | `lower_switch:13660` `push_direct_lexical_scope` → `instantiate_switch` → case bodies. The second predeclaration entry point, and the reason the two-stack invariant had two producers | works today | unchanged, with `tdz_scopes` gone. Verify the sweep spans **all** cases (14.12.4 instantiates the CaseBlock once), not per case |
 | 9 | `…/for-of/head-let-bound-names-fordecl-tdz.js` | **M2/M4** on the placeholder path — **re-aimed** (§0.3) | `lower_for_head_expression_with_tdz:10718` pushes a scope, declares a `Placeholder`, lowers the iterable, pops. The head's read of the loop name resolves to the placeholder | ReferenceError via the `$tdz.` prefix test at `:17111` | ReferenceError via `Initialization::Uninitialized(Placeholder)` — **the prefix must no longer be consulted at `:17111`**. This is the entry that proves M4 closed |
 | 10 | **ADVERSARIAL** `print(Object); let Object = 1;` at script top level | **M5** + premise **P1** | As entry 1, but the name also resolves as a builtin global. Order in `lower_identifier_name_inner`: `lookup_binding:17110` runs **before** the `StandardBuiltinId::all_globals()` fallback at `:17149`, so a predeclared scope entry wins | prints the `Object` constructor | ReferenceError. Trace must also state what changes for the module path: `namespace.rs:471` still refuses the program (C6), so the *module* answer stays "unsupported" and only the *script* answer changes. Both must be reported |
@@ -992,8 +1083,29 @@ symbolically against the encoder's landing; no case is run.
 
 Two further checks the dry-runner must perform that are not programs:
 
-- **Count check.** After the landing, `grep -c 'initialization:'` over the 41
-  literal sites must be 41; `grep -rn 'tdz_scopes\|mark_tdz_binding\|clear_tdz_binding\|is_tdz_binding\b\|is_tdz_binding_storage_name'` over `crates/porffor-ir/src/` must return **zero** matches; `grep -rn 'tdz_binding_storage_name'` must return zero (the name is now `TdzPlaceholderName::for_source_name`).
+- **Count check.** Both of the checks this section first stated fail as written
+  and must not be run in that form; a reviewer who runs them concludes the
+  landing is broken when it is not.
+
+  - `grep -c 'initialization:'` over the literal sites **cannot** be 41: six of
+    the 41 literals became constructors (`BindingInfo::tdz_placeholder`,
+    `BindingInfo::initialized`, `create_lexical_binding`,
+    `PendingInitialization::initialize`, and the two the sweep absorbed). The
+    measured invariant is
+    `grep -c 'initialization:' crates/porffor-ir/src/lowering.rs` == **36**
+    (35 literals + the struct-field declaration) and == **3** in
+    `binding_lifecycle.rs`; 35 + 6 = 41.
+  - `grep -rn 'tdz_binding_storage_name'` **cannot** be zero: it collides by
+    substring with `for_of_tdz_binding_storage_names` /
+    `for_in_tdz_binding_storage_names` (`analysis.rs:2339`, `:2419`, `:4153`,
+    `:4303`), which §4 item 19 explicitly preserves. The correct form is
+
+    ```sh
+    grep -rnE '\btdz_scopes\b|\bmark_tdz_binding\b|\bclear_tdz_binding\b|\bis_tdz_binding\b|\bis_tdz_binding_storage_name\b|(^|[^_])\btdz_binding_storage_name\b' crates/porffor-ir/src/
+    ```
+
+    which must return only comment lines (the two tombstone comments that name
+    the deleted helpers). Both restated checks pass on the current tree.
 - **Prefix-role check.** `TDZ_BINDING_STORAGE_PREFIX` must have exactly the uses
   §0's table lists, plus its uses inside `binding_lifecycle.rs`. Any occurrence in
   a conditional that decides whether to throw is M4 reopening.

@@ -28,9 +28,12 @@
 //! - The non-finite-receiver early return sits on **either side** of the range
 //!   check depending on the clause (21.1.3.2 step 4 before step 5; 21.1.3.3
 //!   steps 4–5 before step 6). There are exactly two orders, so
-//!   [`NonFiniteReceiverOrder`] is a closed enum and a **required** argument of
-//!   [`fold_number_format`]; the position is no longer an emergent property of
-//!   two guards sixty lines apart.
+//!   [`NonFiniteReceiverOrder`] is a closed enum — and it is a per-clause
+//!   **constant** on [`NumberFormatClause`] rather than an argument the caller
+//!   names, because an argument left the wrong *choice* expressible. The clause
+//!   is the type parameter of [`fold_number_format`], its `Digits` associated
+//!   types are pairwise distinct, and its `RANGE_ERROR` message travels with
+//!   the outcome; so neither the ordering nor the message can be transposed.
 //! - 7.1.6, 7.1.7 and 7.1.9 are character-for-character the same operation
 //!   through step 4 and differ only in step 5's reading of one residue.
 //!   [`residue_pow2_i64`] is that shared step, stated once, as a `const fn` over
@@ -82,7 +85,25 @@ pub enum IntegerOrInfinity {
 /// and no `From`. Adding one restores, in a single line, the defect this type
 /// exists to close: a codomain that cannot hold the spec's range, escaping into
 /// a comparison against a machine integer.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+///
+/// **And deliberately no `PartialOrd`.** It was derived once, and it was a hole
+/// the size of the type's whole purpose: ordering is all an interval test needs,
+/// and `of_number` is a public source of comparison constants, so any crate
+/// depending on `porffor-ir` could write
+/// `match (of_number(v), of_number(2.0), of_number(36.0)) { (Finite(x),
+/// Finite(lo), Finite(hi)) => x >= lo && x <= hi, _ => false }` — a hand-rolled
+/// `[2, 36]` radix check with a catch-all that silently answers "out of range"
+/// for `±∞`. That is mistake class N3, rebuilt from outside using only the
+/// public API. Nothing in this module compares two `FiniteInteger`s
+/// (`fraction_digits` and `precision` compare the destructured `f64`), so the
+/// derive was pure attack surface. `PartialEq` alone cannot express an interval
+/// and stays.
+///
+/// If a future clause needs to order the extended integers, the right primitive
+/// is an `Ord` on [`IntegerOrInfinity`] with `NegativeInfinity < Finite <
+/// PositiveInfinity` — the *correct* order, which a `FiniteInteger`-only
+/// comparison cannot express — and it arrives with its own call site.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FiniteInteger(f64);
 
 impl IntegerOrInfinity {
@@ -252,10 +273,91 @@ pub enum NonFiniteReceiverOrder {
 pub enum NumberFormatFold {
     /// Emit `ExprIr::String`.
     Formatted(String),
-    /// Emit `ExprIr::RuntimeThrow` with `NativeErrorKind::RangeError`.
-    RangeError,
+    /// Emit `ExprIr::RuntimeThrow` with `NativeErrorKind::RangeError` and the
+    /// carried message.
+    ///
+    /// The message travels **with** the outcome rather than being named at the
+    /// dispatch site, because the dispatch site is where it went wrong: three
+    /// adjacent arms each spelled a `&'static str` literal, so pasting
+    /// `"Number.prototype.toFixed fraction digits out of range"` into the
+    /// `toPrecision` arm compiled and shipped the wrong text. It is now
+    /// `<C as NumberFormatClause>::RANGE_ERROR` and there is no string literal
+    /// left at the call sites.
+    RangeError(&'static str),
     /// Not statically decidable; fall through to the runtime call path.
     NotStatic,
+}
+
+/// One of the three `Number.prototype` formatting clauses, as a **type**.
+///
+/// This is the construct that closes mistake class N4″ — "name the wrong
+/// `NonFiniteReceiverOrder`" — which a required enum argument could not: with a
+/// free argument, swapping `ReceiverFirst` and `RangeCheckFirst` at any of the
+/// three `*_call` helpers compiles and silently makes
+/// `Infinity.toFixed(101)` answer `"Infinity"` instead of throwing.
+///
+/// Two properties do the work. First, the three [`Self::Digits`] types are
+/// pairwise distinct — `Option<FractionDigits>` (21.1.3.2 step 12.a needs
+/// `undefined` to stay observably different from `f === 0`, so the `Option` is
+/// spec-mandated, not incidental), `FractionDigits` (21.1.3.3) and `Precision`
+/// (21.1.3.5) — so naming the wrong clause at a call site is `E0308` on the
+/// `digits` argument. Second, `ORDER` and `RANGE_ERROR` become properties *of
+/// the clause* rather than values the caller supplies, so neither can be
+/// transposed or copy-pasted.
+///
+/// This is **not** the typestate builder §2.3 refuses: it adds no phantom
+/// state and no step-by-step protocol, it removes two caller-supplied values,
+/// and it rejects two program classes the enum argument admitted. That is
+/// AGENTS.md's test, met.
+pub trait NumberFormatClause {
+    /// The clause's already-range-checked digit argument. Distinct per clause;
+    /// that is what makes naming the wrong clause a type error.
+    type Digits;
+    /// Where this clause's "if x is not finite" step sits relative to its range
+    /// check.
+    const ORDER: NonFiniteReceiverOrder;
+    /// The message its out-of-range step throws. Matches the message the
+    /// runtime path throws for the same clause.
+    const RANGE_ERROR: &'static str;
+}
+
+/// 21.1.3.2 `Number.prototype.toExponential ( fractionDigits )`.
+pub enum ToExponential {}
+
+/// 21.1.3.3 `Number.prototype.toFixed ( fractionDigits )`.
+pub enum ToFixed {}
+
+/// 21.1.3.5 `Number.prototype.toPrecision ( precision )`.
+pub enum ToPrecision {}
+
+impl NumberFormatClause for ToExponential {
+    /// 21.1.3.2 step 12.a: `fractionDigits === undefined` is observably
+    /// different from `f === 0`.
+    type Digits = Option<FractionDigits>;
+    /// Step 4 (non-finite receiver) precedes step 5 (the range check), so
+    /// `Infinity.toExponential(101)` is `"Infinity"`.
+    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::ReceiverFirst;
+    const RANGE_ERROR: &'static str = "Number.prototype.toExponential fraction digits out of range";
+}
+
+impl NumberFormatClause for ToFixed {
+    /// Step 3: `fractionDigits` undefined ⇒ `f` is 0, so there is no `Option`.
+    type Digits = FractionDigits;
+    /// Steps 4–5 (the range check) precede step 6, so `Infinity.toFixed(101)`
+    /// throws a **RangeError**. This is the one clause that differs, and the
+    /// difference is observable.
+    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::RangeCheckFirst;
+    const RANGE_ERROR: &'static str = "Number.prototype.toFixed fraction digits out of range";
+}
+
+impl NumberFormatClause for ToPrecision {
+    /// Step 2 returns `! ToString(x)` before step 3's coercion when `precision`
+    /// is undefined, so `undefined` never reaches 7.1.5 and there is no
+    /// `Option` here either. The interval is `[1, 100]`, not `[0, 100]`.
+    type Digits = Precision;
+    /// Step 4 precedes step 5, as in 21.1.3.2.
+    const ORDER: NonFiniteReceiverOrder = NonFiniteReceiverOrder::ReceiverFirst;
+    const RANGE_ERROR: &'static str = "Number.prototype.toPrecision precision out of range";
 }
 
 /// The single driver for 21.1.3.2, 21.1.3.3 and 21.1.3.5.
@@ -272,34 +374,33 @@ pub enum NumberFormatFold {
 /// happens where the clause is known; the driver enforces only the *ordering*,
 /// which is what it is for.
 ///
-/// Deliberately **not** a typestate builder. A typestate encodes an ordering the
-/// caller performs step by step; here the ordering is a per-clause constant the
-/// caller merely names. Phantom-typed builder states would add three types and
-/// two methods to express what one required enum argument already makes
-/// mandatory, and would reject no additional program.
-pub fn fold_number_format<T>(
+/// The clause is a **type parameter**, not a value: `C::ORDER` and
+/// `C::RANGE_ERROR` cannot be transposed or copy-pasted, and because the three
+/// `C::Digits` are pairwise distinct, naming the wrong clause is `E0308` on
+/// `digits`. See [`NumberFormatClause`] for why this is not the typestate
+/// builder this contract refuses.
+pub fn fold_number_format<C: NumberFormatClause>(
     receiver: f64,
-    digits: RangeChecked<T>,
-    order: NonFiniteReceiverOrder,
+    digits: RangeChecked<C::Digits>,
     number_to_string: impl FnOnce(f64) -> String,
-    format: impl FnOnce(f64, T) -> Option<String>,
+    format: impl FnOnce(f64, C::Digits) -> Option<String>,
 ) -> NumberFormatFold {
-    let finish = |digits: T| match format(receiver, digits) {
+    let finish = |digits: C::Digits| match format(receiver, digits) {
         Some(text) => NumberFormatFold::Formatted(text),
         None => NumberFormatFold::NotStatic,
     };
-    match order {
+    match C::ORDER {
         NonFiniteReceiverOrder::ReceiverFirst => {
             if !receiver.is_finite() {
                 return NumberFormatFold::Formatted(number_to_string(receiver));
             }
             match digits {
-                RangeChecked::RangeError => NumberFormatFold::RangeError,
+                RangeChecked::RangeError => NumberFormatFold::RangeError(C::RANGE_ERROR),
                 RangeChecked::InBounds(digits) => finish(digits),
             }
         }
         NonFiniteReceiverOrder::RangeCheckFirst => match digits {
-            RangeChecked::RangeError => NumberFormatFold::RangeError,
+            RangeChecked::RangeError => NumberFormatFold::RangeError(C::RANGE_ERROR),
             RangeChecked::InBounds(digits) => {
                 if !receiver.is_finite() {
                     return NumberFormatFold::Formatted(number_to_string(receiver));
@@ -329,10 +430,69 @@ pub struct Uint32(u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Uint16(u16);
 
+/// The moduli 5.2.5's `x modulo 2^N` is taken at in this contract: `N = 32` for
+/// 7.1.6/7.1.7 and `N = 16` for 7.1.9.
+///
+/// A closed two-element domain, not a bare `u32`. `residue_pow2_i64(x, 64)` and
+/// `residue_pow2_i64(x, 0)` used to compile: the `debug_assert!` is gone in
+/// release, `1u64 << 64` is a *masked* shift there and evaluates to `1`, so the
+/// mask becomes `0` and the function silently returns `0` for every input —
+/// inside the very item the LN2 backend retrofit is meant to call as normative.
+/// Only `const` callers were protected, because `1u64 << 64` is a hard error in
+/// const evaluation. Those two arguments are now unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResidueWidth {
+    /// 7.1.9 ToUint16.
+    Bits16,
+    /// 7.1.6 ToInt32 and 7.1.7 ToUint32.
+    Bits32,
+}
+
+impl ResidueWidth {
+    /// `2^N − 1`. The shift is on a literal from a two-element domain, so it is
+    /// never 64 and never 0.
+    pub const fn mask(self) -> u64 {
+        match self {
+            Self::Bits16 => (1u64 << 16) - 1,
+            Self::Bits32 => (1u64 << 32) - 1,
+        }
+    }
+}
+
+/// The integer carrier one [`ResidueWidth`] reads its residue into.
+///
+/// This exists to tie the modulus to the destination cast, which were two
+/// independent bare integers: editing `Uint32::of_number` to
+/// `residue_of_number(number, 16) as u32` compiled and produced 7.1.9's residue
+/// in 7.1.7's carrier, so `Math.clz32(65537)` would have answered `31` instead
+/// of `15`. With this, `residue_of_number::<u32>(number)` derives its own
+/// modulus from the carrier and there is no second number to get wrong.
+pub trait ResidueCarrier: Copy {
+    /// The modulus 5.2.5 is applied at for this carrier.
+    const WIDTH: ResidueWidth;
+    /// Reads the residue, which [`ResidueWidth::mask`] has already reduced into
+    /// range, so this cast is exact.
+    fn of_residue(residue: u64) -> Self;
+}
+
+impl ResidueCarrier for u32 {
+    const WIDTH: ResidueWidth = ResidueWidth::Bits32;
+    fn of_residue(residue: u64) -> Self {
+        residue as u32
+    }
+}
+
+impl ResidueCarrier for u16 {
+    const WIDTH: ResidueWidth = ResidueWidth::Bits16;
+    fn of_residue(residue: u64) -> Self {
+        residue as u16
+    }
+}
+
 impl Uint32 {
     /// 7.1.7 steps 2–5 on a value already through step 1. **Total.**
     pub fn of_number(number: f64) -> Self {
-        Self(residue_of_number(number, 32) as u32)
+        Self(residue_of_number::<u32>(number))
     }
 
     /// 21.3.2.11 `Math.clz32` step 2: the number of leading zero bits in the
@@ -346,7 +506,7 @@ impl Uint32 {
 impl Uint16 {
     /// 7.1.9 steps 2–5 on a value already through step 1. **Total.**
     pub fn of_number(number: f64) -> Self {
-        Self(residue_of_number(number, 16) as u16)
+        Self(residue_of_number::<u16>(number))
     }
 
     /// 22.1.2.1 step 2.a: the single UTF-16 code unit `String.fromCharCode`
@@ -356,7 +516,9 @@ impl Uint16 {
     }
 }
 
-/// 7.1.6 / 7.1.7 / 7.1.9 steps 2–4, shared. `bits` is 32 or 16.
+/// 7.1.6 / 7.1.7 / 7.1.9 steps 2–4, shared. The modulus is
+/// `C::WIDTH` — derived from the carrier, so there is no second argument that
+/// could disagree with the destination cast.
 ///
 /// The `|v| < 2^63` branch routes through the const-asserted integer core, so
 /// [`residue_pow2_i64`] is on the product path and not merely a build-time
@@ -364,34 +526,42 @@ impl Uint16 {
 /// argument is load-bearing and is ledger row **LN1**: IEEE-754 specifies
 /// `fmod` as exact, `rem_euclid` adds at most one exactly-representable
 /// addition, and both operands and result are integers of magnitude below
-/// `2^53`. Rust's type system has no vocabulary for "this float operation is
-/// exact", so that branch is checked by the one differential test in this file
-/// rather than by a type.
-fn residue_of_number(number: f64, bits: u32) -> u64 {
+/// `2^53`.
+///
+/// **LN1's honest statement**: no type can carry that argument *for this
+/// formulation*. `rem_euclid` is not the only way to compute the branch —
+/// decomposing `x.to_bits()` into `m · 2^e` gives `x mod 2^N` as `0` when
+/// `e ≥ N` and `(m & ((1 << (N − e)) − 1)) << e` otherwise, which is integer
+/// arithmetic, `const`-evaluable, and exact by construction rather than by an
+/// appeal to IEEE-754 §5.3.1. Rewriting it that way would move the 18-case
+/// boundary table from `#[cfg(test)]` into a third `const _` block and retire
+/// LN1 outright.
+fn residue_of_number<C: ResidueCarrier>(number: f64) -> C {
     // Step 2: non-finite or ±0 → +0𝔽. `number == 0.0` covers `-0.0`.
     if !number.is_finite() || number == 0.0 {
-        return 0;
+        return C::of_residue(0);
     }
     // Step 3. Exact for every finite binary64.
     let truncated = number.trunc();
     // 2^63, exactly representable.
     const I64_SPAN: f64 = 9_223_372_036_854_775_808.0;
-    if truncated >= -I64_SPAN && truncated < I64_SPAN {
+    let residue = if truncated >= -I64_SPAN && truncated < I64_SPAN {
         // Step 4 inside the i64 window: two's complement *is* the residue
         // system modulo 2^64, so masking is exact.
-        residue_pow2_i64(truncated as i64, bits)
+        residue_pow2_i64(truncated as i64, C::WIDTH)
     } else {
         // Step 4 outside it. Note that this is `rem_euclid`, not `%`: 5.2.5's
         // residue takes the sign of the modulus, which is positive here, so it
         // is never negative.
-        truncated.rem_euclid((1u64 << bits) as f64) as u64
-    }
+        truncated.rem_euclid((C::WIDTH.mask() + 1) as f64) as u64
+    };
+    C::of_residue(residue)
 }
 
 /// 2^53 − 1. 7.1.20 step 3's clamp and 7.1.22 step 2's upper bound.
 pub const MAX_SAFE_INTEGER_U64: u64 = 9_007_199_254_740_991;
 
-/// 5.2.5 `x modulo 2^bits` for a mathematical integer that fits an `i64`.
+/// 5.2.5 `x modulo 2^N` for a mathematical integer that fits an `i64`.
 ///
 /// **This is the step all five backend emitters re-derive, in five different
 /// spellings, and two get wrong.** It is a *non-negative* residue, not a machine
@@ -401,13 +571,17 @@ pub const MAX_SAFE_INTEGER_U64: u64 = 9_007_199_254_740_991;
 /// collapses onto `i64::MAX` or `i64::MIN`, whose residues are `2^32 − 1` and
 /// `0`, and neither is the answer for more than a measure-zero set of inputs.
 ///
-/// Two's complement is the residue system modulo 2^64, so masking the low
-/// `bits` is the exact residue. No floating point, no `rem_euclid`, no libm —
+/// Two's complement is the residue system modulo 2^64, so masking the low `N`
+/// bits is the exact residue. No floating point, no `rem_euclid`, no libm —
 /// which is what lets this be `const` on stable and lets the tables at the end
 /// of this file be checked by the compiler rather than by a suite.
-pub const fn residue_pow2_i64(int: i64, bits: u32) -> u64 {
-    debug_assert!(bits > 0 && bits < 64);
-    (int as u64) & ((1u64 << bits) - 1)
+///
+/// `width` is a [`ResidueWidth`] rather than a `u32` because this item is `pub`
+/// and is the normative algorithm the LN2 backend retrofit will call: a bare
+/// `bits` admitted `64` and `0`, which a release build turns into "return 0 for
+/// every input" via a masked shift and a `debug_assert!` that is not there.
+pub const fn residue_pow2_i64(int: i64, width: ResidueWidth) -> u64 {
+    (int as u64) & width.mask()
 }
 
 /// 7.1.6 ToInt32 steps 4–5, given `truncate(ℝ(number))` reduced into an `i64`.
@@ -416,17 +590,17 @@ pub const fn residue_pow2_i64(int: i64, bits: u32) -> u64 {
 /// and that is stated rather than hidden. Its consumer is the const block at
 /// the end of this file, so a wrong edit fails the build rather than the suite.
 pub const fn reference_to_int32(truncated: i64) -> i32 {
-    residue_pow2_i64(truncated, 32) as u32 as i32
+    residue_pow2_i64(truncated, ResidueWidth::Bits32) as u32 as i32
 }
 
 /// 7.1.7 ToUint32 steps 4–5.
 pub const fn reference_to_uint32(truncated: i64) -> u32 {
-    residue_pow2_i64(truncated, 32) as u32
+    residue_pow2_i64(truncated, ResidueWidth::Bits32) as u32
 }
 
 /// 7.1.9 ToUint16 steps 4–5.
 pub const fn reference_to_uint16(truncated: i64) -> u16 {
-    residue_pow2_i64(truncated, 16) as u16
+    residue_pow2_i64(truncated, ResidueWidth::Bits16) as u16
 }
 
 /// 7.1.5's codomain restricted to the integers an `i64` holds, plus the two
@@ -608,7 +782,7 @@ const _: () = {
         // wider one's low half.
         assert!(reference_to_uint16(value) as u32 == reference_to_uint32(value) & 0xFFFF);
         // Both readings agree on the residue's membership in [0, 2^32).
-        assert!(residue_pow2_i64(value, 32) == reference_to_uint32(value) as u64);
+        assert!(residue_pow2_i64(value, ResidueWidth::Bits32) == reference_to_uint32(value) as u64);
         i += 1;
     }
 };
@@ -662,7 +836,7 @@ mod tests {
             (TWO_63 + 2048.0, 2048, 2048),
             (-(TWO_63 + 2048.0), 4_294_965_248, 63_488),
             // Far outside, where the ulp exceeds both moduli.
-            (18_446_744_073_709_551_616.0, 0, 0), // 2^64
+            (18_446_744_073_709_551_616.0, 0, 0),         // 2^64
             (19_342_813_113_834_066_795_298_816.0, 0, 0), // 2^84
             (1e300, 0, 0),
             (-1e300, 0, 0),

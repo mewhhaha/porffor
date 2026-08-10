@@ -2713,11 +2713,7 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                payload_local,
-                tag_local,
-                function,
-            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
             function.instruction(&Instruction::End);
 
             if target.kind != ValueKind::Dynamic
@@ -14235,6 +14231,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
             self.uses_heap,
         )));
+        // This site sets the name directly rather than through
+        // `emit_throw_runtime_error`, so it must clear the message global too;
+        // otherwise this throw reports a previous throw's message.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
         self.set_completion_kind_with_aux(
             CompletionKind::Throw,
             self.strings.payload(TYPE_ERROR_NAME) as i64,
@@ -15428,10 +15431,7 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             function,
         );
-        self.emit_object_write_set_failure_else(
-            "Cannot assign to read only property",
-            function,
-        )?;
+        self.emit_object_write_set_failure_else("Cannot assign to read only property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.load_i64_to_local_from_offset(
@@ -15468,10 +15468,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         function.instruction(&Instruction::End);
         self.emit_break_current_completion_if_throw(0, function);
-        self.emit_object_write_set_failure_else(
-            "Cannot assign to read only property",
-            function,
-        )?;
+        self.emit_object_write_set_failure_else("Cannot assign to read only property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(3));
@@ -18265,10 +18262,7 @@ impl<'a> FunctionBuilder<'a> {
     /// that already exists. Uses `BrIf` so no extra wasm frame is introduced;
     /// the branch immediate comes from the target's recorded label, so callers
     /// declare nothing about the frames they have open.
-    fn emit_route_pending_throw_to_active_handler(
-        &mut self,
-        function: &mut Function,
-    ) {
+    fn emit_route_pending_throw_to_active_handler(&mut self, function: &mut Function) {
         if self.is_main() {
             if let Some(target) = self.active_throw_target() {
                 function.instruction(&Instruction::LocalGet(self.completion_local));
