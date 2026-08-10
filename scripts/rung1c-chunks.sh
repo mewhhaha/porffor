@@ -46,7 +46,11 @@
 #    that no longer partitions the suite is a red test, not a silent subset.
 #
 # 3. THE DONE-FILE *IS* THE RESUME STATE. Do not "clean it up" between runs.
-#    Deleting it re-runs hours of already-banked work.
+#    Deleting it re-runs hours of already-banked work. A TARGETED invalidation
+#    (removing the line for a chunk whose subsystem a lane has since rewritten)
+#    is legitimate and is how a stale verdict is retired; deleting the whole
+#    file is not. See "the counts sidecar" below for the half of that judgement
+#    the script can now make on its own.
 #
 # 4. A CHUNK IS BANKED ONLY WHEN IT PRODUCED A VERDICT. Exit 124 (the stall
 #    guard SIGKILLed it), a missing log, a missing `test result:` line, or
@@ -93,6 +97,34 @@ cd "$repo_root" || exit 1
 RESULTS=${RUNG1C_RESULTS:-target/lane-notes/rung1c-chunks.md}
 DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 
+# THE COUNTS SIDECAR -- `<chunk> <#[test] count of its module when it banked>`.
+#
+# The done-file records THAT a chunk was measured; it cannot record WHAT was
+# measured, and that gap has a live cost. A chunk banked at 16 tests stays
+# banked after a lane adds a 17th to the same module: the resume skips it, the
+# run prints ALL CHUNKS DONE, and the new test has never executed. That is the
+# same class of defect as banking a chunk that selected zero tests (property 4),
+# arriving from the other direction, and it is not hypothetical -- batch 5
+# banked `date` at 16 tests and batch 6 added a 17th in the same file.
+#
+# So the skip predicate is "banked AND its module still declares the same number
+# of tests", and a chunk whose module has grown or shrunk re-runs. The count is
+# the same exact-line `awk` form the hygiene scanner uses, over the one file the
+# chunk selects. It is a FINGERPRINT, not an assertion about the suite: it
+# deliberately counts `#[cfg]`-gated tests too (only `frontend.rs` has any), so
+# it moves whenever the module's source does.
+#
+# What it does NOT see, and nobody should think it does: a chunk goes stale when
+# the COMPILER changes as well as when its tests do, and no count can detect
+# that. Retiring those verdicts is still a human judgement -- delete the chunk's
+# line from the done-file. This mechanism removes one whole class of that
+# judgement, not the class.
+#
+# Fail-safe by construction: an unreadable module (count 0) or a chunk with no
+# recorded count keeps its banked verdict and prints a warning, so a bug here
+# costs a warning rather than hours of re-run.
+COUNTS=${RUNG1C_COUNTS:-target/watched/rung1c-done-counts}
+
 # The batch-4 done-file, which this script's untracked predecessor wrote.
 #
 # NOT read by default, and that is a correctness rule rather than caution. Its
@@ -125,6 +157,29 @@ if [ ! -f "$DONE" ] && [ -f "$LEGACY_DONE" ]; then
   fi
 fi
 touch "$DONE"
+touch "$COUNTS"
+
+# `#[test]` attributes declared by one area module, counted with the EXACT-line
+# form (a substring `grep '#\[test\]'` over-counts; see the header). Prints 0
+# rather than failing when the file cannot be read, and callers treat 0 as
+# "unknown" so a read error never invalidates a banked chunk.
+module_test_count() {
+  mtc_count=$(awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n+0}' \
+    "crates/porffor-cli/tests/cli/$1.rs" 2>/dev/null)
+  echo "${mtc_count:-0}"
+}
+
+# The count banked alongside a chunk, or empty when it predates the sidecar.
+banked_test_count() {
+  awk -v key="$1" '$1 == key { value = $2 } END { print value }' "$COUNTS" 2>/dev/null
+}
+
+# Replace (never duplicate) a chunk's row in the sidecar.
+record_test_count() {
+  grep -v "^$1 " "$COUNTS" > "$COUNTS.tmp" 2>/dev/null
+  mv "$COUNTS.tmp" "$COUNTS"
+  echo "$1 $2" >> "$COUNTS"
+}
 
 # Chunks that ran but produced no bankable verdict this pass. A run with any of
 # these is NOT a complete rung 1c, so it must not print ALL CHUNKS DONE.
@@ -140,13 +195,61 @@ UNBANKED=""
 run_chunk() {
   name=$1
   shift
+  tests_now=$(module_test_count "$name")
+  # Set only on the stale path, so the done-file is rewritten in place of being
+  # appended to exactly when a duplicate line would otherwise appear.
+  rebank=0
   if grep -qx "$name" "$DONE"; then
-    echo "rung1c: skip $name (already banked in $DONE)"
-    return 0
+    tests_banked=$(banked_test_count "$name")
+    if [ "$tests_now" = "0" ]; then
+      echo "rung1c: skip $name (already banked in $DONE; WARNING -- could not count tests in crates/porffor-cli/tests/cli/$name.rs, so its verdict could not be re-validated)" >&2
+      return 0
+    fi
+    if [ -z "$tests_banked" ]; then
+      echo "rung1c: skip $name (already banked in $DONE; UNVERIFIED -- banked before the counts sidecar existed, recording $tests_now now)" >&2
+      echo "$name SKIPPED-UNVERIFIED: banked with no recorded test count; sidecar seeded with the current $tests_now. Its verdict is trusted, not re-checked." >> "$RESULTS"
+      record_test_count "$name" "$tests_now"
+      return 0
+    fi
+    if [ "$tests_banked" = "$tests_now" ]; then
+      echo "rung1c: skip $name (already banked in $DONE, still $tests_now test(s))"
+      return 0
+    fi
+    echo "rung1c: RE-RUN $name -- banked at $tests_banked test(s), tests/cli/$name.rs now declares $tests_now. The banked verdict never measured the difference." >&2
+    echo "$name STALE: banked at $tests_banked test(s), module now declares $tests_now; re-running." >> "$RESULTS"
+    rebank=1
   fi
   log=target/watched/rung1c-$name.log
   echo "=== $name START $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
-  PORFFOR_CPU_PERCENT=100 ./scripts/run-watched.sh --label "rung1c-$name" --stall 900 -- \
+  # The three cache limits are CACHE HYGIENE and nothing more. They bound bytes
+  # ON DISK -- `porffor-engine/src/cache.rs` implements all three tiers over
+  # `fs::read`/`fs::write` -- so they do not bound any process's RSS and they did
+  # not fix, and could not have fixed, the OOM kills that cost this run three
+  # container windows (that was one child running 4 concurrent cold Wasm-AOT
+  # compiles in one process; the fix is `--threads 2` on that child, in
+  # tests/cli/frontend_test262_subset.rs). What they DO buy: the CLI suite
+  # compiles hundreds of distinct sources, and the module and program tiers are
+  # keyed by source text, so they are pure write-and-prune churn here while the
+  # function-stencil tier is keyed per function and converges. The shape is the
+  # sweep's: a large function tier, minimal program/module tiers. The values are
+  # 8 GiB / 512 MiB / 512 MiB against defaults of 1 GiB / 512 MiB / 512 MiB
+  # (`cache.rs`: total 1 GiB, function = total, module and program = total/2), so
+  # only the function tier actually moves, and it moves upward.
+  #
+  # This is the ONLY correct place for them. Every limit is memoised in a
+  # `OnceLock` on first use, so `std::env::set_var` inside a test is both useless
+  # (an earlier test in the same process may already have resolved it) and
+  # unsound under libtest's threads. Set here, it is inherited by `cargo test`,
+  # by the test binary, and by every `porf` child it spawns -- which covers both
+  # the in-process and the guarded execution paths at once.
+  #
+  # `PORFFOR_CPU_PERCENT=100` is separately load-bearing: `run-watched.sh` routes
+  # through `capped.sh`, which silently pins to half the CPUs.
+  PORFFOR_CPU_PERCENT=100 \
+  PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=8589934592 \
+  PORFFOR_MODULE_CACHE_LIMIT_BYTES=536870912 \
+  PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
+    ./scripts/run-watched.sh --label "rung1c-$name" --stall 900 -- \
     cargo test -p porffor-cli --test cli -- --test-threads=3 "$@"
   rc=$?
   line=$(grep -E '^test result:' "$log" 2>/dev/null | tail -1)
@@ -195,7 +298,15 @@ run_chunk() {
     sed -n '/^failures:$/,/^test result:/p' "$log" | head -400 >> "$RESULTS"
   fi
   echo "=== $name END $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
+  if [ "$rebank" = "1" ]; then
+    grep -vx "$name" "$DONE" > "$DONE.tmp" 2>/dev/null
+    mv "$DONE.tmp" "$DONE"
+  fi
   echo "$name" >> "$DONE"
+  # Bank the fingerprint with the verdict, never separately: a recorded count
+  # for a chunk that did not produce a verdict would silence the staleness
+  # check for a chunk that measured nothing.
+  record_test_count "$name" "$tests_now"
   return 0
 }
 
@@ -216,6 +327,19 @@ run_chunk object            object::
 run_chunk string            string::
 run_chunk data_view         data_view::
 run_chunk functions         functions::
+# Deliberately AHEAD of `frontend`, and it is one test. It is the single most
+# memory-expensive test in the suite (8.4-8.7 GiB in one child, measured with
+# `ps -o rss` on an idle box), it SIGKILLed the `frontend` chunk in three
+# consecutive container windows without ever producing a verdict, and `frontend`
+# sits 13th of 17 -- so every retry paid ~1 h of banked work to reach it and then
+# died. Alone in its own chunk it schedules nothing beside it whatever
+# `--test-threads` says, and a short container window banks the chokepoint first.
+# The overlap rule is satisfied without a `--skip`: `frontend_test262_subset::`
+# does not end with `frontend::` (the next character after `frontend` is `_`, not
+# `:`) and libtest's substring filter `frontend::` therefore does not select it
+# either. Do not rename either module so that one stem becomes a `::`-suffix of
+# the other.
+run_chunk frontend_test262_subset frontend_test262_subset::
 run_chunk frontend          frontend::
 run_chunk typed_array       typed_array::
 run_chunk array             array:: --skip typed_array::

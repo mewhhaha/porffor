@@ -3447,7 +3447,13 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_temporal_zoned_date_time_record_from_receiver(
+    /// `pub(crate)` rather than module-private because
+    /// `temporal_zoned_date_time_methods.rs` is a sibling module: the batch-6
+    /// `add`/`subtract`/`until`/`since`/`withCalendar` bodies all begin with the
+    /// same `[[InitializedTemporalZonedDateTime]]` brand check this performs,
+    /// and re-deriving it there would be a second place for the receiver
+    /// validation to drift.
+    pub(crate) fn emit_temporal_zoned_date_time_record_from_receiver(
         &mut self,
         record_local: u32,
         function: &mut Function,

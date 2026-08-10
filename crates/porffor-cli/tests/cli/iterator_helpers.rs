@@ -4,20 +4,46 @@
 //! # Why this module exists next to `iterator.rs`
 //!
 //! `iterator.rs` already carries four helper fixtures — `some`, `every`,
-//! `find`, `reduce`. All four failed, and the repair is a single change in
-//! `emit_method_call`: nine of the ten `Iterator.prototype` fast paths acquired
-//! their callee with `emit_function_value_payload` rather than with the
-//! ordinary `[[Get]]` the generic tail and the (working) `forEach` block use.
-//! What was **measured** for a `class X extends Iterator` receiver (no explicit
-//! constructor) is that the callback never ran, both destination locals were
-//! left holding stale scratch, and the arm returned `Ok(())` —
-//! `new X().some(cb)` answering `typeof === "object"`. What was **not**
-//! identified is the mechanism inside that acquisition, so treat the four
-//! `iterator.rs` tests flipping green as necessary evidence, not as attribution:
-//! those fixtures also assert IteratorClose obligations that a concurrent round
-//! is changing in the same tree, and they discard the thrown label
-//! (`assert!(output.status.success())` only), so which check failed is unknown
-//! from their output alone.
+//! `find`, `reduce`. All four failed. The mechanism, identified in batch 6 and
+//! **not** what an earlier version of this comment said, is that no code was
+//! emitted for the call.
+//!
+//! `new S()`, for a class with heritage and no explicit constructor — the
+//! receiver every fixture here uses — is lowered with `kind = Undefined` and a
+//! nullish `possible_kinds` (`porf inspect` on `class D extends Iterator {}
+//! new D();` reports `result=undefined`, while the same class without heritage,
+//! or with an explicit constructor, reports `result=object`). The static shape
+//! guard `receiver_shape_targets_iterator_helper` is therefore false, the seven
+//! blocks that carry only that guard — `find`, `reduce`, `take`, `map`,
+//! `every`, `some`, `filter` — declined the call, and `emit_method_call`'s
+//! generic tail took its statically-nullish shortcut: it emitted a nullish
+//! throw that never fires at run time and returned without writing either
+//! destination local. Everything the fixtures below measured is that one hole
+//! read back — a stale-typed value with the callback never invoked, a
+//! `TypeError: value is not callable` when the stale pair is used as the next
+//! receiver, and a trap inside `helper::value_to_string`.
+//!
+//! Two blocks did not decline: `drop` and `flatMap` carry an extra
+//! `!receiver_is_array` disjunct and reach the shared dispatch for any
+//! non-array receiver. That is the whole reason those two fixtures were green
+//! while `take`'s — the same program modulo one identifier, with a
+//! byte-identical result shape in `lowering.rs` — was red. Emitted-size
+//! attribution puts a number on it: `porffor::main` is 69 bytes larger for
+//! `new Source().flatMap(identity)` than for `.some(identity)`, `.map(identity)`
+//! or `.find(identity)`, and those three are byte-identical to each other.
+//!
+//! The root cause one level up is the `undefined` typing, which belongs to
+//! `porffor-ir` and is recorded as an exact patch in
+//! `target/lane-notes/iterator-helper-static-key-call-on-a-class-receiver-b6-integration.md`.
+//! Fixing it there would make the static shape guard true and is the better
+//! long-term answer; the emitter change here is what makes the dispatch correct
+//! whether or not that typing is ever right.
+//!
+//! The four `iterator.rs` tests flipping green is necessary evidence, not
+//! attribution: those fixtures also assert IteratorClose obligations that a
+//! concurrent round is changing in the same tree, and they discard the thrown
+//! label (`assert!(output.status.success())` only), so which check failed is
+//! unknown from their output alone.
 //!
 //! Four fixtures over four helpers is not enough to hold that repair down.
 //! `map`, `filter`, `flatMap`, `take` and `drop` carried the identical broken
@@ -138,28 +164,60 @@ fn run_wasm_backend_calls_iterator_prototype_to_array_on_a_class_receiver() {
 /// # The one condition it cannot see
 ///
 /// It compares runtime output only, so it cannot detect the fast path not being
-/// *selected*. Selection needs `receiver_shape_targets_iterator_helper`
-/// (`porffor-aot-wasm/src/functions.rs`) to resolve `"some"` on the receiver's
-/// `heap_shape` — and `None` there is exactly the state measured for
-/// `class A extends Iterator { constructor() { super(); } }`. If a later
-/// lowering or heap-shape change makes it `None` here too, all three arms run
-/// the generic tail, the records match, this test is green, and the fast path
-/// is untested rather than correct.
+/// *selected* — and that turned out to be the defect itself rather than a
+/// hypothetical. `receiver_shape_targets_iterator_helper`
+/// (`porffor-aot-wasm/src/functions.rs`) does not resolve `"some"` on a class
+/// instance's `heap_shape`, so before batch 6 all three arms of this fixture
+/// were meant to disagree and did; after it, all three reach a dynamic dispatch
+/// and agree. Agreement alone can therefore be reached from either end, and a
+/// future change that made the static-key form fall back to the generic tail
+/// again would leave this test green.
 ///
-/// Closing that needs an assertion about the *emitted module*, not its output:
-/// `porf inspect` / `debug_dump` is the oracle `frontend.rs` and
-/// `porffor-aot-wasm/tests/emit_golden.rs` already use. Until such an assertion
-/// exists, read a green run here as "the three forms agree", never as "the fast
-/// path ran".
+/// That gap is closed by an assertion about the *emitted module* rather than
+/// its output, in `crates/porffor-aot-wasm/tests/iterator_helper_dispatch.rs`:
+/// it compares the emitted `porffor::main` body of a `take` program against a
+/// `drop` program that differs by one identifier, so a `take` that stops being
+/// dispatched like `drop` shows up as a size divergence with no runtime
+/// component at all. Read a green run *here* as "the three forms agree", and
+/// that test as "the same dispatch was selected".
 #[test]
 fn run_wasm_backend_gives_identical_results_for_static_and_computed_helper_keys() {
     assert_helper_fixture_is_ok("wasm_iterator_helper_class_receiver_computed_key_differential.js");
 }
 
 /// `new X().take(1).toArray()`, measured to throw `value is not callable`
-/// before the repair: `take`'s fast path wrote nothing into the destination
-/// locals, so `.toArray()` was applied to stale scratch.
+/// before the repair.
+///
+/// Note which `take` is which, because the fixture contains both and they took
+/// opposite paths. `new Source().take(1)` has a *class instance* receiver,
+/// whose static shape does not resolve `take` to `Iterator.prototype.take`, so
+/// the fast-path guard was false and the call fell through to the generic tail.
+/// `new Source().drop(1).take(2)` in the same fixture has a *helper* receiver,
+/// whose shape does resolve it, so that one always took the fast path and was
+/// always correct. The pair is the sharpest evidence available that the guard,
+/// not the emission, was the defect — same helper, same argument, opposite
+/// outcome, one static shape apart.
 #[test]
 fn run_wasm_backend_chains_take_and_to_array_on_a_class_receiver() {
     assert_helper_fixture_is_ok("wasm_iterator_helper_class_receiver_take_to_array_chain.js");
+}
+
+/// Abrupt completions raised by the dispatch itself rather than by a callback.
+///
+/// The other thirteen fixtures only ever throw from a callback or from `next`,
+/// so they exercise the call and nothing before it. This one throws from the
+/// receiver expression and from the `[[Get]]` of the helper property, and pins
+/// that an abrupt `[[Get]]` leaves the argument list unevaluated (7.3.11
+/// GetMethod precedes ArgumentListEvaluation).
+///
+/// It is a **regression** test rather than a repair witness, and that is
+/// measured: it already answered `string(ok)` before the repair, because its
+/// receivers are ordinary object literals and a class with an explicit
+/// constructor — receivers the generic tail handled correctly. Batch 6 moves
+/// exactly those receivers onto the shared helper dispatch, which had none of
+/// these checks, so this is the test that would catch the routing change
+/// trading one defect for another.
+#[test]
+fn run_wasm_backend_propagates_abrupt_completions_from_helper_dispatch() {
+    assert_helper_fixture_is_ok("wasm_iterator_helper_class_receiver_abrupt_dispatch.js");
 }

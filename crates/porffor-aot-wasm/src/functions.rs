@@ -14,23 +14,33 @@ fn is_canonical_array_index_name(name: &str) -> bool {
 
 /// The destination local pair of an `Iterator.prototype` helper fast path.
 ///
-/// # The measured defect
+/// # The measured defect, corrected
 ///
-/// Nine of the ten helper fast paths in `emit_method_call` acquired their
-/// callee with `emit_function_value_payload`. For a receiver that is an
-/// instance of a class extending `Iterator`, the callback never ran and both
-/// destination locals were left holding stale scratch, while the arm still
-/// returned `Ok(())` — indistinguishable from success. Nothing failed until a
-/// fixture read the value back: `new X().some(cb)` answered
-/// `typeof === "object"`.
+/// The paragraph that used to sit here blamed callee *acquisition*
+/// (`emit_function_value_payload`) and it was wrong. Callee acquisition is
+/// never reached on the receiver that fails, because **no code is emitted for
+/// the call at all**.
 ///
-/// The *symptom* is measured (four-probe discriminator, batch 4/5). The
-/// *mechanism* inside `emit_function_value_payload` for that receiver shape is
-/// **not** identified, and until it is, the five sibling sites in this same
-/// function that still use that acquisition shape — the `String` and `BigInt`
-/// primitive-receiver blocks — are unaudited rather than known-good. They
-/// differ from the repaired family in their receiver, not in their emission,
-/// so do not read this type as evidence about them.
+/// `new S()`, for a class with heritage and no explicit constructor, is lowered
+/// with `kind = Undefined` and a nullish `possible_kinds`. So
+/// [`super::receiver_shape_targets_iterator_helper`] is false, the seven
+/// bare-guard blocks (`find`, `reduce`, `take`, `map`, `every`, `some`,
+/// `filter`) declined the call, and `emit_method_call`'s generic tail took its
+/// statically-nullish shortcut — release the temps, return `Ok(())`, emit
+/// nothing. `drop` and `flatMap` carry an extra `!receiver_is_array` disjunct
+/// and were dispatched properly, which is the entire reason those two were
+/// green on an otherwise identical fixture.
+///
+/// Measured, not argued: `porffor::main` for a script whose only statement is
+/// `new Source().flatMap(identity);` is 561,563 bytes, and for
+/// `new Source().some(identity);`, `.map(identity);` and `.find(identity);` it
+/// is 561,494 — the same number for all three, i.e. those three emit *nothing*
+/// and differ from each other by nothing.
+///
+/// Nothing here says the generic tail is unreachable or unused: it remains the
+/// right destination for primitive and dynamically-typed receivers and keeps
+/// them. What changed is where an object-or-nullish-typed receiver goes for
+/// these seven keys.
 ///
 /// # What this type does and does not prove
 ///
@@ -41,9 +51,12 @@ fn is_canonical_array_index_name(name: &str) -> bool {
 /// destination entirely.
 ///
 /// It does **not** prove that a store was emitted, and it would not have caught
-/// the nine deleted arms: each of those did pass its destination pair to
-/// `emit_function_handle_call_with_argv`, which reaches `store_call_results`.
-/// The defect was callee *acquisition*, upstream of the destination.
+/// the real defect at all: the seven broken blocks never constructed a
+/// destination, because they never called the emitter. A witness type can only
+/// constrain the paths that reach it, and "the arm silently declined to handle
+/// the call" is a path that does not. The assertion that closes *that* hole is
+/// an emitted-module one, and it lives in
+/// `crates/porffor-aot-wasm/tests/iterator_helper_dispatch.rs`.
 ///
 /// It is also not yet an invariant over `emit_method_call` as a whole. That
 /// function still returns `Result<(), EmitError>` with ~50 other `return`
@@ -192,6 +205,85 @@ fn receiver_shape_targets_iterator_helper(receiver: &TypedExpr, helper: Iterator
                 .contains(&helper.builtin().function_id()),
             ObjectShapeProperty::Accessor { .. } => false,
         })
+}
+
+/// Whether a receiver that has exhausted a helper block's *receiver-specific*
+/// alternatives must still be dispatched through
+/// [`super::Emitter::emit_iterator_prototype_helper_method_call`] rather than
+/// falling through to `emit_method_call`'s generic tail.
+///
+/// # The receiver this exists for, measured rather than reasoned
+///
+/// `new S()` where `S` is a class **with heritage and no explicit
+/// constructor** — the shape all thirteen iterator fixtures use — is lowered
+/// with `kind = Undefined` and a `possible_kinds` contained in
+/// [`KindSet::NULLISH`]. That is a `porffor-ir` defect, not a fact about the
+/// program, and it is what every symptom in this family reduces to:
+///
+/// | probe (`porf inspect`, script result kind) | result |
+/// |---|---|
+/// | `class C { m(){} } new C();` | `object` |
+/// | `class F { constructor(){} } new F();` | `object` |
+/// | `class E extends Iterator { constructor(){super();} } new E();` | `object` |
+/// | `class D extends Iterator { } new D();` | **`undefined`** |
+///
+/// Downstream of that, `emit_method_call`'s generic tail takes its
+/// statically-nullish shortcut: the receiver "can only be undefined or null",
+/// so the runtime kind dispatch is dead code, and the arm releases its temps
+/// and returns `Ok(())` **having written neither destination local**. The
+/// runtime value is an ordinary object, the emitted nullish check does not
+/// fire, and the caller reads whatever the scratch pair happened to hold. Every
+/// measured face of this family is that one hole:
+///
+/// * `typeof new Source().take(2)` answering `number`, and answering different
+///   types in different programs — stale scratch, not a wrong result;
+/// * `.some(cb)` returning with `calls-0` — no call was emitted at all;
+/// * `TypeError: value is not callable` when the stale pair is then used as the
+///   receiver of `.toArray()`;
+/// * `helper::value_to_string` trapping on it.
+///
+/// Two independent measurements pin the mechanism. Emitted-size attribution
+/// (`PORFFOR_EMIT_SIZE_REPORT_PATH`) over two programs differing in one
+/// identifier gives `porffor::main` = 557,233 bytes for `new Source().drop(1)`
+/// and 557,156 for `new Source().take(1)`: the failing helper emits **77 bytes
+/// fewer**, i.e. it emits nothing where the working one emits a call. And
+/// `new D().test(1)` — an ordinary method on the same receiver — is correct,
+/// because `lowering.rs` only builds a `CallMethod` for `test` when
+/// `possible_kinds.contains(Object)`, which this receiver fails, so it takes
+/// the property-read path instead and never meets the hole.
+///
+/// `drop` and `flatMap` were green throughout for exactly one reason: their
+/// guards carry a `!receiver_is_array` disjunct, so a non-array receiver
+/// reaches the dispatch whatever the shape guard says.
+///
+/// # Why this predicate is narrower than `drop`'s disjunct
+///
+/// `!receiver_is_array` is also true for `Dynamic` receivers and for statically
+/// primitive ones, and the generic tail does real work for those that this
+/// dispatch does not: per-kind prototype lookups for
+/// `String`/`Number`/`Boolean`/`Symbol`/`BigInt` receivers, and a `Dynamic`
+/// arm that resolves `toString`/`valueOf` against three primitive prototypes
+/// before falling back to the object read. Restricting the fall-back to
+/// receivers whose kind set is contained in `{Object, Function} ∪ NULLISH`
+/// leaves every one of those on the tail, byte for byte, while covering the
+/// mistyped-`undefined` receiver above and ordinary object receivers.
+///
+/// The nullish half of that set is not a licence to skip
+/// `RequireObjectCoercible`: a genuinely nullish receiver is indistinguishable
+/// from the mistyped one here, so
+/// [`super::Emitter::emit_iterator_prototype_helper_method_call`] performs the
+/// 7.2.1 check itself before the property read.
+///
+/// The `Array` heap-shape exclusion is redundant against the kind set and is
+/// kept because it costs nothing and makes "arrays keep their own fast paths" a
+/// claim local to this function rather than one distributed across seven call
+/// sites.
+fn receiver_needs_dynamic_helper_dispatch(receiver: &TypedExpr) -> bool {
+    let dispatchable = KindSet::from_kind(ValueKind::Object)
+        .union(KindSet::from_kind(ValueKind::Function))
+        .union(KindSet::NULLISH);
+    receiver.possible_kinds.is_subset_of(dispatchable)
+        && !matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)))
 }
 
 #[cfg(test)]
@@ -8859,17 +8951,50 @@ impl<'a> FunctionBuilder<'a> {
     /// The one emission shape for every `Iterator.prototype` helper fast path.
     ///
     /// The callee is acquired by an ordinary `[[Get]]` of the helper's property
-    /// name off the receiver — the same acquisition the generic tail uses, and
-    /// the same one the `forEach` block has always used. That is the whole
-    /// repair: the nine other helpers used `emit_function_value_payload`
-    /// instead, which for an instance of a class extending `Iterator` emitted
-    /// no call, left both destination locals unwritten, and returned `Ok(())`.
+    /// name off the receiver — the same acquisition the generic tail uses.
+    /// Because the read is dynamic, this is *not* an iterator-specific
+    /// emission: it is a generic method call for any object receiver, which is
+    /// why `drop` and `flatMap` route every non-array receiver here
+    /// unconditionally and are correct on receivers that are not `Iterator`
+    /// subclasses at all. That is what makes it safe for
+    /// [`super::receiver_needs_dynamic_helper_dispatch`] to send the other
+    /// seven helpers here too.
+    ///
+    /// # Abrupt completions and RequireObjectCoercible
+    ///
+    /// Four checks below were all missing, and their absence is why routing
+    /// more receivers here would otherwise have traded one defect for another.
+    /// Three of them are the ones the structurally identical
+    /// [`Self::emit_custom_array_named_method_call`] already performed; each is
+    /// a no-op unless `completion_local` holds a throw, so they cost one
+    /// comparison on the ordinary path:
+    ///
+    /// 1. after the receiver is compiled — otherwise a receiver expression that
+    ///    threw is used as the base of the `[[Get]]`;
+    /// 2. after the `[[Get]]` — otherwise a throwing accessor's completion is
+    ///    treated as the callee, the arguments are still evaluated for their
+    ///    side effects, and the user sees `value is not callable` in place of
+    ///    the error they threw;
+    /// 3. after the call, matching the tail.
+    ///
+    /// The fourth is 7.2.1 RequireObjectCoercible, between (1) and (2). It is a
+    /// *runtime* tag test rather than a static one for the reason spelled out
+    /// on [`super::receiver_needs_dynamic_helper_dispatch`]: the receiver that
+    /// makes this dispatch necessary is one `porffor-ir` mistypes as
+    /// `undefined`, so no static test can separate it from a program that
+    /// really wrote `undefined.take(1)`.
+    ///
+    /// `wasm_iterator_helper_class_receiver_abrupt_dispatch.js` covers (1) and
+    /// (2). It answers `ok` on the *pre-repair* compiler, because its receivers
+    /// are ordinary objects that the generic tail already handled: it is a
+    /// regression test for the routing change, not a witness for it. Without
+    /// these three checks it would go red the moment those receivers moved
+    /// here, which is the point.
     ///
     /// Property installation is not at risk here. `planning.rs` roots
     /// `IteratorConstructor` for every helper in this family, and
     /// `intrinsics/iterator.rs` installs all eleven together, so the dynamic
-    /// read finds a real function object. That is exactly why the `forEach`
-    /// block worked.
+    /// read finds a real function object.
     ///
     /// Every temp this needs is reserved here, so the emitted sequence never
     /// depends on `self.scratch_local` / `self.result_tag_local` — which
@@ -8894,6 +9019,35 @@ impl<'a> FunctionBuilder<'a> {
             receiver_tag_local,
             function,
         )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        // 7.2.1 RequireObjectCoercible, checked at run time rather than
+        // statically. It has to be here, not at the call sites, because the
+        // receiver this dispatch exists for is one `porffor-ir` types as
+        // `undefined` while the runtime value is an ordinary object — so a
+        // static nullish test cannot tell "the compiler is wrong about this
+        // receiver" from "the program really wrote `undefined.take(1)`", and
+        // only the tag decides. The generic tail spells the same check the same
+        // way; before this the dispatch had none at all, so `drop` and `flatMap`
+        // read a property off `undefined` instead of throwing.
+        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot read properties of null or undefined",
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(
             self.strings.payload(helper.property_name()),
         ));
@@ -8908,6 +9062,11 @@ impl<'a> FunctionBuilder<'a> {
             callee_tag_local,
             function,
         )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            callee_payload_local,
+            callee_tag_local,
+            function,
+        )?;
         let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
         // Writes both destination locals on every path, and propagates a
         // callee throw to the active handler (`PropagateCallThrow::ToActiveHandler`),
@@ -8918,6 +9077,11 @@ impl<'a> FunctionBuilder<'a> {
             Some((receiver_payload_local, Some(receiver_tag_local))),
             argc_local,
             argv_local,
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
             destination.payload_local(),
             destination.tag_local(),
             function,
@@ -9440,6 +9604,21 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            // Every receiver-specific alternative has been ruled out above, so
+            // a typed array (whose instance shape carries `find`) has already
+            // returned and cannot reach here. What is left and still ordinary
+            // is an object receiver, which the generic tail mishandles.
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Find,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findIndex") {
             let receiver_has_typed_array_find_index = receiver
@@ -9485,16 +9664,44 @@ impl<'a> FunctionBuilder<'a> {
                     )
                     .map(DestinationWritten::discharge);
             }
+            // `reduce` has no array fast path in this function at all: an array
+            // receiver reaches the generic tail and must keep doing so, which
+            // is why the predicate is kind-restricted rather than
+            // `!receiver_is_array`.
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Reduce,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "take") {
-            // No `receiver_is_array` here, unlike `drop` below: this block's
-            // only guard is `receiver_is_iterator`, and the binding that used
-            // to sit here was dead — it produced an `unused_variables` warning
-            // that was carried, deliberately, to keep a warning-count baseline
-            // unchanged. Deleting a dead binding cannot raise a warning count.
+            // No `receiver_is_array` binding here, unlike `drop` below: this
+            // block has no array fast path to protect, so the array case is
+            // excluded by the kind restriction inside
+            // `receiver_needs_dynamic_helper_dispatch` rather than by a local.
             let receiver_is_iterator =
                 receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Take);
             if receiver_is_iterator {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Take,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
+            // The A/B that identified the defect: this block and `drop`'s below
+            // are otherwise identical, and `drop`'s extra disjunct is the only
+            // reason its fixture is green and this one's was red.
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
                 return self
                     .emit_iterator_prototype_helper_method_call(
                         IteratorHelper::Take,
@@ -9621,6 +9828,17 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Map,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "every") {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
@@ -9656,6 +9874,17 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 );
+            }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Every,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "some") {
@@ -9693,6 +9922,17 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Some,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "filter") {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
@@ -9728,6 +9968,17 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 );
+            }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Filter,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
         }
         // `forEach` was the one helper that already acquired its callee with an
@@ -10008,9 +10259,28 @@ impl<'a> FunctionBuilder<'a> {
         // runtime kind dispatch below is statically dead: emitting it only
         // grows the function and can fail the whole module on a missing
         // primitive-prototype builtin that could never be reached.
+        //
+        // "Statically dead" is a claim about the *type*, and this compiler has
+        // been wrong about that type: `new S()` for a class with heritage and no
+        // explicit constructor lowers with `kind = Undefined` and a nullish
+        // `possible_kinds` while the runtime value is an ordinary object. The
+        // emitted nullish test then does not fire, control reaches this return,
+        // and before the two stores below both destination locals kept whatever
+        // the scratch pair last held — a corruption, not a wrong answer, and the
+        // whole of the batch-5 `iterator_helpers` failure set.
+        //
+        // The stores do not make that receiver *work* — the routing in the
+        // helper blocks above is what does — but they bound what a future
+        // mistyping can cost to a well-defined `undefined` instead of unrelated
+        // memory, and they are what lets this arm honour "no path out of
+        // `emit_method_call` leaves the destination unwritten".
         if matches!(receiver.kind, ValueKind::Undefined | ValueKind::Null)
             && receiver.possible_kinds.is_subset_of(KindSet::NULLISH)
         {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
             self.release_temp_local(flags_local);
             self.release_temp_local(table_index_local);
             self.release_temp_local(callee_env_local);

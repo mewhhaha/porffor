@@ -468,6 +468,7 @@ use crate::{
     BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
@@ -485,9 +486,13 @@ use crate::{
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
@@ -1130,6 +1135,20 @@ pub enum StandardBuiltinId {
     TemporalZonedDateTimePrototypeToInstant,
     TemporalZonedDateTimePrototypeToPlainDateTime,
     TemporalZonedDateTimePrototypeWithTimeZone,
+    // The five members added in batch 6 sit at the end of the ZonedDateTime
+    // block rather than in spec property order, because variant order is
+    // load-bearing three ways and none of them is "reads like the spec":
+    // `all_functions()` order feeds Wasm function indices, `all_globals()` is
+    // deliberately not declaration order, and variant order feeds `Ord` for the
+    // `BTreeSet<StandardBuiltinId>` the rooting plan iterates. Appending keeps
+    // every pre-existing index stable; spec property order is expressed where
+    // it is actually observable, in the define-property sequence in
+    // `install_temporal_zoned_date_time_constructor_intrinsics`.
+    TemporalZonedDateTimePrototypeWithCalendar,
+    TemporalZonedDateTimePrototypeAdd,
+    TemporalZonedDateTimePrototypeSubtract,
+    TemporalZonedDateTimePrototypeUntil,
+    TemporalZonedDateTimePrototypeSince,
     IntlGetCanonicalLocales,
     IntlLocaleConstructor,
     IntlLocalePrototypeLanguageGetter,
@@ -1705,6 +1724,11 @@ impl StandardBuiltinId {
             | Self::TemporalZonedDateTimePrototypeToInstant
             | Self::TemporalZonedDateTimePrototypeToPlainDateTime
             | Self::TemporalZonedDateTimePrototypeWithTimeZone
+            | Self::TemporalZonedDateTimePrototypeWithCalendar
+            | Self::TemporalZonedDateTimePrototypeAdd
+            | Self::TemporalZonedDateTimePrototypeSubtract
+            | Self::TemporalZonedDateTimePrototypeUntil
+            | Self::TemporalZonedDateTimePrototypeSince
             | Self::IntlGetCanonicalLocales
             | Self::IntlLocaleConstructor
             | Self::IntlLocalePrototypeLanguageGetter
@@ -2905,6 +2929,15 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 "Temporal.ZonedDateTime.prototype.withTimeZone"
             }
+            Self::TemporalZonedDateTimePrototypeWithCalendar => {
+                "Temporal.ZonedDateTime.prototype.withCalendar"
+            }
+            Self::TemporalZonedDateTimePrototypeAdd => "Temporal.ZonedDateTime.prototype.add",
+            Self::TemporalZonedDateTimePrototypeSubtract => {
+                "Temporal.ZonedDateTime.prototype.subtract"
+            }
+            Self::TemporalZonedDateTimePrototypeUntil => "Temporal.ZonedDateTime.prototype.until",
+            Self::TemporalZonedDateTimePrototypeSince => "Temporal.ZonedDateTime.prototype.since",
             Self::IntlGetCanonicalLocales => "Intl.getCanonicalLocales",
             Self::IntlLocaleConstructor => "Intl.Locale",
             Self::IntlLocalePrototypeLanguageGetter => "get Intl.Locale.prototype.language",
@@ -4425,6 +4458,21 @@ impl StandardBuiltinId {
             }
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeWithCalendar => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeAdd => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeSubtract => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeUntil => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeSince => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID.to_string()
             }
             Self::IntlGetCanonicalLocales => {
                 BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID.to_string()
@@ -5990,6 +6038,21 @@ impl StandardBuiltinId {
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeWithTimeZone)
             }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeWithCalendar)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeAdd)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeSubtract)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeUntil)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeSince)
+            }
             BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID => Some(Self::IntlGetCanonicalLocales),
             BUILTIN_INTL_LOCALE_FUNCTION_ID => Some(Self::IntlLocaleConstructor),
             BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID => {
@@ -6931,6 +6994,11 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeToInstant,
             Self::TemporalZonedDateTimePrototypeToPlainDateTime,
             Self::TemporalZonedDateTimePrototypeWithTimeZone,
+            Self::TemporalZonedDateTimePrototypeWithCalendar,
+            Self::TemporalZonedDateTimePrototypeAdd,
+            Self::TemporalZonedDateTimePrototypeSubtract,
+            Self::TemporalZonedDateTimePrototypeUntil,
+            Self::TemporalZonedDateTimePrototypeSince,
             Self::IntlGetCanonicalLocales,
             Self::IntlLocaleConstructor,
             Self::IntlLocalePrototypeLanguageGetter,
@@ -7975,6 +8043,11 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeToInstant => Some("toInstant"),
             Self::TemporalZonedDateTimePrototypeToPlainDateTime => Some("toPlainDateTime"),
             Self::TemporalZonedDateTimePrototypeWithTimeZone => Some("withTimeZone"),
+            Self::TemporalZonedDateTimePrototypeWithCalendar => Some("withCalendar"),
+            Self::TemporalZonedDateTimePrototypeAdd => Some("add"),
+            Self::TemporalZonedDateTimePrototypeSubtract => Some("subtract"),
+            Self::TemporalZonedDateTimePrototypeUntil => Some("until"),
+            Self::TemporalZonedDateTimePrototypeSince => Some("since"),
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::RegExpSpeciesGetter => Some("get [Symbol.species]"),
             Self::RegExpPrototypeFlagsGetter => Some("get flags"),
@@ -8733,6 +8806,79 @@ mod tests {
         assert_eq!(builtin.native_function_name(), Some("toPlainDateTime"));
         assert!(!builtin.constructable());
         assert!(StandardBuiltinId::all_functions().contains(&builtin));
+    }
+
+    /// The arithmetic/calendar surface added in batch 6.
+    ///
+    /// Before it, `Temporal.ZonedDateTime.prototype` carried 18 accessors and
+    /// exactly four data methods (`equals`, `toInstant`, `withTimeZone`,
+    /// `toPlainDateTime`), so `zdt.add(...)` read `undefined` off the prototype
+    /// and the call threw `TypeError: value is not callable`. That is the whole
+    /// mechanism behind the 28 measured
+    /// `intl402/Temporal/ZonedDateTime/prototype/{add,subtract,since,until}/era-boundary-*.js`
+    /// failures — nothing was mis-rooted, the members did not exist.
+    ///
+    /// `withCalendar` is in this list because it is not optional for the
+    /// gate: `since/era-boundary-gregory.js:65` and its `until` twin call
+    /// `one.withCalendar("iso8601")` to build the ISO oracle they compare the
+    /// `weeks`/`days` answers against, so four of the 28 cases need five
+    /// callables, not four.
+    #[test]
+    fn temporal_zoned_date_time_arithmetic_surface_is_registered_as_nonconstructable_methods() {
+        for (builtin, native_name, debug_name) in [
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+                "withCalendar",
+                "Temporal.ZonedDateTime.prototype.withCalendar",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+                "add",
+                "Temporal.ZonedDateTime.prototype.add",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+                "subtract",
+                "Temporal.ZonedDateTime.prototype.subtract",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+                "until",
+                "Temporal.ZonedDateTime.prototype.until",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+                "since",
+                "Temporal.ZonedDateTime.prototype.since",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin),
+                "{debug_name} must round-trip through its function id"
+            );
+            assert_eq!(builtin.debug_name(), debug_name);
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(!builtin.constructable());
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            // The function ids of the five must be distinct from their
+            // `Temporal.PlainDateTime` namesakes, which is the one collision a
+            // copy-paste of the sibling family would produce: the ZonedDateTime
+            // bodies *delegate* to those, so an id collision would make the
+            // delegation a self-call.
+            assert_ne!(
+                builtin.function_id(),
+                match native_name {
+                    "withCalendar" =>
+                        StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar.function_id(),
+                    "add" => StandardBuiltinId::TemporalPlainDateTimePrototypeAdd.function_id(),
+                    "subtract" =>
+                        StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract.function_id(),
+                    "until" => StandardBuiltinId::TemporalPlainDateTimePrototypeUntil.function_id(),
+                    _ => StandardBuiltinId::TemporalPlainDateTimePrototypeSince.function_id(),
+                }
+            );
+        }
     }
 
     #[test]

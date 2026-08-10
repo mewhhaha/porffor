@@ -37112,6 +37112,21 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
                 self.emit_temporal_zoned_date_time_with_time_zone(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar => {
+                self.emit_temporal_zoned_date_time_with_calendar(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd => {
+                self.emit_temporal_zoned_date_time_add_or_subtract(false, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => {
+                self.emit_temporal_zoned_date_time_add_or_subtract(true, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil => {
+                self.emit_temporal_zoned_date_time_until_or_since(false, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
+                self.emit_temporal_zoned_date_time_until_or_since(true, function)?;
+            }
             StandardBuiltinId::IntlGetCanonicalLocales => {
                 self.emit_intl_get_canonical_locales(function)?;
             }

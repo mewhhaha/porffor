@@ -1342,26 +1342,10 @@ fn test262_triage_and_failure_details_read_completed_matrix_snapshots() {
     assert!(stdout.contains("detail_groups: 0"));
 }
 
-#[test]
-fn test262_wasm_backend_runs_supported_fixture_subset() {
-    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("test262")
-        .arg("run")
-        .arg("language/wasm/pass")
-        .arg("--suite-root")
-        .arg(suite_root())
-        .arg("--snapshot-dir")
-        .arg(snapshot_dir())
-        .arg("--snapshot-name")
-        .arg("cli-wasm-fixture")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .output()
-        .expect("test262 wasm run should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("execution_backend: wasm-aot"));
-    assert!(stdout.contains("total: 187"));
-    assert!(stdout.contains("passed: 187"));
-}
+// `test262_wasm_backend_runs_supported_fixture_subset` used to live here. It now
+// lives in `frontend_test262_subset.rs`, moved verbatim apart from a `--threads 2`
+// on its child, so that `scripts/rung1c-chunks.sh` can give it a chunk of its
+// own: it is the single most memory-expensive test in rung 1c (8.4-8.7 GiB in
+// one child process, measured), and running it beside two other libtest workers
+// SIGKILLed this chunk in three consecutive container windows. That module's
+// header carries the measurement and the naming constraint. Do not move it back.

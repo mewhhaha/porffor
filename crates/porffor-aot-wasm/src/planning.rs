@@ -224,6 +224,23 @@ mod tests {
     /// a regression here is loud: the whole `porffor-aot-wasm` lib target dies.
     /// That is the intended behaviour of this test, not a flaw in it — there is
     /// no way to catch a blown guard page in-process.
+    ///
+    /// Batch 6 added five more entry points. The ZonedDateTime arm now
+    /// also requires `TemporalDurationConstructor`, because `add`/`subtract`
+    /// read a `Temporal.Duration` and `until`/`since` return one. That is a new
+    /// edge out of an arm that is already one end of the cycle, so the walk
+    /// from a ZonedDateTime *arithmetic* member is a strictly longer path than
+    /// the accessor entry points this test was written with — and its
+    /// non-termination would show up as a SIGABRT in a whole-suite sweep, never
+    /// as a red unit test.
+    ///
+    /// `TemporalDurationConstructor` is deliberately **not** an entry point
+    /// here: its own arm is a leaf (it inserts its family directly into
+    /// `standard_roots` and requires nothing), so entering there roots neither
+    /// end of the cycle and the two assertions below would be false. That is
+    /// the current shape of the Duration arm, not an invariant — if it ever
+    /// grows a `require_standard_builtin(TemporalZonedDateTimeConstructor)` for
+    /// `relativeTo`, add it to this list at the same time.
     #[test]
     fn a_cyclic_rooting_dependency_terminates_and_roots_both_ends() {
         for entry in [
@@ -232,6 +249,11 @@ mod tests {
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
         ] {
             let mut plan = RuntimeBootstrapPlan::default();
             plan.require_standard_builtin(entry);
@@ -258,6 +280,61 @@ mod tests {
                 "entering at {entry:?} must set the Temporal namespace flag"
             );
         }
+    }
+
+    /// The root the ZonedDateTime arm was missing, stated as its own test so it
+    /// cannot be silently deleted along with the `require_standard_builtin`
+    /// line.
+    ///
+    /// This is the failure mode the batch-6 brief predicted and the b5 findings
+    /// mis-diagnosed as "an internal AddZonedDateTime that was never rooted":
+    /// an emitter reading a prototype global nothing bootstrapped. It is not
+    /// reachable through the accessors alone, so
+    /// `a_cyclic_rooting_dependency_terminates_and_roots_both_ends` above would
+    /// still pass with the Duration line removed — hence a second test.
+    #[test]
+    fn zoned_date_time_arithmetic_roots_the_duration_family_it_allocates() {
+        for entry in [
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry);
+
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::TemporalDurationConstructor),
+                "{entry:?} allocates or reads a Temporal.Duration and must root its constructor"
+            );
+            // The bodies delegate to the PlainDateTime namesakes rather than
+            // re-deriving the arithmetic, so those four have to be emitted, not
+            // merely their constructor.
+            for delegate in [
+                StandardBuiltinId::TemporalPlainDateTimePrototypeAdd,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+                StandardBuiltinId::TemporalZonedDateTimeFrom,
+            ] {
+                assert!(
+                    plan.standard_roots.contains(&delegate),
+                    "{entry:?} delegates to {delegate:?}, which must be rooted"
+                );
+            }
+        }
+
+        // `withCalendar` does *not* delegate — it rewrites the record in place
+        // — so it is deliberately not in the loop above. It still needs the
+        // ZonedDateTime prototype global, which its own arm roots.
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar);
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::TemporalZonedDateTimeConstructor));
     }
 
     /// Requiring the same builtin twice must be a no-op the second time, and
@@ -2166,7 +2243,12 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
                 self.temporal_object = true;
                 // `toPlainDateTime` hands back a `Temporal.PlainDateTime`, the
                 // mirror of the `TemporalZonedDateTimeConstructor` requirement
@@ -2189,6 +2271,41 @@ impl RuntimeBootstrapPlan {
                 // split this arm so the accessors do not drag in
                 // `toPlainDateTime`.
                 self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor);
+                // THE LINE THIS ARM WAS MISSING WHEN IT ONLY HELD 22 MEMBERS.
+                // `until`/`since` hand back a `Temporal.Duration` and
+                // `add`/`subtract` read one — the same sentence the PlainTime
+                // (`:1923`) and PlainDateTime (`:1999`) arms already carry, and
+                // for the same reason. The bodies of all four delegate to their
+                // `Temporal.PlainDateTime` namesakes, which allocate against
+                // `TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX`; without this root
+                // that emitter reads a prototype global nothing bootstrapped.
+                //
+                // TERMINATION, checked against the Duration arm rather than
+                // assumed. This adds a new edge out of an arm that already sits
+                // on the PlainDateTime <-> ZonedDateTime cycle contained by
+                // `RuntimeBootstrapPlan::walked` (`:1161`, `:1334`). It does
+                // *not* widen that cycle today: the `Temporal.Duration` arm
+                // below inserts its whole family straight into `standard_roots`
+                // and calls `require_standard_builtin` for nothing, so it is a
+                // leaf in the walk. The edge that would close a second cycle is
+                // `Duration.prototype.round`/`total` taking a `relativeTo` that
+                // may be a ZonedDateTime — the day that arm starts requiring
+                // `TemporalZonedDateTimeConstructor`, this line is what turns it
+                // into a real cycle, and `walked` is what keeps it terminating.
+                // Both directions are pinned by
+                // `a_cyclic_rooting_dependency_terminates_and_roots_both_ends`,
+                // which enters from four ZDT arithmetic members. A regression
+                // there is a SIGABRT that kills the whole lib target, not a red
+                // test.
+                //
+                // SIZE: this is the second unmeasured widening of an arm whose
+                // own comment above already flags that `zdt.hour` roots the
+                // PlainDateTime family. `zdt.hour` now also roots
+                // `Temporal.Duration`. Recorded as owned debt in
+                // `target/lane-notes/zdt-arithmetic-surface-b6-integration.md`;
+                // the fix is the arm split the comment above names, not
+                // dropping this line.
+                self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalZonedDateTimeConstructor,
@@ -2215,6 +2332,11 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
                 ] {
                     self.standard_roots.insert(dependency);
                 }
@@ -5911,6 +6033,15 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainTimePrototypeRound
         | StandardBuiltinId::TemporalPlainTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        // Each takes one required argument and an optional options bag, so
+        // `length` is 1 — the same value the PlainDateTime namesakes two rows
+        // below already carry, and what
+        // `built-ins/Temporal/ZonedDateTime/prototype/*/length.js` asserts.
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
         | StandardBuiltinId::TemporalPlainDateTimeFrom
         | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
         | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar

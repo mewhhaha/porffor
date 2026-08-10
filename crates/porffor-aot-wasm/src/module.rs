@@ -1558,6 +1558,11 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
         | StandardBuiltinId::IntlGetCanonicalLocales
         | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter

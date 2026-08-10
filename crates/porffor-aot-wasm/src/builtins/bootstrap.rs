@@ -1044,7 +1044,12 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {}
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {}
         }
 
         self.release_temp_local(prototype_object_local);

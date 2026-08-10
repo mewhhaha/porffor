@@ -1004,6 +1004,16 @@ pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION
     "$builtin.Temporal.ZonedDateTime.prototype.toPlainDateTime";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.withTimeZone";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.withCalendar";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.add";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.subtract";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.until";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.since";
 pub const BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID: &str =
     "$builtin.Intl.getCanonicalLocales";
 pub const BUILTIN_INTL_LOCALE_FUNCTION_ID: &str = "$builtin.Intl.Locale";

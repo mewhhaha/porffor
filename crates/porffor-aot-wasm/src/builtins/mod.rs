@@ -46,6 +46,14 @@ mod temporal_plain_time;
 mod temporal_plain_time_methods;
 mod temporal_plain_year_month;
 mod temporal_plain_year_month_methods;
+/// `Temporal.ZonedDateTime.prototype.{add,subtract,until,since,withCalendar}`.
+///
+/// Split from `temporal.rs` on the same boundary
+/// `temporal_plain_date_time_methods` is split from
+/// `temporal_plain_date_time`: record/constructor/accessors on one side,
+/// prototype method bodies on the other. `check-module-boundaries.sh` requires
+/// both, so the split cannot silently collapse back.
+mod temporal_zoned_date_time_methods;
 mod weak_ref;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xC2, 0xA0],       // U+00A0

@@ -100,6 +100,19 @@ for module in array binary_data bootstrap date errors host iterators json reflec
   require_module_decl "$wasm_builtins_mod" "$module"
 done
 
+# The Temporal record/constructor/accessor vs prototype-method-body boundary.
+# `temporal.rs` and `temporal_plain_date_time.rs` hold the heap record, the
+# constructor and the accessors; the `*_methods.rs` files hold the prototype
+# method bodies. Both halves of each pair are required here so a lane adding a
+# prototype method cannot quietly reinflate the record file — `temporal.rs` was
+# already 7,402 lines before the batch-6 ZonedDateTime arithmetic surface was
+# written, and that surface is the third `*_methods.rs` split of the same kind.
+for module in temporal temporal_plain_date_time temporal_plain_date_time_methods \
+              temporal_zoned_date_time_methods; do
+  require_file "crates/porffor-aot-wasm/src/builtins/${module}.rs"
+  require_module_decl "$wasm_builtins_mod" "$module"
+done
+
 # T02's realm-bootstrap boundary. These files hold the per-family property and
 # descriptor installation extracted out of the single
 # init_builtin_constructor_object function, which every builtin lane previously

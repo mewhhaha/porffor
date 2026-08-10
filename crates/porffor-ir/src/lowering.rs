@@ -1789,6 +1789,40 @@ impl<'a> ScriptLowerer<'a> {
                 false,
             )),
         );
+        // The batch-6 arithmetic/calendar surface. Membership here and in
+        // `install_temporal_zoned_date_time_constructor_intrinsics` is the
+        // invariant (see the comment on the accessor loop above): a name in one
+        // list and not the other is a shape that promises a method the
+        // prototype does not have, which reads back at a call site as
+        // `TypeError: value is not callable` — the exact label the 28
+        // `era-boundary-*.js` cases carried before these five existed.
+        for (name, builtin) in [
+            (
+                "withCalendar",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+            ),
+            ("add", StandardBuiltinId::TemporalZonedDateTimePrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            ),
+            (
+                "until",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            ),
+            (
+                "since",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            ),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
         properties.insert(
             WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.ZonedDateTime")),
@@ -6941,11 +6975,25 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_instant_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => (
+            // `withTimeZone`, `withCalendar`, `add` and `subtract` are all
+            // ZonedDateTime-in / ZonedDateTime-out; `until`/`since` hand back a
+            // `Temporal.Duration`, exactly as the PlainDateTime arms above
+            // already declare for their namesakes.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => (
                 ValueKind::Object,
@@ -27535,8 +27583,18 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => Some(
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => Some(
+            // Same grouping as the kind table above; the two tables must not be
+            // able to disagree about which ZonedDateTime data methods return a
+            // `Temporal.Duration` and which return a ZonedDateTime.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => Some(
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),

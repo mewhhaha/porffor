@@ -274,6 +274,62 @@ fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture() {
     assert!(stdout.contains("number(262"));
 }
 
+/// `Temporal.ZonedDateTime.prototype.{add,subtract,until,since,withCalendar}`,
+/// the five members added in batch 6.
+///
+/// This is the affordable regression test for the 28
+/// `intl402/Temporal/ZonedDateTime/prototype/{add,subtract,since,until}/era-boundary-*.js`
+/// cases: a cold Test262 case in that family was measured at ~300 s in batch 5,
+/// so 28 of them is not an inner-loop gate on any machine this project runs on.
+/// Every value the fixture asserts is copied from one of those files.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_arithmetic_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_zoned_date_time_arithmetic.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+
+    // Asserted in three halves, because the three carry different mechanisms
+    // and one combined `contains` would report any of them as a failure of the
+    // first.
+    //
+    // (1) `add`/`subtract` across the year-0 boundary, rendered component by
+    // component. The gregory era numbering has no year zero, so "1 BCE + 1
+    // year" is 1 CE and "1 CE - 1 year" is 1 BCE; the third and first rows
+    // being the same value is `add(-1)` and `subtract(+1)` agreeing.
+    assert!(
+        stdout.contains(
+            "temporal-zdt-arith:\
+             0-6-15T12:34/bce/1|\
+             1-6-15T12:34/ce/1|\
+             0-6-15T12:34/bce/1|\
+             -5-3-1T12:34/bce/6|"
+        ),
+        "{stdout}"
+    );
+    // (2) `until`/`since`. `9y`, not `10y`, from 5 BCE to 5 CE — there is no
+    // year zero to count, which is the single sharpest value in the fixture.
+    // The last row is `since` answering the negation of the matching `until`.
+    assert!(stdout.contains("9y0mo|0y108mo|2y1mo|1y0mo|"), "{stdout}");
+    // (3) `withCalendar`: same instant, re-labelled. The ISO calendar has no
+    // eras, so `era` goes `undefined` while the ISO year stays -1 — a
+    // `withCalendar` that rebuilt the value from era fields instead of from the
+    // record's epoch nanoseconds would move the year.
+    assert!(stdout.contains("iso8601/-1/undefined"), "{stdout}");
+    assert!(stdout.contains("number(262"));
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_date_to_json_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))

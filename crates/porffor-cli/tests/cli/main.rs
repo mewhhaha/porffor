@@ -12,6 +12,9 @@ mod data_view;
 mod date;
 mod dynamic;
 mod frontend;
+// One test, on purpose: it is the most memory-expensive test in the suite and
+// needs a rung-1c chunk of its own. See the module header.
+mod frontend_test262_subset;
 mod functions;
 mod heap;
 mod iterator;

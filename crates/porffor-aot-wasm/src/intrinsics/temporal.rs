@@ -1114,6 +1114,52 @@ impl<'a> FunctionBuilder<'a> {
             to_plain_date_time_meta,
             function,
         )?;
+        // The batch-6 arithmetic/calendar surface, appended in spec property
+        // order relative to each other.
+        //
+        // Order is observable (`Object.keys` on the prototype), so appending
+        // rather than interleaving is a deliberate choice: it leaves the
+        // pre-existing prefix byte-for-byte alone. The prototype's order is
+        // already not spec order — `equals` is installed before `withTimeZone`
+        // — so interleaving these five would have moved existing names without
+        // making the whole list right.
+        //
+        // Every name added here MUST also appear in
+        // `lowering::temporal_zoned_date_time_prototype_shape`; that mirror is
+        // membership-only (a `BTreeMap`), and a name in one list and not the
+        // other is a prototype and a shape that disagree about what exists.
+        for (name, builtin) in [
+            (
+                "withCalendar",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+            ),
+            ("add", StandardBuiltinId::TemporalZonedDateTimePrototypeAdd),
+            (
+                "subtract",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            ),
+            (
+                "until",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            ),
+            (
+                "since",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            ),
+        ] {
+            let method_meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            self.emit_object_define_function_data(
+                prototype_object_local,
+                name,
+                method_meta,
+                function,
+            )?;
+        }
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),
