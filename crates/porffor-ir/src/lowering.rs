@@ -1789,34 +1789,16 @@ impl<'a> ScriptLowerer<'a> {
                 false,
             )),
         );
-        // The batch-6 arithmetic/calendar surface. Membership here and in
-        // `install_temporal_zoned_date_time_constructor_intrinsics` is the
-        // invariant (see the comment on the accessor loop above): a name in one
-        // list and not the other is a shape that promises a method the
-        // prototype does not have, which reads back at a call site as
-        // `TypeError: value is not callable` — the exact label the 28
-        // `era-boundary-*.js` cases carried before these five existed.
-        for (name, builtin) in [
-            (
-                "withCalendar",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
-            ),
-            ("add", StandardBuiltinId::TemporalZonedDateTimePrototypeAdd),
-            (
-                "subtract",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
-            ),
-            (
-                "until",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
-            ),
-            (
-                "since",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
-            ),
-        ] {
+        // The batch-6 arithmetic/calendar surface, read out of the one table
+        // both crates iterate (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`).
+        // Batch 6 shipped this list literally here AND in
+        // `install_temporal_zoned_date_time_constructor_intrinsics`, with a
+        // comment in each saying they must agree; that agreement is now
+        // structural rather than remembered. See the const's doc for what a
+        // divergence costs.
+        for (name, builtin) in TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS {
             properties.insert(
-                name.to_string(),
+                (*name).to_string(),
                 ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                     builtin.function_id(),
                     false,

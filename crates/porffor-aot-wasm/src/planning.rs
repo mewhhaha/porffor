@@ -225,14 +225,23 @@ mod tests {
     /// That is the intended behaviour of this test, not a flaw in it — there is
     /// no way to catch a blown guard page in-process.
     ///
-    /// Batch 6 added five more entry points. The ZonedDateTime arm now
-    /// also requires `TemporalDurationConstructor`, because `add`/`subtract`
-    /// read a `Temporal.Duration` and `until`/`since` return one. That is a new
-    /// edge out of an arm that is already one end of the cycle, so the walk
-    /// from a ZonedDateTime *arithmetic* member is a strictly longer path than
-    /// the accessor entry points this test was written with — and its
-    /// non-termination would show up as a SIGABRT in a whole-suite sweep, never
-    /// as a red unit test.
+    /// Batch 6 added five more entry points, and it is worth being exact about
+    /// what they buy, because the comment here first claimed more. All 28
+    /// ZonedDateTime members share ONE or-pattern arm (`:2225`) whose body does
+    /// not branch per member, so entering at
+    /// `...PrototypeAdd` executes byte-identical code to entering at
+    /// `...PrototypeEraGetter` — the only difference is which id
+    /// `standard_roots.insert` receives first. **These are shape assertions
+    /// that the arithmetic members really are in that arm, not a longer walk.**
+    /// A member left out of the arm is already a compile error, since the
+    /// `match` over `StandardBuiltinId` is exhaustive; what these entries pin is
+    /// that nobody moves them into an arm that does not root both ends.
+    ///
+    /// The entry point that would give genuinely new cycle coverage is a
+    /// `Temporal.Duration.prototype.round`/`total` member, on the day that arm
+    /// grows the `relativeTo` edge — see the note at the Duration root in the
+    /// ZonedDateTime arm. Non-termination shows up as a SIGABRT in a
+    /// whole-suite sweep, never as a red unit test.
     ///
     /// `TemporalDurationConstructor` is deliberately **not** an entry point
     /// here: its own arm is a leaf (it inserts its family directly into
@@ -282,16 +291,26 @@ mod tests {
         }
     }
 
-    /// The root the ZonedDateTime arm was missing, stated as its own test so it
-    /// cannot be silently deleted along with the `require_standard_builtin`
-    /// line.
+    /// What `zdt.add`/`subtract`/`until`/`since` must find already emitted.
     ///
-    /// This is the failure mode the batch-6 brief predicted and the b5 findings
-    /// mis-diagnosed as "an internal AddZonedDateTime that was never rooted":
-    /// an emitter reading a prototype global nothing bootstrapped. It is not
-    /// reachable through the accessors alone, so
-    /// `a_cyclic_rooting_dependency_terminates_and_roots_both_ends` above would
-    /// still pass with the Duration line removed — hence a second test.
+    /// **The Duration assertion is pre-satisfied and is deliberately not the
+    /// point of this test.** An earlier version of this doc claimed
+    /// `a_cyclic_rooting_dependency_terminates_and_roots_both_ends` "would still
+    /// pass with the Duration line removed — hence a second test". That is
+    /// false, and so is the implied "the Duration root has no other witness":
+    /// the ZonedDateTime arm's first statement requires
+    /// `TemporalPlainDateTimeConstructor`, whose arm's first statement requires
+    /// `TemporalDurationConstructor`, so Duration is rooted transitively for
+    /// every ZonedDateTime member with or without that line — and was before
+    /// batch 6. It is kept below as a statement of what these four bodies need,
+    /// not as coverage of a line that could regress.
+    ///
+    /// The real coverage here is the delegation list: these bodies are
+    /// composition, they look their delegates up through `emit_direct_js_call`
+    /// on `self.functions`, and a delegate that is not rooted is an
+    /// `EmitError::unsupported` at emit time rather than a compile error. That
+    /// half is a genuine contract statement for a shape the type system does
+    /// not cover.
     #[test]
     fn zoned_date_time_arithmetic_roots_the_duration_family_it_allocates() {
         for entry in [
@@ -306,7 +325,9 @@ mod tests {
             assert!(
                 plan.standard_roots
                     .contains(&StandardBuiltinId::TemporalDurationConstructor),
-                "{entry:?} allocates or reads a Temporal.Duration and must root its constructor"
+                "{entry:?} allocates or reads a Temporal.Duration and must root its constructor \
+                 (pre-satisfied transitively via TemporalPlainDateTimeConstructor; see this \
+                 test's doc comment before treating a failure here as a Duration-line regression)"
             );
             // The bodies delegate to the PlainDateTime namesakes rather than
             // re-deriving the arithmetic, so those four have to be emitted, not
@@ -2273,17 +2294,31 @@ impl RuntimeBootstrapPlan {
                 // split this arm so the accessors do not drag in
                 // `toPlainDateTime`.
                 self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor);
-                // THE LINE THIS ARM WAS MISSING WHEN IT ONLY HELD 22 MEMBERS.
                 // `until`/`since` hand back a `Temporal.Duration` and
-                // `add`/`subtract` read one — the same sentence the PlainTime
-                // (`:1923`) and PlainDateTime (`:1999`) arms already carry, and
-                // for the same reason. The bodies of all four delegate to their
-                // `Temporal.PlainDateTime` namesakes, which allocate against
-                // `TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX`; without this root
-                // that emitter reads a prototype global nothing bootstrapped.
+                // `add`/`subtract` read one, so this arm states that edge
+                // directly — the same sentence the PlainTime (`:1923`) and
+                // PlainDateTime (`:1999`) arms already carry.
+                //
+                // IT IS REDUNDANT TODAY, and batch 6 first shipped it with a
+                // comment claiming the opposite ("THE LINE THIS ARM WAS MISSING
+                // WHEN IT ONLY HELD 22 MEMBERS"). Traced instead of assumed:
+                // `require_standard_builtin` roots unconditionally and walks
+                // once (`:1408`), the line directly above enters the
+                // PlainDateTime arm, and that arm's FIRST statement (`:2079`)
+                // is `require_standard_builtin(TemporalDurationConstructor)`.
+                // So `standard_roots` contains the whole Duration family with
+                // this line deleted — for `zdt.add`, and equally for `zdt.hour`,
+                // before batch 6 as well as after. The emitter-reads-an-
+                // unbootstrapped-global failure mode was never reachable
+                // through this path, and no test can witness this line.
+                //
+                // Keep it anyway, but for the honest reason: it says what this
+                // arm depends on rather than what the arm above happens to drag
+                // in, and it becomes load-bearing the moment the arm is split
+                // as the comment above proposes.
                 //
                 // TERMINATION, checked against the Duration arm rather than
-                // assumed. This adds a new edge out of an arm that already sits
+                // assumed. This is a new edge out of an arm that already sits
                 // on the PlainDateTime <-> ZonedDateTime cycle contained by
                 // `RuntimeBootstrapPlan::walked` (`:1161`, `:1334`). It does
                 // *not* widen that cycle today: the `Temporal.Duration` arm
@@ -2294,19 +2329,22 @@ impl RuntimeBootstrapPlan {
                 // may be a ZonedDateTime — the day that arm starts requiring
                 // `TemporalZonedDateTimeConstructor`, this line is what turns it
                 // into a real cycle, and `walked` is what keeps it terminating.
-                // Both directions are pinned by
-                // `a_cyclic_rooting_dependency_terminates_and_roots_both_ends`,
-                // which enters from four ZDT arithmetic members. A regression
-                // there is a SIGABRT that kills the whole lib target, not a red
-                // test.
                 //
-                // SIZE: this is the second unmeasured widening of an arm whose
-                // own comment above already flags that `zdt.hour` roots the
-                // PlainDateTime family. `zdt.hour` now also roots
-                // `Temporal.Duration`. Recorded as owned debt in
+                // SIZE, corrected. The unmeasured growth batch 6 added to this
+                // arm is NOT the Duration root (which changed nothing, above):
+                // it is the five new members in the unconditional
+                // `standard_roots` list below, so every program touching any
+                // ZonedDateTime member — `zdt.hour` included — now emits
+                // `withCalendar`, `add`, `subtract`, `until` and `since` as
+                // well. `add`/`subtract` and `until`/`since` each inline the
+                // whole `emit_temporal_zoned_date_time_to_plain_date_time` body
+                // on top of two or three `emit_direct_js_call` sequences, so
+                // this is five function bodies, two of them large. No budget
+                // test reddens on it (`PORFFOR_EMIT_SIZE_REPORT[_PATH]` is
+                // opt-in); it shows up as slower cold compiles in a family b5
+                // already measured at ~300 s/case. Recorded as owned debt in
                 // `target/lane-notes/zdt-arithmetic-surface-b6-integration.md`;
-                // the fix is the arm split the comment above names, not
-                // dropping this line.
+                // the fix is the arm split the comment above names.
                 self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,

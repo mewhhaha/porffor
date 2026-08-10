@@ -1346,6 +1346,10 @@ fn test262_triage_and_failure_details_read_completed_matrix_snapshots() {
 // lives in `frontend_test262_subset.rs`, moved verbatim apart from a `--threads 2`
 // on its child, so that `scripts/rung1c-chunks.sh` can give it a chunk of its
 // own: it is the single most memory-expensive test in rung 1c (8.4-8.7 GiB in
-// one child process, measured), and running it beside two other libtest workers
-// SIGKILLed this chunk in three consecutive container windows. That module's
-// header carries the measurement and the naming constraint. Do not move it back.
+// one child process, measured), and this chunk failed to produce a verdict in
+// three consecutive container windows with it inside. Those three failures were
+// three DIFFERENT failures — one OOM SIGKILL, one container restart, one stall-
+// guard kill — and an earlier version of this comment called all three OOM
+// kills, which is why only the memory half was ever addressed. That module's
+// header carries the corrected record, the measurement and the naming
+// constraint. Do not move it back.

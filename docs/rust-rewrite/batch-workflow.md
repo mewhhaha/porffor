@@ -35,7 +35,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
 | 1 | `cargo test -p porffor-ir`, focused `-p porffor-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
-| 1c | the whole CLI suite, run as 18 resumable chunks by `scripts/rung1c-chunks.sh` (617 compiled / 609 executing tests at batch 6) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
+| 1c | the whole CLI suite, run as 18 resumable chunks by `scripts/rung1c-chunks.sh` (617 `#[test]` attributes at batch 6 → **609 compiled**, 608 executing; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
 | 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |

@@ -1124,29 +1124,15 @@ impl<'a> FunctionBuilder<'a> {
         // — so interleaving these five would have moved existing names without
         // making the whole list right.
         //
-        // Every name added here MUST also appear in
-        // `lowering::temporal_zoned_date_time_prototype_shape`; that mirror is
-        // membership-only (a `BTreeMap`), and a name in one list and not the
-        // other is a prototype and a shape that disagree about what exists.
-        for (name, builtin) in [
-            (
-                "withCalendar",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
-            ),
-            ("add", StandardBuiltinId::TemporalZonedDateTimePrototypeAdd),
-            (
-                "subtract",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
-            ),
-            (
-                "until",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
-            ),
-            (
-                "since",
-                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
-            ),
-        ] {
+        // The list itself lives in `porffor-ir`
+        // (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`) and is iterated
+        // by `lowering::temporal_zoned_date_time_prototype_shape` too, so this
+        // prototype and that shape cannot disagree about what exists. Batch 6
+        // shipped the two lists as separate literals with a comment asking the
+        // reader to keep them in step; that is what this replaces. Adding a
+        // member means editing the const, which updates both sites at once.
+        for (name, builtin) in TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS {
+            let builtin = *builtin;
             let method_meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",

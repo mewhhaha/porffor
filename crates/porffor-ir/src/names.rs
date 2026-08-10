@@ -145,6 +145,51 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
     ),
     (INTL_LOCALE_NAME, StandardBuiltinId::IntlLocaleConstructor),
 ];
+
+/// The `Temporal.ZonedDateTime.prototype` members batch 6 added, as ONE table.
+///
+/// Same shape and same reason as [`INTL_NAMESPACE_CONSTRUCTORS`] above: two
+/// consumers in two crates must agree on this membership exactly.
+///
+/// * `lowering::temporal_zoned_date_time_prototype_shape` — what the IR
+///   believes the prototype carries, which is what a static-key `CallMethod`
+///   guard reads;
+/// * `porffor-aot-wasm`'s
+///   `install_temporal_zoned_date_time_constructor_intrinsics` — what the
+///   emitted prototype object actually carries.
+///
+/// A name in one list and not the other is a shape that promises a method the
+/// prototype does not have. Nothing fails to build; it reads back at the call
+/// site as `TypeError: value is not callable` — the exact label all 28
+/// `era-boundary-*.js` cases carried before these five members existed. Batch 6
+/// first shipped the list twice, once per crate, each copy preceded by a prose
+/// comment telling the reader they must match. One `const` iterated from both
+/// sites makes the disagreement unrepresentable instead of commented against
+/// (AGENTS.md, "Code Invariants Before Test Invariants").
+///
+/// **Order is observable.** The install loop appends in this order and
+/// `Object.keys` on the prototype shows it, so the order is part of the
+/// contract. Do not sort this list, and append rather than interleave.
+pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId)] = &[
+    (
+        "withCalendar",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+    ),
+    ("add", StandardBuiltinId::TemporalZonedDateTimePrototypeAdd),
+    (
+        "subtract",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+    ),
+    (
+        "until",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+    ),
+    (
+        "since",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+    ),
+];
+
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";
 pub const ATOMICS_NAME: &str = "Atomics";

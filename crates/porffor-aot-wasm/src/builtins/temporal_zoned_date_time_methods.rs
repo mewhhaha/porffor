@@ -218,6 +218,30 @@ impl<'a> FunctionBuilder<'a> {
     /// This emitter chooses which of the two PlainDateTime builtins to call and
     /// nothing else, so `add`/`subtract` cannot disagree about what a negative
     /// `months` means.
+    ///
+    /// # DIVERGENCE 5: operation order (the one the lane's list of four missed)
+    ///
+    /// Leg 1 below runs the receiver -> PlainDateTime conversion *before* the
+    /// duration argument and the options bag are coerced, because both
+    /// coercions live inside the PlainDateTime delegate
+    /// (`ToTemporalDuration`, then the overflow option). Leg 1 is a real throw
+    /// site: it reaches `emit_alloc_temporal_plain_date_time`, whose first act
+    /// is `emit_temporal_reject_date_time_lower_bound` — which is precisely why
+    /// the `emit_return_current_completion_if_throw` below it exists.
+    ///
+    /// Spec `AddDurationToZonedDateTime` does `ToTemporalDuration` first and
+    /// `GetPlainDateTimeFor` later. So for a receiver near the representable
+    /// limit combined with a duration bag carrying observable or throwing
+    /// getters, the spec reports the argument's error and this reports
+    /// RangeError. Witness in the 566-case hand-off:
+    /// `built-ins/Temporal/ZonedDateTime/prototype/add/`
+    /// `throw-when-intermediate-datetime-outside-valid-limits.js`. The plain
+    /// `add/order-of-operations.js` does *not* find it — its receiver is
+    /// `new Temporal.ZonedDateTime(0n, "UTC")`, nowhere near a limit.
+    ///
+    /// Not fixed here. The fix is a duration/options pre-coercion hoisted ahead
+    /// of leg 1, which costs a second `ToTemporalDuration` call site, and it
+    /// should not be done without a run.
     pub(crate) fn emit_temporal_zoned_date_time_add_or_subtract(
         &mut self,
         arithmetic: ZonedDateTimeArithmetic,

@@ -85,7 +85,19 @@ mod method_call_destination {
     }
 
     /// Proof that stores into both locals of a [`MethodCallDestination`] have
-    /// been emitted on every path out of the emitter.
+    /// been emitted on every path that **completes normally** out of the
+    /// emitter.
+    ///
+    /// The qualifier is load-bearing and was added when it stopped being
+    /// redundant. `emit_iterator_prototype_helper_method_call` now calls
+    /// `emit_propagate_throw_from_locals_if_needed` after compiling the
+    /// receiver, and that emits a branch-to-handler / `return` before either
+    /// destination local has been written (`control_flow.rs`). An abrupt exit
+    /// carries its value in `completion_local` / `result_local` instead, so the
+    /// destination pair is not read on that path — but "every path" would be a
+    /// false statement about the emitted code, and this type is the
+    /// compiler-enforced half of the batch's "the callee must write its
+    /// destination" invariant. It must not over-claim.
     #[must_use]
     pub(super) struct DestinationWritten(());
 
@@ -268,15 +280,28 @@ fn receiver_shape_targets_iterator_helper(receiver: &TypedExpr, helper: Iterator
 ///
 /// # Why this predicate is narrower than `drop`'s disjunct
 ///
-/// `!receiver_is_array` is also true for `Dynamic` receivers and for statically
-/// primitive ones, and the generic tail does real work for those that this
-/// dispatch does not: per-kind prototype lookups for
-/// `String`/`Number`/`Boolean`/`Symbol`/`BigInt` receivers, and a `Dynamic`
-/// arm that resolves `toString`/`valueOf` against three primitive prototypes
-/// before falling back to the object read. Restricting the fall-back to
-/// receivers whose kind set is contained in `{Object, Function} ∪ NULLISH`
-/// leaves every one of those on the tail, byte for byte, while covering the
-/// mistyped-`undefined` receiver above and ordinary object receivers.
+/// `!receiver_is_array` is also true for statically primitive receivers, and
+/// the generic tail does real work for those that this dispatch does not:
+/// per-kind prototype lookups for `String`/`Number`/`Boolean`/`Symbol`/`BigInt`
+/// receivers. Restricting the fall-back to receivers whose kind set is
+/// contained in `{Object, Function} ∪ NULLISH` leaves every one of those on the
+/// tail, byte for byte, while covering the mistyped-`undefined` receiver above
+/// and ordinary object receivers.
+///
+/// **What that does *not* do, stated because the earlier wording claimed
+/// otherwise:** it does not leave `Dynamic` receivers on the tail. The
+/// predicate partitions on `possible_kinds`, and `ValueKind::Dynamic` is what
+/// `KindSet::as_value_kind` returns for *any* non-singleton kind set
+/// (`ir.rs:402`), so a `cond ? {} : undefined` receiver carries
+/// `kind == Dynamic` with `possible_kinds == {Object, Undefined}` — which is
+/// inside the set above and is routed here. That is sound for these seven keys
+/// rather than accidental: the tail's `Dynamic` arm differs from its `Object`
+/// arm only by pre-resolving `toString`/`valueOf`/`toLocaleString` against the
+/// number/string/bigint prototypes, and `runtime_number_builtin`,
+/// `runtime_string_builtin` and `runtime_bigint_builtin` are all `None` for
+/// `find`/`reduce`/`take`/`map`/`every`/`some`/`filter`. A receiver that can
+/// still be a *primitive* is a different matter, and that is what the
+/// `receiver.kind` conjunct below is for.
 ///
 /// The nullish half of that set is not a licence to skip
 /// `RequireObjectCoercible`: a genuinely nullish receiver is indistinguishable
@@ -288,11 +313,40 @@ fn receiver_shape_targets_iterator_helper(receiver: &TypedExpr, helper: Iterator
 /// kept because it costs nothing and makes "arrays keep their own fast paths" a
 /// claim local to this function rather than one distributed across seven call
 /// sites.
+///
+/// # The `receiver.kind` conjunct is the L5 guard, not decoration
+///
+/// `KindSet::EMPTY.is_subset_of(anything)` is `true` (`ir.rs:370` —
+/// `self.0 & !other.0 == 0`), so a kind-set test alone routes a receiver whose
+/// `possible_kinds` is *empty* into an object-shaped `[[Get]]` regardless of
+/// what its `kind` says. This repository already tracks that exact trap for the
+/// identical guard shape on `{Array}`: see ledger **L5** on
+/// `IntactnessPremise::ArrayIteratorIntact`
+/// (`porffor-ir/src/iterator_obligations.rs`). Nothing in the type system
+/// forbids an empty `possible_kinds` — `lowering.rs` filters on
+/// `!= KindSet::EMPTY` in the class-heritage path precisely because such
+/// `ValueInfo`s get built — and a `kind == ValueKind::String` receiver that
+/// arrived here would skip the tail's String-prototype routing and run
+/// `emit_object_read` against a String tag.
+///
+/// So the predicate also tests `receiver.kind` against the same domain. On
+/// every receiver this fall-back is meant to move the conjunct is already true
+/// (`Object`, `Function`, `Undefined`, `Null`, or `Dynamic` per the paragraph
+/// above), so it changes no emitted byte; on an `EMPTY` kind set with a
+/// primitive `kind` it falls to the tail exactly as before.
 fn receiver_needs_dynamic_helper_dispatch(receiver: &TypedExpr) -> bool {
     let dispatchable = KindSet::from_kind(ValueKind::Object)
         .union(KindSet::from_kind(ValueKind::Function))
         .union(KindSet::NULLISH);
     receiver.possible_kinds.is_subset_of(dispatchable)
+        && matches!(
+            receiver.kind,
+            ValueKind::Object
+                | ValueKind::Function
+                | ValueKind::Undefined
+                | ValueKind::Null
+                | ValueKind::Dynamic
+        )
         && !matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)))
 }
 
@@ -8994,12 +9048,26 @@ impl<'a> FunctionBuilder<'a> {
     /// `undefined`, so no static test can separate it from a program that
     /// really wrote `undefined.take(1)`.
     ///
-    /// `wasm_iterator_helper_class_receiver_abrupt_dispatch.js` covers (1) and
-    /// (2). It answers `ok` on the *pre-repair* compiler, because its receivers
-    /// are ordinary objects that the generic tail already handled: it is a
-    /// regression test for the routing change, not a witness for it. Without
-    /// these three checks it would go red the moment those receivers moved
-    /// here, which is the point.
+    /// `wasm_iterator_helper_class_receiver_abrupt_dispatch.js` answers `ok` on
+    /// the *pre-repair* compiler, because its receivers are ordinary objects
+    /// that the generic tail already handled. **It pins that the routing change
+    /// preserves the tail's abrupt-completion behaviour; it does not witness
+    /// checks (1)-(3),** and an earlier version of this comment claimed it did.
+    /// Measured: the fixture still answers `ok` with all three deleted. In this
+    /// emitter's configuration they are redundant —
+    /// [`Self::emit_object_read`] routes to `emit_object_read_ordinary`, which
+    /// propagates on the outlined-helper path (the variant that does *not* is
+    /// spelled `emit_object_read_without_throw_propagation`, and is not what is
+    /// called here), and `emit_function_handle_call_with_argv` propagates a
+    /// callee throw itself, as the comment at its call site below says.
+    ///
+    /// They are not dead in general: on the inlined read path
+    /// `AccessorThrowRouting::BreakToOrdinaryReadExit` leaves the throw for the
+    /// caller, and that configuration is what (2) exists for. Nothing in the
+    /// CLI corpus is known to reach it through this emitter, so the honest
+    /// statement is "defensive, load-bearing on one configuration, unwitnessed
+    /// by the fixture" rather than "the fixture would catch their removal".
+    /// A probe that forces the inlined read is the missing coverage.
     ///
     /// Property installation is not at risk here. `planning.rs` roots
     /// `IteratorConstructor` for every helper in this family, and
@@ -9103,6 +9171,11 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(callee_payload_local);
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(receiver_payload_local);
+        // Witnesses the normal-completion path only, which is exactly what
+        // `DestinationWritten` claims: the three propagate calls above can each
+        // emit an abrupt exit before `emit_function_handle_call_with_argv`
+        // writes the pair, and those exits carry their value in the completion
+        // locals rather than in the destination.
         Ok(destination.written())
     }
 

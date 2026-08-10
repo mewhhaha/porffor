@@ -13,10 +13,37 @@
 //! --execution-backend wasm` — holding **8.4-8.7 GiB RSS**, flat, for minutes at
 //! ~230 % CPU. That is ~57 % of the box in one test, with `MemAvailable` down to
 //! 1.6 GiB. Under `--test-threads=3` the other two libtest workers run their own
-//! cold Wasm-AOT compiles beside it, and the `frontend` chunk was SIGKILLed by
-//! the OOM killer in three consecutive container windows without ever producing
-//! a verdict, which made it the resume's chokepoint: it is the 13th of 17 chunks,
-//! so every retry paid ~1 h of already-banked work to reach it again.
+//! cold Wasm-AOT compiles beside it, and the `frontend` chunk never produced a
+//! verdict across three container windows — which made it the resume's
+//! chokepoint, since it sat 13th of 17 and every retry paid ~1 h of
+//! already-banked work to reach it again.
+//!
+//! ## The three deaths were three DIFFERENT deaths
+//!
+//! This header, `frontend.rs`'s tombstone and the runner script all used to say
+//! "SIGKILLed by the OOM killer in three consecutive container windows". Only
+//! one of the three was an OOM kill, and the most recent was not. The tree's own
+//! results file (`target/lane-notes/rung1c-chunks.md`) records them distinctly:
+//!
+//! | start (UTC) | outcome | what it was |
+//! |---|---|---|
+//! | 11:20:51 | `EXIT=101` | the OOM SIGKILL |
+//! | 13:00:41 | no result line at all | container restart mid-chunk |
+//! | 13:53:31 | `EXIT=124` | the **stall guard** |
+//!
+//! That matters because the false cause picked the fix. A chunk here must
+//! satisfy **two independent bounds**, and only one of them is about memory:
+//!
+//! 1. peak RSS must fit the box — addressed by `--threads 2` below, and by
+//!    isolation, which stops two other libtest workers compiling beside it;
+//! 2. the test's wall clock must fit the chunk's stall budget — addressed by
+//!    `chunk_stall` in `scripts/rung1c-chunks.sh`, **not** by anything in this
+//!    file. `run-watched.sh` judges liveness only by growth of the chunk log,
+//!    this test's child output is swallowed by `.output()`, and libtest emits
+//!    its "running for over 60 seconds" warning once — so the budget is
+//!    `60 + stall`, and the 13:53 run shows the test still unfinished after
+//!    >= 960 s against a 960 s ceiling. `--threads 2` moves that number the
+//!    wrong way, which is exactly why the stall budget had to move with it.
 //!
 //! Giving it its own module gives it its own chunk, and a chunk of one test
 //! schedules nothing beside it whatever `--test-threads` says. That is the whole
@@ -64,7 +91,7 @@
 //! (a working set, not a leak), ~230 % CPU. `--threads 2` halves the concurrent
 //! compile count, and it is the only lever here that touches the measured cause.
 //! `PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES` would **not** have
-//! prevented any of the three OOM kills: all three tiers are on-disk caches
+//! prevented the OOM kill: all three tiers are on-disk caches
 //! (`porffor-engine/src/cache.rs` — `FunctionCache` implements wasmtime's
 //! `CacheStore` over `fs::read`/`fs::write`, and the module and program tiers are
 //! directories), so those limits bound bytes on disk, not process RSS.
@@ -107,10 +134,14 @@ fn test262_wasm_backend_runs_supported_fixture_subset() {
         .arg("wasm")
         // Bounds the child's peak RSS; see this module's header. Without it the
         // child runs 4 concurrent cold Wasm-AOT compiles in one process and
-        // holds 8.4-8.7 GiB, which is what SIGKILLed the `frontend` chunk in
-        // three consecutive container windows. This changes only how many cases
-        // are compiled at once, never which cases run or what is reported, so
-        // the three assertions below are unaffected by it.
+        // holds 8.4-8.7 GiB, which is what the OOM killer SIGKILLed the
+        // `frontend` chunk for at 11:20 (the other two deaths were a container
+        // restart and the stall guard; only this one is a memory problem).
+        // This changes only how many cases are compiled at once, never which
+        // cases run or what is reported, so the three assertions below are
+        // unaffected by it. It also serialises the compiles, so it makes the
+        // wall clock worse — that bound is the chunk's stall budget, not this
+        // argument.
         .arg("--threads")
         .arg("2")
         .output()

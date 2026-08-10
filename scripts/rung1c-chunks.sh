@@ -120,9 +120,18 @@ DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 # line from the done-file. This mechanism removes one whole class of that
 # judgement, not the class.
 #
-# Fail-safe by construction: an unreadable module (count 0) or a chunk with no
-# recorded count keeps its banked verdict and prints a warning, so a bug here
-# costs a warning rather than hours of re-run.
+# The two unknown cases are deliberately resolved in OPPOSITE directions, and
+# the difference is which way the unknown can lie:
+#
+#   * AN UNREADABLE MODULE (count 0) keeps its banked verdict and prints a
+#     warning. A read error is a bug in this script, and a bug here must not
+#     cost hours of re-run.
+#   * A CHUNK WITH NO RECORDED COUNT RE-RUNS. It used to be grandfathered --
+#     recorded at whatever the tree declares today and skipped -- which blesses
+#     unmeasured work as measured, the exact vacuous pass this sidecar exists to
+#     close. `touch "$COUNTS"` below recreates the file empty, so losing only
+#     the sidecar while the done-file survived took EVERY banked chunk down that
+#     path. When we do not know what a verdict measured, we measure it again.
 COUNTS=${RUNG1C_COUNTS:-target/watched/rung1c-done-counts}
 
 # The batch-4 done-file, which this script's untracked predecessor wrote.
@@ -185,6 +194,38 @@ record_test_count() {
 # these is NOT a complete rung 1c, so it must not print ALL CHUNKS DONE.
 UNBANKED=""
 
+# THE STALL BUDGET IS PER CHUNK, because one chunk does not fit the default.
+#
+# `run-watched.sh` judges liveness ONLY by growth of the chunk's log file. Its
+# own heartbeat `printf` goes to run-watched's stdout and never into that log
+# (`run-watched.sh:86`), and `frontend_test262_subset`'s child has its stdout
+# swallowed by `.output()`, so between libtest's single "has been running for
+# over 60 seconds" warning and the final `test result:` line NOTHING reaches the
+# log. The budget for a one-test chunk is therefore exactly `60 + stall`.
+#
+# MEASURED, and this is why 900 is wrong for that chunk. b5's last `frontend`
+# attempt did not die of memory at all -- it died on this guard:
+# `target/watched/b5r4-rung1c-driver.log` shows the test still unfinished when
+# run-watched killed the run ("no output for 900s after 1335s"), having started
+# at ~375 s. That is >= 960 s of runtime with the DEFAULT 4 workers on an
+# otherwise idle box, against a 60 + 900 = 960 s ceiling. `--threads 2` in
+# `tests/cli/frontend_test262_subset.rs` serialises the compiles further, so it
+# can only move that number the wrong way.
+#
+# Isolation makes the chunk schedulable; it does not make it fit. A one-test
+# chunk is also the case where the guard buys least: there is nothing else the
+# silence could be hiding, and the chunk's failure mode on a real hang is an
+# hour of wall clock rather than a corrupted verdict.
+#
+# FIRST ACTION FOR WHOEVER RUNS THIS: time that chunk alone, with the sweep
+# down, and set the number from the measurement rather than from this comment.
+chunk_stall() {
+  case "$1" in
+    frontend_test262_subset) echo "${RUNG1C_STALL_FRONTEND_SUBSET:-3600}" ;;
+    *) echo "${RUNG1C_STALL:-900}" ;;
+  esac
+}
+
 # run_chunk <module-stem> <module-stem>:: [--skip <other-stem>::]...
 #
 # The first argument is the done-file key and the log name; the rest are passed
@@ -206,31 +247,49 @@ run_chunk() {
       return 0
     fi
     if [ -z "$tests_banked" ]; then
-      echo "rung1c: skip $name (already banked in $DONE; UNVERIFIED -- banked before the counts sidecar existed, recording $tests_now now)" >&2
-      echo "$name SKIPPED-UNVERIFIED: banked with no recorded test count; sidecar seeded with the current $tests_now. Its verdict is trusted, not re-checked." >> "$RESULTS"
-      record_test_count "$name" "$tests_now"
-      return 0
-    fi
-    if [ "$tests_banked" = "$tests_now" ]; then
+      # RE-RUN, do not grandfather. This branch used to print UNVERIFIED,
+      # record the CURRENT count and return 0 -- i.e. bless whatever the tree
+      # declares today as though it had been measured, which is precisely the
+      # vacuous pass the sidecar exists to close, arriving from the one
+      # direction the sidecar cannot see. It is not a hypothetical path either:
+      # `touch "$COUNTS"` above recreates the file empty, so losing ONLY the
+      # sidecar while the done-file survives took every banked chunk through
+      # here and re-blessed all of them at their current counts.
+      #
+      # The counts file's own header states the doctrine this now follows:
+      # seed from the head a chunk was measured at, NEVER from the current
+      # tree. When we do not know what a banked verdict measured, the honest
+      # answer is to measure it again.
+      echo "rung1c: RE-RUN $name -- banked in $DONE with no recorded test count, so what its verdict measured is unknown. Re-measuring rather than blessing the current $tests_now." >&2
+      echo "$name UNVERIFIED-REBANK: banked with no recorded test count; re-running instead of grandfathering." >> "$RESULTS"
+      rebank=1
+    elif [ "$tests_banked" = "$tests_now" ]; then
       echo "rung1c: skip $name (already banked in $DONE, still $tests_now test(s))"
       return 0
+    else
+      echo "rung1c: RE-RUN $name -- banked at $tests_banked test(s), tests/cli/$name.rs now declares $tests_now. The banked verdict never measured the difference." >&2
+      echo "$name STALE: banked at $tests_banked test(s), module now declares $tests_now; re-running." >> "$RESULTS"
+      rebank=1
     fi
-    echo "rung1c: RE-RUN $name -- banked at $tests_banked test(s), tests/cli/$name.rs now declares $tests_now. The banked verdict never measured the difference." >&2
-    echo "$name STALE: banked at $tests_banked test(s), module now declares $tests_now; re-running." >> "$RESULTS"
-    rebank=1
   fi
   log=target/watched/rung1c-$name.log
   echo "=== $name START $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
   # The three cache limits are CACHE HYGIENE and nothing more. They bound bytes
   # ON DISK -- `porffor-engine/src/cache.rs` implements all three tiers over
   # `fs::read`/`fs::write` -- so they do not bound any process's RSS and they did
-  # not fix, and could not have fixed, the OOM kills that cost this run three
-  # container windows (that was one child running 4 concurrent cold Wasm-AOT
-  # compiles in one process; the fix is `--threads 2` on that child, in
-  # tests/cli/frontend_test262_subset.rs). What they DO buy: the CLI suite
-  # compiles hundreds of distinct sources, and the module and program tiers are
-  # keyed by source text, so they are pure write-and-prune churn here while the
-  # function-stencil tier is keyed per function and converges.
+  # not fix, and could not have fixed, the `frontend` chunk's OOM kill (that was
+  # one child running 4 concurrent cold Wasm-AOT compiles in one process; the
+  # fix is `--threads 2` on that child, in
+  # tests/cli/frontend_test262_subset.rs).
+  #
+  # ONE OOM kill, not three -- see the module header of
+  # `tests/cli/frontend_test262_subset.rs` for the corrected record of the three
+  # deaths, and `chunk_stall` above for the bound the third one actually hit.
+  #
+  # What they DO buy: the CLI suite compiles hundreds of distinct sources, and
+  # the module and program tiers are keyed by source text, so they are pure
+  # write-and-prune churn here while the function-stencil tier is keyed per
+  # function and converges.
   #
   # THE VALUES ARE THIS BOX'S, NOT THE DEV MACHINE'S, and that is deliberate.
   # Batch 6 first wrote 8 GiB / 512 MiB / 512 MiB here, copying the shape of the
@@ -269,11 +328,12 @@ run_chunk() {
   #
   # `PORFFOR_CPU_PERCENT=100` is separately load-bearing: `run-watched.sh` routes
   # through `capped.sh`, which silently pins to half the CPUs.
+  stall=$(chunk_stall "$name")
   PORFFOR_CPU_PERCENT=100 \
   PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=1073741824 \
   PORFFOR_MODULE_CACHE_LIMIT_BYTES=67108864 \
   PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=67108864 \
-    ./scripts/run-watched.sh --label "rung1c-$name" --stall 900 -- \
+    ./scripts/run-watched.sh --label "rung1c-$name" --stall "$stall" -- \
     cargo test -p porffor-cli --test cli -- --test-threads=3 "$@"
   rc=$?
   line=$(grep -E '^test result:' "$log" 2>/dev/null | tail -1)
@@ -340,6 +400,31 @@ run_chunk() {
 # `ledger_is_well_formed`, and a malformed ledger makes every other chunk take
 # the guarded-subprocess path and look merely slow.
 run_chunk known_failures    known_failures::
+# SECOND, and the position is the whole point of isolating it.
+#
+# It is one test, and the single most memory-expensive one in the suite
+# (8.4-8.7 GiB in one child, measured with `ps -o rss` on an idle box). Alone in
+# its own chunk it schedules nothing beside it whatever `--test-threads` says.
+#
+# It sat 13th of 18 when the chunk was first added, behind ~26 min of work this
+# batch's own done-file edits reinstate (`date` re-runs on the counts guard,
+# `iterator`/`iterator_helpers`/`known_failures` were invalidated), plus a full
+# rebuild of the test binary. Against an hourly container restart that is most
+# of the window spent before the chokepoint even starts -- which is the failure
+# the isolation was supposed to end, not reproduce. Chunks partition the suite,
+# so this has no ordering dependency on anything, and the hygiene test does not
+# constrain order.
+#
+# `known_failures` stays ahead of it: it is 0.02 s and it holds
+# `ledger_is_well_formed`, without which every other chunk takes the guarded
+# subprocess path and merely looks slow.
+#
+# The overlap rule is satisfied without a `--skip`: `frontend_test262_subset::`
+# does not end with `frontend::` (the next character after `frontend` is `_`,
+# not `:`) and libtest's substring filter `frontend::` therefore does not select
+# it either. Do not rename either module so that one stem becomes a `::`-suffix
+# of the other. See `chunk_stall` above for its separate stall budget.
+run_chunk frontend_test262_subset frontend_test262_subset::
 run_chunk throw_propagation throw_propagation::
 run_chunk dynamic           dynamic::
 run_chunk heap              heap::
@@ -351,19 +436,6 @@ run_chunk object            object::
 run_chunk string            string::
 run_chunk data_view         data_view::
 run_chunk functions         functions::
-# Deliberately AHEAD of `frontend`, and it is one test. It is the single most
-# memory-expensive test in the suite (8.4-8.7 GiB in one child, measured with
-# `ps -o rss` on an idle box), it SIGKILLed the `frontend` chunk in three
-# consecutive container windows without ever producing a verdict, and `frontend`
-# sits 13th of 17 -- so every retry paid ~1 h of banked work to reach it and then
-# died. Alone in its own chunk it schedules nothing beside it whatever
-# `--test-threads` says, and a short container window banks the chokepoint first.
-# The overlap rule is satisfied without a `--skip`: `frontend_test262_subset::`
-# does not end with `frontend::` (the next character after `frontend` is `_`, not
-# `:`) and libtest's substring filter `frontend::` therefore does not select it
-# either. Do not rename either module so that one stem becomes a `::`-suffix of
-# the other.
-run_chunk frontend_test262_subset frontend_test262_subset::
 run_chunk frontend          frontend::
 run_chunk typed_array       typed_array::
 run_chunk array             array:: --skip typed_array::

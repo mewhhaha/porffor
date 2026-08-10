@@ -2501,6 +2501,28 @@ impl StringPool {
                 pool.intern_string(value);
             }
         }
+        // `DifferenceTemporalZonedDateTime`'s two guards. Same shape and same
+        // reason as the `Temporal.PlainDate`/`PlainDateTime`/`PlainYearMonth`
+        // `until and since require the same calendar` messages interned above:
+        // the message is a pool string read back with `StringPool::payload`,
+        // which panics rather than degrading when the string was never
+        // interned. Batch 6 added the emitter
+        // (`temporal_zoned_date_time_methods.rs:490` and `:522`) without this
+        // block, and `cargo test -p porffor-aot-wasm --lib` went 24 red on
+        // `string `...` must exist in pool` — every test that emits a full
+        // bootstrap, not only the Temporal ones.
+        if compiled_standard_builtins
+            .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeUntil)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeSince)
+        {
+            for value in [
+                "Temporal.ZonedDateTime until and since require the same calendar",
+                "Temporal.ZonedDateTime until and since require the same time zone",
+            ] {
+                pool.intern_string(value);
+            }
+        }
         if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize)
             || compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeLocaleCompare)
         {
