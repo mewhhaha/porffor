@@ -4167,6 +4167,8 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
 #[cfg(test)]
 mod runtime_error_message_pool_tests {
     use super::*;
+    use porffor_front::{parse, ParseOptions};
+    use porffor_ir::lower;
 
     /// The pool has no silent miss, and this is what makes the standing
     /// instruction on `emit_runtime_error_object` enforceable rather than
@@ -4185,12 +4187,26 @@ mod runtime_error_message_pool_tests {
         let _ = pool.payload("a message that is deliberately absent from the pool");
     }
 
+    /// Build the pool the way emission builds it.
+    ///
+    /// The empty script is deliberate and is the strongest available form of
+    /// the assertion: the interning loop in `collect` is documented as
+    /// unconditional, so a pool built from a program that references nothing
+    /// must still resolve every literal. Interning the table by hand and then
+    /// reading it back -- which this test used to do -- proves only that the
+    /// table is *internable*, and stays green with the production loop
+    /// (`collect`'s `for value in RUNTIME_ERROR_MESSAGE_LITERALS`) deleted.
+    /// Deleting it turns `null.x` into a `must exist in pool` panic on every
+    /// program, so that one wire is the one this module most needs under test.
+    fn production_pool_for_an_empty_script() -> StringPool {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        StringPool::collect(&script, &BTreeMap::new(), &[])
+    }
+
     #[test]
     fn every_runtime_error_message_literal_resolves_to_a_payload() {
-        let mut pool = StringPool::default();
-        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
-            pool.intern_string(value);
-        }
+        let pool = production_pool_for_an_empty_script();
         for value in RUNTIME_ERROR_MESSAGE_LITERALS {
             // `payload` panics on a miss, so reaching the assertion is the
             // check; the assertion pins the encoding as well.

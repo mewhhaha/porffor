@@ -185,10 +185,12 @@ impl<'a> FunctionBuilder<'a> {
                 rhs_proto_tag_local,
                 function,
             )?;
-            // The throw sits inside the guard `If` opened above, so the dispatch
-            // has to skip that extra frame when it branches to an active catch
-            // handler; without it the branch lands on the guard's own `End` and
-            // execution falls through as if nothing had been thrown.
+            // The throw sits inside the guard `If` opened above, and the
+            // dispatch branches out of it to an active catch handler. Both
+            // frames are counted by the sink, so neither needs declaring here
+            // — this comment used to sit above a hand-written correction, and
+            // the correction is what made the branch land on the guard's own
+            // `End` when the count drifted.
             self.emit_dispatch_current_completion(function)?;
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(rhs_tag_local));
@@ -231,9 +233,8 @@ impl<'a> FunctionBuilder<'a> {
             rhs_proto_tag_local,
             function,
         )?;
-        // Same extra frame as the callability guard above: the dispatch is
-        // nested inside this `If`, so an active catch handler is one level
-        // further away than the default depth assumes.
+        // Same shape as the callability guard above: the dispatch is nested
+        // inside this `If`, and the sink counts the frame. Nothing to declare.
         self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
 

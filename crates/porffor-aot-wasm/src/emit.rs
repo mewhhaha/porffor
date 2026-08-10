@@ -3602,8 +3602,9 @@ impl<'a> FunctionBuilder<'a> {
     /// and neither of those is a helper.
     ///
     /// That last sentence is a fact about the source, not a property the type
-    /// system can hold: [`Function`] is a `wasm_encoder` type and a new
-    /// `compile_x_helper` may construct one directly. It is kept true by
+    /// system can hold: [`Function`] is `code_sink::Function` and anyone in the
+    /// crate may construct one, so a new `compile_x_helper` may construct one
+    /// directly. It is kept true by
     /// `runtime_helpers::tests::only_three_places_build_a_function_builder_body`,
     /// which counts the construction sites; do not restate it as an
     /// enforcement claim anywhere else.

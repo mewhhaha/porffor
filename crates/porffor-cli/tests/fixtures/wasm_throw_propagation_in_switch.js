@@ -31,7 +31,11 @@ try {
       print("default");
   }
 } catch (e) {
-  caught = e && e.name;
+  // Name *and* message. `e.name` alone is satisfied by any TypeError the
+  // prototype-walk read path can raise (`value is not callable`, the proxy
+  // paths), so it would not distinguish "the getter's completion reached the
+  // handler" from "some other TypeError did".
+  caught = e && e.name + ": " + e.message;
   print("caught " + caught);
 }
 

@@ -23579,24 +23579,45 @@ pub fn load_matrix_failure_details(
     let snapshot = snapshot_from_file(file)
         .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
 
-    // Group by *identity*, not by the stored `detail_hash` and not by the raw
-    // detail text.
-    //
-    // Two reasons, and neither is cosmetic. The raw detail embeds a heap
-    // address, so keying on it splits one defect into one group per case — the
-    // exact failure this grouping exists to prevent. And the stored
-    // `detail_hash` was computed by whichever binary wrote the snapshot, so a
-    // snapshot recorded before this normalization landed still carries a
-    // per-address hash; recomputing here is what lets the same `failure-details`
-    // invocation collapse an *existing* corpus instead of only future runs.
-    //
-    // The raw detail survives into the report below, taken verbatim from the
-    // first representative test.
+    let groups = group_failures_by_detail_identity(&snapshot.failures);
+
+    Ok(MatrixFailureDetails {
+        node_id: node.node_id.clone(),
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
+        total: snapshot.total,
+        passed: snapshot.passed,
+        failed: snapshot.total.saturating_sub(snapshot.passed),
+        groups,
+    })
+}
+
+/// Group failures by *identity*, not by the stored `detail_hash` and not by the
+/// raw detail text.
+///
+/// Two reasons, and neither is cosmetic. The raw detail embeds a heap address,
+/// so keying on it splits one defect into one group per case — the exact
+/// failure this grouping exists to prevent. And the stored `detail_hash` was
+/// computed by whichever binary wrote the snapshot, so a snapshot recorded
+/// before this normalization landed still carries a per-address hash;
+/// recomputing here is what lets the same `failure-details` invocation collapse
+/// an *existing* corpus instead of only future runs.
+///
+/// The raw detail survives into the report, taken verbatim from the first
+/// representative test, so the reader still sees a real address.
+///
+/// This is a free function rather than a closure inside
+/// `load_matrix_failure_details` for one reason: that function needs a suite
+/// config, a run matrix, an aggregate snapshot and a node snapshot on disk
+/// before it reaches the grouping, so the grouping could not be tested at all
+/// while it lived inline — and it was not. See
+/// `failure_detail_grouping_tests`.
+fn group_failures_by_detail_identity(failures: &[FailureRecord]) -> Vec<FailureDetailGroup> {
     let mut grouped = BTreeMap::<
         (u64, OutcomeKind, FailureKind, FailureOrigin, String),
         Vec<(String, String)>,
     >::new();
-    for failure in &snapshot.failures {
+    for failure in failures {
         grouped
             .entry((
                 hash_detail(&failure.detail),
@@ -23642,16 +23663,7 @@ pub fn load_matrix_failure_details(
             .then_with(|| outcome_rank(left.outcome).cmp(&outcome_rank(right.outcome)))
             .then_with(|| left.detail.cmp(&right.detail))
     });
-
-    Ok(MatrixFailureDetails {
-        node_id: node.node_id.clone(),
-        filter: node.filter.clone(),
-        matrix_path: node.matrix_path.clone(),
-        total: snapshot.total,
-        passed: snapshot.passed,
-        failed: snapshot.total.saturating_sub(snapshot.passed),
-        groups,
-    })
+    groups
 }
 
 pub fn generate_backlog(
@@ -25313,6 +25325,102 @@ mod tests {
             erase_volatile_handles("héllo handle@12 wörld"),
             "héllo handle@<addr> wörld"
         );
+    }
+
+    fn failure(test_path: &str, detail: &str, stored_detail_hash: u64) -> FailureRecord {
+        FailureRecord {
+            test_path: test_path.to_string(),
+            kind: FailureKind::Runtime,
+            outcome: OutcomeKind::Bug,
+            origin: FailureOrigin::LocalHarness,
+            detail: detail.to_string(),
+            detail_hash: stored_detail_hash,
+            duration_ms: None,
+        }
+    }
+
+    /// The product behaviour, not the helpers underneath it.
+    ///
+    /// Everything else in this module tests `hash_detail`,
+    /// `FailureDetailIdentity::of` and `erase_volatile_handles` on string
+    /// literals. All of those stay green under a full revert of the grouping
+    /// key to `(failure.detail_hash, .., failure.detail.clone())`, which is the
+    /// pre-repair key and the one that splits a single defect into one group
+    /// per case. This test is the one that reddens.
+    ///
+    /// The `detail_hash` values handed in are deliberately *wrong and
+    /// distinct*: they stand for a snapshot recorded by a binary from before
+    /// the normalization landed. The grouping must recompute rather than trust
+    /// them, or an existing corpus never collapses.
+    #[test]
+    fn failures_differing_only_in_a_heap_address_are_one_group() {
+        let groups = group_failures_by_detail_identity(&[
+            failure(
+                "intl402/Collator/this-value-ignored.js",
+                "TypeError: wasm-aot completion: object(handle@5265392)",
+                11,
+            ),
+            failure(
+                "intl402/DateTimeFormat/this-value-ignored.js",
+                "TypeError: wasm-aot completion: object(handle@5265496)",
+                22,
+            ),
+        ]);
+
+        assert_eq!(groups.len(), 1, "one defect must be one group");
+        assert_eq!(groups[0].count, 2, "`count` counts every member");
+        assert_eq!(
+            groups[0].representative_tests,
+            vec![
+                "intl402/Collator/this-value-ignored.js".to_string(),
+                "intl402/DateTimeFormat/this-value-ignored.js".to_string(),
+            ]
+        );
+        assert!(
+            groups[0].detail.contains("handle@5265392"),
+            "the report must still show a real address, not the `<addr>` placeholder: {}",
+            groups[0].detail
+        );
+        assert_ne!(
+            groups[0].detail_hash, 11,
+            "the stored hash must not be trusted; it was written by an older binary"
+        );
+        assert_eq!(
+            groups[0].detail_hash,
+            hash_detail("TypeError: wasm-aot completion: object(handle@9)"),
+            "the group hash must be the recomputed identity hash"
+        );
+    }
+
+    /// The other half of the same key: genuinely different messages must not
+    /// merge, and `representative_tests` truncates where `count` does not.
+    #[test]
+    fn distinct_details_stay_distinct_and_representatives_truncate_at_five() {
+        let mut failures = (0..7)
+            .map(|index| {
+                failure(
+                    &format!("built-ins/Foo/case-{index}.js"),
+                    &format!("TypeError: wasm-aot completion: object(handle@{index})"),
+                    0,
+                )
+            })
+            .collect::<Vec<_>>();
+        failures.push(failure(
+            "built-ins/Bar/other.js",
+            "RangeError: something else entirely",
+            0,
+        ));
+
+        let groups = group_failures_by_detail_identity(&failures);
+
+        assert_eq!(groups.len(), 2, "two messages, two families");
+        assert_eq!(groups[0].count, 7, "the larger family sorts first");
+        assert_eq!(
+            groups[0].representative_tests.len(),
+            5,
+            "`representative_tests` truncates to 5 while `count` does not"
+        );
+        assert_eq!(groups[1].count, 1);
     }
 
     /// A case path is not a defect identity, so it must not go through the

@@ -7622,7 +7622,8 @@ impl<'a> FunctionBuilder<'a> {
         // and result locals. Dispatch it through the normal completion path so
         // active `finally` blocks run before the throw reaches its handler (or
         // returns from the function). The dispatch is nested inside this
-        // null-test `if`, hence the extra branch depth.
+        // null-test `if`; the sink counts that frame, so the branch immediate
+        // needs no correction here.
         self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
         Ok(())

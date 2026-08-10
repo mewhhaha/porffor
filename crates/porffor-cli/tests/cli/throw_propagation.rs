@@ -55,8 +55,11 @@ fn run_wasm_backend_propagates_a_throwing_property_read_out_of_a_loop() {
         "execution must not continue past the throwing read: {stdout}"
     );
     assert!(
-        stdout.contains("caught TypeError"),
-        "the getter's TypeError must reach the enclosing catch: {stdout}"
+        stdout.contains("caught TypeError: thrown from a prototype accessor"),
+        "the getter's own TypeError must reach the enclosing catch. Matching on the \
+         name alone would also accept any other TypeError this read path can raise \
+         (`value is not callable`, the proxy paths), so the message is part of the \
+         assertion: {stdout}"
     );
     assert!(
         stdout.contains("end\n"),
@@ -100,8 +103,10 @@ fn run_wasm_backend_propagates_a_throwing_property_read_out_of_a_switch() {
         "the `default` arm must not be reached: {stdout}"
     );
     assert!(
-        stdout.contains("caught TypeError"),
-        "the getter's TypeError must reach the enclosing catch rather than being \
-         discarded by the switch's block: {stdout}"
+        stdout.contains("caught TypeError: thrown from a prototype accessor"),
+        "the getter's own TypeError must reach the enclosing catch rather than being \
+         discarded by the switch's block. The message is part of the assertion: the \
+         name alone is satisfied by any other TypeError this read path can raise: \
+         {stdout}"
     );
 }

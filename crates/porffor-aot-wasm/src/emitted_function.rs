@@ -383,11 +383,12 @@ pub(crate) struct EmittedFunction {
 
 impl EmittedFunction {
     pub(crate) fn new(identity: FunctionIdentity, body: Function) -> Self {
-        // `into_body` asserts the label stack is empty, so an emitter that
-        // opened a frame and never closed it fails here — naming the identity
-        // it was building — instead of as an anonymous wasmtime validation
-        // error inside whichever Test262 case happened to compile it.
-        let raw_body = body.into_body().into_raw_body();
+        // `into_body_named` asserts the label stack is empty, so an emitter
+        // that opened a frame and never closed it fails here — with the
+        // identity in the panic message, not merely in scope — instead of as
+        // an anonymous wasmtime validation error inside whichever Test262 case
+        // happened to compile it.
+        let raw_body = body.into_body_named(&identity.wasm_name()).into_raw_body();
         let body_bytes = FunctionBodySize::of(&raw_body);
         let declared_locals = FunctionLocalCount::decode(&raw_body);
         Self {

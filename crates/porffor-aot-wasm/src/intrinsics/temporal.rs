@@ -971,10 +971,16 @@ impl<'a> FunctionBuilder<'a> {
                 "calendarId",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
             ),
-            // Spec property order puts `era`/`eraYear` between `calendarId` and
-            // `year`. This list and
-            // `lowering::temporal_zoned_date_time_prototype_shape` must gain the
-            // same names in the same order — `Object.keys` sees it.
+            // Spec property order puts `era`/`eraYear` between `calendarId`
+            // and `year`, and *this* loop is what makes that observable: it
+            // emits one define-property call per entry, in sequence, so
+            // `Object.keys(Temporal.ZonedDateTime.prototype)` reports this
+            // list's order. The sibling list in
+            // `lowering::temporal_zoned_date_time_prototype_shape` is a
+            // `BTreeMap` and its order is discarded, so what the two lists
+            // must share is *membership*, not order: a name here with no shape
+            // entry (or the reverse) is a prototype and a shape that disagree
+            // about what exists.
             (
                 "era",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,

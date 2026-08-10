@@ -35,7 +35,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
 | 1 | `cargo test -p porffor-ir`, focused `-p porffor-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
-| 1c | the whole CLI suite (589 executing tests) | **~26 min** at `--test-threads=8` on 16 CPUs; est. **~1 h 45 min** at `--test-threads=2` | end-to-end CLI behaviour | conformance beyond the fixture corpus |
+| 1c | the whole CLI suite (593 compiled / 592 executing tests) | **~26 min** at `--test-threads=8` on 16 CPUs; est. **~1 h 45 min** at `--test-threads=2` | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
 | 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |
@@ -62,7 +62,7 @@ Run it exactly like this. No `--skip`:
 Raise `--test-threads` on a machine with spare cores; the suite is CPU-bound and
 scales close to linearly. **Never lower it to 1.** Under `--test-threads=1`
 libtest runs every test on the thread named `main`, the per-test name that
-`known_failures::execution_path` routes on is unavailable, and all 589 tests fall
+`known_failures::execution_path` routes on is unavailable, and all 593 tests fall
 back to spawning a cold `porf` child process instead of the warm in-process call
 the ~26 minute estimate is built on. It is correct and terminating, just far
 slower. For one test use `-- --exact <name>`, not a lower thread count.
@@ -105,7 +105,7 @@ the same headroom as `--stall 900`) so that a cold Wasm-AOT compile on a loaded
 investigate before adding a row.
 
 `binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture` used to
-hang the suite forever at 588 of 589, which is why the old invocation carried
+hang the suite forever near the end of the run, which is why the old invocation carried
 `--skip atomics_wait_core` and why rung 1c was never actually a gate. It is now
 a declared hang (owner T17): `tests/cli/main.rs` runs it as a real child process
 and kills it after the hang timeout, so it terminates as a bounded, expected
@@ -221,7 +221,7 @@ git stash pop && mv target/golden/intrinsics-parked crates/porffor-aot-wasm/src/
 
 Empty diff means byte identity. This exists because the ordinary suites assert
 on program *output*, so a refactor that perturbs emission order, function index
-assignment, or property installation order can leave all 589 CLI tests green
+assignment, or property installation order can leave every CLI test green
 while changing the emitted module. Two independent runs were verified
 byte-identical, so a non-empty diff is signal, not noise.
 
@@ -360,17 +360,21 @@ Landed:
   `cargo`, ending recurring full-workspace rebuilds.
 - Per-tier cache budgets (`PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
 - The golden capture (rung G).
-- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — **598** `#[test]`
-  attributes across 14 area modules plus the `known_failures.rs` hygiene module,
-  so feature lanes no longer all append to one 10,709-line file. 8 of them sit
-  behind `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **590
-  compile** under default features and **589 execute** (one is `#[ignore]`d, in
+- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — **601** `#[test]`
+  attributes (recounted at the head of batch 4) across the area modules plus the
+  `known_failures.rs` hygiene module, so feature lanes no longer all append to
+  one 10,709-line file. 8 of them sit behind
+  `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **593 compile**
+  under default features and **592 execute** (one is `#[ignore]`d, in
   `heap.rs`). Recount with the **exact-line** form — the same one the hygiene
-  scanner itself uses (`known_failures.rs`), not a substring grep:
+  scanner itself uses (`known_failures.rs`), not a substring grep — and settle
+  the compiled/executing split with `--list`, the only form that resolves
+  `cfg`:
 
   ```sh
   awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
     crates/porffor-cli/tests/cli/*.rs
+  cargo test -p porffor-cli --test cli -- --list | tail -1
   ```
 
   This line has been wrong three times. `grep -h '#\[test\]' … | wc -l` — which

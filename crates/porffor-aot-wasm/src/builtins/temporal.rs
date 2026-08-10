@@ -45,9 +45,19 @@ pub(crate) enum ZonedDateTimeField {
 /// Adding a second self-writing getter under that rule appended
 /// `LocalSet(result_local)` + a `Number` tag after the callee had already
 /// written the pair — so an `undefined` era would have been reported as a
-/// number, from a stack the arm never pushed to. Two named states cannot be
-/// confused that way, and the value is produced by the same `match` that emits
-/// the arm, so the two cannot drift.
+/// number, from a stack the arm never pushed to.
+///
+/// What the type actually buys, stated exactly so it is not read as more.
+/// Adding a [`ZonedDateTimeField`] variant is an E0004 in both the emitter
+/// `match` here and `compile_standard_builtin` (`builtins/standard.rs`), so a
+/// new field cannot be added without stating its delivery discipline in the
+/// same place it emits. What the type does **not** check is that an arm
+/// returns the *right* discriminant: writing `NumberOnStack` in an arm that
+/// called [`FunctionBuilder::emit_temporal_calendar_era_field`] still
+/// reproduces the `undefined`-tagged-as-`Number` bug, silently, at run time.
+/// Making that unrepresentable would mean the `NumberOnStack` value being
+/// constructible only by the helper that pushes the `i64`; that is not what
+/// this is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ZdtFieldResult {
     /// The arm left exactly one `i64` on the stack and did not touch the result

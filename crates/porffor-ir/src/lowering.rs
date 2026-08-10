@@ -1690,13 +1690,18 @@ impl<'a> ScriptLowerer<'a> {
                 "calendarId",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
             ),
-            // `era`/`eraYear` sit between `calendarId` and `year`, which is
-            // both the spec's order and the order
-            // `temporal_plain_date_time_prototype_shape` already uses. This
-            // list and the accessor loop in
-            // `install_temporal_zoned_date_time_constructor_intrinsics` must
-            // stay in lockstep: property order is observable through
-            // `Object.keys`.
+            // `era`/`eraYear` are written between `calendarId` and `year` to
+            // match the spec's order and the order
+            // `temporal_plain_date_time_prototype_shape` already uses, but the
+            // order in *this* list is not observable: `properties` is a
+            // `BTreeMap<String, _>`, so it is re-keyed lexicographically the
+            // moment it is inserted. Observable property order is decided by
+            // the define-property sequence in
+            // `install_temporal_zoned_date_time_constructor_intrinsics`
+            // (`intrinsics/temporal.rs`), and that is where the ordering
+            // requirement is recorded. What this list must agree with that
+            // loop on is *membership*: a shape entry with no accessor is a
+            // property the shape promises and the prototype does not have.
             (
                 "era",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,

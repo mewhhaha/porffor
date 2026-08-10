@@ -66,6 +66,10 @@ var eraYearGetter = Object.getOwnPropertyDescriptor(
   Temporal.ZonedDateTime.prototype,
   "eraYear"
 ).get;
+// `Symbol()` is in this list because branding.js lists it: a symbol is the one
+// primitive whose ToObject conversion is not a plain wrapper the brand check
+// might accidentally accept, and leaving it out was the only divergence from
+// the test262 file this block mirrors.
 var badReceivers = [
   undefined,
   null,
@@ -73,6 +77,7 @@ var badReceivers = [
   "",
   1,
   {},
+  Symbol(),
   Temporal.ZonedDateTime,
   Temporal.ZonedDateTime.prototype,
 ];
@@ -231,6 +236,15 @@ if (preEpochPlain.eraYear !== 1969) throw "pre-epoch eraYear";
 // The offset is spelled `-12:00` rather than `Etc/GMT+12` on purpose:
 // `Temporal.ZonedDateTime` accepts `UTC` and `UTCOffset` identifiers, while the
 // `Etc/GMT±N` table is `Intl.DateTimeFormat`'s.
+//
+// BISECT THIS BLOCK FIRST if the CLI test reddens. It is the only place in the
+// fixture that leans on two paths outside the era feature, neither of which
+// has other wasm-aot coverage here: -62135596800000000000n is about -6.21e19,
+// far outside i64, so it takes the two-limb heap-BigInt path
+// (`emit_temporal_heap_bigint_millisecond_quotient`, `builtins/temporal.rs`)
+// rather than the inline arm, and `withTimeZone("-12:00")` goes through
+// `emit_temporal_fixed_time_zone_offset_seconds`. A regression in either
+// presents here as an era failure and is not one.
 var atCeBoundary = new Temporal.ZonedDateTime(
   -62135596800000000000n,
   "UTC",

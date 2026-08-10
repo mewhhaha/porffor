@@ -44,26 +44,35 @@
 //!
 //! # Today's inventory, counted rather than estimated
 //!
-//! At the commit this module was written:
+//! Recounted at the head of batch 4, after the T24 retirement and the two
+//! `throw_propagation` tests. These are the numbers rung 1c is measured
+//! against, so they are re-derived rather than carried forward:
 //!
-//! - 598 `#[test]` attributes across `tests/cli/*.rs` (593 before this module
-//!   added its own 4, plus one declared failure added by the batch-3 findings
-//!   fixer); 8 of them behind `#[cfg(feature = "spec-exec-oracle")]` in
-//!   `frontend.rs`, so 590 compile under default features and 589 execute (one
-//!   is ignored, in `heap.rs`).
-//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 602 total.
+//! - 601 `#[test]` attributes across `tests/cli/*.rs`; 8 of them behind
+//!   `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **593 compile
+//!   under default features and 592 execute** (one is ignored, in `heap.rs`).
+//!   593 is the figure `--list` reports and the one a rung-1c log's
+//!   `running N tests` line should show.
+//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
-//! - 0 `should_panic` attributes before this change, 2 after it.
+//! - **1** `should_panic` attribute. It was 0 before this module existed and 2
+//!   after it; the batch-3 T24 row was retired in batch 4 and took one of them
+//!   with it, leaving
+//!   `binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture`
+//!   (the declared T17 hang) as the only one.
 //!
 //! Reproduce with the **exact-line** form, which is what [`scan_source`] itself
 //! matches. A substring `grep -h '#\[test\]'` over these files currently returns
-//! two extra hits, because it matches prose lines *in this module* that name the
-//! attribute — including this one.
+//! extra hits, because it matches prose lines *in this module* that name the
+//! attribute — including this one. The `--list` form is the authority for the
+//! compiled/executing split, because it is the only one that resolves `cfg`.
 //!
 //! ```sh
 //! awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
 //!   crates/porffor-cli/tests/cli/*.rs crates/porffor-cli/tests/*.rs
 //! grep -rn '#\[ignore' crates/porffor-cli/tests/
+//! grep -rn '#\[should_panic' crates/porffor-cli/tests/
+//! cargo test -p porffor-cli --test cli -- --list | tail -1
 //! ```
 
 use std::collections::BTreeSet;

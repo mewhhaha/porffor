@@ -155,15 +155,26 @@ impl Function {
             // *same* `if` label. Depth is unchanged, and the matching `End`
             // below closes it.
             Instruction::Else => {}
+            // `assert!`, not `debug_assert!`, and deliberately so. The root
+            // `[profile.release]` sets only `debug = "line-tables-only"`; it
+            // does not enable debug assertions. A `debug_assert!` here is
+            // therefore absent from `./target/release/porf` — the binary that
+            // runs the 53,131-case sweep, which is the only place this check
+            // would ever have caught something. It would have been a
+            // protection that exists exactly where it is not needed. The two
+            // neighbouring protections (`End` underflow above, `into_body`
+            // below) are unconditional, and the cost here is one comparison
+            // per branch instruction against a stream that already pays a
+            // match per instruction.
             Instruction::Br(label) | Instruction::BrIf(label) => {
-                debug_assert!(
+                assert!(
                     *label < self.depth,
                     "branch immediate {label} is out of range at label depth {}",
                     self.depth
                 );
             }
             Instruction::BrTable(labels, default) => {
-                debug_assert!(
+                assert!(
                     *default < self.depth && labels.iter().all(|label| *label < self.depth),
                     "br_table immediate is out of range at label depth {}",
                     self.depth
@@ -171,12 +182,21 @@ impl Function {
             }
             // Exception-handling frames would move the label stack, and the
             // two `br_on_*` forms carry label immediates this sink does not
-            // range-check. A census over the crate found none of them: the only
-            // control instructions emitted anywhere are `End` (7,692), `If`
-            // (6,318), `Else` (2,345), `Br` (944), `Block` (683), `BrIf` (669)
-            // and `Loop` (573). Silently miscounting is exactly the failure mode
-            // this type exists to remove, so adding one must fail loudly here
-            // first rather than shifting every branch below it by one.
+            // range-check. A census over the crate finds none of them emitted
+            // anywhere outside this file: the only control instructions any
+            // emitter writes are `End`, `If`, `Else`, `Br`, `Block`, `BrIf`
+            // and `Loop`. That is the claim doing the work, so it is stated
+            // without per-opcode totals — those move with every batch that
+            // touches an emitter, and a stale number reads as a measurement.
+            // Recheck the claim, not the counts:
+            //
+            //   rg -o 'Instruction::(Try|TryTable|Delegate|Catch|CatchAll\
+            //     |Rethrow|BrOn\w+|BrTable)\b' \
+            //     --glob '!code_sink.rs' crates/porffor-aot-wasm/src
+            //
+            // Silently miscounting is exactly the failure mode this type
+            // exists to remove, so adding one must fail loudly here first
+            // rather than shifting every branch below it by one.
             Instruction::Try(_)
             | Instruction::TryTable(_, _)
             | Instruction::Delegate(_)
@@ -240,19 +260,46 @@ impl Function {
     }
 
     /// Hands the finished body over, asserting that every frame it opened was
-    /// closed.
+    /// closed, and *naming the body* if one was not.
     ///
     /// An unbalanced body is invalid Wasm, but wasmtime reports it as a module
     /// validation failure with no function name, inside whichever of the 53,131
     /// Test262 cases happened to compile it. This turns that into a panic at
     /// the function boundary, in the process that built it.
-    pub(crate) fn into_body(self) -> wasm_encoder::Function {
+    ///
+    /// The `context` argument is why this takes one at all. A nameless
+    /// "function body has an unclosed control frame" is the same anonymous
+    /// diagnostic the wasmtime failure is, only earlier — it tells an operator
+    /// that *some* body among several thousand is unbalanced. The product
+    /// caller (`EmittedFunction::new`) passes the `FunctionIdentity` it is
+    /// building, so the panic names the symbol that goes into the Wasm `name`
+    /// section.
+    ///
+    /// The sibling protection in [`Function::instruction`] — the `End`
+    /// underflow — genuinely cannot name the body: the sink is constructed
+    /// before any identity is known at several of its call sites, so there is
+    /// nothing to name. Its panic is deliberately phrased as a statement about
+    /// the emitter's bracketing rather than about a particular function.
+    pub(crate) fn into_body_named(
+        self,
+        context: &dyn core::fmt::Display,
+    ) -> wasm_encoder::Function {
         assert_eq!(
             self.depth, 0,
-            "function body has an unclosed control frame: {} label(s) still open",
+            "function body for {context} has an unclosed control frame: {} label(s) still open",
             self.depth
         );
         self.body
+    }
+
+    /// [`Function::into_body_named`] with no name to give.
+    ///
+    /// Test-only: the product path always has a `FunctionIdentity` in hand by
+    /// the time a body is finished, and an unnamed panic there is the failure
+    /// this module set out to stop reporting.
+    #[cfg(test)]
+    pub(crate) fn into_body(self) -> wasm_encoder::Function {
+        self.into_body_named(&"an unnamed test body")
     }
 
     /// Rewrites the body's local declaration from `planned_local_count` down to
