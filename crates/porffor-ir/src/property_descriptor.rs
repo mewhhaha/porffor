@@ -980,24 +980,26 @@ pub fn complete_property_descriptor<C: DescriptorCarrier<RuntimeFlag = Infallibl
     let kind = descriptor.static_kind();
     let partial = descriptor.into_partial();
     match kind {
-        PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic => CompleteDescriptor::Data {
-            value: partial
-                .value
-                .into_static_value()
-                .unwrap_or_else(|| defaults.undefined_value.clone()),
-            writable: partial
-                .writable
-                .into_static_value()
-                .unwrap_or(defaults.false_flag),
-            enumerable: partial
-                .enumerable
-                .into_static_value()
-                .unwrap_or(defaults.false_flag),
-            configurable: partial
-                .configurable
-                .into_static_value()
-                .unwrap_or(defaults.false_flag),
-        },
+        PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic => {
+            CompleteDescriptor::Data {
+                value: partial
+                    .value
+                    .into_static_value()
+                    .unwrap_or_else(|| defaults.undefined_value.clone()),
+                writable: partial
+                    .writable
+                    .into_static_value()
+                    .unwrap_or(defaults.false_flag),
+                enumerable: partial
+                    .enumerable
+                    .into_static_value()
+                    .unwrap_or(defaults.false_flag),
+                configurable: partial
+                    .configurable
+                    .into_static_value()
+                    .unwrap_or(defaults.false_flag),
+            }
+        }
         PropertyDescriptorKind::Accessor => CompleteDescriptor::Accessor {
             get: partial
                 .get
@@ -1182,12 +1184,7 @@ impl CompleteDescriptor<SourceText> {
                 (DescriptorField::Configurable, render_flag(*configurable)),
             ],
         };
-        let order = [
-            rendered[0].0,
-            rendered[1].0,
-            rendered[2].0,
-            rendered[3].0,
-        ];
+        let order = [rendered[0].0, rendered[1].0, rendered[2].0, rendered[3].0];
         assert_eq!(
             order,
             self.keys(),
@@ -1268,7 +1265,14 @@ mod tests {
     fn every_field_key_is_the_spec_table_3_name() {
         assert_eq!(
             DescriptorField::ALL.map(DescriptorField::key),
-            ["value", "writable", "get", "set", "enumerable", "configurable"],
+            [
+                "value",
+                "writable",
+                "get",
+                "set",
+                "enumerable",
+                "configurable"
+            ],
         );
     }
 
@@ -1411,7 +1415,10 @@ mod tests {
     #[test]
     fn the_module_namespace_to_string_tag_descriptor_renders_byte_for_byte() {
         assert_eq!(
-            DescriptorSourceText::data().value("\"Module\"").complete().render(),
+            DescriptorSourceText::data()
+                .value("\"Module\"")
+                .complete()
+                .render(),
             "{ value: \"Module\", writable: false, enumerable: false, configurable: false }",
         );
     }

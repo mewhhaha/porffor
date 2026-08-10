@@ -957,7 +957,8 @@ pub(crate) const OBJECT_DESCRIPTOR_DATA: u64 = 0;
 pub(crate) const PROPERTY_KEY_SYMBOL_MARKER: u64 = 1 << 63;
 pub(crate) const ARRAY_DESCRIPTOR_OWN_PROPERTY: u64 = DescriptorBit::ArrayOwnProperty.word();
 pub(crate) const ARGUMENTS_DESCRIPTOR_MAPPED: u64 = DescriptorBit::ArgumentsMapped.word();
-pub(crate) const ARRAY_DESCRIPTOR_NORMAL_DATA: u64 = DescriptorWord::of_data(true, true, true).bits();
+pub(crate) const ARRAY_DESCRIPTOR_NORMAL_DATA: u64 =
+    DescriptorWord::of_data(true, true, true).bits();
 
 // These eight are not tautologies. They pin the **wire format** of a word that
 // is written at nine distinct heap offsets and read by 176 references across 11

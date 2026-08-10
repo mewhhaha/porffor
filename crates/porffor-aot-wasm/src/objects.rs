@@ -545,19 +545,16 @@ impl DescriptorKindWord {
     /// The accessor arm cannot call `set_writable_if_nonzero`: the method does
     /// not exist on `DescriptorKindLocal<AccessorKind>`. That is mistake class
     /// M1, as a compile error.
-    fn apply_writable(
-        &mut self,
-        writable: Presence<u32, u32>,
-        function: &mut Function,
-    ) {
+    fn apply_writable(&mut self, writable: Presence<u32, u32>, function: &mut Function) {
         match self {
             Self::Data(word) => match writable {
                 // 6.2.6.6: an absent `[[Writable]]` defaults to `false`, which
                 // is the bit already clear in the seed.
                 Presence::Absent => {}
-                Presence::Present(flag_local) | Presence::Runtime { value: flag_local, .. } => {
-                    word.set_writable_if_nonzero(flag_local, function)
-                }
+                Presence::Present(flag_local)
+                | Presence::Runtime {
+                    value: flag_local, ..
+                } => word.set_writable_if_nonzero(flag_local, function),
             },
             // 6.2.6.6 gives an accessor property no `[[Writable]]` field at
             // all, so there is nothing to apply and no method to apply it with.
@@ -575,9 +572,11 @@ impl DescriptorKindWord {
         match self {
             Self::Data(word) => match writable {
                 Presence::Absent | Presence::Present(_) => {}
-                Presence::Runtime { present, .. } => {
-                    word.carry_writable_from_existing(present, existing_descriptor_kind_local, function)
-                }
+                Presence::Runtime { present, .. } => word.carry_writable_from_existing(
+                    present,
+                    existing_descriptor_kind_local,
+                    function,
+                ),
             },
             Self::Accessor(_) => {}
         }
@@ -12503,26 +12502,14 @@ impl<'a> FunctionBuilder<'a> {
                 configurable_payload_local,
                 configurable_tag_local,
             ),
-            DescriptorField::Value => (
-                value_present_local,
-                value_payload_local,
-                value_tag_local,
-            ),
+            DescriptorField::Value => (value_present_local, value_payload_local, value_tag_local),
             DescriptorField::Writable => (
                 writable_present_local,
                 writable_payload_local,
                 writable_tag_local,
             ),
-            DescriptorField::Get => (
-                getter_present_local,
-                getter_payload_local,
-                getter_tag_local,
-            ),
-            DescriptorField::Set => (
-                setter_present_local,
-                setter_payload_local,
-                setter_tag_local,
-            ),
+            DescriptorField::Get => (getter_present_local, getter_payload_local, getter_tag_local),
+            DescriptorField::Set => (setter_present_local, setter_payload_local, setter_tag_local),
         };
         for field in TO_PROPERTY_DESCRIPTOR_ORDER {
             let key = field.key();
@@ -14200,9 +14187,7 @@ impl<'a> FunctionBuilder<'a> {
                     // than this one and is not reachable today.
                     (true, true) => match descriptor.value.known() {
                         KnownPresence::No => StoredDescriptorKind::Accessor,
-                        KnownPresence::Yes | KnownPresence::AtRuntime => {
-                            StoredDescriptorKind::Data
-                        }
+                        KnownPresence::Yes | KnownPresence::AtRuntime => StoredDescriptorKind::Data,
                     },
                 }
             }
@@ -14301,7 +14286,9 @@ impl<'a> FunctionBuilder<'a> {
         // 10.1.6.3 step 4: everything inside this `If` is conditional on the
         // existing property being non-configurable.
         function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(DescriptorMask::CONFIGURABLE.as_i64()));
+        function.instruction(&Instruction::I64Const(
+            DescriptorMask::CONFIGURABLE.as_i64(),
+        ));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -14311,10 +14298,13 @@ impl<'a> FunctionBuilder<'a> {
         // is there and the compiler chose it". Steps 4.a/4.b/4.d/4.e all fire on
         // *Desc has the field*, so a `Present` field is exempt only because the
         // compiler chose the value too, which is true of exactly two callers —
-        // `emit_object_define_accessor_with_flag_local` (whose `Present` fields
-        // are the `enumerable`/`configurable` constants it just stored) and
-        // `emit_object_define_entry`'s positional adapter, whose `Present`
-        // fields are the same two. It is not true of anything a program supplies.
+        // `emit_object_define_accessor_with_flag_local` and
+        // `emit_object_define_data_with_flag_locals`, both of which store the
+        // attribute payloads themselves immediately above the call. It is not
+        // true of anything a program supplies: `emit_object_define_entry`'s
+        // positional adapter yields `Runtime` for every field at both of its
+        // `builtins/standard.rs` callers, which is why the step-4 checks below
+        // are emitted there and nowhere else.
         //
         // That exemption is recorded here and in each arm, and **not** in a
         // type: open ledger row **LN10**. Under the pre-`Presence` code the same
@@ -15150,7 +15140,8 @@ impl<'a> FunctionBuilder<'a> {
             }
             // Purely run-time: the OR-fold *is* 6.2.6.1/6.2.6.2.
             (false, true) => {
-                for (index, present_local) in terms.runtime_flags().iter().enumerate() {
+                let runtime_flags = terms.runtime_flags();
+                for (index, present_local) in runtime_flags.iter().enumerate() {
                     function.instruction(&Instruction::LocalGet(*present_local));
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::I64Ne);

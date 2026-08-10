@@ -111,10 +111,10 @@ pub use operations::{
     CompletionAbruptKind, CompletionKindIr, CompletionRecordIr, DoneSlot, EcmaLanguageType,
     EmitterEvidence, EqualityBinaryOp, IteratorRecordIr, IteratorSlot, LogicalBinaryOp,
     NextMethodSlot, NormalResult, NumericUpdateOp, OperationLoweringStatus, OwnerTaskId,
-    RelationalBinaryOp, RowSource, SpecOperationCatalogEntry, SpecOperationFamily,
-    SpecOperationIr, StatementEmissionRow, ToPrimitiveHint, TrackedGapReason, TrackedGapRow,
-    UnaryNumericOp, UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
-    SPEC_OPERATION_ROW_COUNT, STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
+    RelationalBinaryOp, RowSource, SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr,
+    StatementEmissionRow, ToPrimitiveHint, TrackedGapReason, TrackedGapRow, UnaryNumericOp,
+    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
+    STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
 };
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,

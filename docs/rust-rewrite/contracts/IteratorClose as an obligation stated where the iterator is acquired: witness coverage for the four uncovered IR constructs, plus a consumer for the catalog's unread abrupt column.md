@@ -1802,3 +1802,66 @@ reads more into the result than is there.
     realm. Rung G will be non-empty for that reason and no other; the diff should
     show changes only in functions containing an array-literal spread whose
     operand is not statically an `Array`.
+
+---
+
+## 12. Round-4 integration gate (integrator record)
+
+Tree `1939975ad`, branch `claude/test-driven-rust-opus-pp6giw`. Batch 5 held the
+build lock throughout; every command queued on it.
+
+### 12.1 Compile gate
+
+`cargo check -p porffor-ir` **exit 0** (6 warnings, all baseline);
+`cargo xc` **exit 0**, 0 errors; `cargo fmt --all` clean after formatting
+`operations.rs`, `ir.rs` and `lib.rs`.
+
+Group A compiled as written. Of §6.5's three ranked failure predictions, (a) the
+rustfmt reflow of the `lib.rs` `pub use` block **did** occur and is fixed; (b)
+the `emission_sites!` `#[$meta:meta]` passthrough compiled — `///` really does
+desugar to `#[doc = "…"]` and deviation 1 of §6.3 is confirmed correct against
+the compiler, not merely argued; (c) J13's four nested `const` `while` loops
+evaluated without hitting a const-eval limit.
+
+### 12.2 Counterfactuals — every const assertion was made to fail on purpose
+
+The failure mode this area exists to remove is an assertion that passes in both
+the pre-change and post-change tree. §11.2 asks for the K1 counterfactual by
+name. All four were executed against the real tree — patch, compile, record,
+restore, verify the restore by `md5sum`.
+
+| # | Injected mistake | Diagnostic |
+|---|---|---|
+| **K1** (+K2, +J10) | `ARRAY_DESTRUCTURING_PROTOCOL` re-pointed at `EmissionSite::SyncForOfIterator`, so no witness names `ArrayDestructuring` | **three** `E0080`s: `an EmissionSite names an emitter arm that no IR construct's witness has accepted` (K1, `:746`); `ArrayPatternProtocol::ARRAY_DESTRUCTURING must emit all four 7.4 obligations…` (K2, `:759`); `a statement-emission row credits a site that no witness constant discharges by emission of that row's own operation` (J10, `operations.rs:1538`) |
+| **M1a** | one of the two `ArrayDestructuringPatternIr` construction sites in `lowering.rs` drops `protocol` | **`E0063`** `missing field protocol in initializer of ir::ArrayDestructuringPatternIr` (`lowering.rs:32338`) |
+| **M3d / K4** | `ArrayDestructuring`'s row copied `SyncForOfIterator`'s emitter name, so two variants denote one arm | **`E0080`** `two EmissionSite variants name the same emitter function` (`:791`) — and **only** K4 fired, so it is targeted rather than incidental |
+| **M4b / J13** | `SpecOperationIr::Get` moved from `MAY_THROW` into `NO_ABRUPT` — the shape of shipped-defect commit `ca09433c1` | **`E0080`** `a statement-emission row claims an abrupt exit no callee it names can produce` (`operations.rs:1671`) |
+
+Two results are worth more than the pass/fail:
+
+- **K1 is not decoration.** It fails on the pre-`ARRAY_DESTRUCTURING_PROTOCOL`
+  shape and passes after, which is the exact discrimination §11.2 asks for.
+- **M3d was found during encoding rather than specified in the contract**, and
+  K4 catches it alone — nothing else in the triangle (K1, J10, J11,
+  `emission_sites_are_backed`) notices two variants sharing one emitter, because
+  all four still resolve. That is the const assert earning `EmissionSite::name`
+  its place as an input rather than as an unread renderer.
+
+### 12.3 Group B and C: still not landed, and the reason has changed
+
+The round-3 blocker in §2.6 — the incomplete `SpreadLoopExitsOnlyWhenDone` read —
+was discharged by the round-4 rewrite to `SpreadCloseOwedOnlyAfterAcquisition`.
+What still blocks Group B is **only** concurrency and crate boundary:
+
+- `SpreadArgument` needs six pattern repairs plus an `emission_sites.rs` arm in
+  `porffor-aot-wasm` (`data.rs`, `functions.rs`, `planning.rs` ×4).
+- `YieldForm` needs seven out-of-crate pattern lines, two of them at
+  `control_flow.rs:1943`/`:2090` — the same file batch 5's iterator lane is live
+  in. §3.4's own sequencing note says to apply it *after* batch 5 lands.
+
+Group C (`ArraySpreadStrategy`, ledger IC-5) restructures ~40 lines inside
+`lower_array_literal` and its staged twin in `lowering.rs`, the crate's largest
+contention surface, and changes emitted bytes — unverifiable without rung G.
+
+None of the three were applied. Each is fully specified in the lane note; none
+is blocked on analysis.

@@ -7,10 +7,10 @@ use porffor_front::ParseGoal;
 use crate::{
     ArithmeticBinaryOp, ArrayPatternProtocol, BindingMode, BitwiseBinaryOp,
     CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
-    HostBuiltinId, IrDiagnostic,
-    IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage,
-    NativeErrorKind, NumericUpdateOp, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
-    StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    HostBuiltinId, IrDiagnostic, IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr,
+    LogicalBinaryOp, LoweringStage, NativeErrorKind, NumericUpdateOp, RegExpProgram,
+    RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp,
+    UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
 

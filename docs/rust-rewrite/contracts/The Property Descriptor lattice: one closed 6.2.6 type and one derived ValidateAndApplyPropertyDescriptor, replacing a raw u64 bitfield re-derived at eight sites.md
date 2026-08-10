@@ -2348,3 +2348,71 @@ without a conformance run.
    without a reason is a defect in this document.
 9. **Nothing in `emit_create_data_property_or_throw` changed.**
    `git diff --stat` shows no hunk overlapping `objects.rs:14374-14674`.
+
+---
+
+## 12. Round-4 integration gate (integrator record)
+
+Tree `1939975ad` + the working-tree hunks, branch `claude/test-driven-rust-opus-pp6giw`.
+Batch 5 held the build lock (`cargo build -p porffor-cli`, then
+`cargo test -p porffor-test262 --lib`); every command below queued on it rather
+than pre-empting it.
+
+### 12.1 Compile gate
+
+| Command | Result |
+|---|---|
+| `cargo check -p porffor-ir` | **exit 0**, 6 warnings — the same six as the batch-4 baseline, line numbers shifted |
+| `cargo check -p porffor-aot-wasm` | **exit 0**, 25 warnings — baseline was 26 |
+| `cargo xc` (`check --workspace --all-targets`) | **exit 0**, 0 errors |
+| `cargo fmt --all -- --check` | initially **not clean**; see §12.3 |
+
+**Zero type errors.** Every claim §6.5 of the lane note ranked as a likely
+failure mode — the `Presence` or-pattern bindings, the `const fn` on
+`Presence::value`/`known`/`runtime_flag`, the sealed-trait supertrait visibility
+in `objects.rs`, the generic `Debug` bounds — compiled as written. The one
+prediction that did land was the *formatting* one, not a type one.
+
+No new warning anywhere in the workspace. `porffor-aot-wasm` is one warning
+**below** baseline: `functions.rs`'s `unused variable: receiver_is_array` is
+gone, from a concurrent lane, not from this contract.
+
+### 12.2 Counterfactuals — the assertions are load-bearing
+
+AGENTS.md's standard is that a type earns its place iff a plausible mistake
+becomes a compile error. Asserting that in prose is worth nothing, so each was
+executed: patch the tree into the mistake, compile, record the diagnostic,
+restore, and verify the restore by `md5sum`.
+
+| Mistake class | Injected mistake | Diagnostic |
+|---|---|---|
+| **M1** | `apply_writable`'s accessor arm "helpfully" applies writability too — `Self::Accessor(word) => … word.set_writable_if_nonzero(flag_local, function)` | **`E0599`** `no method named set_writable_if_nonzero found for mutable reference &mut DescriptorKindLocal<AccessorKind>` (`objects.rs:566`) |
+
+M1 is the contract's headline claim and it holds exactly as stated in §2.2 of
+the lane note: the accessor arm has no method to call, so the 6.2.6.6 fact that
+an accessor property has no `[[Writable]]` field is enforced by name resolution
+rather than by a reviewer noticing.
+
+### 12.3 Formatting
+
+`cargo fmt --all -- --check` reported diffs in exactly six files —
+`objects.rs` (7), `property_descriptor.rs` (4), `operations.rs`, `lib.rs`,
+`ir.rs`, `heap.rs` (1 each) — and **in no others workspace-wide**, which is what
+made `cargo fmt --all` safe to run against a shared checkout with batch 2 live:
+it provably could not touch `intl_datetimeformat.rs`, `temporal*.rs`,
+`emitted_function.rs` or `runtime_helpers.rs`. Formatted; re-checked clean;
+`cargo xc` re-run green afterwards.
+
+### 12.4 What this gate did *not* establish
+
+- **Emitted bytes.** §7 criterion 5 requires the rung-G diff to be accounted for
+  row by row. Rung G is a test run and this campaign runs none, so §3.1–§3.7 of
+  the lane note remain a *paper* account. The two rows most likely to surprise
+  are unchanged and still owed: the temp-local renumbering (§3.2) and
+  `Static(Generic)` seeding `Data` where the old code seeded `Accessor`.
+- **`namespace.rs`'s eight substring assertions** (criterion 6) are a rung-1
+  command, not run here.
+- **LN2 / LN6–LN9 note-routed edits** were not applied. They live in
+  `builtins/standard.rs`, `builtins/array.rs`, `functions.rs` and `lowering.rs`
+  — outside this campaign's declared spec/IR layer, each with an emitted-byte
+  delta that only rung G can check. They stay routed, not silently dropped.

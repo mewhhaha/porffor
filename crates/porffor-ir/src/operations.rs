@@ -1036,7 +1036,10 @@ const _: () = {
         let mut j = i + 1;
         while j < AbruptDiscipline::ALL.len() {
             assert!(
-                !str_eq(AbruptDiscipline::ALL[i].name(), AbruptDiscipline::ALL[j].name()),
+                !str_eq(
+                    AbruptDiscipline::ALL[i].name(),
+                    AbruptDiscipline::ALL[j].name()
+                ),
                 "two AbruptDiscipline variants render the same name"
             );
             j += 1;
