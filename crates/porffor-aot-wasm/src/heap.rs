@@ -945,16 +945,266 @@ pub(crate) const ENV_SLOT_SIZE: u64 = 16;
 pub(crate) const ENV_SLOT_TAG_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const ENV_SLOT_UNINITIALIZED_TAG: i64 = -1;
-pub(crate) const OBJECT_DESCRIPTOR_ACCESSOR: u64 = 1;
-pub(crate) const OBJECT_DESCRIPTOR_CONFIGURABLE: u64 = 2;
-pub(crate) const OBJECT_DESCRIPTOR_WRITABLE: u64 = 4;
-pub(crate) const OBJECT_DESCRIPTOR_ENUMERABLE: u64 = 8;
+pub(crate) const OBJECT_DESCRIPTOR_ACCESSOR: u64 = DescriptorBit::Accessor.word();
+pub(crate) const OBJECT_DESCRIPTOR_CONFIGURABLE: u64 = DescriptorBit::Configurable.word();
+pub(crate) const OBJECT_DESCRIPTOR_WRITABLE: u64 = DescriptorBit::Writable.word();
+pub(crate) const OBJECT_DESCRIPTOR_ENUMERABLE: u64 = DescriptorBit::Enumerable.word();
+/// Data is the **absence** of the accessor bit, which is why the illegal word
+/// `ACCESSOR | WRITABLE` was representable: nothing forced a choice.
+/// [`DescriptorWord::of_data`] is the constructor that makes the absence a
+/// decision rather than a default.
 pub(crate) const OBJECT_DESCRIPTOR_DATA: u64 = 0;
 pub(crate) const PROPERTY_KEY_SYMBOL_MARKER: u64 = 1 << 63;
-pub(crate) const ARRAY_DESCRIPTOR_OWN_PROPERTY: u64 = 16;
-pub(crate) const ARGUMENTS_DESCRIPTOR_MAPPED: u64 = 32;
-pub(crate) const ARRAY_DESCRIPTOR_NORMAL_DATA: u64 =
-    OBJECT_DESCRIPTOR_CONFIGURABLE | OBJECT_DESCRIPTOR_WRITABLE | OBJECT_DESCRIPTOR_ENUMERABLE;
+pub(crate) const ARRAY_DESCRIPTOR_OWN_PROPERTY: u64 = DescriptorBit::ArrayOwnProperty.word();
+pub(crate) const ARGUMENTS_DESCRIPTOR_MAPPED: u64 = DescriptorBit::ArgumentsMapped.word();
+pub(crate) const ARRAY_DESCRIPTOR_NORMAL_DATA: u64 = DescriptorWord::of_data(true, true, true).bits();
+
+// These eight are not tautologies. They pin the **wire format** of a word that
+// is written at nine distinct heap offsets and read by 176 references across 11
+// files, so reordering `DescriptorBit`'s variants is a compile error rather
+// than a silent, total corruption of every object's property attributes.
+const _: () = assert!(OBJECT_DESCRIPTOR_ACCESSOR == 1);
+const _: () = assert!(OBJECT_DESCRIPTOR_CONFIGURABLE == 2);
+const _: () = assert!(OBJECT_DESCRIPTOR_WRITABLE == 4);
+const _: () = assert!(OBJECT_DESCRIPTOR_ENUMERABLE == 8);
+const _: () = assert!(OBJECT_DESCRIPTOR_DATA == 0);
+const _: () = assert!(ARRAY_DESCRIPTOR_OWN_PROPERTY == 16);
+const _: () = assert!(ARGUMENTS_DESCRIPTOR_MAPPED == 32);
+const _: () = assert!(ARRAY_DESCRIPTOR_NORMAL_DATA == 14);
+
+/// One bit of the descriptor-kind word stored at every
+/// `*_DESCRIPTOR_KIND_OFFSET`.
+///
+/// The word has **three** axes, not one:
+///
+/// | Bits | Meaning | Axis |
+/// |---|---|---|
+/// | 0 | `[[Get]]`/`[[Set]]` kind: 1 = accessor, 0 = data | descriptor kind |
+/// | 1 | `[[Configurable]]` | attribute |
+/// | 2 | `[[Writable]]` | attribute |
+/// | 3 | `[[Enumerable]]` | attribute |
+/// | 4 | array exotic: this index has an own property record | exotic flag |
+/// | 5 | mapped arguments: this index is mapped | exotic flag |
+/// | 32..63 | mapped-arguments environment slot index | exotic payload |
+///
+/// The third axis is the one that decides the shape of these types: a type that
+/// modelled only the four attribute bits would corrupt mapped arguments, whose
+/// environment slot rides in the top half of the same `u64`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DescriptorBit {
+    Accessor = 0,
+    Configurable = 1,
+    Writable = 2,
+    Enumerable = 3,
+    ArrayOwnProperty = 4,
+    ArgumentsMapped = 5,
+}
+
+impl DescriptorBit {
+    pub(crate) const fn word(self) -> u64 {
+        1u64 << (self as u32)
+    }
+}
+
+/// A descriptor-kind word as **stored** in a heap slot.
+///
+/// The constructors are exactly the two 6.2.6.6 licenses, and `of_accessor`
+/// takes no `writable` argument — so the bit pattern `ACCESSOR | WRITABLE`
+/// (= 5), an accessor property carrying a stale writable bit that a later
+/// accessor-to-data conversion reads back as `writable: true`, has **no
+/// constructor**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DescriptorWord(u64);
+
+impl DescriptorWord {
+    /// 6.2.6.6 for a data property: `[[Writable]]`, `[[Enumerable]]`,
+    /// `[[Configurable]]`, and the accessor bit clear.
+    pub(crate) const fn of_data(writable: bool, enumerable: bool, configurable: bool) -> Self {
+        let mut bits = 0u64;
+        if writable {
+            bits |= DescriptorBit::Writable.word();
+        }
+        if enumerable {
+            bits |= DescriptorBit::Enumerable.word();
+        }
+        if configurable {
+            bits |= DescriptorBit::Configurable.word();
+        }
+        Self(bits)
+    }
+
+    /// 6.2.6.6 for an accessor property. 10.1.6.3 steps 6.b and 7 say a
+    /// conversion between kinds preserves only `[[Enumerable]]` and
+    /// `[[Configurable]]`; there is no `writable` parameter because an accessor
+    /// property has no `[[Writable]]` attribute to preserve.
+    pub(crate) const fn of_accessor(enumerable: bool, configurable: bool) -> Self {
+        let mut bits = DescriptorBit::Accessor.word();
+        if enumerable {
+            bits |= DescriptorBit::Enumerable.word();
+        }
+        if configurable {
+            bits |= DescriptorBit::Configurable.word();
+        }
+        Self(bits)
+    }
+
+    /// Attach the orthogonal exotic axis. Separate from the two constructors so
+    /// that the descriptor kind is never decided *by* an exotic flag.
+    pub(crate) const fn with_flags(self, flags: DescriptorFlags) -> Self {
+        let mut bits = self.0;
+        if flags.array_own_property {
+            bits |= DescriptorBit::ArrayOwnProperty.word();
+        }
+        match flags.mapped {
+            None => {}
+            Some(slot) => bits |= DescriptorBit::ArgumentsMapped.word() | slot.packed(),
+        }
+        Self(bits)
+    }
+
+    pub(crate) const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) const fn as_i64(self) -> i64 {
+        self.0 as i64
+    }
+}
+
+/// A **test** against a descriptor word.
+///
+/// Deliberately a different type from [`DescriptorWord`], with no conversion in
+/// either direction: composites like `ACCESSOR | WRITABLE` are illegal as
+/// stored values and *legal and needed* as masks — the one at
+/// [`DescriptorMask::ACCESSOR_OR_WRITABLE`] asks "is the existing entry a data
+/// property that is not writable" in a single `I64And`, and banning the bit
+/// pattern outright would break correct code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DescriptorMask(u64);
+
+impl DescriptorMask {
+    pub(crate) const ACCESSOR: Self = Self(DescriptorBit::Accessor.word());
+    pub(crate) const WRITABLE: Self = Self(DescriptorBit::Writable.word());
+    pub(crate) const ENUMERABLE: Self = Self(DescriptorBit::Enumerable.word());
+    pub(crate) const CONFIGURABLE: Self = Self(DescriptorBit::Configurable.word());
+    /// "The existing entry is a data descriptor **and** is not writable", in
+    /// one `I64And`. A legal mask; not a legal word.
+    pub(crate) const ACCESSOR_OR_WRITABLE: Self =
+        Self(DescriptorBit::Accessor.word() | DescriptorBit::Writable.word());
+    /// Bits 0..3: the descriptor kind and the three attributes.
+    pub(crate) const KIND_AND_ATTRIBUTES: Self = Self(
+        DescriptorBit::Accessor.word()
+            | DescriptorBit::Configurable.word()
+            | DescriptorBit::Writable.word()
+            | DescriptorBit::Enumerable.word(),
+    );
+    /// Bits 4..5: the two exotic flags.
+    pub(crate) const EXOTIC_FLAGS: Self =
+        Self(DescriptorBit::ArrayOwnProperty.word() | DescriptorBit::ArgumentsMapped.word());
+
+    pub(crate) const fn of(bit: DescriptorBit) -> Self {
+        Self(bit.word())
+    }
+
+    pub(crate) const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) const fn as_i64(self) -> i64 {
+        self.0 as i64
+    }
+
+    pub(crate) const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+/// The exotic axis. Orthogonal to the descriptor kind: an array's own-property
+/// marker and an arguments object's mapping are not descriptor kinds and must
+/// not share the kind namespace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct DescriptorFlags {
+    pub(crate) array_own_property: bool,
+    /// `Some(slot)` sets bit 5 **and** packs `slot` into bits 32..63. The two
+    /// cannot be set independently, which is what the mapped-arguments writer
+    /// in `functions.rs` does by hand today.
+    pub(crate) mapped: Option<MappedSlot>,
+}
+
+/// A mapped-arguments environment slot index, living in bits 32..63 of the
+/// descriptor-kind word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MappedSlot(u32);
+
+impl MappedSlot {
+    pub(crate) const SHIFT: u32 = 32;
+
+    pub(crate) const fn new(slot: u32) -> Self {
+        Self(slot)
+    }
+
+    pub(crate) const fn packed(self) -> u64 {
+        (self.0 as u64) << Self::SHIFT
+    }
+}
+
+// The layout the three axes depend on, asserted at build time.
+const _: () = assert!(
+    DescriptorMask::KIND_AND_ATTRIBUTES.bits() & DescriptorMask::EXOTIC_FLAGS.bits() == 0,
+    "the descriptor kind bits and the exotic flag bits must not overlap",
+);
+const _: () = assert!(
+    (DescriptorMask::KIND_AND_ATTRIBUTES.bits() | DescriptorMask::EXOTIC_FLAGS.bits())
+        < (1u64 << MappedSlot::SHIFT),
+    "every flag bit must sit below the mapped-slot payload at bit 32",
+);
+// This one earns its place: the *reader* of the mapped slot is a bare
+// `I64Const(32); I64ShrU` in `functions.rs`, and the writer is a bare `<< 32`.
+// Changing `SHIFT` without changing those three literals would be silent.
+const _: () = assert!(
+    MappedSlot::SHIFT == 32,
+    "the mapped-slot readers in functions.rs shift the stored word right by a literal 32",
+);
+const _: () = assert!(
+    DescriptorWord::of_data(false, false, false)
+        .with_flags(DescriptorFlags {
+            array_own_property: false,
+            mapped: Some(MappedSlot::new(7)),
+        })
+        .bits()
+        == (ARGUMENTS_DESCRIPTOR_MAPPED | (7u64 << 32)),
+    "DescriptorFlags must reproduce the mapped-arguments writer's \
+     `ARGUMENTS_DESCRIPTOR_MAPPED | ((slot as i64) << 32)`",
+);
+const _: () = assert!(
+    DescriptorWord::of_accessor(false, false)
+        .with_flags(DescriptorFlags {
+            array_own_property: true,
+            mapped: None,
+        })
+        .bits()
+        == (ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR),
+    "DescriptorFlags must reproduce the two hand-built \
+     `ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR` words",
+);
+const _: () = assert!(
+    DescriptorMask::ACCESSOR
+        .union(DescriptorMask::WRITABLE)
+        .bits()
+        == DescriptorMask::ACCESSOR_OR_WRITABLE.bits(),
+);
+// A mask is not a word: the bit pattern 5 is reachable as a `DescriptorMask`
+// and unreachable as a `DescriptorWord`. There is no constructor that produces
+// it, which is the whole point, so this asserts the negation on the two that
+// exist.
+const _: () = assert!(
+    DescriptorWord::of_accessor(true, true).bits() & DescriptorBit::Writable.word() == 0,
+    "an accessor word can never carry [[Writable]]",
+);
+const _: () = assert!(
+    DescriptorWord::of_data(true, true, true).bits() & DescriptorBit::Accessor.word() == 0,
+    "a data word can never carry the accessor bit",
+);
 pub(crate) const BOXED_PRIMITIVE_KIND_NONE: u64 = 0;
 pub(crate) const BOXED_PRIMITIVE_KIND_NUMBER: u64 = 1;
 pub(crate) const BOXED_PRIMITIVE_KIND_STRING: u64 = 2;

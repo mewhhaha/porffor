@@ -12,7 +12,7 @@
 //! See `docs/rust-rewrite/contracts/Spec-operation catalog evidence and the
 //! iterator-protocol obligation witness.md`.
 
-use crate::iterator_obligations::EmissionSite;
+use crate::iterator_obligations::{site_is_witnessed, EmissionSite};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingMode {
@@ -928,6 +928,59 @@ impl SpecOperationCatalogEntry {
     }
 }
 
+/// How an emitter arm gets an abrupt completion out of itself.
+///
+/// This is the column that makes [`StatementEmissionRow::abrupt`] mean
+/// something. Before it, `abrupt` had **zero** readers anywhere in the
+/// workspace: a machine-readable statement of which operations may throw, kept
+/// alive by `pub`. A row that says "this operation may throw" must also say
+/// what happens to the throw.
+///
+/// Closed, and each variant names emitted code that was read rather than
+/// assumed. What the const assertions below prove is a **table** claim — that a
+/// row states a discipline consistent with its `abrupt` set. They do *not*
+/// prove that the named emitter body implements that discipline: `porffor-ir`
+/// cannot see `porffor-aot-wasm`, the dependency runs the other way. That
+/// boundary is ledger **L2**, restated as **IC-1** in the iterator-close
+/// contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AbruptDiscipline {
+    /// The operation has no abrupt completion at all; `abrupt` must be empty.
+    NoAbruptExit,
+    /// Abrupt completions leave through the shared current-completion channel
+    /// and close nothing: any iterator in scope belongs to the caller, and
+    /// 7.4.8/7.4.9 have already set `[[Done]]` on every path that can fail.
+    /// (`emit_propagate_throw_from_locals_if_needed`,
+    /// `emit_propagate_current_completion_if_throw`.)
+    PropagateWithoutClose,
+    /// The arm closes the acquired iterator on abrupt exit and implements
+    /// 7.4.11 step 4 on **both** sides: `emit_iterator_close_preserving_current_throw`
+    /// when a throw is already in flight (step 5 fires first — the original
+    /// completion wins and the close's own error is swallowed), and
+    /// `emit_iterator_close` otherwise (step 6 — the close's error *replaces* a
+    /// `break`/`continue`/`return`).
+    CloseOnAbruptExitWithStep4Precedence,
+}
+
+impl AbruptDiscipline {
+    /// The rendered name, and — more usefully — the exhaustive match that makes
+    /// the domain closed in practice.
+    ///
+    /// J12 reads `discipline` through `matches!`, which has an implicit
+    /// catch-all and so would silently accept a fourth variant. This arm list
+    /// has none, so adding a discipline without saying what it is called is
+    /// `E0004` rather than a variant that no assertion constrains. That is the
+    /// same reason `CompletionKindIr`, `IteratorObligation` and
+    /// `IntactnessPremise` each carry one.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NoAbruptExit => "no abrupt exit",
+            Self::PropagateWithoutClose => "propagate without close",
+            Self::CloseOnAbruptExitWithStep4Precedence => "close, 7.4.11 step 4 precedence",
+        }
+    }
+}
+
 /// A row for an operation emitted by a statement-shaped emitter arm rather than
 /// by a `SpecOperationIr` arm.
 ///
@@ -945,6 +998,21 @@ pub struct StatementEmissionRow {
     pub family: SpecOperationFamily,
     pub normal_result: NormalResult,
     pub abrupt: &'static [CompletionAbruptKind],
+    /// What happens to an abrupt completion of this operation. Required, with
+    /// no `Default`: a new row that declares an abrupt set and says nothing
+    /// about how the abruption leaves is `E0063`, and a declared discipline
+    /// that disagrees with the set is `E0080` (J12).
+    pub discipline: AbruptDiscipline,
+    /// The abstract operations this row's own spec definition invokes,
+    /// transcribed from the spec text cited beside each row.
+    ///
+    /// This is the reader that consumes [`SpecOperationIr::abrupt`]: const
+    /// assert J13 requires the caller's `abrupt` set to contain every abrupt
+    /// completion each callee may return. Nothing in this crate can read
+    /// ECMA-262, so under-listing a callee only *weakens* J13 and can never
+    /// forge a containment — ledger **IC-2** bounds it. Every entry is a real
+    /// `SpecOperationIr` variant, which is type-checked.
+    pub calls: &'static [SpecOperationIr],
     pub sites: &'static [EmissionSite],
 }
 
@@ -995,17 +1063,24 @@ const T04: OwnerTaskId = OwnerTaskId::new("T04");
 /// statement arms rather than by a `SpecOperationIr` arm.
 ///
 /// Evidence, read rather than assumed: `compile_for_of_iterator`
-/// (`control_flow.rs:7422`) emits the `@@iterator` `Get`, the `Call`, the
+/// (`control_flow.rs:6874`) emits the `@@iterator` `Get`, the `Call`, the
 /// once-only `Get` of `"next"`, the per-step `next()` call and the
 /// `"done"`/`"value"` reads, and routes exits through
-/// `emit_iterator_close_condition_i32` into `emit_iterator_close` or
-/// `emit_iterator_close_preserving_current_throw`.
-/// `compile_async_for_of_iterator` (`control_flow.rs:6078`) open-codes the async
-/// close. `compile_array_destructure_from_value_locals` (`control_flow.rs:8220`)
+/// `emit_iterator_close_condition_i32` (`:8451`) into `emit_iterator_close`
+/// (`:8479`) or `emit_iterator_close_preserving_current_throw` (`:8622`).
+/// `compile_async_for_of_iterator` (`control_flow.rs:5577`) open-codes the async
+/// close. `compile_array_destructure_from_value_locals` (`control_flow.rs:7656`)
 /// runs the same four operations for every array destructuring — it has no array
-/// fast path — via `emit_get_iterator_from_value_locals`,
-/// `emit_destructuring_iterator_step`, `emit_iterator_close` and
-/// `emit_iterator_close_preserving_current_throw`.
+/// fast path — via `emit_get_iterator_from_value_locals` (`:7687`),
+/// `emit_destructuring_iterator_step` (`:8099`), `emit_iterator_close` (`:7710`)
+/// and `emit_iterator_close_preserving_current_throw` (`:7729`), the last two
+/// under the `[[Done]]` guard 8.6.3 step 5 requires.
+///
+/// Every entry is checked twice: J10 requires some `IteratorProtocolWitness`
+/// constant to discharge an obligation by emission at it (so no arm is credited
+/// that no IR construct admits to running), and J11 requires every
+/// `EmissionSite` to appear in some row here (so no variant exists only to
+/// satisfy J10's converse).
 const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
     EmissionSite::SyncForOfIterator,
     EmissionSite::AsyncForOfIterator,
@@ -1019,6 +1094,16 @@ pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::IteratorRecord,
         abrupt: MAY_THROW,
+        // 7.4.2 steps 3-5: `GetMethod(obj, @@iterator)`, `Call(method, obj)`,
+        // and the once-only `Get(iterator, "next")`.
+        calls: &[
+            SpecOperationIr::GetMethod,
+            SpecOperationIr::Call,
+            SpecOperationIr::Get,
+        ],
+        // Nothing has been acquired yet on any failing path, so there is
+        // nothing this operation could close.
+        discipline: AbruptDiscipline::PropagateWithoutClose,
         sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
@@ -1026,6 +1111,18 @@ pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::ObjectOrFalse,
         abrupt: MAY_THROW,
+        // 7.4.8 via IteratorNext (`Call(next, iterator)`, object check) and
+        // IteratorComplete (`ToBoolean(Get(result, "done"))`).
+        calls: &[
+            SpecOperationIr::Call,
+            SpecOperationIr::Get,
+            SpecOperationIr::ToBoolean,
+        ],
+        // The iterator belongs to the caller, and ES2025's `IteratorStepValue`
+        // sets `[[Done]]` on every abrupt path it has, so 7.4.11 is not owed by
+        // this operation. Emitting a close here would be an observable extra
+        // call to `return`.
+        discipline: AbruptDiscipline::PropagateWithoutClose,
         sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
@@ -1033,6 +1130,9 @@ pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::LanguageValue,
         abrupt: MAY_THROW,
+        // 7.4.9: `Get(result, "value")`, read after `"done"`.
+        calls: &[SpecOperationIr::Get],
+        discipline: AbruptDiscipline::PropagateWithoutClose,
         sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
@@ -1040,6 +1140,13 @@ pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::CompletionRecord,
         abrupt: CONTROL_COMPLETIONS,
+        // 7.4.11 step 3 (`GetMethod(iterator, "return")`) and step 4.c
+        // (`Call(return, iterator)`).
+        calls: &[SpecOperationIr::GetMethod, SpecOperationIr::Call],
+        // Steps 5 and 6, in that order, are the whole content of the asymmetry:
+        // a `throw` completion wins over the close's own error, a
+        // `break`/`continue`/`return` completion does not.
+        discipline: AbruptDiscipline::CloseOnAbruptExitWithStep4Precedence,
         sites: SYNC_PROTOCOL_SITES,
     },
     StatementEmissionRow {
@@ -1047,6 +1154,10 @@ pub const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
         family: SpecOperationFamily::Iterator,
         normal_result: NormalResult::CompletionRecord,
         abrupt: CONTROL_COMPLETIONS,
+        // 7.4.12 steps 3 and 4.c. `Await` is not a `SpecOperationIr` variant
+        // and contributes no row.
+        calls: &[SpecOperationIr::GetMethod, SpecOperationIr::Call],
+        discipline: AbruptDiscipline::CloseOnAbruptExitWithStep4Precedence,
         sites: ASYNC_CLOSE_SITES,
     },
 ];
@@ -1197,7 +1308,11 @@ const CATALOG: [SpecOperationCatalogEntry; SPEC_OPERATION_ROW_COUNT] = build_cat
 pub static SPEC_OPERATION_CATALOG: [SpecOperationCatalogEntry; SPEC_OPERATION_ROW_COUNT] = CATALOG;
 
 /// Byte-wise `str` equality, usable in `const`.
-const fn str_eq(a: &str, b: &str) -> bool {
+///
+/// `pub(crate)` so that `iterator_obligations`'s K4 uses this one rather than
+/// keeping a second copy — one const reference implementation, not two that can
+/// drift.
+pub(crate) const fn str_eq(a: &str, b: &str) -> bool {
     let a = a.as_bytes();
     let b = b.as_bytes();
     if a.len() != b.len() {
@@ -1294,6 +1409,142 @@ const _: () = {
             !STATEMENT_EMISSION_ROWS[i].sites.is_empty(),
             "a statement-emission row names no emitter arm"
         );
+        i += 1;
+    }
+};
+
+// (J10) The catalog may not credit an emitter arm that no acquisition has
+//       accepted. J7 established that a row names *some* site; this establishes
+//       that the site is one an `IteratorProtocolWitness` constant discharges by
+//       emission — i.e. that some IR construct admits to causing that arm to
+//       run.
+//
+//       Before `ARRAY_DESTRUCTURING_PROTOCOL` existed this failed:
+//       `SYNC_PROTOCOL_SITES` had credited `EmissionSite::ArrayDestructuring`
+//       since the catalog was written, and no witness named it. The attribution
+//       was *true* — `compile_array_destructure_from_value_locals` really does
+//       emit all four obligations — but nothing in the IR had said so, and
+//       nothing could see the asymmetry.
+const _: () = {
+    let mut i = 0;
+    while i < STATEMENT_EMISSION_ROWS.len() {
+        let sites = STATEMENT_EMISSION_ROWS[i].sites;
+        let mut j = 0;
+        while j < sites.len() {
+            assert!(
+                site_is_witnessed(sites[j]),
+                "a statement-emission row credits a site no witness constant names"
+            );
+            j += 1;
+        }
+        i += 1;
+    }
+};
+
+// (J11) ...and the converse: every `EmissionSite` must be credited by some
+//       catalog row, so a variant cannot exist purely to satisfy K1 in
+//       `iterator_obligations.rs`. Together with K1 (site ⇒ witness), J10
+//       (catalog ⇒ site) and `emission_sites_are_backed` (site ⇒ real function)
+//       this closes the triangle: a new site cannot land without its witness and
+//       its row in the same patch.
+const _: () = {
+    let mut i = 0;
+    while i < EmissionSite::ALL.len() {
+        let mut found = false;
+        let mut j = 0;
+        while j < STATEMENT_EMISSION_ROWS.len() {
+            let sites = STATEMENT_EMISSION_ROWS[j].sites;
+            let mut k = 0;
+            while k < sites.len() {
+                if sites[k] as u8 == EmissionSite::ALL[i] as u8 {
+                    found = true;
+                }
+                k += 1;
+            }
+            j += 1;
+        }
+        assert!(found, "an EmissionSite is named by no catalog row");
+        i += 1;
+    }
+};
+
+// (J12) `abrupt` and `discipline` agree, in both directions.
+//
+//   (a) An empty `abrupt` set and `NoAbruptExit` imply one another. This is the
+//       sentence the `discipline` column exists to make true: a row that says
+//       the operation may throw and declares no propagation discipline is
+//       unrepresentable, because the only discipline compatible with an empty
+//       `abrupt` is the one that says there is no abrupt exit.
+//
+//   (b) A row claiming 7.4.11 step-4 precedence must carry the completions
+//       step 4 distinguishes. The asymmetry between step 5 and step 6 has no
+//       content unless `break`/`continue`/`return` are possible alongside
+//       `throw`; claiming the asymmetry with only one side is claiming nothing.
+const _: () = {
+    let mut i = 0;
+    while i < STATEMENT_EMISSION_ROWS.len() {
+        let row = STATEMENT_EMISSION_ROWS[i];
+        let is_none = matches!(row.discipline, AbruptDiscipline::NoAbruptExit);
+        assert!(
+            row.abrupt.is_empty() == is_none,
+            "a statement-emission row's abrupt set and propagation discipline disagree"
+        );
+        if matches!(
+            row.discipline,
+            AbruptDiscipline::CloseOnAbruptExitWithStep4Precedence
+        ) {
+            assert!(
+                row.abrupt.len() == 4,
+                "a row claiming 7.4.11 step 4 precedence must admit all four abrupt kinds"
+            );
+        }
+        i += 1;
+    }
+};
+
+// (J13) Callee containment: every abrupt completion a callee may return must
+//       appear in the caller's `abrupt` set.
+//
+//       This is the first and only reader of `SpecOperationIr::abrupt()` on the
+//       product path — before it, the whole column was a machine-readable claim
+//       nothing consumed. Marking `Get` as `NO_ABRUPT` — the shape of commit
+//       `ca09433c1`, where abrupt completions were compiled as if they could not
+//       escape — now fails the build at the `IteratorValue` row rather than
+//       waiting for a conformance run.
+//
+//       This is a guard, not a repair: it passes on today's values. Ledger
+//       **IC-2** bounds what it cannot see — a row that lists fewer callees than
+//       the spec text gives only weakens the check, and can never forge a
+//       containment.
+const _: () = {
+    let mut i = 0;
+    while i < STATEMENT_EMISSION_ROWS.len() {
+        let row = STATEMENT_EMISSION_ROWS[i];
+        assert!(
+            !row.calls.is_empty(),
+            "a statement-emission row names no callee; 7.4's operations all invoke something"
+        );
+        let mut j = 0;
+        while j < row.calls.len() {
+            let callee = row.calls[j].abrupt();
+            let mut k = 0;
+            while k < callee.len() {
+                let mut found = false;
+                let mut m = 0;
+                while m < row.abrupt.len() {
+                    if row.abrupt[m] as u8 == callee[k] as u8 {
+                        found = true;
+                    }
+                    m += 1;
+                }
+                assert!(
+                    found,
+                    "a statement-emission row omits an abrupt completion its callee may return"
+                );
+                k += 1;
+            }
+            j += 1;
+        }
         i += 1;
     }
 };

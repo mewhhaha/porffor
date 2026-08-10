@@ -216,10 +216,10 @@ pub enum IntactnessPremise {
     /// than skipping or replacing it.
     ///
     /// [`PremiseKind::ImplementationFact`], and a discharged one: dry run
-    /// verified `utf16_units_to_runtime_string` (`lowering.rs:3162`) pairs
+    /// verified `utf16_units_to_runtime_string` (`lowering.rs:3161`) pairs
     /// surrogates and escapes unpaired ones, `Data::runtime_bytes_for_string`
-    /// (`data.rs:3721`) re-encodes the escape through `push_wtf8_code_unit`,
-    /// and `emit_decode_utf8_scalar_at_index` (`builtins/string.rs:19762`)
+    /// (`data.rs:3911`) re-encodes the escape through `push_wtf8_code_unit`,
+    /// and `emit_decode_utf8_scalar_at_index` (`builtins/string.rs:19747`)
     /// decodes 3- and 4-byte sequences without rejecting `D800`-`DFFF`. Astral
     /// pairs and lone surrogates each yield exactly one iteration.
     StringWalkIsCodePoint,
@@ -589,6 +589,144 @@ const fn emits_every_obligation(witness: IteratorProtocolWitness, site: Emission
         && emits(witness, IteratorObligation::IteratorClose, site)
 }
 
+/// The four obligations, as a value to quantify over.
+///
+/// Promoted out of `#[cfg(test)]`: [`site_is_witnessed`] is a product-path
+/// caller, so this is the opposite of the "survival by `pub`" shape — it is a
+/// const with a const consumer, and the test module below reads the same one
+/// rather than keeping a second copy that could drift from it.
+pub(crate) const ALL_OBLIGATIONS: [IteratorObligation; 4] = [
+    IteratorObligation::GetIterator,
+    IteratorObligation::IteratorStep,
+    IteratorObligation::IteratorValue,
+    IteratorObligation::IteratorClose,
+];
+
+/// Every witness constant, by name.
+///
+/// Written over *names* rather than over values because
+/// [`IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE`] **is**
+/// [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — six names, five distinct
+/// values — so a value-distinctness check would be vacuous.
+///
+/// `pub(crate)`, like every other reader of a witness's contents: a
+/// `porffor-aot-wasm` arm that reached for this list would be `E0603`, which is
+/// the same prohibition the accessors carry.
+pub(crate) const ALL_WITNESSES: &[IteratorProtocolWitness] = &[
+    IteratorProtocolWitness::ARRAY_INDEX_WALK,
+    IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE,
+    IteratorProtocolWitness::STRING_CODE_POINT_WALK,
+    IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL,
+    IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL,
+    IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+    IteratorProtocolWitness::NO_ITERATION,
+];
+
+/// True when some witness constant discharges some obligation by emission at
+/// `site` — i.e. some IR construct has accepted responsibility for that emitter
+/// arm.
+///
+/// This is the direction the catalog could not state. `EmissionSite` already
+/// guarantees that a variant *names a real function*; what it could not
+/// guarantee is that any construct in the IR admits to causing that function to
+/// run. `SYNC_PROTOCOL_SITES` credited `ArrayDestructuring` while no witness
+/// mentioned it, and nothing could see the asymmetry.
+pub(crate) const fn site_is_witnessed(site: EmissionSite) -> bool {
+    let mut i = 0;
+    while i < ALL_WITNESSES.len() {
+        let witness = ALL_WITNESSES[i];
+        let mut j = 0;
+        while j < ALL_OBLIGATIONS.len() {
+            // `match` and `as u8`, not `if let` and `==`: this is the shape the
+            // `assumes`/`emits` helpers above already use, because
+            // `EmissionSite` has no `const` `PartialEq`.
+            match witness.discharge(ALL_OBLIGATIONS[j]) {
+                ObligationDischarge::ByEmission(actual) => {
+                    if actual as u8 == site as u8 {
+                        return true;
+                    }
+                }
+                ObligationDischarge::ByAssumption(_) => {}
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+    false
+}
+
+// (K1) Every `EmissionSite` is witnessed: no emitter arm may be named by the
+//      site domain without some IR construct's witness accepting responsibility
+//      for it.
+//
+//      This assertion **failed on the tree that preceded
+//      `ARRAY_DESTRUCTURING_PROTOCOL`**: `SYNC_PROTOCOL_SITES` credited
+//      `EmissionSite::ArrayDestructuring` and the six witness constants named
+//      only the two for-of sites. That is the point — a tie that passes before
+//      and after the change it is supposed to force is decoration. Reverting
+//      `ARRAY_DESTRUCTURING_PROTOCOL` in a scratch copy reproduces the failure.
+const _: () = {
+    let mut i = 0;
+    while i < EmissionSite::ALL.len() {
+        assert!(
+            site_is_witnessed(EmissionSite::ALL[i]),
+            "an EmissionSite names an emitter arm that no IR construct's witness has accepted"
+        );
+        i += 1;
+    }
+};
+
+// (K2) The new constant says what its doc comment says, in the same shape as
+//      the two `emits_every_obligation` assertions above.
+const _: () = assert!(
+    emits_every_obligation(
+        IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+        EmissionSite::ArrayDestructuring,
+    ),
+    "ARRAY_DESTRUCTURING_PROTOCOL must emit all four 7.4 obligations at \
+     compile_array_destructure_from_value_locals"
+);
+
+// (K3) `ALL_WITNESSES` is complete.
+//
+//      Honestly weak, and recorded as ledger **IC-4** rather than claimed as a
+//      proof: this is the `ALL.len() == 29` shape that ledger L1 showed cannot
+//      detect its own omission, because the count is exactly what forgetting a
+//      row preserves. It is kept because it costs one line and turns "added a
+//      constant, forgot the census" from silence into a failure the author of
+//      the next constant sees. The strong form — generating the constants from
+//      one row list, as `emission_sites!` does for the sites — is not available:
+//      each constant's body is a different four-argument expression, not a row.
+const _: () = assert!(ALL_WITNESSES.len() == 7, "ALL_WITNESSES is out of date");
+
+// (K4) Two sites may not name the same emitter function.
+//
+//      `emission_sites_are_backed` proves each variant names *a* real function;
+//      it cannot notice that two variants name the *same* one. A copy-pasted row
+//      whose string was not changed would pass name resolution, pass K1, pass
+//      J10 and J11, and leave the catalog crediting "two arms" that are one arm
+//      — with `AbruptDiscipline` and the witness census then attributing one
+//      emitter's obligations twice. This is also `EmissionSite::name`'s only
+//      consumer, which is the point: a renderer nobody reads is the "survival by
+//      `pub`" shape, and this is a `const` reader that catches a real mistake.
+const _: () = {
+    let mut i = 0;
+    while i < EmissionSite::ALL.len() {
+        let mut j = i + 1;
+        while j < EmissionSite::ALL.len() {
+            assert!(
+                !crate::operations::str_eq(
+                    EmissionSite::ALL[i].name(),
+                    EmissionSite::ALL[j].name()
+                ),
+                "two EmissionSite variants name the same emitter function"
+            );
+            j += 1;
+        }
+        i += 1;
+    }
+};
+
 /// The array index walk emits nothing and rests on four named premises.
 /// `compile_for_of_array` contains no `@@iterator` read at all, so flipping any
 /// of these to `ByEmission` would be a lie about the emitter.
@@ -711,14 +849,11 @@ const _: () = assert!(
 
 #[cfg(test)]
 mod tests {
+    // `ALL_OBLIGATIONS` is the module-level `pub(crate)` const, reached through
+    // this glob. The test-local copy is deleted: two lists of the same four
+    // obligations is the drift shape this area exists to remove, and the
+    // module-level one now has a product-path caller (`site_is_witnessed`).
     use super::*;
-
-    const ALL_OBLIGATIONS: [IteratorObligation; 4] = [
-        IteratorObligation::GetIterator,
-        IteratorObligation::IteratorStep,
-        IteratorObligation::IteratorValue,
-        IteratorObligation::IteratorClose,
-    ];
 
     /// The array walk claims to emit nothing and to rely on four named
     /// premises. Flipping one obligation to `ByEmission` would be a lie about
@@ -763,30 +898,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn iterator_protocol_witnesses_emit_every_obligation() {
-        for (witness, site) in [
-            (
-                IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL,
-                EmissionSite::SyncForOfIterator,
-            ),
-            (
-                IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL,
-                EmissionSite::AsyncForOfIterator,
-            ),
-        ] {
-            assert!(witness.is_fully_emitted());
-            for obligation in ALL_OBLIGATIONS {
-                assert_eq!(
-                    witness.discharge(obligation),
-                    ObligationDischarge::ByEmission(site),
-                    "{} must be emitted by {}",
-                    obligation.name(),
-                    site.name()
-                );
-            }
-        }
-    }
+    // `iterator_protocol_witnesses_emit_every_obligation` is deleted. It
+    // asserted, at test time, exactly what the `emits_every_obligation` const
+    // assertions above assert at `cargo check` time for
+    // `SYNC_ITERATOR_PROTOCOL`, `ASYNC_ITERATOR_PROTOCOL` and (K2)
+    // `ARRAY_DESTRUCTURING_PROTOCOL` — and it under-covered, because its
+    // hand-written pair list named two of the three. A runtime check that
+    // survives beside the compile-time check it duplicates is evidence the
+    // compile-time one is decoration; here it is not, so the runtime one goes.
+    // Which witnesses exist at all is `ALL_WITNESSES` + K3, not a list here.
 
     /// Ledger **L3** keys off this split: only `ProgramProperty` premises owe a
     /// lowering-time guard. `ByAssumption(ArrayLengthReadOnce)` used to read as

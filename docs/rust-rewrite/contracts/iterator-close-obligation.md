@@ -48,3 +48,47 @@ gets exactly two lines).
 `#[must_use]`-consumed-by-value close token — it fails at
 `objects.rs:14374`, where one emitter has two correct exits sharing one
 iterator — and the scope-shaped design that replaces it.
+
+---
+
+## As built (encoder stage, Group A)
+
+Five files changed, all under `crates/porffor-ir/src/`, plus this document and
+the lane note. `git status` shows no `crates/porffor-aot-wasm/` path, which is
+acceptance item §11.7.
+
+| File | What landed |
+|---|---|
+| `iterator_obligations.rs` | `emission_sites!` (enum + `ALL` + `name` from one row list), `ARRAY_DESTRUCTURING_PROTOCOL`, `ALL_OBLIGATIONS` promoted out of `#[cfg(test)]`, `ALL_WITNESSES`, `site_is_witnessed`, const asserts **K1/K2/K3/K4**, eleven repaired citations |
+| `operations.rs` | `AbruptDiscipline`, the `discipline` and `calls` columns on `StatementEmissionRow` and their five row values, const asserts **J10/J11/J12/J13**, the `SYNC_PROTOCOL_SITES` citation repair |
+| `ir.rs` | `ArrayDestructuringPatternIr::protocol` — required, no `Default` |
+| `lowering.rs` | the two construction sites `lower_array_binding_pattern` and `lower_array_assignment_pattern` name `ARRAY_DESTRUCTURING_PROTOCOL`. Nothing else. |
+| `lib.rs` | `AbruptDiscipline` added inside the pre-existing `pub use operations::{…}` block. No new `mod` line. |
+
+Two deletions, because a runtime check that survives beside the compile-time
+check it duplicates is evidence the compile-time one is decoration:
+
+- the `#[cfg(test)]`-local `ALL_OBLIGATIONS` copy in `iterator_obligations.rs`,
+  replaced by the module-level `pub(crate)` const that `site_is_witnessed`
+  consumes on the product path;
+- the test `iterator_protocol_witnesses_emit_every_obligation`, whose two
+  hand-listed pairs asserted at test time exactly what the
+  `emits_every_obligation` const assertions (now three, with K2) assert at
+  `cargo check` time — and which under-covered, because the third witness was
+  not in its list.
+
+Three deviations from the contract's letter, all recorded in the lane note's
+self-review: `emission_sites!` accepts `#[$meta]` per row so the per-variant
+evidence prose stays on the variants (§3 A1 assumed it could not); the six
+stale-citation repairs of §2.4 were extended to five further stale citations
+found in the same doc comments while repairing them; and one const assert **K4**
+was added beyond the contract's list, because deleting the redundant runtime
+test left `EmissionSite::name` with no reader and the honest repair turned out
+to be a real invariant — two sites may not name one emitter function
+(mistake class **M3d** in the note).
+
+**Not verified here.** This stage ran no `cargo` command — the build lock
+belongs to another batch, and the integrator runs the compile gate. Acceptance
+items §11.1 (`cargo xc` clean) and §11.2 (the K1 counterfactual in a scratch
+copy) are therefore open, and §11.12 (emitted bytes unchanged) is argued from
+the shape of the change, not measured.

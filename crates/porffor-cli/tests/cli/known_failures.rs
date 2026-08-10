@@ -53,6 +53,21 @@
 //!   under default features and 592 execute** (one is ignored, in `heap.rs`).
 //!   593 is the figure `--list` reports and the one a rung-1c log's
 //!   `running N tests` line should show.
+//!
+//!   Recounted at the head of batch 5, with the exact-line `awk` above:
+//!   **615** across `tests/cli/*.rs`. The two additions since batch 4 are the
+//!   13 in the new `iterator_helpers.rs` and the one added to this module
+//!   ([`rung_1c_chunks_cover_every_cli_area_module`], so `known_failures::` is
+//!   now a **5**-test chunk, not 4). The 13 compile only once `main.rs`
+//!   declares `mod iterator_helpers;`, so the compiled figure is **594**
+//!   without that line and **607** with it; 8 stay behind
+//!   `spec-exec-oracle` either way. Settle it with `--list`, never by
+//!   arithmetic on this comment.
+//!
+//!   The source scan below reads `tests/cli/*.rs` from disk, so it sees all 615
+//!   whether or not the `mod` line landed. That is deliberate: an area module
+//!   that exists but is never declared is exactly the silently-unrun file this
+//!   module exists to surface.
 //! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
 //! - **1** `should_panic` attribute. It was 0 before this module existed and 2
@@ -75,7 +90,7 @@
 //! cargo test -p porffor-cli --test cli -- --list | tail -1
 //! ```
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -88,6 +103,34 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// Bumped by hand at the start of a batch. That single edit is what turns the
 /// `unfilled-allowed-until` header into a real expiry rather than a comment: an
 /// `unfilled` row that outlives its deadline fails [`ledger_is_well_formed`].
+///
+/// # Why this still reads 3 in batch 5, said out loud rather than let slide
+///
+/// The header in `known-failures.tsv` reads `batch-4`, so bumping this to 4
+/// while the `unfilled` row is alive turns rung 1c red. The bump and the fill
+/// are therefore ONE edit, and the fill needs a completed rung 1c. It is not
+/// completed:
+///
+/// - Batch 4 banked **262 of 593** compiled tests as chunks and its container
+///   died inside `frontend::`. Batch 5 measured no further chunk, so
+///   `typed_array` (58), `array` (84), `language` (105), `binary_data` (38) and
+///   `frontend` (46) have still never been run. Deleting the row on that
+///   evidence declares "these are all the expected non-green outcomes" about a
+///   suite that is more than half unmeasured.
+/// - Two failing sets ARE known, and neither yields an honest row today. The
+///   four `iterator::run_wasm_backend_succeeds_for_iterator_prototype_*` tests
+///   are being repaired in this same batch, so a row would be a declaration
+///   that libtest reports as `test did not panic as expected` the moment the
+///   repair lands. `frontend::inspect_reports_phase_eighteen_global_ir_shape`
+///   asserts `global_bindings=64` against a measured 65 -- a stale expectation,
+///   not a defect, so its remedy is a one-token test fix and a row would
+///   declare a defect that does not exist.
+///
+/// Leaving this at 3 is the honest reading, and it is NOT a silent slide: the
+/// header stays at `batch-4`, so the very next bump reddens
+/// [`ledger_is_well_formed`] until the row is replaced by the surviving set.
+/// That tripwire firing is the mechanism working, not a regression. Resume the
+/// measurement with `scripts/rung1c-chunks.sh`.
 const CURRENT_BATCH: u32 = 3;
 
 /// Header line carrying the `unfilled` expiry, e.g.
@@ -143,6 +186,34 @@ const CONST_ASSERT_OPENER: &str = "const _: fn()";
 /// targets. This bound fails when the count *shrinks*, which is the direction
 /// that means the scan broke; a growing suite must never require an edit here.
 const MINIMUM_SCANNED_TESTS: usize = 500;
+
+/// The tracked runner that executes rung 1c as resumable per-module chunks,
+/// repo-root relative.
+///
+/// Rung 1c is ~2.5 h on a 4-CPU box and libtest has no resume, so the suite is
+/// run one area module at a time with a done-file. That makes the chunk SET a
+/// load-bearing artefact: a module with no chunk is silently never run, and the
+/// result still reads as a complete rung 1c.
+/// [`rung_1c_chunks_cover_every_cli_area_module`] reads this file back and
+/// closes that hole at rung 0, per AGENTS.md ("code invariants before test
+/// invariants").
+const RUNG_1C_RUNNER: &str = "scripts/rung1c-chunks.sh";
+
+/// What a chunk declaration in [`RUNG_1C_RUNNER`] opens with.
+///
+/// The shell function's own definition line reads `run_chunk() {`, with no
+/// space before the parenthesis, so it is not mistaken for a declaration.
+const RUN_CHUNK_OPENER: &str = "run_chunk ";
+
+/// The libtest flag a chunk uses to exclude an overlapping module.
+const SKIP_FLAG: &str = "--skip";
+
+/// Floor on the number of chunks parsed out of [`RUNG_1C_RUNNER`].
+///
+/// An anti-vacuity guard, exactly like [`MINIMUM_SCANNED_TESTS`]: if the parse
+/// ever found nothing, the coverage check below would pass for the worst
+/// possible reason. Today there are 17.
+const MINIMUM_RUNG_1C_CHUNKS: usize = 10;
 
 /// The four states a ledger row can be in.
 ///
@@ -963,6 +1034,88 @@ fn declared_const_assertions() -> BTreeSet<String> {
     names
 }
 
+/// The chunk declarations in [`RUNG_1C_RUNNER`], as
+/// `area module -> modules that chunk excludes with `--skip``.
+///
+/// Parsed rather than duplicated, so the runner and this check cannot drift.
+fn rung_1c_chunks() -> BTreeMap<String, BTreeSet<String>> {
+    let path = repo_root().join(RUNG_1C_RUNNER);
+    let source = repo_relative(&path);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!(
+            "{source}: could not read the tracked rung-1c runner: {error}. Rung 1c is run as \
+             resumable per-module chunks because the whole suite outlives a container window; \
+             without this script the chunk set is untracked again and nothing can check that it \
+             covers the suite."
+        )
+    });
+
+    let mut chunks: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (index, raw) in text.lines().enumerate() {
+        let line = index + 1;
+        let trimmed = raw.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix(RUN_CHUNK_OPENER) else {
+            continue;
+        };
+        let arguments: Vec<&str> = rest.split_whitespace().collect();
+        assert!(
+            arguments.len() >= 2,
+            "{source}:{line}: `{trimmed}` declares a chunk with fewer than two arguments; the \
+             form is `run_chunk <module> <module>:: [--skip <other>::]...`"
+        );
+        let name = arguments[0];
+        let filter = arguments[1];
+        let expected_filter = format!("{name}::");
+        assert_eq!(
+            filter, expected_filter,
+            "{source}:{line}: chunk `{name}` filters on `{filter}`, not `{expected_filter}`. The \
+             first argument is the done-file key and the second is the libtest filter; letting \
+             them differ means the done-file records a chunk that ran something else."
+        );
+
+        let mut skipped = BTreeSet::new();
+        let mut remaining = arguments[2..].iter();
+        while let Some(flag) = remaining.next() {
+            assert_eq!(
+                *flag, SKIP_FLAG,
+                "{source}:{line}: unexpected argument `{flag}` in chunk `{name}`. Only \
+                 `{SKIP_FLAG} <module>::` may follow the filter; anything else changes what the \
+                 chunk runs in a way this check cannot account for."
+            );
+            let target = remaining.next().unwrap_or_else(|| {
+                panic!("{source}:{line}: `{SKIP_FLAG}` in chunk `{name}` has no argument")
+            });
+            let target = target.strip_suffix("::").unwrap_or_else(|| {
+                panic!(
+                    "{source}:{line}: `{SKIP_FLAG} {target}` in chunk `{name}` does not end in \
+                     `::`. A bare module name is a substring of far more libtest names than \
+                     intended."
+                )
+            });
+            skipped.insert(target.to_string());
+        }
+
+        assert!(
+            chunks.insert(name.to_string(), skipped).is_none(),
+            "{source}:{line}: `{name}` is declared as a chunk twice. Chunks partition the suite, \
+             so a repeated key means those tests run twice and the done-file skips the second \
+             declaration's filter entirely."
+        );
+    }
+
+    assert!(
+        chunks.len() >= MINIMUM_RUNG_1C_CHUNKS,
+        "{source}: parsed only {} chunk(s), below the anti-vacuity floor of {}. Either the runner \
+         was gutted or the `{RUN_CHUNK_OPENER}` spelling changed, and this check is now vacuous.",
+        chunks.len(),
+        MINIMUM_RUNG_1C_CHUNKS
+    );
+    chunks
+}
+
 fn parsed_ledger_or_panic() -> Ledger {
     parse_ledger().unwrap_or_else(|error| panic!("{error}"))
 }
@@ -1302,5 +1455,92 @@ fn routing_takes_the_guarded_path_whenever_the_test_name_is_unknown() {
     assert_eq!(
         execution_path(Some("array::a_name_that_is_not_in_the_ledger")),
         ExecutionPath::InProcess
+    );
+}
+
+#[test]
+fn rung_1c_chunks_cover_every_cli_area_module() {
+    // Rung 1c is the gate this ledger exists to make meaningful, and on this
+    // hardware it is only reachable as resumable per-module chunks. That turns
+    // "the chunk set covers the suite" into a load-bearing claim that was, until
+    // now, checked by nobody: a new area module is simply never selected by any
+    // chunk filter, every chunk still reports `ok`, and the run reads as a
+    // complete rung 1c while skipping a whole file. This test is the difference
+    // between a partition and a subset masquerading as one.
+    let chunks = rung_1c_chunks();
+
+    let cli_dir = manifest_dir().join("tests/cli");
+    let modules: BTreeSet<String> = rust_sources_in(&cli_dir)
+        .into_iter()
+        .map(|path| file_stem(&path))
+        // `main.rs` is the target's crate root, not an area module.
+        .filter(|stem| stem.as_str() != "main")
+        .collect();
+    assert!(
+        !modules.is_empty(),
+        "no area modules found under {}. CARGO_MANIFEST_DIR is not resolving to this crate, so \
+         the coverage check below would pass vacuously.",
+        cli_dir.display()
+    );
+
+    for module in &modules {
+        assert!(
+            chunks.contains_key(module),
+            "{RUNG_1C_RUNNER} has no chunk for tests/cli/{module}.rs, so the chunked rung 1c never \
+             runs those tests and still reports a complete suite. Add `run_chunk {module} \
+             {module}::` to the runner."
+        );
+    }
+    for chunk in chunks.keys() {
+        assert!(
+            modules.contains(chunk),
+            "{RUNG_1C_RUNNER} runs a chunk `{chunk}::`, but there is no tests/cli/{chunk}.rs. The \
+             filter selects nothing, libtest exits 0 on `0 passed`, and the done-file records a \
+             chunk that measured nothing. Delete the `run_chunk {chunk}` line or restore the \
+             module."
+        );
+    }
+
+    // libtest filters are SUBSTRINGS. A chunk filter `a::` therefore also
+    // selects module `b` whenever `b::` ends with `a::` -- which is exactly why
+    // the `array` chunk carries `--skip typed_array::`. Left unchecked, the
+    // overlap double-runs those tests and, worse, makes `passed + filtered out`
+    // stop summing to the suite size, which is the arithmetic that proves the
+    // chunking complete.
+    for (chunk, skipped) in &chunks {
+        for other in &modules {
+            if other == chunk {
+                continue;
+            }
+            if !format!("{other}::").ends_with(&format!("{chunk}::")) {
+                continue;
+            }
+            assert!(
+                skipped.contains(other),
+                "{RUNG_1C_RUNNER}: chunk `{chunk}::` is a substring of every `{other}::` test \
+                 name, so it selects tests/cli/{other}.rs too. Add `{SKIP_FLAG} {other}::` to the \
+                 `run_chunk {chunk}` line."
+            );
+        }
+    }
+    for (chunk, skipped) in &chunks {
+        for target in skipped {
+            assert!(
+                modules.contains(target),
+                "{RUNG_1C_RUNNER}: chunk `{chunk}` skips `{target}::`, which is not an area \
+                 module. A misspelled skip silently excludes nothing."
+            );
+        }
+    }
+
+    // The chunk filters are all `<module>::`, so a test declared in the target's
+    // crate root would carry a bare libtest name that no chunk selects.
+    let root_declarations = scan_source(TestTarget::Cli, None, &cli_dir.join("main.rs"));
+    assert!(
+        root_declarations.is_empty(),
+        "tests/cli/main.rs declares {} test(s). Their libtest names carry no `module::` prefix, so \
+         no chunk filter selects them and the chunked rung 1c skips them silently. Move them into \
+         an area module.",
+        root_declarations.len()
     );
 }

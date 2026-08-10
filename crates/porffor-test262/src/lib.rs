@@ -17,6 +17,12 @@ use porffor_engine::{
 use porffor_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind};
 use serde::{Deserialize, Serialize};
 
+mod attempt_journal;
+
+use attempt_journal::{
+    plan_run_phases, AttemptJournal, CaseAdmission, CaseStrikes, CrashStrikeLimit,
+};
+
 const TOP_LEVEL_FILTERS: [&str; 6] = [
     "annexB",
     "built-ins",
@@ -20639,6 +20645,28 @@ fn execute_cases(
         }
     }
 
+    // The attempt journal is opened before anything is selected to run, and
+    // charged before anything is scheduled, so that a case which killed the
+    // previous process is accounted for even on a run that turns out to have
+    // nothing left to do.
+    let journal = AttemptJournal::open(
+        attempt_journal_path(config, &run_config.snapshot_name, manifest.manifest_hash),
+        run_config.resume,
+        CrashStrikeLimit::DEFAULT,
+    )?;
+    let suspects = journal.charge_strikes_for_survivors()?;
+    for suspect in &suspects {
+        // Named on the same stream as `test262 checkpoint: N/M cases`. The
+        // sweep log that motivated this module named no case at all, which is
+        // why identifying the batch-4 poison case needed a snapshot diff.
+        eprintln!(
+            "test262 attempt journal: {} was in flight when a previous process died (strike {} of {})",
+            suspect.path,
+            suspect.strikes,
+            journal.limit()
+        );
+    }
+
     let remaining = cases
         .iter()
         .filter(|case| !completed.contains_key(&case.path))
@@ -20664,97 +20692,177 @@ fn execute_cases(
     // non-resume path; `resume` only controls which cases were skipped above.
     let previously_completed: Vec<TestResult> = completed.into_values().collect();
 
-    let queue = Arc::new(Mutex::new(remaining));
     let results = Arc::new(Mutex::new(Vec::new()));
     let worker_count = config.worker_count.max(1).min(cases.len().max(1));
     // Guarded by the same mutex as `results` so the "did we cross a
     // checkpoint boundary" decision is race-safe: the length check happens
     // while still holding the lock that guards pushes into `results`.
     let checkpoint_error: Mutex<Option<String>> = Mutex::new(None);
+    // A journal write that fails means the next process death cannot be
+    // attributed, so it fails the run rather than degrading it silently.
+    let journal_error: Mutex<Option<String>> = Mutex::new(None);
     // Workers can finish later checkpoints before earlier workers finish
     // serializing theirs. Serialize checkpoint writes and retain the largest
     // completed count so an older snapshot can never clobber newer progress.
     let last_checkpoint_count = Mutex::new(0usize);
 
-    thread::scope(|scope| {
-        for _ in 0..worker_count {
-            let queue = Arc::clone(&queue);
-            let results = Arc::clone(&results);
-            let preludes = preludes.clone();
-            let worker_config = config.clone();
-            let worker_run_config = RunConfig {
-                filter: run_config.filter.clone(),
-                shard_index: 0,
-                shard_count: 1,
-                resume: false,
-                snapshot_name: String::new(),
-                execution_backend: run_config.execution_backend,
-                max_matrix_nodes: None,
-            };
-            let previously_completed = &previously_completed;
-            let checkpoint_error = &checkpoint_error;
-            let last_checkpoint_count = &last_checkpoint_count;
-            thread::Builder::new()
-                .stack_size(TEST262_WORKER_STACK_SIZE)
-                .spawn_scoped(scope, move || loop {
-                    let maybe_case = {
-                        let mut guard = queue.lock().expect("queue mutex poisoned");
-                        guard.pop()
-                    };
-                    let Some(case) = maybe_case else {
-                        break;
-                    };
-                    let result =
-                        run_case_entry(&worker_config, &preludes, &case, &worker_run_config);
+    // Usually one phase over everything. Two only when a previous death left
+    // more than one case in flight, in which case the suspects run serially
+    // first so the next death names exactly one of them.
+    for phase in plan_run_phases(&suspects, remaining, worker_count) {
+        let phase_worker_count = phase.worker_count();
+        let queue = Arc::new(Mutex::new(phase.into_queue()));
+        thread::scope(|scope| {
+            for worker_slot in 0..phase_worker_count {
+                let queue = Arc::clone(&queue);
+                let results = Arc::clone(&results);
+                let preludes = preludes.clone();
+                let worker_config = config.clone();
+                let worker_run_config = RunConfig {
+                    filter: run_config.filter.clone(),
+                    shard_index: 0,
+                    shard_count: 1,
+                    resume: false,
+                    snapshot_name: String::new(),
+                    execution_backend: run_config.execution_backend,
+                    max_matrix_nodes: None,
+                };
+                let previously_completed = &previously_completed;
+                let checkpoint_error = &checkpoint_error;
+                let journal_error = &journal_error;
+                let last_checkpoint_count = &last_checkpoint_count;
+                let journal = &journal;
+                thread::Builder::new()
+                    .stack_size(TEST262_WORKER_STACK_SIZE)
+                    .spawn_scoped(scope, move || loop {
+                        let maybe_case = {
+                            let mut guard = queue.lock().expect("queue mutex poisoned");
+                            guard.pop()
+                        };
+                        let Some(queued) = maybe_case else {
+                            break;
+                        };
 
-                    let checkpoint_snapshot = {
-                        let mut guard = results.lock().expect("results mutex poisoned");
-                        guard.push(result);
-                        if guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
-                            let mut snapshot_results = previously_completed.clone();
-                            snapshot_results.extend(guard.iter().cloned());
-                            Some((snapshot_results.len(), snapshot_results))
-                        } else {
-                            None
-                        }
-                    };
-
-                    if let Some((completed_count, mut snapshot_results)) = checkpoint_snapshot {
-                        snapshot_results
-                            .sort_by(|left, right| left.test_path.cmp(&right.test_path));
-                        let mut last_written = last_checkpoint_count
-                            .lock()
-                            .expect("checkpoint count mutex poisoned");
-                        if completed_count <= *last_written {
-                            continue;
-                        }
-                        match write_resume_case_checkpoint(
-                            &worker_config,
-                            manifest,
-                            &snapshot_results,
-                            run_config,
-                        ) {
-                            Ok(()) => {
-                                *last_written = completed_count;
-                                eprintln!(
-                                    "test262 checkpoint: {completed_count}/{} cases",
-                                    cases.len()
-                                );
-                            }
+                        // The only way to turn a queue pop into a runnable
+                        // `TestCase`. It writes the durable in-flight record
+                        // first, so a process death from here on is
+                        // attributable to exactly this case.
+                        let admission = match journal.admit(worker_slot, queued) {
+                            Ok(admission) => admission,
                             Err(err) => {
-                                let mut error_guard = checkpoint_error
-                                    .lock()
-                                    .expect("checkpoint error mutex poisoned");
+                                let mut error_guard =
+                                    journal_error.lock().expect("journal error mutex poisoned");
                                 if error_guard.is_none() {
                                     *error_guard = Some(err);
                                 }
+                                break;
+                            }
+                        };
+
+                        let result = match admission {
+                            CaseAdmission::Run(case) => {
+                                let result = run_case_entry(
+                                    &worker_config,
+                                    &preludes,
+                                    &case,
+                                    &worker_run_config,
+                                );
+                                // Every path that reaches here has a
+                                // `TestResult`, including the panic path:
+                                // `run_case_entry` catches unwinding panics
+                                // itself and returns a failure record. The
+                                // retire therefore runs on every path a
+                                // process survives, which is what makes a
+                                // surviving journal entry mean "the process
+                                // died".
+                                if let Err(err) = journal.retire(worker_slot) {
+                                    let mut error_guard = journal_error
+                                        .lock()
+                                        .expect("journal error mutex poisoned");
+                                    if error_guard.is_none() {
+                                        *error_guard = Some(err);
+                                    }
+                                }
+                                result
+                            }
+                            CaseAdmission::Quarantined { path, strikes } => {
+                                eprintln!(
+                                    "test262 quarantine: {path} was in flight for {strikes} process death(s); recorded as outcome Crash and not run"
+                                );
+                                TestResult {
+                                    test_path: path.clone(),
+                                    status: TestStatus::Failed(quarantined_case_failure(
+                                        &path, strikes,
+                                    )),
+                                    duration_ms: 0,
+                                }
+                            }
+                        };
+
+                        let checkpoint_snapshot = {
+                            let mut guard = results.lock().expect("results mutex poisoned");
+                            guard.push(result);
+                            if guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
+                                let mut snapshot_results = previously_completed.clone();
+                                snapshot_results.extend(guard.iter().cloned());
+                                Some((snapshot_results.len(), snapshot_results))
+                            } else {
+                                None
+                            }
+                        };
+
+                        if let Some((completed_count, mut snapshot_results)) = checkpoint_snapshot {
+                            snapshot_results
+                                .sort_by(|left, right| left.test_path.cmp(&right.test_path));
+                            let mut last_written = last_checkpoint_count
+                                .lock()
+                                .expect("checkpoint count mutex poisoned");
+                            if completed_count <= *last_written {
+                                continue;
+                            }
+                            match write_resume_case_checkpoint(
+                                &worker_config,
+                                manifest,
+                                &snapshot_results,
+                                run_config,
+                            ) {
+                                Ok(()) => {
+                                    *last_written = completed_count;
+                                    eprintln!(
+                                        "test262 checkpoint: {completed_count}/{} cases",
+                                        cases.len()
+                                    );
+                                }
+                                Err(err) => {
+                                    let mut error_guard = checkpoint_error
+                                        .lock()
+                                        .expect("checkpoint error mutex poisoned");
+                                    if error_guard.is_none() {
+                                        *error_guard = Some(err);
+                                    }
+                                }
                             }
                         }
-                    }
-                })
-                .expect("worker thread should spawn");
+                    })
+                    .expect("worker thread should spawn");
+            }
+        });
+
+        if journal_error
+            .lock()
+            .expect("journal error mutex poisoned")
+            .is_some()
+        {
+            break;
         }
-    });
+    }
+
+    if let Some(err) = journal_error
+        .into_inner()
+        .expect("journal error mutex poisoned")
+    {
+        return Err(err);
+    }
 
     if let Some(err) = checkpoint_error
         .into_inner()
@@ -20907,6 +21015,64 @@ fn snapshot_paths_for_name(
         txt_path: config
             .snapshot_dir
             .join(format!("{snapshot_name}-{manifest_hash}.txt")),
+    }
+}
+
+/// Where the attempt journal for one `(snapshot_name, manifest_hash)` pair
+/// lives.
+///
+/// Derived from the snapshot's own JSON path rather than formatted
+/// independently, so a journal can never key on a different pair than the
+/// snapshot whose resume state it corrects. `execute_matrix_node` forms that
+/// pair once, as `{snapshot_name}-{sanitized node_id}` plus the node manifest
+/// hash, and both files follow it.
+///
+/// The extension is deliberately **not** `.json`, and that is not cosmetic:
+/// `load_resume_aggregate_snapshot` collects every `*.json` file in the
+/// snapshot directory whose name starts with `{snapshot_name}-` as a fallback
+/// aggregate candidate and then reads it with `read_snapshot_file(&path)?` —
+/// where a parse failure is propagated, not skipped. A journal named `.json`
+/// would therefore turn every `report-all --resume` that has not yet written an
+/// aggregate into a hard error, which is the opposite of this module's purpose.
+fn attempt_journal_path(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    manifest_hash: u64,
+) -> PathBuf {
+    snapshot_paths_for_name(config, snapshot_name, manifest_hash)
+        .json_path
+        .with_extension("attempts")
+}
+
+/// The failure record for a quarantined case.
+///
+/// `OutcomeKind::Crash` is constructed **explicitly** here, never inferred.
+/// `classify_failure_outcome` decides `Crash` by lowercase substring match over
+/// the detail (`"crash"`, `"panic"`, `"trapped"`, `"timeout exceeded"`, ...), so
+/// routing a quarantine through `classify_failure` would make the outcome
+/// depend on a particular word surviving a future edit of this message. It
+/// would also be the wrong reason: this process never observed the case crash.
+/// It read that fact out of the attempt journal.
+///
+/// `FailureKind::WasmBackend` because the deaths this mechanism exists for
+/// happen inside compilation or execution of the emitted module, and
+/// `FailureOrigin::LocalHarness` because the *decision* not to run it is the
+/// harness's own.
+fn quarantined_case_failure(test_path: &str, strikes: CaseStrikes) -> FailureRecord {
+    let origin = FailureOrigin::LocalHarness;
+    let detail = format!(
+        "[origin:{}] process death while compiling or running this case ({} attempts); quarantined by report-all --resume",
+        origin.as_str(),
+        strikes.get()
+    );
+    FailureRecord {
+        test_path: test_path.to_string(),
+        kind: FailureKind::WasmBackend,
+        outcome: OutcomeKind::Crash,
+        origin,
+        detail_hash: hash_detail(&detail),
+        detail,
+        duration_ms: None,
     }
 }
 
@@ -35870,6 +36036,476 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 .expect("snapshot should exist");
         assert_eq!(resumed_snapshot.completed_paths, vec![case.path.clone()]);
         assert_eq!(resumed_snapshot.failures.len(), 1);
+    }
+
+    #[test]
+    fn the_attempt_journal_sits_beside_its_snapshot_and_is_not_a_json_file() {
+        let config = fixture_config();
+        let paths = snapshot_paths_for_name(&config, "node-name", 42);
+        let journal = attempt_journal_path(&config, "node-name", 42);
+
+        // Derived from the snapshot path, so the journal cannot key on a
+        // different (snapshot_name, manifest_hash) pair than the snapshot whose
+        // resume state it corrects.
+        assert_eq!(journal.parent(), paths.json_path.parent());
+        assert_eq!(
+            journal.file_name().and_then(|name| name.to_str()),
+            Some("node-name-42.attempts")
+        );
+
+        // And deliberately not `.json`: `load_resume_aggregate_snapshot`
+        // collects every `{snapshot_name}-*.json` in the snapshot directory as
+        // a fallback aggregate candidate and then reads it with
+        // `read_snapshot_file(&path)?`, where a parse failure is *propagated*.
+        // A journal named `.json` would therefore turn every resume that has
+        // not yet written an aggregate into a hard error.
+        assert_ne!(
+            journal.extension().and_then(|value| value.to_str()),
+            Some("json")
+        );
+    }
+
+    fn attempt_journal_manifest(
+        config: &SuiteConfig,
+        node: &str,
+        cases: &[TestCase],
+    ) -> SuiteManifest {
+        let pinned = pinned_revisions(config);
+        SuiteManifest {
+            manifest_hash: hash_manifest(&pinned, cases, Some(node)),
+            pinned_revisions: pinned,
+            filter: Some(node.to_string()),
+            cases: cases.to_vec(),
+        }
+    }
+
+    /// A `case_runner_bin` that records every case it is invoked for.
+    ///
+    /// This is the sentinel these tests use to answer "did this case reach
+    /// dispatch at all?" — a question no assertion about the returned
+    /// `TestResult` can answer, because a quarantine result and a real failure
+    /// are both `TestStatus::Failed`.
+    ///
+    /// The script writes no child snapshot, so every case it *does* run comes
+    /// back as a `HostHarness` failure. That is deliberate: these tests are
+    /// about dispatch, not about verdicts, and a runner that always fails the
+    /// same way keeps the two apart.
+    #[cfg(unix)]
+    fn recording_case_runner(label: &str) -> (PathBuf, PathBuf) {
+        let runner_path = unique_temp_path(&format!("{label}-runner"));
+        let sentinel_path = unique_temp_path(&format!("{label}-sentinel"));
+        // `run_one_case_in_child_process` spawns
+        // `<bin> --jobs <n> test262 run <case path> ...`, so `$5` is the case.
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$5\" >> '{}'\n",
+                sentinel_path.display()
+            ),
+        )
+        .expect("recording runner script should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("recording runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("recording runner permissions should update");
+        (runner_path, sentinel_path)
+    }
+
+    #[cfg(unix)]
+    fn recorded_case_paths(sentinel_path: &Path) -> Vec<String> {
+        let mut recorded = fs::read_to_string(sentinel_path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        recorded.sort();
+        recorded
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_case_left_in_the_attempt_journal_is_charged_a_strike_on_the_next_resume() {
+        let (runner_path, sentinel_path) = recording_case_runner("journal-one-strike");
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![
+            synthetic_case("quarantine/suspect.js"),
+            synthetic_case("quarantine/bystander.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "quarantine-one-strike", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "quarantine-one-strike".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+
+        // One case was in flight when the previous process died.
+        attempt_journal::simulate_process_death_with_cases_in_flight(
+            journal_path.clone(),
+            std::slice::from_ref(&cases[0]),
+        )
+        .expect("seeded death should write the journal");
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+
+        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
+            .expect("journal should reopen");
+        assert_eq!(
+            journal.strikes_for(&cases[0].path).map(CaseStrikes::get),
+            Some(1),
+            "the surviving journal entry must be charged exactly one strike"
+        );
+        assert!(
+            !CrashStrikeLimit::DEFAULT
+                .is_reached_by(CaseStrikes::from_count(1).expect("one strike is non-zero")),
+            "one strike is not yet a quarantine"
+        );
+
+        // ... and one strike is not a quarantine, so the case still ran.
+        assert_eq!(
+            recorded_case_paths(&sentinel_path),
+            vec![
+                "quarantine/bystander.js".to_string(),
+                "quarantine/suspect.js".to_string()
+            ]
+        );
+        assert_eq!(results.len(), 2);
+        for result in &results {
+            let TestStatus::Failed(failure) = &result.status else {
+                panic!("the recording runner writes no child snapshot, so every case fails");
+            };
+            assert!(
+                !failure.detail.contains("quarantined by report-all --resume"),
+                "nothing may be quarantined at one strike: {failure:?}"
+            );
+        }
+    }
+
+    /// Drives one case to the strike limit through the product paths, then runs
+    /// the resume that must quarantine it.
+    ///
+    /// The two deaths are seeded by calling the real `admit` and never
+    /// retiring — exactly the state an aborted process leaves — and charged by
+    /// the real `charge_strikes_for_survivors`, so no test writes the journal
+    /// format by hand.
+    #[cfg(unix)]
+    fn run_resume_with_a_quarantined_case(
+        label: &str,
+    ) -> (
+        SuiteConfig,
+        SuiteManifest,
+        RunConfig,
+        Vec<TestCase>,
+        Vec<TestResult>,
+        PathBuf,
+    ) {
+        let (runner_path, sentinel_path) = recording_case_runner(label);
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![
+            synthetic_case("quarantine/poison.js"),
+            synthetic_case("quarantine/healthy.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, label, &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: label.to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+
+        for _ in 0..CrashStrikeLimit::DEFAULT.get() {
+            attempt_journal::simulate_process_death_with_cases_in_flight(
+                journal_path.clone(),
+                std::slice::from_ref(&cases[0]),
+            )
+            .expect("seeded death should write the journal");
+            AttemptJournal::open(journal_path.clone(), true, CrashStrikeLimit::DEFAULT)
+                .expect("journal should reopen")
+                .charge_strikes_for_survivors()
+                .expect("charging should work");
+        }
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+        (config, manifest, run_config, cases, results, sentinel_path)
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_case_at_the_strike_limit_is_recorded_as_crash_and_not_run() {
+        let (_config, _manifest, _run_config, cases, results, sentinel_path) =
+            run_resume_with_a_quarantined_case("quarantine-limit");
+
+        assert_eq!(results.len(), 2);
+        let quarantined = results
+            .iter()
+            .find(|result| result.test_path == cases[0].path)
+            .expect("the quarantined case must still produce a result");
+        let TestStatus::Failed(failure) = &quarantined.status else {
+            panic!("a quarantined case is a failure, never a pass");
+        };
+        assert_eq!(failure.outcome, OutcomeKind::Crash);
+        assert_eq!(failure.kind, FailureKind::WasmBackend);
+        assert_eq!(failure.origin, FailureOrigin::LocalHarness);
+        assert!(
+            failure.detail.contains("quarantined by report-all --resume"),
+            "detail: {}",
+            failure.detail
+        );
+        assert!(
+            failure.detail.contains("(2 attempts)"),
+            "the strike count must be in the detail: {}",
+            failure.detail
+        );
+
+        let summary = summarize_results(&results);
+        assert!(
+            summary.completed_paths.contains(&cases[0].path),
+            "a quarantine is never a silent skip"
+        );
+        assert_eq!(
+            summary.counts_per_outcome.get(&OutcomeKind::Crash).copied(),
+            Some(1)
+        );
+
+        // The sentinel is the proof that dispatch never happened: the healthy
+        // case reached the runner and the quarantined one did not.
+        assert_eq!(
+            recorded_case_paths(&sentinel_path),
+            vec!["quarantine/healthy.js".to_string()]
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_quarantined_case_keeps_the_node_snapshot_resumable() {
+        let (config, manifest, run_config, cases, results, _sentinel_path) =
+            run_resume_with_a_quarantined_case("quarantine-resumable");
+
+        let summary = summarize_results(&results);
+        assert_eq!(summary.total, cases.len());
+        assert_eq!(summary.completed_paths.len(), summary.total);
+
+        // The final checkpoint the resume path wrote must still validate as a
+        // complete node snapshot. This is what catches the tempting wrong fix
+        // of dropping the quarantined case from `total`: `entry.total` is the
+        // node's declared case count, and a `resume-case-checkpoint` whose own
+        // total no longer equals it is refused.
+        let paths =
+            snapshot_paths_for_name(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        let file = read_snapshot_file(&paths.json_path).expect("resume checkpoint should parse");
+        assert_eq!(file.run_kind, "resume-case-checkpoint");
+        assert_eq!(file.total, cases.len());
+        assert_eq!(file.completed_paths.len(), cases.len());
+
+        let entry = TopLevelRunSummary {
+            node_id: "quarantine-node".to_string(),
+            node_kind: MatrixNodeKind::ChunkLeaf,
+            filter: "quarantine".to_string(),
+            matrix_path: Vec::new(),
+            total: cases.len(),
+            passed: summary.passed,
+            failed: summary.total.saturating_sub(summary.passed),
+            counts_per_kind: summary.counts_per_kind.clone(),
+            counts_per_outcome: summary.counts_per_outcome.clone(),
+            counts_per_origin: counts_per_origin(&summary.failures),
+            manifest_hash: manifest.manifest_hash,
+        };
+        validate_resume_node_snapshot(
+            &config,
+            &file,
+            &paths.json_path,
+            &entry,
+            ExecutionBackend::SpecExec,
+            &pinned_revisions(&config),
+            false,
+        )
+        .expect("a node snapshot containing a quarantined case must stay resumable");
+    }
+
+    #[test]
+    fn two_suspects_narrow_to_one_by_running_them_serially() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = vec![
+            synthetic_case("narrow/first.js"),
+            synthetic_case("narrow/second.js"),
+            synthetic_case("narrow/third.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "narrow-two-suspects", &cases);
+        let journal_path =
+            attempt_journal_path(&config, "narrow-two-suspects", manifest.manifest_hash);
+
+        // A `--threads 2` process died with two cases in flight, so the journal
+        // names two suspects and neither is yet distinguishable.
+        attempt_journal::simulate_process_death_with_cases_in_flight(
+            journal_path.clone(),
+            &[cases[0].clone(), cases[2].clone()],
+        )
+        .expect("seeded death should write the journal");
+
+        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
+            .expect("journal should reopen");
+        let suspects = journal
+            .charge_strikes_for_survivors()
+            .expect("charging should work");
+        assert_eq!(suspects.len(), 2);
+
+        let phases = plan_run_phases(&suspects, cases, 8);
+        assert_eq!(phases.len(), 2);
+        assert_eq!(
+            phases[0].worker_count(),
+            1,
+            "the suspects must run serially, or the next death names two cases again"
+        );
+        let mut serial_paths = phases[0].case_paths();
+        serial_paths.sort();
+        assert_eq!(
+            serial_paths,
+            vec!["narrow/first.js".to_string(), "narrow/third.js".to_string()]
+        );
+        assert_eq!(phases[1].worker_count(), 8);
+        assert_eq!(phases[1].case_paths(), vec!["narrow/second.js".to_string()]);
+    }
+
+    #[test]
+    fn an_empty_journal_is_the_normal_exit_state() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = (0..3)
+            .map(|index| synthetic_case(&format!("clean-exit/case-{index}.js")))
+            .collect::<Vec<_>>();
+        let manifest = attempt_journal_manifest(&config, "clean-exit", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "clean-exit".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("run should complete");
+        assert_eq!(results.len(), 3);
+
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        assert!(
+            journal_path.exists(),
+            "the journal must exist after a clean run: {}",
+            journal_path.display()
+        );
+        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
+            .expect("journal should reopen");
+        assert!(
+            journal.in_flight_paths().is_empty(),
+            "retire must run on every path, so a clean exit leaves nothing in flight"
+        );
+        assert!(
+            journal
+                .charge_strikes_for_survivors()
+                .expect("charging should work")
+                .is_empty(),
+            "a clean exit must charge nobody"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_child_runner_path_journals_exactly_once() {
+        // A crashing *child* is already an ordinary `TestResult`. Only a death
+        // of *this* process may charge a strike, so this path must journal
+        // once, retire once, and accrue nothing.
+        let runner_path = unique_temp_path("child-crash-runner");
+        fs::write(&runner_path, "#!/bin/sh\nexit 134\n").expect("crashing runner should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("crashing runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("crashing runner permissions should update");
+
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![synthetic_case("child-crash/case.js")];
+        let manifest = attempt_journal_manifest(&config, "child-crash", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "child-crash".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].status, TestStatus::Failed(_)));
+
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT)
+            .expect("journal should reopen");
+        assert!(
+            journal.in_flight_paths().is_empty(),
+            "the child-runner path must retire its single journal entry"
+        );
+        assert_eq!(
+            journal.strikes_for(&cases[0].path),
+            None,
+            "a crashing child must not accrue a strike"
+        );
+        assert!(
+            journal
+                .charge_strikes_for_survivors()
+                .expect("charging should work")
+                .is_empty()
+        );
     }
 
     #[test]

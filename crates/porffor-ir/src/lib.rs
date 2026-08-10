@@ -74,6 +74,9 @@ mod modules;
 mod names;
 mod native_error;
 mod operations;
+/// The Property Descriptor lattice (ECMA-262 6.2.6). See
+/// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
+pub mod property_descriptor;
 mod regexp;
 mod well_known;
 pub(crate) use analysis::*;
@@ -104,14 +107,14 @@ pub use modules::{
 };
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
-    ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind,
-    CompletionKindIr, CompletionRecordIr, DoneSlot, EcmaLanguageType, EmitterEvidence,
-    EqualityBinaryOp, IteratorRecordIr, IteratorSlot, LogicalBinaryOp, NextMethodSlot,
-    NormalResult, NumericUpdateOp, OperationLoweringStatus, OwnerTaskId, RelationalBinaryOp,
-    RowSource, SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr,
-    StatementEmissionRow, ToPrimitiveHint, TrackedGapReason, TrackedGapRow, UnaryNumericOp,
-    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
-    STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
+    AbruptDiscipline, ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CompletionAbiSlot,
+    CompletionAbruptKind, CompletionKindIr, CompletionRecordIr, DoneSlot, EcmaLanguageType,
+    EmitterEvidence, EqualityBinaryOp, IteratorRecordIr, IteratorSlot, LogicalBinaryOp,
+    NextMethodSlot, NormalResult, NumericUpdateOp, OperationLoweringStatus, OwnerTaskId,
+    RelationalBinaryOp, RowSource, SpecOperationCatalogEntry, SpecOperationFamily,
+    SpecOperationIr, StatementEmissionRow, ToPrimitiveHint, TrackedGapReason, TrackedGapRow,
+    UnaryNumericOp, UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
+    SPEC_OPERATION_ROW_COUNT, STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
 };
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,
@@ -151,6 +154,17 @@ pub use early_error_code::{EarlyErrorCode, ParseClassified};
 pub use well_known::{
     is_symbol_description, shape_namespace_key, SymbolDescription, SymbolMemberName,
     WellKnownSymbol,
+};
+
+/// The Property Descriptor lattice: one closed 6.2.6 type, one derived
+/// classification, and the two carriers that share them. See
+/// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
+pub use crate::property_descriptor::{
+    classify, complete_property_descriptor, AccessorSide, BothDataAndAccessor, CompleteDescriptor,
+    CompletionDefaults, DataSide, DescriptorCarrier, DescriptorClassification, DescriptorField,
+    DescriptorSide, DescriptorSideMarker, DescriptorSourceText, KindTerms, KnownPresence,
+    PartialDescriptor, Presence, PropertyDescriptorKind, SourceText, ValidateError,
+    ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
 };
 
 #[cfg(test)]

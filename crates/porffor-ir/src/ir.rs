@@ -825,6 +825,27 @@ pub enum ArrayDestructuringElementIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArrayDestructuringPatternIr {
     pub elements: Vec<ArrayDestructuringElementIr>,
+    /// How this pattern's own `GetIterator` discharged the four 7.4
+    /// obligations.
+    ///
+    /// **Per pattern, not per statement.** 8.6.3 IteratorBindingInitialization
+    /// and 13.15.5.5 IteratorDestructuringAssignmentEvaluation each acquire a
+    /// fresh iterator for *every* ArrayBindingPattern / ArrayAssignmentPattern,
+    /// including each one reached through
+    /// [`DestructuringTargetIr::NestedArray`]. A field on
+    /// `ExprIr::ArrayDestructure` would witness the outermost acquisition and
+    /// silently cover none of the nested ones, so the field lives here.
+    ///
+    /// Non-optional, no `Default`: `ArrayDestructuringPatternIr` is matched
+    /// exhaustively nowhere in the workspace and constructed in exactly two
+    /// places, both in `lowering.rs`, so an array pattern built without saying
+    /// how its iterator was accounted for is `E0063` at those two lines and
+    /// byte-neutral everywhere else.
+    ///
+    /// **The emitter must not read this**, and cannot: every reader of a
+    /// witness's contents is `pub(crate)` to `porffor-ir`, so a
+    /// `porffor-aot-wasm` arm that binds it and branches on it is `E0624`.
+    pub protocol: IteratorProtocolWitness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

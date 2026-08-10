@@ -32304,7 +32304,14 @@ impl<'a> ScriptLowerer<'a> {
             };
             elements.push(element);
         }
-        Some(ArrayDestructuringPatternIr { elements })
+        // 8.6.3 IteratorBindingInitialization: this pattern's own
+        // `GetIterator`, and its 7.4.11 close under the `[[Done]]` guard, are
+        // emitted by `compile_array_destructure_from_value_locals`. Stated here
+        // because this is where the obligation is *incurred*.
+        Some(ArrayDestructuringPatternIr {
+            elements,
+            protocol: IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+        })
     }
 
     fn lower_array_assignment_pattern(
@@ -32358,7 +32365,14 @@ impl<'a> ScriptLowerer<'a> {
             };
             elements.push(element);
         }
-        Some(ArrayDestructuringPatternIr { elements })
+        // 13.15.5.5 IteratorDestructuringAssignmentEvaluation — a different
+        // abstract operation with the same close discipline, running the same
+        // emitter arm, which distinguishes the two by `ExprIr::ArrayDestructure`'s
+        // `assignment` flag rather than by protocol. Same witness.
+        Some(ArrayDestructuringPatternIr {
+            elements,
+            protocol: IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL,
+        })
     }
 
     /// Lowers a nested pattern that appears inside a *destructuring assignment*

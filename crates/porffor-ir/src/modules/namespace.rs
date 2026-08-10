@@ -352,20 +352,34 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
         push_js_string_literal(&mut text, export.export_name.as_str());
         // An accessor, not a data property: see the module docs. No setter, so
         // `[[Set]]` throws in the strict code every module unit is.
-        text.push_str(", { get: () => ");
+        //
+        // This is a legal **three-key partial** descriptor — an inhabitant of
+        // 6.2.6.5 ToPropertyDescriptor's *domain*, not of 6.2.6.4's four-key
+        // codomain. The `AccessorSide` typestate is what makes `value` and
+        // `writable` unspellable here, which is 6.2.6.5 step 9 as a compile
+        // error rather than as an emitted TypeError.
+        let mut getter = String::from("() => ");
         if namespace.deferred {
             // A deferred module's bindings live in its thunk's scope, not in
             // the merged one, so the getter goes through the export table the
             // thunk publishes — and calling the thunk is what makes the first
             // read of any export evaluate the module.
-            text.push_str(defer_evaluate.as_str());
-            text.push_str("()[");
-            push_js_string_literal(&mut text, export.export_name.as_str());
-            text.push_str("]()");
+            getter.push_str(defer_evaluate.as_str());
+            getter.push_str("()[");
+            push_js_string_literal(&mut getter, export.export_name.as_str());
+            getter.push_str("]()");
         } else {
-            text.push_str(reference.as_str());
+            getter.push_str(reference.as_str());
         }
-        text.push_str(", enumerable: true, configurable: false });\n");
+        text.push_str(", ");
+        text.push_str(
+            &DescriptorSourceText::accessor()
+                .get(getter)
+                .enumerable(true)
+                .configurable(false)
+                .render(),
+        );
+        text.push_str(");\n");
     }
 
     text.push_str(OBJECT_NAME);
@@ -373,9 +387,20 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
     text.push_str(binding);
     text.push_str(", ");
     text.push_str(SYMBOL_NAME);
-    text.push_str(".toStringTag, { value: ");
-    push_js_string_literal(&mut text, ModuleNamespaceIr::TO_STRING_TAG);
-    text.push_str(", writable: false, enumerable: false, configurable: false });\n");
+    text.push_str(".toStringTag, ");
+    // A **complete** descriptor (10.1.6.3 step 3's "fully populated"). The
+    // three flags are not spelled out: they are 6.2.6.6's own defaults, and the
+    // four keys and their order come from `CompleteDescriptor::keys()`, so
+    // there is no list of key strings here to misspell.
+    let mut to_string_tag = String::new();
+    push_js_string_literal(&mut to_string_tag, ModuleNamespaceIr::TO_STRING_TAG);
+    text.push_str(
+        &DescriptorSourceText::data()
+            .value(to_string_tag)
+            .complete()
+            .render(),
+    );
+    text.push_str(");\n");
 
     text.push_str(OBJECT_NAME);
     text.push_str(".preventExtensions(");
@@ -744,9 +769,19 @@ fn module_source_object_source(module: ModuleUnitId) -> String {
     text.push_str(binding);
     text.push_str(", ");
     text.push_str(SYMBOL_NAME);
-    text.push_str(".toStringTag, { value: ");
-    push_js_string_literal(&mut text, MODULE_SOURCE_TO_STRING_TAG);
-    text.push_str(", writable: false, enumerable: false, configurable: false });\n");
+    text.push_str(".toStringTag, ");
+    // Same complete-descriptor shape as the namespace object's, and now
+    // literally the same code path: the two used to be two hand-written key
+    // lists that happened to agree.
+    let mut to_string_tag = String::new();
+    push_js_string_literal(&mut to_string_tag, MODULE_SOURCE_TO_STRING_TAG);
+    text.push_str(
+        &DescriptorSourceText::data()
+            .value(to_string_tag)
+            .complete()
+            .render(),
+    );
+    text.push_str(");\n");
     text.push_str(OBJECT_NAME);
     text.push_str(".preventExtensions(");
     text.push_str(binding);
