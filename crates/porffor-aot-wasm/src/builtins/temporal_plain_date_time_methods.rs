@@ -2307,7 +2307,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_require_same_calendar(
             calendar_payload_local,
             other_calendar_payload_local,
-            "Temporal.PlainDateTime until and since require the same calendar",
+            TemporalDifferenceGuard::PlainDateTimeSameCalendar,
             function,
         )?;
 

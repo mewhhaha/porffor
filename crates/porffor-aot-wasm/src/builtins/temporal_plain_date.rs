@@ -605,6 +605,138 @@ impl TemporalCalendarCarrier {
 const TEMPORAL_PLAIN_DATE_MINIMUM_EPOCH_DAY: i64 = -100_000_001;
 const TEMPORAL_PLAIN_DATE_MAXIMUM_EPOCH_DAY: i64 = 100_000_000;
 
+/// The `DifferenceTemporal*` guard messages, as one closed domain.
+///
+/// `until`/`since` reject a calendar mismatch in all four families, and a
+/// time-zone mismatch in `ZonedDateTime`, with a RangeError whose message is a
+/// **pool string**: `StringPool::payload` looks the text up in a map built
+/// before emission and *panics* — ``string `..` must exist in pool`` — rather
+/// than degrading when it was never interned.
+///
+/// Batch 6 shipped exactly that. [`FunctionBuilder::emit_temporal_require_same_calendar`]
+/// took its message as a bare `&str`, the `Temporal.ZonedDateTime` arithmetic
+/// lane spelled two new literals at its call site, `data.rs` grew no matching
+/// intern entry, and `cargo test -p porffor-aot-wasm --lib` went **24 red** —
+/// 24 rather than 2, because every test that emits a full bootstrap takes the
+/// panic whatever that test is about. Nothing in the type system could see it:
+/// a `&str` parameter and a runtime map lookup have nothing to disagree about
+/// at compile time.
+///
+/// So a guard message is no longer spellable at a call site. A site names a
+/// variant, [`Self::message`] is the only source of the text, and `data.rs`
+/// interns by walking [`Self::ALL`] and asking each variant which builtins emit
+/// it ([`Self::emitting_builtins`]) — the same shape as the
+/// `TemporalCalendarId::ALL -> eras() -> spellings()` walk beside it. Both
+/// matches are exhaustive with no `_` arm, so a fifth difference family cannot
+/// compile without stating its message and its gate, and the pool then picks it
+/// up with no edit in `data.rs` at all.
+///
+/// **What this does not enforce**, stated so it is not over-read: [`Self::ALL`]
+/// is a hand-written array. The const assertion below rejects a duplicate, a
+/// reordering, and a variant dropped from the middle, but a variant *appended*
+/// to the enum and left off the end of `ALL` still compiles. Keep `ALL`
+/// adjacent to the variant list.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalDifferenceGuard {
+    /// `CalendarEquals` in `DifferenceTemporalPlainDate`.
+    PlainDateSameCalendar,
+    /// `CalendarEquals` in `DifferenceTemporalPlainDateTime`. Reached by
+    /// `Temporal.ZonedDateTime.prototype.{until,since}` too, which delegate
+    /// their arithmetic to this body — but through a runtime call, so the
+    /// message it throws is this one and the ZonedDateTime guards below fire
+    /// first, in the caller.
+    PlainDateTimeSameCalendar,
+    /// `CalendarEquals` in `DifferenceTemporalPlainYearMonth`.
+    PlainYearMonthSameCalendar,
+    /// `CalendarEquals` in `DifferenceTemporalZonedDateTime`.
+    ZonedDateTimeSameCalendar,
+    /// `TimeZoneEquals` in `DifferenceTemporalZonedDateTime`. Deliberately
+    /// applied unconditionally rather than only for date `largestUnit`s; the
+    /// emitter's own comment carries that choice and its cost.
+    ZonedDateTimeSameTimeZone,
+}
+
+impl TemporalDifferenceGuard {
+    /// Every guard, in declaration order. `data.rs` walks this to build the
+    /// pool, so a variant reachable from an emitter but missing here is the
+    /// `string must exist in pool` compiler panic again.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::PlainDateSameCalendar,
+        Self::PlainDateTimeSameCalendar,
+        Self::PlainYearMonthSameCalendar,
+        Self::ZonedDateTimeSameCalendar,
+        Self::ZonedDateTimeSameTimeZone,
+    ];
+
+    /// The RangeError text, and the only place it is spelled.
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
+            Self::PlainDateSameCalendar => {
+                "Temporal.PlainDate until and since require the same calendar"
+            }
+            Self::PlainDateTimeSameCalendar => {
+                "Temporal.PlainDateTime until and since require the same calendar"
+            }
+            Self::PlainYearMonthSameCalendar => {
+                "Temporal.PlainYearMonth until and since require the same calendar"
+            }
+            Self::ZonedDateTimeSameCalendar => {
+                "Temporal.ZonedDateTime until and since require the same calendar"
+            }
+            Self::ZonedDateTimeSameTimeZone => {
+                "Temporal.ZonedDateTime until and since require the same time zone"
+            }
+        }
+    }
+
+    /// The builtins whose compiled body reads [`Self::message`] back out of the
+    /// pool. `data.rs` gates the interning on exactly this set, which is what
+    /// keeps a program that touches no `until`/`since` from carrying the text.
+    pub(crate) const fn emitting_builtins(self) -> &'static [StandardBuiltinId] {
+        match self {
+            Self::PlainDateSameCalendar => &[
+                StandardBuiltinId::TemporalPlainDatePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDatePrototypeSince,
+            ],
+            Self::PlainDateTimeSameCalendar => &[
+                StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+            ],
+            Self::PlainYearMonthSameCalendar => &[
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeUntil,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeSince,
+            ],
+            Self::ZonedDateTimeSameCalendar | Self::ZonedDateTimeSameTimeZone => &[
+                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            ],
+        }
+    }
+
+    /// Position in [`Self::ALL`]. Exists only for the const assertion below,
+    /// which is what makes `ALL` a checked list rather than a hopeful one.
+    const fn index(self) -> usize {
+        match self {
+            Self::PlainDateSameCalendar => 0,
+            Self::PlainDateTimeSameCalendar => 1,
+            Self::PlainYearMonthSameCalendar => 2,
+            Self::ZonedDateTimeSameCalendar => 3,
+            Self::ZonedDateTimeSameTimeZone => 4,
+        }
+    }
+}
+
+const _: () = {
+    let mut position = 0;
+    while position < TemporalDifferenceGuard::ALL.len() {
+        assert!(
+            TemporalDifferenceGuard::ALL[position].index() == position,
+            "TemporalDifferenceGuard::ALL must list every variant once, in declaration order"
+        );
+        position += 1;
+    }
+};
+
 impl<'a> FunctionBuilder<'a> {
     /// `ToIntegerWithTruncation`: `ToNumber`, reject NaN and the infinities with
     /// a RangeError, then truncate toward zero.
@@ -871,11 +1003,16 @@ impl<'a> FunctionBuilder<'a> {
     /// between `PlainDateTime/prototype/{until,since}/different-calendars-throws.js`
     /// passing because the feature works and passing because
     /// `new Temporal.PlainDateTime(..., "gregory")` threw first.
+    ///
+    /// The message arrives as a [`TemporalDifferenceGuard`] rather than as a
+    /// `&str` because it is a pool string and an uninterned pool string is a
+    /// compile-time panic in every full bootstrap, not a wrong answer in one
+    /// case. That enum's doc carries the incident.
     pub(crate) fn emit_temporal_require_same_calendar(
         &mut self,
         calendar_payload_local: u32,
         other_calendar_payload_local: u32,
-        message: &str,
+        guard: TemporalDifferenceGuard,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_string_payload_equality_i32(
@@ -886,7 +1023,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            message,
+            guard.message(),
             self.result_local,
             self.result_tag_local,
             function,

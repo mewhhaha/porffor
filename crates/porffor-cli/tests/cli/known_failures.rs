@@ -122,32 +122,38 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// `unfilled` row is alive turns rung 1c red. The bump and the fill are ONE
 /// edit, and the fill needs a completed rung 1c.
 ///
-/// Rung 1c is still not complete at batch 6, and the measurement has moved
-/// enough that the old text here was wrong in both directions:
+/// Rung 1c is still not complete at batch 6 — but it is much closer than the
+/// text here said for two batches, and every number below was re-measured at
+/// this head rather than carried forward:
 ///
-/// - Batch 5 banked **12 of 17** chunks, **276 of 607** executing tests, in
-///   four container windows. `frontend` (46), `typed_array` (58), `array` (84),
-///   `language` (105) and `binary_data` (38) have still never produced a
-///   verdict at any head. Deleting the row on that evidence would declare
-///   "these are all the expected non-green outcomes" about a suite that is
-///   more than half unmeasured.
+/// - **16 of 18** chunks are banked and **465 of 608** executing tests have a
+///   verdict. `language` (105) and `binary_data` (38) have still never produced
+///   a verdict at any head. Deleting the row on that evidence would declare
+///   "these are all the expected non-green outcomes" over two chunks that have
+///   never run.
+/// - **254** of the 465 were measured at *this* head, with **zero** failures:
+///   `known_failures` 5, `frontend_test262_subset` 1, `date` 17, `iterator` 30,
+///   `iterator_helpers` 14, `frontend` 45, `typed_array` 58, `array` 84. The
+///   other 211 carry batch-5 verdicts.
+/// - The 13 tests batch 5 measured red — 4 in `iterator::`, 9 in
+///   `iterator_helpers::` — are **all green** now that the batch-6 iterator
+///   lane has landed, so no row is owed for any of them. That is why the
+///   "rows libtest would report as `test did not panic as expected`" argument
+///   is no longer the reason this row survives; the reason is the two unrun
+///   chunks.
 /// - `frontend::inspect_reports_phase_eighteen_global_ir_shape` -- named here
 ///   for two batches as asserting `global_bindings=64` against a measured 65 --
-///   was fixed by the batch-5 integrator and measured `ok` in batch 5 session 3.
-///   It is not a candidate row.
-/// - The known failing set is 13 tests, all in `iterator::` (4) and
-///   `iterator_helpers::` (9), and all owned by the batch-6 iterator lane, whose
-///   repair landed in this checkout. Rows for them would be declarations that
-///   libtest reports as `test did not panic as expected` the moment the repair
-///   is confirmed. Two of the three symptom classes also carry unstable panic
-///   text (a value read from unrelated memory; a raw `handle@...` address), so a
-///   `should_panic(expected = ...)` over them would go red for the wrong reason.
+///   was fixed by the batch-5 integrator and is green in the batch-6 `frontend`
+///   chunk. It is not a candidate row.
+/// - The only non-pass outcome across the 465 is the declared `heap` ignore
+///   (T05), which already has its row.
 ///
 /// So batch 6 takes the alternative the assertion names in its own message: the
 /// constant is bumped to the batch this checkout actually is, and the header is
 /// extended by one batch. Both are visible one-line diffs, which is the point --
 /// this is a deliberate extension, not a slide. The row's own `reason` column
-/// carries the current measurement. Resume with `scripts/rung1c-chunks.sh`.
+/// carries the current measurement. Finish with `scripts/rung1c-chunks.sh`,
+/// which now has exactly `language` and `binary_data` left to run.
 const CURRENT_BATCH: u32 = 6;
 
 /// Header line carrying the `unfilled` expiry, e.g.

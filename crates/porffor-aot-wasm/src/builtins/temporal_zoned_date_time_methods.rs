@@ -490,7 +490,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_require_same_calendar(
             calendar_payload_local,
             other_calendar_payload_local,
-            "Temporal.ZonedDateTime until and since require the same calendar",
+            TemporalDifferenceGuard::ZonedDateTimeSameCalendar,
             function,
         )?;
         // `TimeZoneEquals`. Comparing the two canonical time-zone strings is
@@ -519,7 +519,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime until and since require the same time zone",
+            TemporalDifferenceGuard::ZonedDateTimeSameTimeZone.message(),
             self.result_local,
             self.result_tag_local,
             function,

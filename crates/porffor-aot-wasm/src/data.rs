@@ -2004,13 +2004,17 @@ impl StringPool {
                 // largestUnit with this one message for both options.
                 "Invalid Temporal.PlainDate unit option",
                 // `CalendarEquals` in `DifferenceTemporal*`. One message per
-                // family; all three are emitted only from a builtin whose
-                // `debug_name` satisfies this gate
-                // (`Temporal.PlainDate.prototype.until`,
-                // `Temporal.PlainDateTime.prototype.since`, and so on).
-                "Temporal.PlainDate until and since require the same calendar",
-                "Temporal.PlainDateTime until and since require the same calendar",
-                "Temporal.PlainYearMonth until and since require the same calendar",
+                // family, spelled by `TemporalDifferenceGuard` and nowhere
+                // else. These three entries keep their historical position in
+                // this array on purpose: pool offsets are assignment-ordered,
+                // so deleting them in favour of the walk below is a pure
+                // reordering that still moves every later string's offset, and
+                // that needs rung G. The walk is idempotent
+                // (`intern_string` returns early on a hit), so it adds nothing
+                // here and only fills the case this gate misses.
+                TemporalDifferenceGuard::PlainDateSameCalendar.message(),
+                TemporalDifferenceGuard::PlainDateTimeSameCalendar.message(),
+                TemporalDifferenceGuard::PlainYearMonthSameCalendar.message(),
                 "Invalid Temporal.PlainDate calendarName option",
                 "Temporal.PlainDate.prototype.with requires an object",
                 "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",
@@ -2501,26 +2505,33 @@ impl StringPool {
                 pool.intern_string(value);
             }
         }
-        // `DifferenceTemporalZonedDateTime`'s two guards. Same shape and same
-        // reason as the `Temporal.PlainDate`/`PlainDateTime`/`PlainYearMonth`
-        // `until and since require the same calendar` messages interned above:
-        // the message is a pool string read back with `StringPool::payload`,
-        // which panics rather than degrading when the string was never
-        // interned. Batch 6 added the emitter
-        // (`temporal_zoned_date_time_methods.rs:490` and `:522`) without this
-        // block, and `cargo test -p porffor-aot-wasm --lib` went 24 red on
-        // `string `...` must exist in pool` — every test that emits a full
-        // bootstrap, not only the Temporal ones.
-        if compiled_standard_builtins
-            .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeUntil)
-            || compiled_standard_builtins
-                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeSince)
-        {
-            for value in [
-                "Temporal.ZonedDateTime until and since require the same calendar",
-                "Temporal.ZonedDateTime until and since require the same time zone",
-            ] {
-                pool.intern_string(value);
+        // Every `DifferenceTemporal*` guard message, derived from the domain the
+        // emitters read rather than listed again — the same construction as the
+        // `TemporalCalendarId::ALL -> eras() -> spellings()` walk above, and for
+        // the same reason.
+        //
+        // The message is a pool string read back with `StringPool::payload`,
+        // which *panics* rather than degrading when the string was never
+        // interned. Batch 6 added the two `Temporal.ZonedDateTime` guards
+        // (`builtins/temporal_zoned_date_time_methods.rs`) as bare `&str`
+        // literals with no matching entry here, and
+        // `cargo test -p porffor-aot-wasm --lib` went **24 red** on
+        // ``string `...` must exist in pool`` — every test that emits a full
+        // bootstrap, not only the Temporal ones, because the panic is in the
+        // bootstrap and not in the feature.
+        //
+        // Walking the domain is what stops the fifth family repeating it: a
+        // `TemporalDifferenceGuard` variant cannot compile without a `message()`
+        // and an `emitting_builtins()` arm, and this loop then interns it with
+        // no edit in this file. The per-guard gate is what keeps a program that
+        // touches no `until`/`since` from carrying the text.
+        for guard in TemporalDifferenceGuard::ALL {
+            if guard
+                .emitting_builtins()
+                .iter()
+                .any(|builtin| compiled_standard_builtins.contains(builtin))
+            {
+                pool.intern_string(guard.message());
             }
         }
         if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize)

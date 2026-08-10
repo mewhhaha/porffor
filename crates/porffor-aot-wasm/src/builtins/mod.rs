@@ -38,6 +38,14 @@ mod temporal_plain_date;
 /// without a second edit anywhere — and a *calendar* added with a complete
 /// `eras()` is interned without an edit here at all.
 pub(crate) use temporal_plain_date::TemporalCalendarId;
+/// The `DifferenceTemporal*` guard messages, re-exported for `data.rs` for the
+/// same reason as the calendar table: the string pool derives them by walking
+/// `TemporalDifferenceGuard::ALL -> message()`, gated on
+/// `emitting_builtins()`, instead of repeating the five literals. A message
+/// spelled at an emitter and not interned is a *compile-time panic* in every
+/// full bootstrap (`string ... must exist in pool`), which is how batch 6 took
+/// 24 `porffor-aot-wasm --lib` tests down with two new `&str` literals.
+pub(crate) use temporal_plain_date::TemporalDifferenceGuard;
 mod temporal_plain_date_methods;
 mod temporal_plain_date_time;
 mod temporal_plain_date_time_methods;

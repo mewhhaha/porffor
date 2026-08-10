@@ -217,8 +217,21 @@ UNBANKED=""
 # silence could be hiding, and the chunk's failure mode on a real hang is an
 # hour of wall clock rather than a corrupted verdict.
 #
-# FIRST ACTION FOR WHOEVER RUNS THIS: time that chunk alone, with the sweep
-# down, and set the number from the measurement rather than from this comment.
+# THE MEASUREMENT IS IN, and 3600 stays. Batch 6 ran the isolated chunk alone
+# with the sweep down (`target/watched/rung1c-frontend_test262_subset.log`):
+# libtest's single "over 60 seconds" warning lands at t+60 s, the next byte
+# written to that log is the `... ok` at t+1814 s, so the log is silent for
+# **1,754 s** and the chunk banks at `ran=1 filtered_out=608 sum=609`. The old
+# 900 s ceiling would have killed it at ~t+960 s, 854 s short -- which is
+# exactly the b5 arithmetic above, now confirmed prospectively rather than
+# reconstructed. 3600 is a 2.05x margin over the measured silence: do not lower
+# it below ~2600, and re-measure rather than re-argue if the test's cost moves.
+#
+# Peak RSS in the same run was 5.55 GiB (plateau 4.87-5.03 GiB) against b5's
+# 8.4-8.7 GiB for the same test unisolated, with `avail` never below 9.05 GiB.
+# That is what `--threads 2` bought; it is recorded here because it is the
+# number that decides whether this chunk can ever share the box with the sweep,
+# and that co-scheduling has NOT been tested.
 chunk_stall() {
   case "$1" in
     frontend_test262_subset) echo "${RUNG1C_STALL_FRONTEND_SUBSET:-3600}" ;;
