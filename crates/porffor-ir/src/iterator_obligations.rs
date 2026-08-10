@@ -87,39 +87,74 @@ impl IteratorObligation {
     }
 }
 
-/// Which emitter arm performs the operation.
+/// Declares [`EmissionSite`], its `ALL` enumeration and its `name` renderer
+/// from **one** row list.
 ///
-/// Closed, and each variant is joined to a real function by
-/// `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`, an
-/// uncalled function whose exhaustive `match` names each arm's path. Renaming
-/// or deleting an emitter arm that a variant claims is therefore `E0599`, and
-/// adding a variant is a compile error until it names something real. The
-/// guarantee is name resolution, not signature — stated so nobody over-reads
-/// it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EmissionSite {
-    /// `FunctionBuilder::compile_for_of_iterator` (`control_flow.rs:7422`).
-    SyncForOfIterator,
-    /// `FunctionBuilder::compile_async_for_of_iterator` (`control_flow.rs:6078`).
-    AsyncForOfIterator,
-    /// `FunctionBuilder::compile_array_destructure_from_value_locals`
-    /// (`control_flow.rs:8220`). Array destructuring runs the same protocol:
-    /// the `@@iterator` read, `finish_get_iterator_from_method`'s callability
-    /// and object checks and the once-only `next` cache,
-    /// `emit_destructuring_iterator_step` per element, and a guarded close.
-    /// There is no array fast path here, so every array destructuring pays the
-    /// real protocol.
-    ArrayDestructuring,
+/// This is `spec_operations!`'s shape (`operations.rs`), applied to the site
+/// domain for the same reason. The site↔witness and site↔catalog ties below
+/// quantify over [`EmissionSite::ALL`]; a hand-written `ALL` would reintroduce
+/// ledger **L1** exactly — a variant absent from the list is invisible to every
+/// `const` expression that is supposed to constrain it, and the omission is
+/// precisely what a length assertion preserves. With the enum, `ALL` and
+/// `name()` being three expansions of the same `$(...)+` sequence, the omission
+/// is not expressible.
+///
+/// A row is `[docs] Variant => "emitter function name"`. The name is the one
+/// `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed` must
+/// resolve.
+macro_rules! emission_sites {
+    ($(
+        $( #[$meta:meta] )*
+        $variant:ident => $name:literal
+    ),+ $(,)?) => {
+        /// Which emitter arm performs the operation.
+        ///
+        /// Closed, and each variant is joined to a real function by
+        /// `porffor-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`,
+        /// an uncalled function whose exhaustive `match` names each arm's path.
+        /// Renaming or deleting an emitter arm that a variant claims is
+        /// therefore `E0599`, and adding a variant is a compile error until it
+        /// names something real. The guarantee is name resolution, not
+        /// signature — stated so nobody over-reads it.
+        ///
+        /// Three further ties close the triangle, so a variant cannot exist
+        /// without an owner on either side: **K1** (below) rejects a site no
+        /// witness constant discharges by emission, and **J10**/**J11** in
+        /// `operations.rs` reject a catalog row naming an unwitnessed site and a
+        /// site named by no catalog row.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        pub enum EmissionSite {
+            $( $( #[$meta] )* $variant , )+
+        }
+
+        impl EmissionSite {
+            /// Every site, in declaration order. Generated from the same rows as
+            /// the enum, so it cannot be partial.
+            pub const ALL: &'static [EmissionSite] = &[ $( EmissionSite::$variant , )+ ];
+
+            pub const fn name(self) -> &'static str {
+                match self { $( EmissionSite::$variant => $name , )+ }
+            }
+        }
+    };
 }
 
-impl EmissionSite {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::SyncForOfIterator => "compile_for_of_iterator",
-            Self::AsyncForOfIterator => "compile_async_for_of_iterator",
-            Self::ArrayDestructuring => "compile_array_destructure_from_value_locals",
-        }
-    }
+emission_sites! {
+    /// `FunctionBuilder::compile_for_of_iterator` (`control_flow.rs:6874`).
+    SyncForOfIterator => "compile_for_of_iterator",
+    /// `FunctionBuilder::compile_async_for_of_iterator` (`control_flow.rs:5577`).
+    AsyncForOfIterator => "compile_async_for_of_iterator",
+    /// `FunctionBuilder::compile_array_destructure_from_value_locals`
+    /// (`control_flow.rs:7656`). Array destructuring runs the same protocol:
+    /// the `@@iterator` read, `finish_get_iterator_from_method`'s callability
+    /// and object checks and the once-only `next` cache (`:7891`),
+    /// `emit_destructuring_iterator_step` per element (`:8099`), and **both**
+    /// halves of 7.4.11 step 4 under the `[[Done]]` guard — `emit_iterator_close`
+    /// on the normal path (`:7710`) and
+    /// `emit_iterator_close_preserving_current_throw` on the abrupt path
+    /// (`:7729`). There is no array fast path here, so every array destructuring
+    /// pays the real protocol.
+    ArrayDestructuring => "compile_array_destructure_from_value_locals",
 }
 
 /// What kind of claim an [`IntactnessPremise`] is.
@@ -160,7 +195,7 @@ pub enum IntactnessPremise {
     /// The loop body does not change the array's `length`.
     ///
     /// The index walk hoists `emit_array_length` above the loop
-    /// (`control_flow.rs:5779`, read above the loop header at `:5790`), whereas
+    /// (`control_flow.rs:5285`, read above the loop header at `:5295`), whereas
     /// `CreateArrayIterator` re-reads `LengthOfArrayLike` on every step
     /// (23.1.5.1). The hoist is a fact about our emitter; *this* premise is the
     /// condition on the program under which the hoist is unobservable.
@@ -168,7 +203,7 @@ pub enum IntactnessPremise {
     /// The array has no holes, and neither it nor its prototype chain carries
     /// an accessor or a proxy trap on an index key.
     ///
-    /// `emit_array_read` (`control_flow.rs:5796`) reads backing storage rather
+    /// `emit_array_read` (`control_flow.rs:5300`) reads backing storage rather
     /// than performing `[[Get]]`; again, that is a fact about our emitter, and
     /// *this* premise is the condition on the program under which skipping
     /// `[[Get]]` is unobservable (23.1.5.1).
@@ -373,7 +408,7 @@ impl IteratorProtocolWitness {
     /// `StatementIr::ForOfArray` — the index walk.
     ///
     /// All four obligations are discharged by assumption. `compile_for_of_array`
-    /// (`control_flow.rs:5732`) is a bare `emit_array_length` +
+    /// (`control_flow.rs:5238`) is a bare `emit_array_length` +
     /// `emit_array_read` index walk with no `@@iterator` `Get` anywhere in it,
     /// which is exactly what these premises assert is safe — and what trace A1
     /// shows is observably wrong when `Array.prototype[@@iterator]` is patched.
@@ -398,7 +433,7 @@ impl IteratorProtocolWitness {
 
     /// `StatementIr::ForOfString` — the code-point walk.
     ///
-    /// `compile_for_of_string` (`control_flow.rs:5850`) steps via
+    /// `compile_for_of_string` (`control_flow.rs:5353`) steps via
     /// `emit_decode_utf8_scalar_at_index`.
     pub const STRING_CODE_POINT_WALK: Self = Self::new(
         GetIteratorDischarge::assumed(IntactnessPremise::StringIteratorIntact),
@@ -409,11 +444,34 @@ impl IteratorProtocolWitness {
 
     /// `StatementIr::ForOfIterator`, sync. Every obligation is really emitted;
     /// the close predicate in `emit_iterator_close_condition_i32`
-    /// (`control_flow.rs:9018`) is exactly `¬LoopContinues`.
+    /// (`control_flow.rs:8451`) is exactly `¬LoopContinues`.
     pub const SYNC_ITERATOR_PROTOCOL: Self = Self::emitted_by(EmissionSite::SyncForOfIterator);
 
     /// `StatementIr::ForOfIterator` with an async plan (`for await`).
     pub const ASYNC_ITERATOR_PROTOCOL: Self = Self::emitted_by(EmissionSite::AsyncForOfIterator);
+
+    /// `ArrayDestructuringPatternIr` — the iterator one ArrayBindingPattern
+    /// (8.6.3 IteratorBindingInitialization) or ArrayAssignmentPattern
+    /// (13.15.5.5 IteratorDestructuringAssignmentEvaluation) acquires.
+    ///
+    /// One witness per *pattern*, not per statement: both operations perform a
+    /// fresh `GetIterator` for every array pattern, nested ones included, which
+    /// is why the field lives on [`crate::ArrayDestructuringPatternIr`] rather
+    /// than on `ExprIr::ArrayDestructure`.
+    ///
+    /// Every obligation is really emitted, verified step by step at
+    /// `control_flow.rs:7656-7770`: `emit_get_iterator_from_value_locals`
+    /// (`:7687`), `emit_destructuring_iterator_step` (`:8099`) per element, and
+    /// **both** halves of 7.4.11 step 4 — `emit_iterator_close` under the
+    /// `[[Done]]` guard on the normal path (`:7710`) and
+    /// `emit_iterator_close_preserving_current_throw` under the same guard on
+    /// the abrupt path (`:7729`). That guard is 8.6.3 step 5's
+    /// "if `iteratorRecord.[[Done]]` is false", which is what
+    /// `array-elem-iter-nrml-close-skip.js` pins. There is no array fast path
+    /// here, so every array destructuring pays the real protocol and the
+    /// discharge is honestly `ByEmission` in all four slots.
+    pub const ARRAY_DESTRUCTURING_PROTOCOL: Self =
+        Self::emitted_by(EmissionSite::ArrayDestructuring);
 
     /// The for-of head produced no iteration: an unsupported form was reported
     /// and the statement is `StatementIr::Empty`. Every obligation is vacuous
