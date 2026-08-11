@@ -81,11 +81,13 @@
 //!   paragraph somebody has to remember.
 //! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
-//! - **1** `should_panic` attribute. It was 0 before this module existed and 2
-//!   after it; the batch-3 T24 row was retired in batch 4 and took one of them
-//!   with it, leaving
-//!   `binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture`
-//!   (the declared T17 hang) as the only one.
+//! - **0** `should_panic` attributes. It was 0 before this module existed and 2
+//!   after it; the batch-3 T24 row was retired in batch 4 and the batch-5 T17
+//!   row (`binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture`,
+//!   the declared `Atomics.wait` hang) in batch 6, when it started passing and
+//!   libtest reported "test did not panic as expected". Zero is the target
+//!   state, not an omission: every remaining non-green outcome in this crate is
+//!   an `ignore` with an owner.
 //!
 //! Reproduce with the **exact-line** form, which is what [`scan_source`] itself
 //! matches. A substring `grep -h '#\[test\]'` over these files currently returns
@@ -635,7 +637,12 @@ pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
 // them; their rows are covered by the source scan instead.
 // -------------------------------------------------------------------------
 
-const _: fn() = crate::binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture;
+// The T17 assertion
+// (`binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture`) was
+// retired together with its ledger row in batch 6, when the declared hang
+// started passing and libtest produced the "test did not panic as expected"
+// signal the row existed to produce. `Atomics.wait` now returns instead of
+// blocking, so the test needs no guarded child, no `should_panic` and no row.
 const _: fn() = crate::heap::run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture;
 // The T24 assertion
 // (`language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name`)
@@ -1458,11 +1465,14 @@ fn routing_takes_the_guarded_path_whenever_the_test_name_is_unknown() {
         .iter()
         .filter(|row| row.state == State::Hang && row.target == TestTarget::Cli)
         .collect();
-    assert!(
-        !hangs.is_empty(),
-        "no cli hang rows, so the loop below would assert nothing. If the hang is genuinely fixed, \
-         delete this assertion along with the row."
-    );
+    // There is deliberately no `assert!(!hangs.is_empty())` here any more. The
+    // batch-5 form carried one, with the message "if the hang is genuinely fixed,
+    // delete this assertion along with the row" — and in batch 6 it was: the T17
+    // `Atomics.wait` row was retired when the test started passing, leaving zero
+    // cli hang rows. The loop below is then vacuous *by design*, which is the
+    // correct end state; the three unconditional assertions above are what keep
+    // this test from asserting nothing. Re-add the non-empty check only if a new
+    // hang row is ever declared and you want its routing pinned.
     for row in hangs {
         assert_eq!(
             execution_path(Some(row.test)),

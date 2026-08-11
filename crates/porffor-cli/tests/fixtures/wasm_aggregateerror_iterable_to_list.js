@@ -76,8 +76,17 @@ badResult[Symbol.iterator] = function() {
 };
 assertTypeError(function() { new AggregateError(badResult); }, "bad result");
 
+// The key must be the well-known symbol itself. Spelling it as the *string*
+// `"Symbol.iterator"` defines an ordinary string-keyed property, the object has
+// no @@iterator, and `new AggregateError` then throws `TypeError:
+// AggregateError errors input must be iterable` instead of running this getter
+// -- which is spec-correct and is what this fixture measured as a red before
+// batch 6 ran the `language` chunk for the first time. Verified directly:
+// `Object.defineProperty(o, Symbol.iterator, {get})` propagates the getter's
+// thrown value, `o["Symbol.iterator"] = fn` does not, and
+// `typeof Symbol.iterator === "symbol"`.
 let throwingIterator = {};
-Object.defineProperty(throwingIterator, "Symbol.iterator", {
+Object.defineProperty(throwingIterator, Symbol.iterator, {
   get: function() { throw "iterator getter"; }
 });
 assertThrowsValue(function() { new AggregateError(throwingIterator); }, "iterator getter", "iterator getter");
