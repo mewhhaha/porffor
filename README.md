@@ -5,17 +5,18 @@ CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
 The public project name is Lila. Existing `porffor-*` Rust crates, the `porf`
-CLI, environment variables, cache paths and legacy JavaScript package names
-retain their current identifiers until a dedicated code-identifier migration.
+CLI, environment variables, cache paths, diagnostics, and host ABI names retain
+their current identifiers until the coordinated migration tracked by T29.
 
 The product path is direct JavaScript compilation. User programs must go through
 parse, early errors, spec-shaped IR, lowering IR, and real Wasm codegen. Lila
 does not count "compile a JavaScript interpreter or VM to Wasm and feed source
 into it" as success.
 
-The older JavaScript implementation is still in the repository as reference
-material and as an oracle while the Rust path catches up. Treat the Rust crates
-and `porf` CLI under `crates/` as the current development surface.
+The older JavaScript implementation was retired from the working tree at Git
+commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
+archaeology; it is not a development surface or an oracle. The Rust workspace
+and its `porf` CLI are the only current product implementation.
 
 ## Current Status
 <!-- porffor-status:start -->
@@ -44,16 +45,18 @@ above stays conservative until a full pinned real-suite publish is refreshed.
 
 ## Implementation Progress
 
-As of `2026-07-30`, the Rust rewrite has 28 epic-level tasks:
+As of `2026-08-11`, the Rust rewrite has 30 epic-level tasks:
 
-- `1` complete: the repository operating contract and CI enforcement (`T00`);
+- `2` complete: the repository operating contract (`T00`) and retirement of
+  the legacy JavaScript product (`T28`);
 - `24` in progress with substantial implementation but unmet closure criteria;
 - `1` with policy selected and implementation/accounting still open: dynamic
   source evaluation (`T13`);
-- `1` open feature lane: complete product-side ECMA-402 Intl (`T23`);
+- `2` open lanes: complete product-side ECMA-402 Intl (`T23`) and the
+  coordinated Lila identifier migration (`T29`);
 - `1` blocked final gate: zero-failure current-pin Wasm-AOT conformance (`T26`).
 
-These are closure counts, not an estimate that “1/28 of JavaScript” is
+These are closure counts, not an estimate that “2/30 of JavaScript” is
 implemented. The task epics differ greatly in size, and many in-progress lanes
 already contain broad working implementations.
 
@@ -103,9 +106,8 @@ the generated status block above, not by this task summary.
 Supporting directories:
 
 - `docs/rust-rewrite`: rewrite notes, architecture invariants, and conformance taxonomy.
-- `test262`: pinned real Test262 checkout, local harness files, and snapshots.
+- `test262`: pinned real Test262 checkout, snapshots, and generated backlog.
 - `scripts`: repo maintenance and low-RAM real-suite publication scripts.
-- `compiler`, `runtime`, and `package.json`: legacy JavaScript implementation and npm-facing files inherited from the previous project.
 - `vendor`: vendored Rust dependencies used by the rewrite.
 
 ## CLI
@@ -149,14 +151,11 @@ Current commands:
 - `test262 ...` drives the fake fixture suite, pinned real suite, status snapshots, triage, and README status publication.
 - `repl` is reserved for the Rust REPL and is not implemented yet.
 
-The npm `porf` entry in `package.json` still points at the inherited JavaScript
-runtime. Do not use it as the source of truth for the Rust rewrite. The Rust
-package CLI and the inherited Node package CLI both expose a convenience command
-for Worker-style TypeScript setup:
+The Rust CLI also exposes a convenience command for Worker-style TypeScript
+setup:
 
 ```sh
 cargo run -p porffor-cli -- types src/index.ts worker-configuration.d.ts --config wrangler.jsonc
-node runtime/index.js types src/index.ts worker-configuration.d.ts --config wrangler.jsonc
 ```
 
 `porf types` mirrors Wrangler's type-generation shape: it writes
@@ -167,9 +166,8 @@ node runtime/index.js types src/index.ts worker-configuration.d.ts --config wran
 `--config` is omitted. An explicit positional entrypoint or `--entrypoint`
 overrides the config `main`, matching the common Wrangler flow of generating
 types from a config plus a selected worker source. JSON, JSONC, and TOML configs
-are supported, and `porf typegen` is accepted as an alias. The package CLI
-type-generation paths are covered by `cargo test -p porffor-cli types_ --quiet`
-for the Rust CLI and `pnpm test:types` for the inherited Node CLI.
+are supported, and `porf typegen` is accepted as an alias. The type-generation
+paths are covered by `cargo test -p porffor-cli types_ --quiet`.
 
 Wasm-AOT compilation uses one process-wide Wasmtime engine and a shared
 Cranelift pool. The pool defaults to half the logical CPUs; `porf --jobs N ...`
@@ -217,7 +215,7 @@ cargo test -p porffor-engine --quiet
 ./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
-The CLI suite is 589 executing tests (590 compile; 8 more sit behind the
+The CLI suite is 614 default-executing tests (615 compile; 8 more sit behind the
 `spec-exec-oracle` feature): about 26 minutes at `--test-threads=8` on 16 CPUs,
 an estimated 1 h 45 min at `--test-threads=2`. Raise the thread count on a
 machine with spare cores, but keep `--stall 900` — a single cold Wasm-AOT
@@ -225,7 +223,7 @@ compile can exceed the 300 s default of log silence, and the guard then kills a
 healthy run with exit code 124.
 
 **Do not use `--test-threads=1`.** libtest then runs every test on the thread
-named `main`, the per-test name the suite routes on is unavailable, and all 589
+named `main`, the per-test name the suite routes on is unavailable, and all 614
 tests fall back to spawning a cold `porf` child process instead of the warm
 in-process call the 26-minute figure is built on. It is correct and terminating,
 just far slower. For a single test use `-- --exact <name>`.
@@ -4522,9 +4520,10 @@ tree-wide; it has already silently swallowed two files, which is why the ledger
 is a `.tsv` and why it is loaded with `include_str!` so its absence is a compile
 error.
 
-The workspace forbids unsafe Rust through workspace lints. Keep changes scoped
-to the Rust path unless a legacy file is being used deliberately as an oracle or
-fixture source.
+The workspace forbids unsafe Rust through workspace lints. JavaScript is
+permitted only as pinned Test262 content, embedded harness data, Rust test
+fixtures and reproducers, or vendored source; it must not become a product
+compiler/runtime or publication path.
 
 Repository contract checks cover the task plan, Rust module-boundary split,
 generated README status edits, the Test262 shortcut allowlist, and the `$262`
@@ -4533,3 +4532,5 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 ## The Name
 
 `lila` means `purple` in Swedish.
+
+Source and project status: <https://github.com/mewhhaha/porffor>.

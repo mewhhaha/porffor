@@ -3,7 +3,7 @@
 ## Project Direction
 
 - Lila is a greenfield Rust rewrite until 1.0. Optimize for the future Rust library, CLI, compiler architecture, and conformance story.
-- Do not preserve legacy internals, APIs, file layouts, or behavior merely for compatibility. Old JavaScript code can be a reference and oracle, but it is not a constraint.
+- Do not preserve legacy internals, APIs, file layouts, or behavior merely for compatibility. The retired JavaScript implementation exists only in Git history at the recovery commit recorded by T28; it is neither a development surface nor an oracle.
 - Breaking changes are acceptable and expected before 1.0 when they move the project toward the correct compiler architecture or better ECMAScript/Test262 conformance.
 - Prefer deleting or replacing legacy-shaped code over layering compatibility shims, unless a shim is the smallest temporary step toward the Rust compiler path.
 
@@ -99,8 +99,23 @@ and a plain function is better.
 - Clean-break CLI face: `crates/porffor-cli` and the `porf` command
 - Conformance taxonomy and harness rewrite: `crates/porffor-test262`
 
+## Legacy Retirement Boundary
+
+- The supported product and development surfaces are the Rust workspace, Rust
+  CLI, and Rust-owned conformance tooling.
+- Do not restore a JavaScript compiler/runtime, package entrypoint, npm/JSR
+  publishing path, JavaScript Test262 runner, or browser compiler playground.
+- JavaScript may remain only as pinned Test262 content, embedded harness data,
+  Rust test fixtures and reproducers, or vendored dependencies. These files may
+  not implement or dispatch the product compiler/runtime.
+- Use Git commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8` to inspect the retired
+  implementation. Do not add an archive copy to the working tree.
+- Existing `porffor-*`, `porf`, and `PORFFOR_*` Rust identifiers remain until
+  the coordinated migration in T29; do not perform piecemeal renames.
+
 ## Hard Bans
 
 - Do not compile a JavaScript interpreter to Wasm and feed source into it.
 - Do not make `build wasm` emit an evaluator blob instead of the compiled user program.
 - Do not keep compatibility with legacy Porffor behavior when it conflicts with the Rust AOT compiler direction or ECMAScript correctness.
+- Do not reintroduce the retired JavaScript Porffor product or its publication surfaces.

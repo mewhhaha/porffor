@@ -8,8 +8,8 @@ use porffor_engine::{
     ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
 };
 use porffor_test262::{
-    try_compare_with_js_oracle, ConformanceRunner, FailureKind, FailureOrigin, OutcomeKind,
-    RunConfig, SuiteConfig, VerifiedAggregateSummary,
+    ConformanceRunner, FailureKind, FailureOrigin, LocalHarnessSource, OutcomeKind, RunConfig,
+    SuiteConfig, VerifiedAggregateSummary,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -150,7 +150,6 @@ Commands:
   test262 failure-details <matrix-node> [options]
   test262 generate-backlog [options]
   test262 compare-snapshots <base-snapshot-name> [options]
-  test262 compare-js-oracle [filter] [--suite-root PATH]
   inspect <file>                        show compile pipeline summary
 
 test262 options:
@@ -387,8 +386,8 @@ fn handle_cache_command(args: Vec<String>) -> Result<(), String> {
                 Some("--legacy-wasmtime") if args.len() == 2 => true,
                 Some(value) => return Err(format!("unknown cache prune arg: {value}")),
             };
-            let report = prune_caches(include_legacy)
-                .map_err(|err| format!("cache prune failed: {err}"))?;
+            let report =
+                prune_caches(include_legacy).map_err(|err| format!("cache prune failed: {err}"))?;
             println!("porffor-files-removed: {}", report.porffor_files_removed);
             println!("porffor-bytes-removed: {}", report.porffor_bytes_removed);
             println!("legacy-files-removed: {}", report.legacy_files_removed);
@@ -462,7 +461,7 @@ fn fake_suite_config() -> SuiteConfig {
         .join("fake_test262");
     SuiteConfig {
         suite_root: root.join("vendor").join("test262"),
-        local_harness_path: root.join("harness.js"),
+        local_harness: LocalHarnessSource::File(root.join("harness.js")),
         snapshot_dir: root.join("snapshots"),
         case_runner_bin: None,
         ..SuiteConfig::default()
@@ -2270,10 +2269,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("suite_root: {}", runner.config().suite_root.display());
             println!("test262 revision: {}", pinned.test262);
             println!("execution_backend: {}", execution_backend.as_str());
-            println!(
-                "local harness: {}",
-                runner.config().local_harness_path.display()
-            );
+            println!("local harness: {}", runner.config().local_harness);
             Ok(())
         }
         "list" => {
@@ -2289,9 +2285,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
         }
         "run" => {
             let summary = match parsed.matrix_node.as_deref() {
-                Some(node_selector) => {
-                    runner.run_matrix_node(node_selector, parsed.run_config)?
-                }
+                Some(node_selector) => runner.run_matrix_node(node_selector, parsed.run_config)?,
                 None => runner.run_full(parsed.run_config)?,
             };
             println!("execution_backend: {}", execution_backend.as_str());
@@ -2330,9 +2324,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
         }
         "report" => {
             let summary = match parsed.matrix_node.as_deref() {
-                Some(node_selector) => {
-                    runner.run_matrix_node(node_selector, parsed.run_config)?
-                }
+                Some(node_selector) => runner.run_matrix_node(node_selector, parsed.run_config)?,
                 None => runner.run_full(parsed.run_config)?,
             };
             let report = runner.baseline_report(&summary);
@@ -2704,23 +2696,6 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("failed: {}", summary.failures.len());
             Ok(())
         }
-        "compare-js-oracle" => {
-            let comparison = try_compare_with_js_oracle(runner.config(), parsed.filter.as_deref())?;
-            println!("rust_count: {}", comparison.rust_count);
-            match comparison.js_count {
-                Some(js_count) => println!("js_count: {}", js_count),
-                None => println!("js_count: unavailable"),
-            }
-            match comparison.matches {
-                Some(matches) => println!("matches: {}", matches),
-                None => println!("matches: unavailable"),
-            }
-            if let Some(reason) = comparison.unavailable_reason {
-                println!("oracle_status: unavailable");
-                println!("oracle_reason: {}", reason);
-            }
-            Ok(())
-        }
         _ => Err(format!("unknown test262 subcommand: {subcommand}")),
     }
 }
@@ -2803,9 +2778,9 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
                 let value = args
                     .get(index)
                     .ok_or_else(|| "--max-matrix-nodes needs a value".to_string())?;
-                let limit = value.parse::<usize>().map_err(|err| {
-                    format!("invalid --max-matrix-nodes value {value}: {err}")
-                })?;
+                let limit = value
+                    .parse::<usize>()
+                    .map_err(|err| format!("invalid --max-matrix-nodes value {value}: {err}"))?;
                 if limit == 0 {
                     return Err("--max-matrix-nodes must be at least 1".to_string());
                 }
@@ -2840,35 +2815,22 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
         return Err("--matrix-node cannot be combined with a positional filter".to_string());
     }
 
-    if config.suite_root == PathBuf::from("test262/vendor/test262") {
-        let root = PathBuf::from("test262");
-        config.local_harness_path = root.join("harness.js");
-        if config.snapshot_dir == SuiteConfig::default().snapshot_dir {
-            config.snapshot_dir = root.join("snapshots");
-        }
-    } else if config.local_harness_path == SuiteConfig::default().local_harness_path {
+    if config.suite_root != PathBuf::from("test262/vendor/test262") {
         let guessed_root = config
             .suite_root
             .parent()
             .and_then(Path::parent)
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        config.local_harness_path = guessed_root.join("harness.js");
         if config.snapshot_dir == SuiteConfig::default().snapshot_dir {
             config.snapshot_dir = guessed_root.join("snapshots");
         }
     }
 
-    if run_config.execution_backend == ExecutionBackend::WasmAot {
-        let wasm_harness_path = config
-            .local_harness_path
-            .with_file_name("harness-wasm-aot.js");
-        let wasm_harness_exists = wasm_harness_path.exists()
-            || (!wasm_harness_path.is_absolute() && repo_root().join(&wasm_harness_path).exists());
-        if wasm_harness_exists {
-            config.local_harness_path = wasm_harness_path;
-        }
-    }
+    config.local_harness = match run_config.execution_backend {
+        ExecutionBackend::SpecExec => LocalHarnessSource::EmbeddedSpecExec,
+        ExecutionBackend::WasmAot => LocalHarnessSource::EmbeddedWasmAot,
+    };
 
     // In-process execution (wasmtime epoch interruption bounds Wasm-AOT
     // hangs; see porffor-engine's `run_with_wasm_aot_inner` and
@@ -3003,22 +2965,17 @@ mod tests {
 
     #[test]
     fn parse_test262_args_rejects_zero_matrix_node_limit() {
-        let error = parse_test262_args(&[
-            "--max-matrix-nodes".to_string(),
-            "0".to_string(),
-        ])
-        .expect_err("zero matrix node limit should be rejected");
+        let error = parse_test262_args(&["--max-matrix-nodes".to_string(), "0".to_string()])
+            .expect_err("zero matrix node limit should be rejected");
 
         assert_eq!(error, "--max-matrix-nodes must be at least 1");
     }
 
     #[test]
     fn parse_test262_args_reads_exact_matrix_node_selector() {
-        let parsed = parse_test262_args(&[
-            "--matrix-node".to_string(),
-            "built-ins/Promise".to_string(),
-        ])
-        .expect("matrix node selector should parse");
+        let parsed =
+            parse_test262_args(&["--matrix-node".to_string(), "built-ins/Promise".to_string()])
+                .expect("matrix node selector should parse");
 
         assert_eq!(parsed.matrix_node.as_deref(), Some("built-ins/Promise"));
         assert!(parsed.filter.is_none());
@@ -3072,6 +3029,10 @@ mod tests {
             parsed.run_config.execution_backend,
             ExecutionBackend::WasmAot
         );
+        assert_eq!(
+            parsed.config.local_harness,
+            LocalHarnessSource::EmbeddedWasmAot
+        );
     }
 
     #[test]
@@ -3085,6 +3046,15 @@ mod tests {
             parsed.run_config.execution_backend,
             ExecutionBackend::SpecExec
         );
+        assert_eq!(
+            parsed.config.local_harness,
+            LocalHarnessSource::EmbeddedSpecExec
+        );
+    }
+
+    #[test]
+    fn usage_omits_the_removed_javascript_oracle() {
+        assert!(!usage().contains("compare-js-oracle"));
     }
 
     #[test]
@@ -3098,7 +3068,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_test262_args_uses_wasm_aot_harness_when_present() {
+    fn parse_test262_args_uses_embedded_wasm_aot_harness() {
         let parsed = parse_test262_args(&[
             "--execution-backend".to_string(),
             "wasm-aot".to_string(),
@@ -3107,8 +3077,8 @@ mod tests {
         ])
         .expect("backend should parse");
         assert_eq!(
-            parsed.config.local_harness_path,
-            PathBuf::from("test262").join("harness-wasm-aot.js")
+            parsed.config.local_harness,
+            LocalHarnessSource::EmbeddedWasmAot
         );
     }
 }

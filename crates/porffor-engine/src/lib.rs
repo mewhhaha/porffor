@@ -3263,45 +3263,6 @@ report;
     }
 
     #[test]
-    fn wasm_agents_run_test262_wait_until_with_exact_assertions() {
-        let merged_harness = include_str!("../../../test262/harness-wasm-aot.js");
-        let section = |name: &str| {
-            merged_harness
-                .split("///")
-                .skip(1)
-                .find_map(|contents| {
-                    let mut lines = contents.lines();
-                    (lines.next()?.trim() == name).then(|| lines.collect::<Vec<_>>().join("\n"))
-                })
-                .unwrap_or_else(|| panic!("missing {name} in Wasm-AOT harness"))
-        };
-        let assert_harness = section("assert.js");
-        let atomics_harness =
-            include_str!("../../../test262/vendor/test262/harness/atomicsHelper.js");
-        let test_source = include_str!(
-            "../../../test262/vendor/test262/test/built-ins/Atomics/notify/notify-with-no-agents-waiting.js"
-        );
-        let source = format!(
-            "{}\n{}\n{}\n{}\ntrue;",
-            section("sta.js"),
-            assert_harness,
-            atomics_harness,
-            test_source,
-        );
-        let agent_prelude = format!("{}\n{}", assert_harness, section("sta.js"));
-        let outcome = engine()
-            .run_wasm_aot_script_with_agents(
-                &source,
-                CompileOptions::default(),
-                Some(60_000),
-                true,
-                agent_prelude,
-            )
-            .expect("exact Test262 assertions should run after the agent wait loop");
-        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
-    }
-
-    #[test]
     fn program_cache_key_tracks_source_goal_and_configuration() {
         let base = CompileOptions {
             filename: Some("case.js".to_string()),

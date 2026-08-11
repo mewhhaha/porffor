@@ -20,7 +20,9 @@ acceptance criteria.
 
 Make the Test262 runner an honest observer of compiler behavior rather than a second semantic implementation. Replace source-pattern simulations, test-path materializations and permissive host fallbacks with explicit host APIs and general compiler/runtime semantics.
 
-Current areas to audit include `test262/harness.js`, `porffor-test262` source materialization, `RunOptions.test_path`, and Wasm backend branches that recognize exact Test262 paths or source shapes.
+Current areas to audit include the embedded local-harness assets owned by
+`porffor-test262`, source materialization, `RunOptions.test_path`, and Wasm
+backend branches that recognize exact Test262 paths or source shapes.
 
 ## Work items
 

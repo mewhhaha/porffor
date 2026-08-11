@@ -1,7 +1,7 @@
 # Lila Rust AOT + Test262 execution plan
 
-This directory is the epic-level implementation backlog and current-status
-record for the Rust rewrite. It is designed so multiple contributors can work
+This directory is the 30-task epic-level implementation backlog and
+current-status record for the Rust rewrite. It is designed so multiple contributors can work
 concurrently without turning the remaining large IR and Wasm backend modules
 into permanent merge-conflict bottlenecks. Individual task status fields and
 their dated current-state sections are authoritative only until the next
@@ -24,14 +24,14 @@ never a silent fallback, never part of an emitted artifact, and never a source
 of published conformance numbers. Wherever a task mentions running spec-exec,
 that run is oracle triage; the Wasm-AOT run is the requirement.
 
-## Current status snapshot — 2026-07-30
+## Current status snapshot — 2026-08-11
 
 | State | Tasks | Repository evidence |
 |---|---|---|
-| Complete | T00 | Repository-contract scripts, PR template and CI wiring exist; the task-plan validator passes |
+| Complete | T00, T28 | Repository contracts are enforced and the legacy JavaScript product implementation is retired at its recorded Git recovery commit |
 | In progress | T01-T12, T14-T22, T24-T25, T27 | Substantial implementation exists, but each task retains unmet acceptance criteria described in its current-state section |
 | Policy selected; implementation/accounting open | T13 | Generic dynamic source stays explicit Wasm-AOT unsupported; ADR and any supported compilation subsets remain open |
-| Open | T23 | No complete product Wasm-AOT Intl architecture/service layer exists |
+| Open | T23, T29 | Intl lacks a complete product architecture; the coordinated Lila identifier migration has not started |
 | Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
 
 The current working tree passes the task-plan, module-boundary, host-ABI and
@@ -51,6 +51,7 @@ materialization-removal criteria remain unmet.
 7. Feature PRs should not combine unrelated refactors. When a prerequisite interface is missing, land the interface first under its foundation task.
 8. The interpreter stays quarantined. No CLI or library product path may execute user programs through `spec-exec` by default or as a silent fallback, and emitted Wasm never embeds an interpreter/VM or feeds user source to one. T27 enforces this in code; every other task must not reintroduce it.
 9. Backend design targets the experimental Wasmtime lower bound from `AGENTS.md` (Wasm GC, typed function references, reference types, `exnref` exception handling). Do not build second object models, closure representations, or exception mechanisms for runtimes that lack these features; reject such runtimes at the boundary.
+10. The legacy JavaScript product exists only in Git history at the recovery commit recorded by T28. Do not restore its compiler, runtime, package, publication, benchmark, or playground surfaces. JavaScript remains only as Rust-owned test/conformance data or vendored source.
 
 ## How to execute one task
 
@@ -120,6 +121,13 @@ not forbid focused work when its required interface already exists.
 | [T25](25-differential-fuzzing-performance.md) | Differential testing, fuzzing, timeout and code-size work | T01-T04; runs continuously |
 | [T27](27-interpreter-quarantine-and-product-default.md) | Interpreter quarantine and Wasm-AOT product default | T02, T03; labeling/dependency work can start immediately |
 | [T26](26-zero-failure-conformance-closure.md) | Full pinned suite closure and release gate | All applicable tasks, including T27 |
+
+### Repository ownership and identity
+
+| ID | Task | Depends on |
+|---|---|---|
+| [T28](28-retire-legacy-js.md) | Retire the legacy JavaScript product and enforce the Rust-only boundary | T00; complete |
+| [T29](29-lila-identifier-migration.md) | Coordinate the remaining Rust identifier migration to Lila; does not block Test262 or T26 | T28 |
 
 ## Merge-conflict policy
 

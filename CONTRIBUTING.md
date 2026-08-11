@@ -1,400 +1,175 @@
-# Contributing to Porffor
+# Contributing to Lila
 
-Hello! Thanks for your potential interest in contributing to Porffor :)
+Lila is a Rust JavaScript-to-Wasm AOT compiler, library, CLI, and conformance
+harness. It is a research project with an uncompromising goal: compile
+JavaScript directly through spec-shaped compiler stages to Wasm and reach full
+pinned Test262 conformance without hiding unsupported or failing cases.
 
-This document hopes to help you understand Porffor-specific TS, specifically for writing built-ins (inside `compiler/builtins/*.ts` eg `btoa`, `String.prototype.trim`, ...). This guide isn't really meant for modifying the compiler itself yet (eg `compiler/codegen.js`), as built-ins are ~easier to implement and more useful at the moment.
+The repository is intentionally Rust-first. The retired JavaScript Porffor
+implementation is available through Git history, but it is not a development
+surface or an oracle. Do not reintroduce a JavaScript compiler/runtime, npm or
+JSR packaging, or a source evaluator inside emitted Wasm.
 
-I mostly presume decent JS knowledge, with some basic TS too but nothing complicated. Knowing low-level stuff generally (pointers, etc) and/or Wasm (bytecode) is also a plus but hopefully not required.
-
-If you have any questions you can ask in [the Porffor Discord](https://discord.gg/6crs9Znx9R), please feel free to ask anything if you get stuck :)
-
-Please read this entire document before beginning as there are important things throughout.
-
-<br>
+Before starting, read [AGENTS.md](AGENTS.md), the
+[implementation task index](tasks/README.md), and the task file that owns the
+area you intend to change.
 
 ## Setup
 
-1. Clone the repo and enter the repo (`git clone https://github.com/CanadaHonk/porffor.git`)
-2. `npm install`
+Install a current stable Rust toolchain with Cargo, clone the canonical
+repository, and build the CLI:
 
-The repo comes with easy alias scripts for Unix and Windows, which you can use like so:
-- Unix: `./porf path/to/script.js`
-- Windows: `.\porf path/to/script.js`
-
-You can also swap out `node` in the alias to use another runtime like Deno (`deno run -A ...`) or Bun (`bun ...`), or just use it yourself (eg `node runtime/index.js ...`, `bun runtime/index.js ...`). Node, Deno, Bun should work.
-
-### Precompile
-
-**If you update any file inside `compiler/builtins` you will need to do this for it to update inside Porffor otherwise your changes will have no effect.** Run `./porf precompile` to precompile. It may error during this, if so, you might have an error in your code or there could be a compiler error with Porffor (feel free to ask for help as soon as you encounter any errors with it).
-
-<br>
-
-## Types
-
-Porffor has usual JS types (or at least the ones it supports), but also internal types for various reasons.
-
-### ByteString
-
-The most important and widely used internal type is ByteString. Regular strings in Porffor are UTF-16 encoded, so each character uses 2 bytes. ByteStrings are special strings which are used when the characters in a string only use ASCII/LATIN-1 characters, so the lower byte of the UTF-16 characters are unused. Instead of wasting memory with all the unused memory, ByteStrings instead use 1 byte per character. This halves memory usage of such strings and also makes operating on them faster. The downside is that many Porffor built-ins have to be written twice, slightly different, for both `String` and `ByteString` types.
-
-### i32
-
-This is complicated internally but essentially, only use it for pointers. (This is not signed or unsigned, instead it is the Wasm valtype `i32` so the signage is ~instruction dependant).
-
-<br>
-
-## Pointers
-
-Pointers are the main (and most difficult) unique feature you ~need to understand when dealing with objects (arrays, strings, ...).
-
-We'll explain things per common usage you will likely need to know:
-
-## Commonly used Wasm code
-
-### Get a pointer
-
-```js
-Porffor.wasm`local.get ${foobar}`
+```sh
+git clone https://github.com/mewhhaha/porffor.git
+cd porffor
+./scripts/dev.sh build
 ```
 
-Gets the pointer to the variable `foobar`. You don't really need to worry about how it works in detail, but essentially it gets the pointer as a number (type) instead of as the object it is.
+The development wrapper shares Cargo's normal `target/` directory, uses `lld`
+when available, and bounds parallelism for this large workspace. Set
+`PORFFOR_JOBS` to request a lower job count.
 
-### Store a character in a ByteString
+Run the compiler from the built binary:
 
-```js
-Porffor.wasm.i32.store8(pointer, characterCode, 0, 4)
+```sh
+./target/debug/porf --help
+./target/debug/porf inspect crates/porffor-cli/tests/fixtures/hello.js
+./target/debug/porf run crates/porffor-cli/tests/fixtures/hello.js
+./target/debug/porf build wasm crates/porffor-cli/tests/fixtures/hello.js
 ```
 
-Stores the character code `characterCode` at the pointer `pointer` **for a ByteString**.[^1]
+You can also invoke it through Cargo:
 
-### Store a character in a String
-
-```js
-Porffor.wasm.i32.store16(pointer, characterCode, 0, 4)
+```sh
+cargo run -p porffor-cli -- inspect crates/porffor-cli/tests/fixtures/hello.js
 ```
 
-Stores the character code `characterCode` at the pointer `pointer` **for a String**.[^1]
+## Workspace architecture
 
-### Load a character from a ByteString
+The product pipeline is:
 
-```js
-Porffor.wasm.i32.load8_u(pointer, 0, 4)
+```text
+JavaScript source -> parse and early errors -> spec IR -> lowering IR -> Wasm
 ```
 
-Loads the character code at the pointer `pointer` **for a ByteString**.[^1]
+The primary crates are:
 
-### Load a character from a String
+- `porffor-front`: parsing and source units.
+- `porffor-ir`: spec-shaped IR, diagnostics, and lowering metadata.
+- `porffor-runtime`: realms and host hooks.
+- `porffor-aot-wasm`: direct Wasm code generation.
+- `porffor-engine`: public Rust library API.
+- `porffor-cli`: the `porf` command.
+- `porffor-test262`: Test262 discovery, execution, snapshots, and reporting.
+- `porffor-spec-exec`: feature-gated differential/debug oracle.
 
-```js
-Porffor.wasm.i32.load16_u(pointer, 0, 4)
+The C and native backends are scaffolds. Wasm-AOT is the product backend.
+`spec-exec` must never become the product default, a silent fallback, or part of
+an emitted artifact.
+
+## Choosing and owning work
+
+Every non-trivial change should have an owner in `tasks/`. Start with a
+reproducible failure or missing invariant, identify the smallest coherent
+feature batch, and coordinate edits to shared IR, lowering, object-operation,
+and Wasm backend files.
+
+Prefer compiler-enforced invariants over repeated runtime checks:
+
+- use enums and newtypes for closed domains;
+- make lifecycle and ordering constraints visible in types;
+- use exhaustive matches when adding a new case must force every consumer to
+  account for it;
+- keep mutation local where it materially improves performance;
+- avoid speculative abstractions that do not turn a plausible mistake into a
+  compile error.
+
+Conformance changes must implement general ECMAScript semantics. Never branch
+on a Test262 path, source string, or assertion text to manufacture a result.
+
+## Development workflow
+
+Batch the code, tests, types, and documentation for a coherent change before
+running expensive suites. During implementation, use read-only inspection and
+cheap checks; compile early only when it resolves an uncertainty or validates a
+risky foundation.
+
+Useful commands include:
+
+```sh
+./scripts/dev.sh check
+cargo fmt --all -- --check
+cargo test -p porffor-engine --quiet
+cargo test -p porffor-cli --quiet
+./scripts/check-task-plan.sh
+./scripts/check-no-interpreter-in-product-graph.sh
 ```
 
-Loads the character code at the pointer `pointer` **for a String**.[^1]
+Run focused regressions before broad suites, then finish with one broad
+verification checkpoint so Cargo can reuse build artifacts. Long-running
+commands should use the repository stall guard:
 
-### Manually store the length of an object
-
-```js
-Porffor.wasm.i32.store(pointer, length, 0, 0)
+```sh
+./scripts/run-watched.sh --label cli --stall 900 -- \
+  cargo test -p porffor-cli --test cli -- --test-threads=2
 ```
 
-Stores the length `length` at pointer `pointer`, setting the length of an object. This is mostly unneeded today as you can just do `obj.length = length`. [^1]
+See [docs/rust-rewrite/batch-workflow.md](docs/rust-rewrite/batch-workflow.md)
+for the measured verification ladder and current coordination hotspots.
 
-<br>
+## Test262 evidence
 
-## Example
+Repository fake suites are smoke tests, not ECMAScript conformance evidence.
+Only the complete pinned real Test262 suite through Wasm-AOT can establish
+product conformance. `Unsupported`, timeout, crash, and bug outcomes are all
+non-passing and must remain visible.
 
-Here is the code for `ByteString.prototype.toUpperCase()`:
+For focused work, start with an exact real case or subtree and finish by running
+the same command after the fix. Also run adjacent filters that share the
+abstract operation or builtin you changed. Do not hand-edit published status
+counts; use the status publisher only after a complete verified matrix.
 
-```ts
-export const __ByteString_prototype_toUpperCase = (_this: bytestring) => {
-  const len: i32 = _this.length;
+Representative smoke commands are:
 
-  let out: bytestring = '';
-  Porffor.wasm.i32.store(out, len, 0, 0);
+```sh
+./target/debug/porf test262 run language/wasm/pass \
+  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 \
+  --execution-backend wasm
 
-  let i: i32 = Porffor.wasm`local.get ${_this}`,
-      j: i32 = Porffor.wasm`local.get ${out}`;
-
-  const endPtr: i32 = i + len;
-  while (i < endPtr) {
-    let chr: i32 = Porffor.wasm.i32.load8_u(i++, 0, 4);
-
-    if (chr >= 97) if (chr <= 122) chr -= 32;
-
-    Porffor.wasm.i32.store8(j++, chr, 0, 4);
-  }
-
-  return out;
-};
+./target/debug/porf test262 run \
+  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
-Now let's go through it section by section:
-
-```ts
-export const __ByteString_prototype_toUpperCase = (_this: bytestring) => {
-```
-
-Here we define a built-in for Porffor. Notably:
-- We do not use `a.b.c`, instead we use `__a_b_c`
-- We use a `_this` argument, as `this` does not exist in Porffor yet
-- We use an arrow function
-- We do not set a return type as prototype methods cannot use them currently or errors can happen.
-
----
-
-```ts
-  const len: i32 = _this.length;
-
-  let out: bytestring = '';
-  Porffor.wasm.i32.store(out, len, 0, 0);
-```
-
-This sets up the `out` variable we are going to write to for the output of this function. We set the length in advance to be the same as `_this`, as `foo.length == foo.toLowerCase().length`, because we will later be manually writing to it using Wasm intrinsics, which will not update the length themselves.
-
----
-
-```ts
-  let i: i32 = Porffor.wasm`local.get ${_this}`,
-      j: i32 = Porffor.wasm`local.get ${out}`;
-```
-
-Get the pointers for `_this` and `out` as `i32`s (~`number`s).
-
----
-
-```ts
-  const endPtr: i32 = i + len;
-  while (i < endPtr) {
-```
-
-Set up an end target pointer as the pointer variable for `_this` plus the length of it. Loop below until that pointer reaches the end target, so we iterate through the entire string.
-
----
-
-```ts
-    let chr: i32 = Porffor.wasm.i32.load8_u(i++, 0, 4);
-```
-
-Read the character (code) from the current `_this` pointer variable, and increment it so next iteration it reads the next character, etc.
-
----
-
-```ts
-    if (chr >= 97) if (chr <= 122) chr -= 32;
-```
-
-If the character code is >= 97 (`a`) and <= 122 (`z`), decrease it by 32, making it an upper case character. eg: 97 (`a`) - 32 = 65 (`A`).
-
----
-
-```ts
-    Porffor.wasm.i32.store8(j++, chr, 0, 4);
-```
-
-Store the character code into the `out` pointer variable, and increment it.
-
-<br>
-
-## Porffor-specific TS notes
-
-- For declaring variables, you must use explicit type annotations currently (eg `let a: number = 1`, not `let a = 1`).
-- You might spot `Porffor.fastOr`/`Porffor.fastAnd`, these are non-short circuiting versions of `||`/`&&`, taking any number of conditions as arguments. You shouldn't don't need to use or worry about these.
-- Attempt to avoid object/string/array-heavy code and use more variables instead if possible, easier on memory and CPU/perf.
-- Do not set a return type for prototype methods, it can cause errors/unexpected results.
-- You cannot use other functions in the file not exported, or variables not inside the current function.
-- `if (...)` uses a fast truthy implementation which is not spec-compliant as most conditions should be strictly checked. To use spec-compliant behavior, use `if (!!...)`.
-- For object (string/array/etc) literals, you must use a variable eg `const out: bytestring = 'foobar'; console.log(out);` instead of `console.log('foobar')` due to precompile's allocator constraints.
-- You should generally use non-strict equality ops (`==`/`!=`).
-
-<br>
-
-### Porffor.wasm
-This is a macro that is essentially equivalent to C's `asm` macro. It allows you to write inline Wasm bytecode in a similar format to [WAT](https://developer.mozilla.org/en-US/docs/WebAssembly/Understanding_the_text_format).
-
-Let's look at an example to better illustrate how the format works.
-
-```ts
-export const add_i32 = (a: any, b: any) => {
-  Porffor.wasm`
-  local aCasted i32
-  local bCasted i32
-  returns i32 i32
-
-  ;; if both types are number
-  local.get ${a+1}
-  i32.const 1
-  i32.eq
-  local.get ${b+1}
-  i32.const 1
-  i32.eq
-  i32.and
-  if
-    local.get ${a}
-    i32.from
-    local.set aCasted
-
-    local.get ${b}
-    i32.from
-    local.set bCasted
-
-    local.get aCasted
-    local.get bCasted
-    i32.add
-    i32.const 1
-    return
-  end
-
-  ;; return (0, 0) otherwise
-  i32.const 0
-  i32.const 0
-  return`;
-}
-```
-
----
-
-```
-local aCasted i32
-local bCasted i32
-```
-
-Here we define two locals, which you can think of as typed variables. Here both of them have the type of `i32`, which was explained above. This type can also be `f64` or `i64`, which are doubles and 64-bit integers respectively.
-
----
-
-```
-returns i32 i32
-```
-
-This sets the return type of the function, what the stack must look like before a `return` instruction. Normally Porffor functions have the return type `(f64, i32)`, which represents the valtype (usually f64) and an i32 type.
-
-> [!WARNING]
-> This is something you have to be incredibly careful with, as Porffor expects most functions to return `(valtype, i32)`. Be incredibly careful when using this.
-
----
-
-```
-;; if both types are number
-```
-
-This is a comment. `;;` is Wasm's `//`.
-
----
-
-```
-local.get ${a+1}
-i32.const 1
-i32.eq
-local.get ${b+1}
-i32.const 1
-i32.eq
-i32.and
-```
-
-This part is a little more complicated, first you have to understand how Wasm represents function parameters and local variables in general. When looking at the disassembled output of something like `let a = 1;`, you'll likely see something like this:
-```
-f64.const 1
-i32.const 1
-local.set 1 ;; a#type (i32)
-local.set 0 ;; a
-```
-Here the `i32.const 1` is equivalent to `TYPES.number`, which aligns with what we told Porffor to do, but what's up with the `local.set`s to a number? Well, internally locals are represented with indexes, and in this example `a` was assigned 0, and `a#type` was assigned 1.
-
-That's where `local.get ${a+1}` comes from, it's Porffor's way of saying "get the local variable at index of `a` plus one". In most cases, this is the variable's type. The rest of the snippet is just checking if both of the parameters' types are equal to `TYPES.number`.
-
----
-
-```
-if
-  local.get ${a}
-  i32.from
-  local.set aCasted
-
-  local.get ${b}
-  i32.from
-  local.set bCasted
-```
-
-Here we start an if block, equivalent to JS's `if (...) {}`, and as the locals' names imply, cast them to `i32`s. There is one strange thing about this section though, if you look at Wasm's list of instructions you won't find a `i32.from`. This is because Porffor has custom instructions for converting to and from the valtype. In this case, converting the valtype into an `i32`. There are a few more of these instructions, but in general these instructions come in the format of `type.from` (create `type` from valtype) and `type.to` (create valtype from `type`). You can find a full list at the bottom of `codegen.js`.
-
----
-
-```
-  local.get aCasted
-  local.get bCasted
-  i32.add
-  i32.const 1
-  return
-end
-```
-
-Here, we get our two casted locals and add them together, returning the result and a `i32` with the value of 1. We then end the if block with the `end` instruction.
-
----
-
-```
-;; return (0, 0) otherwise
-i32.const 0
-i32.const 0
-return
-```
-
-Finally, we return `(0, 0)` if either type is not a number. This example was very contrived, but should give you a good sense of how to use `Porffor.wasm`.
-
-<br>
-
-## Formatting/linting
-
-There is 0 setup for this (right now). You can try looking through the other built-ins files but do not worry about it a lot, I honestly do not mind going through and cleaning up after a PR as long as the code itself is good :^)
-
-<br>
-
-## Commit (message) style
-
-You should ideally have one commit per notable change (using amend/force push). Commit messages should be like `${file}: ${description}`. Don't be afraid to use long titles if needed, but try and be short if possible. Bonus points for detail in commit description. ~~Gold star for jokes in description too.~~
-
-Examples:
-```
-builtins/date: impl toJSON
-builtins/date: fix ToIntegerOrInfinity returning -0
-codegen: fix inline wasm for unreachable
-builtins/array: wip toReversed
-builtins/tostring_number: impl radix
-```
-
-<br>
-
-## Test262
-
-For the first time, ensure you run `git clone https://github.com/tc39/test262.git` inside of Porffor's `test262` directory.
-
-Run `node test262` to run all the tests and get an output of total overall test results.
-
-Warning: this will easily consume most of your system resources while running (depending on thread count), it should take 1-30 minutes depending on machine specs and how many threads you specify (which can be done with `--threads=N`).
-
-The main thing you want to pay attention to is the emoji summary:
-```
-🧪 50005 | 🤠 7007 (-89) | ❌ 1914 (-32) | 💀 13904 (-61) | 📝 23477 (-120) | ⏰ 2 | 🏗 2073 (+302) | 💥 1628
-```
-
-To break this down:
-🧪 total 🤠 pass ❌ fail 💀 runtime error 📝 todo (error) ⏰ timeout 🏗️ wasm compile error 💥 compile error
-
-The diff compared to the last commit (with test262 data) is shown in brackets. Basically, you want passes 🤠 up, and errors 💀📝🏗💥 down. It is fine if some errors change balance/etc, as long as they are not new failures.
-
-It will also log new passes/fails. Be careful as sometimes the overall passes can increase, but other files have also regressed into failures which you might miss. Also keep in mind some tests may have been false positives before, but we can investigate the diff together :)
-
-### Debugging tips
-
-- Use `node test262 path/to/tests` to run specific test262 dirs/files (eg `node test262 built-ins/Date`).
-- Use `--log-errors` to log the errors of individual tests.
-- Use `--debug-asserts` to log expected/actual of assertion failures (experimental).
-
-<br>
-
-### Resources
-
-- [MDN](https://developer.mozilla.org/en-US/), not only a great resource for learning JS, but also for implementing it, as it has high level descriptions of functionality, as well as links to the relevant portions of the spec that govern the feature.
-- [WebAssembly Opcodes](https://pengowray.github.io/wasm-ops/), this website not only describes what each wasm instruction does but the necessary stack needed, and contains some other useful resources as well.
-
-[^1]: The last two args are necessary for the Wasm instruction, but you don't need to worry about them (the first is alignment, the second is byte offset).
+Use `./scripts/publish-real-status-low-ram.sh wasm-aot <snapshot-name>` only for
+a complete resumable real-suite publication.
+
+## Tests worth keeping
+
+Temporary exploratory harnesses should live outside the permanent suite and be
+removed after the behavior is understood. Keep regression tests when they
+describe a contract that compiler or library consumers rely on. Prefer focused
+fixtures near the owning crate over broad duplicate coverage.
+
+## Pull request evidence
+
+Report:
+
+- the owning task ID;
+- the exact baseline command and result;
+- the semantic invariant added or corrected;
+- the exact post-change commands and results;
+- files and modules touched;
+- materializations added or removed;
+- remaining failures and follow-up task IDs;
+- anything not verified.
+
+If a change affects user-visible capabilities, CLI behavior, architecture,
+conformance, or workflow, update `README.md` in the same patch. Generated status
+numbers may change only through the status publication workflow.
+
+## Resources
+
+- [ECMAScript language specification](https://tc39.es/ecma262/)
+- [Test262](https://github.com/tc39/test262)
+- [WebAssembly specifications](https://webassembly.github.io/spec/)
+- [Wasmtime documentation](https://docs.wasmtime.dev/)

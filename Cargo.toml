@@ -18,7 +18,7 @@ edition = "2021"
 license = "MIT"
 version = "0.1.0"
 authors = ["Lila contributors"]
-repository = "https://github.com/CanadaHonk/porffor"
+repository = "https://github.com/mewhhaha/porffor"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

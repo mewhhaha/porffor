@@ -4,17 +4,4 @@
 *.exe
 
 .claude
-
-node_modules
-package-lock.json
-bun.lock
-deno.lock
-pnpm-lock.yaml
-
-.repl_history
-
-/test262/test262
-/test262/results.json
-/test262/.threads
-/envoy
-/target
+target/

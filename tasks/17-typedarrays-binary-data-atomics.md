@@ -54,7 +54,8 @@ Implement all concrete typed-array constructors and `%TypedArray%` semantics:
 - Provide host-managed shared backing stores and actual agent threads/workers for Test262.
 - Implement wait queues, `wait`, `notify`, `waitAsync`, timeouts, `isLockFree`, blocking restrictions and monotonic timing.
 - Integrate job completion for `waitAsync` with T14.
-- Eliminate regex/source-pattern agent simulations from `test262/harness.js` under T03.
+- Eliminate regex/source-pattern agent simulations from the embedded
+  `porffor-test262` local harness under T03.
 
 ### Known defect: `Atomics.wait` hangs the CLI suite indefinitely
 

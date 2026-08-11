@@ -1,5 +1,6 @@
+use std::borrow::Cow;
 use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet};
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
@@ -203,9 +204,28 @@ pub struct PinnedRevisions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalHarnessSource {
+    None,
+    EmbeddedSpecExec,
+    EmbeddedWasmAot,
+    File(PathBuf),
+}
+
+impl fmt::Display for LocalHarnessSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => formatter.write_str("none"),
+            Self::EmbeddedSpecExec => formatter.write_str("embedded spec-exec"),
+            Self::EmbeddedWasmAot => formatter.write_str("embedded wasm-aot"),
+            Self::File(path) => path.display().fmt(formatter),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuiteConfig {
     pub suite_root: PathBuf,
-    pub local_harness_path: PathBuf,
+    pub local_harness: LocalHarnessSource,
     pub snapshot_dir: PathBuf,
     pub timeout_ms: u64,
     pub worker_count: usize,
@@ -217,7 +237,7 @@ impl Default for SuiteConfig {
         let root = PathBuf::from("test262");
         Self {
             suite_root: root.join("vendor").join("test262"),
-            local_harness_path: root.join("harness.js"),
+            local_harness: LocalHarnessSource::EmbeddedSpecExec,
             snapshot_dir: root.join("snapshots"),
             // Keep this bound strict: it exists to turn hangs and pathological
             // Wasm-AOT stalls into a visible, bounded Timeout failure instead of
@@ -405,14 +425,6 @@ pub struct ProgressSnapshot {
 pub struct SnapshotPaths {
     pub json_path: PathBuf,
     pub txt_path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OracleComparison {
-    pub rust_count: usize,
-    pub js_count: Option<usize>,
-    pub matches: Option<bool>,
-    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -977,13 +989,22 @@ pub fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<Suit
 pub fn load_preludes(config: &SuiteConfig) -> Result<PreludeStore, String> {
     let mut store = PreludeStore::default();
 
-    if config.local_harness_path.exists() {
-        let merged = fs::read_to_string(&config.local_harness_path).map_err(|err| {
-            format!(
-                "failed to read local harness {}: {err}",
-                config.local_harness_path.display()
-            )
-        })?;
+    let merged: Option<Cow<'static, str>> = match &config.local_harness {
+        LocalHarnessSource::None => None,
+        LocalHarnessSource::EmbeddedSpecExec => Some(Cow::Borrowed(include_str!(
+            "../assets/local-harness/spec-exec.js"
+        ))),
+        LocalHarnessSource::EmbeddedWasmAot => Some(Cow::Borrowed(include_str!(
+            "../assets/local-harness/wasm-aot.js"
+        ))),
+        LocalHarnessSource::File(path) => {
+            Some(Cow::Owned(fs::read_to_string(path).map_err(|err| {
+                format!("failed to read local harness {}: {err}", path.display())
+            })?))
+        }
+    };
+
+    if let Some(merged) = merged {
         for section in merged.split("///").skip(1) {
             let mut lines = section.lines();
             let Some(name) = lines.next() else {
@@ -20153,92 +20174,6 @@ pub fn write_snapshot(
     })
 }
 
-pub fn compare_with_js_oracle(
-    config: &SuiteConfig,
-    filter: Option<&str>,
-) -> Result<OracleComparison, String> {
-    let rust = discover_suite(config, filter)?;
-    let script = format!(
-        r#"
-import fs from 'node:fs';
-import path from 'node:path';
-import readTest262 from './test262/read.js';
-const repoRoot = process.cwd();
-const test262Path = path.join(repoRoot, 'test262', 'vendor', 'test262');
-const localHarnessPath = path.join(repoRoot, 'test262', 'harness.js');
-const merged = fs.readFileSync(localHarnessPath, 'utf8');
-const preludes = merged.split('///').slice(1).reduce((acc, section) => {{
-  const [name, ...content] = section.split('\n');
-  acc[name.trim()] = content.join('\n').trim() + '\n';
-  return acc;
-}}, {{}});
-const harnessPath = path.join(test262Path, 'harness');
-const walk = dir => {{
-  for (const entry of fs.readdirSync(dir, {{ withFileTypes: true }})) {{
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {{
-      walk(full);
-      continue;
-    }}
-    if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
-    const rel = full.slice(harnessPath.length + 1).replaceAll('\\', '/');
-    if (preludes[rel] === undefined) preludes[rel] = fs.readFileSync(full, 'utf8') + '\n';
-  }}
-}};
-walk(harnessPath);
-const tests = await readTest262(test262Path, {filter_literal}, preludes, []);
-console.log(String(tests.length));
-"#,
-        filter_literal = js_string_literal(filter.unwrap_or(""))
-    );
-
-    let output = std::process::Command::new("node")
-        .arg("--input-type=module")
-        .arg("-e")
-        .arg(script)
-        .current_dir(repo_root_from_suite(&config.suite_root))
-        .output()
-        .map_err(|err| format!("failed to invoke node for JS oracle comparison: {err}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "js oracle comparison failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let js_count = stdout.trim().parse::<usize>().map_err(|err| {
-        format!(
-            "failed to parse JS oracle output {:?}: {err}",
-            stdout.trim()
-        )
-    })?;
-
-    Ok(OracleComparison {
-        rust_count: rust.cases.len(),
-        js_count: Some(js_count),
-        matches: Some(rust.cases.len() == js_count),
-        unavailable_reason: None,
-    })
-}
-
-pub fn try_compare_with_js_oracle(
-    config: &SuiteConfig,
-    filter: Option<&str>,
-) -> Result<OracleComparison, String> {
-    match compare_with_js_oracle(config, filter) {
-        Ok(comparison) => Ok(comparison),
-        Err(err) if is_missing_node_error(&err) => Ok(OracleComparison {
-            rust_count: discover_suite(config, filter)?.cases.len(),
-            js_count: None,
-            matches: None,
-            unavailable_reason: Some(err),
-        }),
-        Err(err) => Err(err),
-    }
-}
-
 fn hash_matrix_cache_key(
     pinned_revisions: &PinnedRevisions,
     execution_backend: ExecutionBackend,
@@ -24832,10 +24767,6 @@ fn top_level_subtree(test_path: &str) -> String {
     }
 }
 
-fn is_missing_node_error(err: &str) -> bool {
-    err.contains("No such file or directory") || err.contains("node") && err.contains("os error 2")
-}
-
 fn shard_cases(
     cases: &[TestCase],
     shard_index: usize,
@@ -25457,31 +25388,15 @@ fn json_escape(input: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn js_string_literal(input: &str) -> String {
-    format!(
-        "'{}'",
-        input
-            .replace('\\', "\\\\")
-            .replace('\'', "\\'")
-            .replace('\n', "\\n")
-    )
-}
-
-fn repo_root_from_suite(suite_root: &Path) -> PathBuf {
-    suite_root
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    const SPEC_EXEC_HARNESS: &str = include_str!("../assets/local-harness/spec-exec.js");
+    const WASM_AOT_HARNESS: &str = include_str!("../assets/local-harness/wasm-aot.js");
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_test262")
@@ -25692,7 +25607,7 @@ mod tests {
         let root = fixture_root();
         SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
-            local_harness_path: root.join("harness.js"),
+            local_harness: LocalHarnessSource::File(root.join("harness.js")),
             snapshot_dir: unique_temp_path("fixture-snapshots"),
             timeout_ms: 30_000,
             worker_count: 2,
@@ -25700,9 +25615,10 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     fn top_level_host_preludes() -> PreludeStore {
         let config = SuiteConfig {
-            local_harness_path: repo_root().join("test262/harness.js"),
+            local_harness: LocalHarnessSource::EmbeddedSpecExec,
             ..fixture_config()
         };
         load_preludes(&config).expect("top-level host preludes should load")
@@ -25710,7 +25626,7 @@ mod tests {
 
     fn wasm_aot_host_preludes() -> PreludeStore {
         let config = SuiteConfig {
-            local_harness_path: repo_root().join("test262/harness-wasm-aot.js"),
+            local_harness: LocalHarnessSource::EmbeddedWasmAot,
             ..fixture_config()
         };
         load_preludes(&config).expect("wasm-aot host preludes should load")
@@ -25744,7 +25660,7 @@ mod tests {
     fn real_wasm_aot_preludes() -> PreludeStore {
         let mut config = fixture_config();
         config.suite_root = repo_root().join("test262/vendor/test262");
-        config.local_harness_path = repo_root().join("test262/harness-wasm-aot.js");
+        config.local_harness = LocalHarnessSource::EmbeddedWasmAot;
         load_preludes(&config).expect("real wasm-aot preludes should load")
     }
 
@@ -25943,7 +25859,7 @@ function $DONE(error) {
 
         let config = SuiteConfig {
             suite_root,
-            local_harness_path: root.join("harness.js"),
+            local_harness: LocalHarnessSource::File(root.join("harness.js")),
             snapshot_dir: root.join("snapshots"),
             timeout_ms: 1_000,
             worker_count: 1,
@@ -26009,6 +25925,73 @@ function $DONE(error) {
             .get("helper.js")
             .expect("vendored helper should exist");
         assert_eq!(helper.origin, PreludeOrigin::VendoredHarness);
+    }
+
+    #[test]
+    fn load_preludes_selects_each_embedded_harness_profile() {
+        let spec_exec = load_preludes(&SuiteConfig {
+            local_harness: LocalHarnessSource::EmbeddedSpecExec,
+            ..fixture_config()
+        })
+        .expect("embedded spec-exec harness should load");
+        assert_eq!(
+            spec_exec.get("sta.js").expect("sta.js should exist").origin,
+            PreludeOrigin::LocalMerged
+        );
+        assert_eq!(
+            spec_exec
+                .get("helper.js")
+                .expect("helper.js should exist")
+                .origin,
+            PreludeOrigin::VendoredHarness
+        );
+
+        let wasm_aot = load_preludes(&SuiteConfig {
+            local_harness: LocalHarnessSource::EmbeddedWasmAot,
+            ..fixture_config()
+        })
+        .expect("embedded wasm-aot harness should load");
+        assert_eq!(
+            wasm_aot
+                .get("assert.js")
+                .expect("assert.js should exist")
+                .origin,
+            PreludeOrigin::LocalMerged
+        );
+        assert!(wasm_aot
+            .get("sta.js")
+            .expect("sta.js should exist")
+            .contents
+            .contains("__porfAgentStart"));
+    }
+
+    #[test]
+    fn load_preludes_none_uses_only_vendored_harness() {
+        let store = load_preludes(&SuiteConfig {
+            local_harness: LocalHarnessSource::None,
+            ..fixture_config()
+        })
+        .expect("vendored harness should load without a local overlay");
+        assert_eq!(
+            store
+                .get("helper.js")
+                .expect("helper.js should exist")
+                .origin,
+            PreludeOrigin::VendoredHarness
+        );
+        assert!(store.get("sta.js").is_none());
+    }
+
+    #[test]
+    fn load_preludes_rejects_a_missing_custom_harness() {
+        let path = unique_temp_path("missing-local-harness").join("harness.js");
+        let error = load_preludes(&SuiteConfig {
+            local_harness: LocalHarnessSource::File(path.clone()),
+            ..fixture_config()
+        })
+        .expect_err("a configured custom harness must exist");
+        assert!(error.contains("failed to read local harness"));
+        assert!(error.contains(&path.display().to_string()));
     }
 
     #[test]
@@ -26089,8 +26072,7 @@ function $DONE(error) {
 
     #[test]
     fn local_host_harness_fails_unsupported_host_capabilities_visibly() {
-        let harness = fs::read_to_string(repo_root().join("test262/harness.js"))
-            .expect("local harness should read");
+        let harness = SPEC_EXEC_HARNESS;
 
         assert!(harness.contains("local harness host ' + name + ' unsupported"));
         assert!(harness.contains("__porfUnsupportedHost('createRealm')"));
@@ -26105,8 +26087,7 @@ function $DONE(error) {
 
     #[test]
     fn local_host_harness_has_no_fake_agent_source_evaluation() {
-        let harness = fs::read_to_string(repo_root().join("test262/harness.js"))
-            .expect("local harness should read");
+        let harness = SPEC_EXEC_HARNESS;
 
         for forbidden in [
             "new Function(\"$262\"",
@@ -26141,8 +26122,7 @@ function $DONE(error) {
 
     #[test]
     fn wasm_aot_harness_routes_agent_methods_to_typed_host_intrinsics() {
-        let harness = fs::read_to_string(repo_root().join("test262/harness-wasm-aot.js"))
-            .expect("wasm-aot harness should read");
+        let harness = WASM_AOT_HARNESS;
 
         assert!(harness.contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
         assert!(harness.contains(WASM_AOT_INACTIVE_CREATE_REALM));
@@ -26163,14 +26143,13 @@ function $DONE(error) {
 
     #[test]
     fn wasm_aot_harness_loads_test_typed_array_from_the_vendored_suite() {
-        let harness = fs::read_to_string(repo_root().join("test262/harness-wasm-aot.js"))
-            .expect("wasm-aot harness should read");
+        let harness = WASM_AOT_HARNESS;
         assert!(!harness.contains("/// testTypedArray.js"));
         assert!(!harness.contains("function testWithTypedArrayConstructors"));
 
         let config = SuiteConfig {
             suite_root: repo_root().join("test262/vendor/test262"),
-            local_harness_path: repo_root().join("test262/harness-wasm-aot.js"),
+            local_harness: LocalHarnessSource::EmbeddedWasmAot,
             ..fixture_config()
         };
         let preludes = load_preludes(&config).expect("wasm-aot preludes should load");
@@ -26179,6 +26158,45 @@ function $DONE(error) {
             .expect("vendored TypedArray prelude should load");
         assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness);
         assert!(test_typed_array_prelude_matches_vendored_contract(prelude));
+    }
+
+    #[test]
+    fn wasm_agents_run_test262_wait_until_with_exact_assertions() {
+        let section = |name: &str| {
+            WASM_AOT_HARNESS
+                .split("///")
+                .skip(1)
+                .find_map(|contents| {
+                    let mut lines = contents.lines();
+                    (lines.next()?.trim() == name).then(|| lines.collect::<Vec<_>>().join("\n"))
+                })
+                .unwrap_or_else(|| panic!("missing {name} in Wasm-AOT harness"))
+        };
+        let assert_harness = section("assert.js");
+        let atomics_harness =
+            include_str!("../../../test262/vendor/test262/harness/atomicsHelper.js");
+        let test_source = include_str!(
+            "../../../test262/vendor/test262/test/built-ins/Atomics/notify/notify-with-no-agents-waiting.js"
+        );
+        let source = format!(
+            "{}\n{}\n{}\n{}\ntrue;",
+            section("sta.js"),
+            assert_harness,
+            atomics_harness,
+            test_source,
+        );
+        let agent_prelude = format!("{}\n{}", assert_harness, section("sta.js"));
+        let engine = Engine::new(RealmBuilder::new().build());
+        let outcome = engine
+            .run_wasm_aot_script_with_agents(
+                &source,
+                CompileOptions::default(),
+                Some(60_000),
+                true,
+                agent_prelude,
+            )
+            .expect("exact Test262 assertions should run after the agent wait loop");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 
     #[test]
@@ -35653,7 +35671,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         copy_dir_all(&fixture_root(), &root);
         let config = SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
-            local_harness_path: root.join("harness.js"),
+            local_harness: LocalHarnessSource::File(root.join("harness.js")),
             snapshot_dir: unique_temp_path("matrix-cache-snapshots"),
             timeout_ms: 1_000,
             worker_count: 2,
@@ -36061,7 +36079,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         let config = SuiteConfig {
             suite_root: PathBuf::from("unused-suite-root"),
-            local_harness_path: PathBuf::from("unused-harness"),
+            local_harness: LocalHarnessSource::None,
             snapshot_dir,
             timeout_ms: 50,
             worker_count: 1,
@@ -36761,7 +36779,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let case = synthetic_case("child-runner/imported-failure.js");
         let config = SuiteConfig {
             suite_root: PathBuf::from("unused-suite-root"),
-            local_harness_path: PathBuf::from("unused-harness"),
+            local_harness: LocalHarnessSource::None,
             snapshot_dir: snapshot_dir.clone(),
             timeout_ms: 1_000,
             worker_count: 1,
@@ -37185,7 +37203,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         .expect("failing test should write");
         SuiteConfig {
             suite_root: root.join("vendor").join("test262"),
-            local_harness_path: root.join("harness.js"),
+            local_harness: LocalHarnessSource::File(root.join("harness.js")),
             snapshot_dir: root.join("snapshots"),
             timeout_ms: 5_000,
             worker_count: 1,
@@ -37824,7 +37842,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     fn backlog_checked_in_ownership_map_is_valid_and_routes_unknowns_to_unclassified() {
         let config = SuiteConfig {
             suite_root: repo_root().join("test262").join("vendor").join("test262"),
-            local_harness_path: repo_root().join("test262").join("harness.js"),
+            local_harness: LocalHarnessSource::EmbeddedSpecExec,
             snapshot_dir: unique_temp_path("ownership-map-check"),
             timeout_ms: 5_000,
             worker_count: 1,

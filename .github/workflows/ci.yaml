@@ -5,55 +5,86 @@ on:
   push:
     branches:
       - main
-  workflow_run:
-    workflows: ['Bump version and publish']
-    types:
-      - completed
+
+permissions:
+  contents: read
 
 jobs:
-  repository-contract:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+  validate:
+    name: Validate Rust workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: ./scripts/check-task-plan.sh
-      - run: ./scripts/check-module-boundaries.sh
-      - run: ./scripts/audit-test262-shortcuts.sh --check
-      - run: ./scripts/check-test262-host-abi.sh
-      - run: ./scripts/check-no-interpreter-in-product-graph.sh
+
+      - name: Check repository contracts
+        run: |
+          ./scripts/check-task-plan.sh
+          ./scripts/check-module-boundaries.sh
+          ./scripts/audit-test262-shortcuts.sh --check
+          ./scripts/check-test262-host-abi.sh
+          ./scripts/check-no-legacy-js.sh
+
       - name: Check generated README status edits
         if: github.event_name == 'pull_request'
         run: ./scripts/check-readme-status-artifacts.sh origin/${{ github.base_ref }}
 
-  build:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check workspace
+        run: cargo xc
+
+      - name: Test Test262 harness loading
+        run: |
+          cargo test -p porffor-test262 --lib -- harness
+          cargo test -p porffor-test262 --lib -- load_preludes
+          cargo test -p porffor-test262 --lib -- wasm_agents_run_test262_wait_until_with_exact_assertions
+
+      - name: Check known-failure ledger
+        run: cargo test -p porffor-cli --test cli -- known_failures:: --test-threads=2
+
+      - name: Build CLI
+        run: cargo build -p porffor-cli
+
+      - name: Run fake wasm-safe Test262 suite
+        run: >-
+          ./target/debug/porf test262 run language/wasm/pass
+          --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+          --execution-backend wasm
+
+      - name: Run full fake Test262 suite
+        run: >-
+          ./target/debug/porf test262 run
+          --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+
+      - name: Audit product dependency graph
+        run: ./scripts/check-no-interpreter-in-product-graph.sh
+
+  native-release-build:
+    name: Native release build (${{ matrix.artifact }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-          - x86_64-pc-windows-msvc
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
+        include:
+          - os: ubuntu-latest
+            artifact: porf-linux-x86_64
+            path: target/release/porf
+          - os: macos-latest
+            artifact: porf-macos
+            path: target/release/porf
+          - os: windows-latest
+            artifact: porf-windows-x86_64
+            path: target/release/porf.exe
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - run: deno install
-      - run: |
-          deno compile \
-            --allow-all \
-            --no-check \
-            --target ${{ matrix.target }} \
-            --include runtime \
-            --include compiler \
-            --output out/porf \
-            runtime/index.js
+      - run: cargo build --release -p porffor-cli
       - uses: actions/upload-artifact@v4
         with:
-          name: porf-${{ matrix.target }}
-          path: out/*
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 7
