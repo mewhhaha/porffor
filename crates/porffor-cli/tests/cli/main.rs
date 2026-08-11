@@ -21,6 +21,20 @@ mod iterator;
 mod iterator_helpers;
 mod known_failures;
 mod language;
+// `language.rs` was one 105-test module and could not be run at all on this
+// container: three consecutive OOM SIGKILLs at t+1200 s, with `avail` falling
+// monotonically across the process rather than plateauing. Splitting it three
+// ways is the only lever left -- the cache tiers bound disk not RSS,
+// `PORFFOR_CPU_PERCENT` is overridden inside `run_chunk`, and `--test-threads`
+// below 3 is banned. See the header of `language.rs` for the measurements.
+//
+// Each of these needs BOTH a `mod` line here AND a `run_chunk` line in
+// `scripts/rung1c-chunks.sh`; a chunk with no `mod` line selects nothing,
+// libtest exits 0 on `0 passed`, and the done-file banks a chunk that measured
+// nothing. That is the `iterator_helpers` incident, now caught by
+// `known_failures::rung_1c_chunks_cover_every_cli_area_module`.
+mod language_errors;
+mod language_numerics;
 mod object;
 mod regexp;
 mod string;

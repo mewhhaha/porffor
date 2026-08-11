@@ -2397,17 +2397,21 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// # The lookup is total, and that is the point
     ///
-    /// Three outcomes, and all three are now reachable code:
+    /// Four outcomes, and every one of them is now reachable code:
     ///
     /// * **`Program` row** — install the six program slots. Unchanged.
     /// * **`Rejected` row** — the compile-time RegExp compiler saw this exact
-    ///   pattern and refused it, so this is a spec SyntaxError
-    ///   (`RegExpAlloc`/`RegExpInitialize` step 3.b). Before batch 7 the row did
-    ///   not exist at all (`data.rs` `continue`d past rejected pairs), the loop
-    ///   below had no else arm, and the caller went on to publish a live RegExp
-    ///   whose `instruction_count` is 0 — `assert.throws(SyntaxError, () =>
+    ///   pattern and answered `InvalidSyntax`, so this is a spec SyntaxError
+    ///   (`RegExpInitialize` step 3.b). Before batch 7 the row did not exist at
+    ///   all (`data.rs` `continue`d past every compile failure), the loop below
+    ///   had no else arm, and the caller went on to publish a live RegExp whose
+    ///   `instruction_count` is 0 — `assert.throws(SyntaxError, () =>
     ///   r.compile("(?<x>a)(?<x>b)"))` therefore measured *no throw at all*.
     ///   That is the one Bug-outcome failure in the batch-7 sweep.
+    /// * **`Unsupported` row** — the pattern is legal ECMAScript and Lila's
+    ///   RegExp compiler cannot build a program for it yet. Behaves exactly like
+    ///   a total miss; throwing here would invent a SyntaxError for a pattern
+    ///   the spec accepts.
     /// * **total miss** — the pair is genuinely not in the table, i.e. the
     ///   pattern or the flags string was computed at run time and never named as
     ///   a literal anywhere. The slots stay zeroed and the caller proceeds.
@@ -2552,10 +2556,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        // A `Rejected` row is the compile-time compiler's own verdict on this
-        // exact pattern, reaching run time. A total miss leaves the local at
-        // `RUNTIME_REGEXP_ENTRY_KIND_PROGRAM` and is deliberately not caught
-        // here; the doc comment says why.
+        // A `Rejected` row is the compile-time compiler's `InvalidSyntax`
+        // verdict on this exact pattern, reaching run time. `Unsupported` rows
+        // and total misses both fall through without throwing — the first
+        // because the pattern is legal, the second because the runtime fallback
+        // matcher may still answer it correctly. The doc comment says why at
+        // length; do not "simplify" this into `!= PROGRAM`.
         function.instruction(&Instruction::LocalGet(entry_kind_local));
         function.instruction(&Instruction::I64Const(
             RUNTIME_REGEXP_ENTRY_KIND_REJECTED as i64,

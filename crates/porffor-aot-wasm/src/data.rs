@@ -6,7 +6,8 @@ use icu_normalizer::{
 };
 use icu_properties::{props, CodePointSetData};
 use porffor_ir::{
-    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpProgram, StaticRegExpCompilation,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
+    StaticRegExpCompilation,
     TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
     REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
     REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
@@ -270,9 +271,24 @@ impl RegExpProgramStaticKey {
 /// apart from "this row was never written".
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
-/// compile-time `RegExpProgram::compile` **rejected** this `(source, flags)`
-/// pair, so constructing a RegExp from it at run time must throw a SyntaxError.
+/// compile-time `RegExpProgram::compile` answered
+/// [`RegExpCompileErrorKind::InvalidSyntax`] — the pattern is not a legal
+/// ECMAScript Pattern, so constructing a RegExp from it at run time is a spec
+/// SyntaxError.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
+/// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
+/// compile-time compiler answered [`RegExpCompileErrorKind::UnsupportedFeature`]
+/// — the pattern **is** legal ECMAScript and Lila simply cannot compile it yet.
+///
+/// This is the distinction that makes the table worth having and the one a
+/// bare "compile failed, so throw" would destroy: a `SyntaxError` here would be
+/// a *new* wrong answer, thrown for a pattern the spec says is fine. Such a row
+/// deliberately behaves exactly like a total miss — zeroed program slots, and
+/// the runtime's own fallback matcher gets its turn. `porffor-ir`'s
+/// `try_lower_static_regexp_compilation` draws the same line at its
+/// `Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax` arm, and
+/// the two must not drift apart.
+pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
 
 /// What the AOT-built runtime RegExp program table says about one
 /// `(source, flags)` pair.
@@ -303,9 +319,27 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
 enum RuntimeRegExpEntry {
     /// `RegExpProgram::compile` accepted the pair; this is its static data.
     Program(RegExpProgramRef),
-    /// `RegExpProgram::compile` rejected the pair. The emitted lookup turns a
-    /// hit on this row into a SyntaxError.
+    /// `RegExpProgram::compile` answered `InvalidSyntax`: the pattern is not a
+    /// legal ECMAScript Pattern. The emitted lookup turns a hit on this row
+    /// into a SyntaxError.
     Rejected,
+    /// `RegExpProgram::compile` answered `UnsupportedFeature`: the pattern is
+    /// legal and Lila cannot compile it yet. A hit on this row must **not**
+    /// throw — see [`RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED`].
+    Unsupported,
+}
+
+/// [`RuntimeRegExpEntry`] before the static program data exists.
+///
+/// `queue_regexp_program` only queues; the `RegExpProgramRef` a `Program` row
+/// needs is not known until `append_regexp_programs` has run. This carries the
+/// same three answers across that gap by key instead of by ref, so the
+/// intermediate never has to be an `Option` — the shape whose `None` arm is
+/// what the original `continue` collapsed into.
+enum CandidateOutcome {
+    Program(RegExpProgramStaticKey),
+    Rejected,
+    Unsupported,
 }
 
 #[derive(Debug, Default)]
@@ -3634,6 +3668,35 @@ impl StringPool {
                 if matches!(key, PropertyKeyIr::StaticString(name) if name == "reverse") {
                     self.intern_string("Array.prototype.reverse receiver is not array");
                 }
+                // A literal pattern argument to `.compile(…)`, collected for the
+                // same reason as the `CallIndirect` / `Construct` arms: the
+                // compile-time RegExp compiler's verdict on a pattern needs a
+                // row in the runtime table, and a pattern that only ever appears
+                // as a call argument was never offered to it.
+                //
+                // Both arms are needed because the *same source text* lowers
+                // differently depending on where it sits. Measured with
+                // `porf inspect`: `function go() { r.compile("xy"); }` over a
+                // `var r = /[ab]/` reports `method_calls=1`, while the identical
+                // call over a `let r = /[ab]/` reports `method_calls=0,
+                // indirect_calls=5`. Collecting at one node only would close the
+                // hole for one spelling of the same program.
+                //
+                // Deliberately does NOT set `needs_runtime_regexp_programs`: a
+                // `.compile` call on some unrelated object would then force a
+                // runtime table — and, for a script with no string-valued
+                // declaration initialisers, one built from EVERY script string
+                // literal — for nothing. Collecting costs nothing when no table
+                // is built, because `queue_runtime_regexp_programs` is then
+                // never called.
+                if matches!(key, PropertyKeyIr::StaticString(name) if name == "compile") {
+                    if let Some(pattern) = args.first() {
+                        collect_finite_string_choices(
+                            pattern,
+                            &mut self.runtime_regexp_argument_literals,
+                        );
+                    }
+                }
                 for arg in args {
                     self.collect_expr(arg);
                 }
@@ -3948,12 +4011,23 @@ impl StringPool {
                         candidates.push((
                             normalized_source.to_string(),
                             flags.clone(),
-                            Some(key),
+                            CandidateOutcome::Program(key),
                         ));
                     }
-                    Err(_) => {
-                        candidates.push((normalized_source.to_string(), flags.clone(), None));
-                    }
+                    // Exhaustive on `RegExpCompileErrorKind`. "Illegal pattern"
+                    // and "legal pattern Lila cannot compile" are different
+                    // answers to the program, and only the first is a
+                    // SyntaxError.
+                    Err(error) => candidates.push((
+                        normalized_source.to_string(),
+                        flags.clone(),
+                        match error.kind {
+                            RegExpCompileErrorKind::InvalidSyntax => CandidateOutcome::Rejected,
+                            RegExpCompileErrorKind::UnsupportedFeature => {
+                                CandidateOutcome::Unsupported
+                            }
+                        },
+                    )),
                 }
             }
         }
@@ -3961,15 +4035,16 @@ impl StringPool {
         self.append_regexp_programs();
         self.runtime_regexp_programs = candidates
             .into_iter()
-            .map(|(source, flags, key)| {
-                let entry = match key {
-                    Some(key) => RuntimeRegExpEntry::Program(
+            .map(|(source, flags, outcome)| {
+                let entry = match outcome {
+                    CandidateOutcome::Program(key) => RuntimeRegExpEntry::Program(
                         *self
                             .regexp_programs
                             .get(&key)
                             .expect("queued runtime RegExp program must have static data"),
                     ),
-                    None => RuntimeRegExpEntry::Rejected,
+                    CandidateOutcome::Rejected => RuntimeRegExpEntry::Rejected,
+                    CandidateOutcome::Unsupported => RuntimeRegExpEntry::Unsupported,
                 };
                 (source, flags, entry)
             })
@@ -4009,6 +4084,9 @@ impl StringPool {
                 ),
                 RuntimeRegExpEntry::Rejected => {
                     (0, 0, 0, 0, 0, 0, RUNTIME_REGEXP_ENTRY_KIND_REJECTED)
+                }
+                RuntimeRegExpEntry::Unsupported => {
+                    (0, 0, 0, 0, 0, 0, RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED)
                 }
             };
             for value in [

@@ -79,6 +79,19 @@
 //!   now reads `main.rs`'s `mod` list and asserts it against the files on disk
 //!   in both directions, so that state is a sub-millisecond red rather than a
 //!   paragraph somebody has to remember.
+//!
+//!   Recounted at the head of batch 7 by the RUNG1C write lane, same exact-line
+//!   `awk`: **619** across `tests/cli/*.rs`, so **611 compile** under default
+//!   features and **610 execute**. The two additions are in `regexp.rs`
+//!   (33 -> 35). The batch-7 split of `language.rs` into `language` (45),
+//!   `language_errors` (29) and `language_numerics` (31) is a **pure move** and
+//!   adds nothing: the three files' `awk` counts sum to 105, and the set of
+//!   function names across them is identical to the pre-split `language.rs`.
+//!   It takes the area-module count 18 -> 20. **611 is the number each chunk's
+//!   `ran + filtered_out` must now sum to** — but that half is *derived* from
+//!   the gate count rather than measured, because the write lane runs no cargo
+//!   at all. Settle it with `--list` before quoting it, exactly as the line
+//!   above already says.
 //! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
 //! - **0** `should_panic` attributes. It was 0 before this module existed and 2
@@ -124,39 +137,53 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// `unfilled` row is alive turns rung 1c red. The bump and the fill are ONE
 /// edit, and the fill needs a completed rung 1c.
 ///
-/// Rung 1c is still not complete at batch 6 — but it is much closer than the
-/// text here said for two batches, and every number below was re-measured at
-/// this head rather than carried forward:
+/// # Batch 7: still not complete, and the reason has narrowed to one module
 ///
-/// - **16 of 18** chunks are banked and **465 of 608** executing tests have a
-///   verdict. `language` (105) and `binary_data` (38) have still never produced
-///   a verdict at any head. Deleting the row on that evidence would declare
-///   "these are all the expected non-green outcomes" over two chunks that have
-///   never run.
-/// - **254** of the 465 were measured at *this* head, with **zero** failures:
-///   `known_failures` 5, `frontend_test262_subset` 1, `date` 17, `iterator` 30,
-///   `iterator_helpers` 14, `frontend` 45, `typed_array` 58, `array` 84. The
-///   other 211 carry batch-5 verdicts.
-/// - The 13 tests batch 5 measured red — 4 in `iterator::`, 9 in
-///   `iterator_helpers::` — are **all green** now that the batch-6 iterator
-///   lane has landed, so no row is owed for any of them. That is why the
-///   "rows libtest would report as `test did not panic as expected`" argument
-///   is no longer the reason this row survives; the reason is the two unrun
-///   chunks.
-/// - `frontend::inspect_reports_phase_eighteen_global_ir_shape` -- named here
-///   for two batches as asserting `global_bindings=64` against a measured 65 --
-///   was fixed by the batch-5 integrator and is green in the batch-6 `frontend`
-///   chunk. It is not a candidate row.
-/// - The only non-pass outcome across the 465 is the declared `heap` ignore
-///   (T05), which already has its row.
+/// Every number here was re-measured at this head by the batch-7 RUNG1C write
+/// lane rather than carried forward. The lane could run no cargo command, so
+/// each figure states how it was obtained.
 ///
-/// So batch 6 takes the alternative the assertion names in its own message: the
-/// constant is bumped to the batch this checkout actually is, and the header is
-/// extended by one batch. Both are visible one-line diffs, which is the point --
-/// this is a deliberate extension, not a slide. The row's own `reason` column
-/// carries the current measurement. Finish with `scripts/rung1c-chunks.sh`,
-/// which now has exactly `language` and `binary_data` left to run.
-const CURRENT_BATCH: u32 = 6;
+/// - **17 of 20** chunks are banked and **503 of 610** executing tests have a
+///   verdict. Read out of `target/watched/rung1c-done` (17 rows) and
+///   `target/watched/rung1c-done-counts`, not estimated. `language` is the one
+///   chunk that has never produced a verdict at any head across four batches.
+/// - The chunk denominator moved 18 → 20 in this batch, because `language::`
+///   OOMed as a single 105-test libtest process **three times** — SIGKILL at
+///   t+1200 s after 66, 75 and 75 tests, with `avail` falling *monotonically*
+///   from 8.5 GiB to 1.14 GiB — and `tests/cli/language.rs` was therefore split
+///   into `language` (45), `language_errors` (29) and `language_numerics` (31)
+///   so the same tests run as three separate processes. Cache tiers and
+///   `PORFFOR_CPU_PERCENT` were measured to be no lever and `--test-threads`
+///   below 3 is banned, so fewer tests per process was the only one left.
+/// - All 105 language tests **were** measured green at the batch-6 head, but by
+///   the UNION of a 75-test chunk attempt and a standalone 30-name tail. A
+///   union is not a banked verdict, and a banked verdict is this row's own
+///   standard, so the union does not license deleting it.
+/// - `regexp` is banked at 33 while `tests/cli/regexp.rs` now declares 35, so
+///   the counts sidecar re-runs that chunk. Two of the 610 are therefore
+///   unmeasured for a second, independent reason.
+/// - Recount at this head, exact-line `awk` over `tests/cli/*.rs`: **619**
+///   `#[test]` attributes, of which **8** are `spec-exec-oracle`-gated in
+///   `frontend.rs` and one is `#[ignore]`d in `heap.rs`, hence **611 compiled /
+///   610 executing**. The compiled/executing split is derived from the gate
+///   count, *not* confirmed with `--list`; the write lane runs no cargo.
+/// - The only declared non-pass outcome across the 503 is the `heap` ignore
+///   (T05), which already has its row. The surviving set is otherwise empty.
+///
+/// So batch 7 takes the alternative the assertion names in its own message, for
+/// the second time and deliberately: the constant is bumped to the batch this
+/// checkout actually is, and the header is extended by one batch to `batch-8`.
+/// Both are visible one-line diffs, which is the point — an extension, not a
+/// slide.
+///
+/// **The moment `language`, `language_errors` and `language_numerics` all bank
+/// green, DELETE the row rather than filling it**, because the surviving set is
+/// then empty. That deletion needs no further edit here: the deadline check
+/// lives inside `if unfilled_rows > 0`, so with no `unfilled` row it is not
+/// merely satisfied but never evaluated, and the `batch-8` header goes inert
+/// without becoming wrong. Do NOT delete the header line itself — its absence
+/// is `MissingExpiryHeader` whether or not any `unfilled` row exists.
+const CURRENT_BATCH: u32 = 7;
 
 /// Header line carrying the `unfilled` expiry, e.g.
 /// `# unfilled-allowed-until: batch-7`.
@@ -645,7 +672,9 @@ pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
 // blocking, so the test needs no guarded child, no `should_panic` and no row.
 const _: fn() = crate::heap::run_wasm_backend_succeeds_for_heap_page_boundary_stress_fixture;
 // The T24 assertion
-// (`language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name`)
+// (`language_errors::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name`
+// -- it was in `language::` until batch 7 split that module three ways for
+// memory; see the header of `tests/cli/language.rs`)
 // was retired together with its ledger row when the repair landed:
 // `emit_runtime_error_object` now defines `message` from its message argument,
 // and `data.rs`'s `RUNTIME_ERROR_MESSAGE_LITERALS` interns the strings that
@@ -1015,7 +1044,7 @@ fn scan_source(target: TestTarget, module: Option<String>, path: &Path) -> Vec<T
 ///
 /// ```text
 /// const _: fn() =
-///     crate::language::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name;
+///     crate::language_errors::run_wasm_backend_gives_a_runtime_error_a_message_distinct_from_its_name;
 /// ```
 ///
 /// A line-based scan finds neither half, so `ledger_is_well_formed` reports a

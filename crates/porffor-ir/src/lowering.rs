@@ -6463,8 +6463,62 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::IntlDateTimeFormatConstructor
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => (
+            // Split out of the `resolvedOptions` or-pattern deliberately: only
+            // one of the two is constructable (`builtins.rs`'s
+            // `constructable()` lists the constructor and not the accessor), so
+            // only one of them can ever reach the `constructor_instance`
+            // consumer. Giving `resolvedOptions` a constructor instance would
+            // be meaningless and would hide the arm that matters.
+            //
+            // `class S extends Intl.DateTimeFormat {}` with no explicit
+            // constructor takes its static instance type from this fourth tuple
+            // member. Spelling it `ValueInfo::undefined()` typed every such
+            // instance as nullish, which is the batch-5 `IteratorConstructor`
+            // defect verbatim; batch 6 fixed that arm and left this one, which
+            // the b6 lane note filed after intersecting all 332
+            // `standard_builtin_signature` arms with the 53 `constructable()`
+            // ids. Four carried `ValueInfo::undefined()`; this is the only
+            // reachable one (`Proxy.prototype` is `undefined` so the `extends`
+            // itself throws, and `new Symbol()` / `new BigInt()` throw before an
+            // instance exists).
+            //
+            // MEASURED before the change, not deduced:
+            //
+            //   porf inspect `class D extends Intl.DateTimeFormat {} new D();`
+            //     -> result=undefined
+            //   porf inspect `class D extends Intl.Locale {} new D("en");`
+            //     -> result=object
+            //
+            // and the consequence, `porf run --execution-backend wasm` over
+            // three classes differing only in heritage, each declaring its own
+            // `reduceRight(a) { return a + 1; }`:
+            //
+            //   dtf.reduceRight=undefined   loc.reduceRight=2   plain.reduceRight=2
+            //
+            // A plain user method was not called at all. `reduceRight` is the
+            // one of the ten names `lowering.rs` builds an `ExprIr::CallMethod`
+            // for on a non-array receiver that has no `IteratorHelper` variant,
+            // so it is the only one still reaching `emit_method_call`'s
+            // statically-nullish shortcut after batch 6 widened
+            // `receiver_needs_dynamic_helper_dispatch`. Fixture:
+            // `crates/porffor-cli/tests/fixtures/wasm_intl_date_time_format_subclass.js`.
+            //
+            // `fresh_constructed_instance_info()` rather than a layered
+            // prototype: there is no `intl_date_time_format_*_shape` in this
+            // file, DTF's own `return_shape` is `None`, and the
+            // `IteratorConstructor` comment above records that `lower_class`
+            // immediately overwrites any layered prototype with the subclass
+            // prototype. The `Intl.Locale` precedent
+            // (`value_info_from_shape(Some(intl_locale_instance_shape()))`) is
+            // unavailable because `Locale` HAS an instance shape and this does
+            // not.
+            StandardBuiltinId::IntlDateTimeFormatConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                Self::fresh_constructed_instance_info(),
+            ),
+            StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
@@ -13356,17 +13410,37 @@ impl<'a> ScriptLowerer<'a> {
         element_info: &ValueInfo,
         body: StatementIr,
         body_kind: ValueKind,
-        has_unsupported_binding_form: bool,
+        binding_form: AsyncForOfBindingForm,
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
     ) -> ForOfLoweringIr {
-        let is_array = iterable
+        // Three premises, three messages. They used to be one `&&` chain behind
+        // one string — "requires an array iterable and a plain binding" — which
+        // was reported for `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`,
+        // whose head is `for (const v of [array literal])`, i.e. a case where
+        // both named premises hold. A rejection reason that names the wrong
+        // premise is worse than none: it routes triage away from the defect.
+        // The order below is structural first, then typing, then the async
+        // plan, so the most specific answer wins.
+        if let Some(message) = binding_form.rejection() {
+            self.unsupported(message);
+            return ForOfLoweringIr::no_iteration();
+        }
+        if !iterable
             .possible_kinds
-            .is_subset_of(KindSet::from_kind(ValueKind::Array));
-        let Some(entry_state) = entry_state.filter(|_| is_array && !has_unsupported_binding_form)
-        else {
+            .is_subset_of(KindSet::from_kind(ValueKind::Array))
+        {
             self.unsupported(
-                "async for-of with a body await requires an array iterable and a plain binding",
+                "async for-of with a body await requires an array iterable, and this one \
+                 can be something else; every other iterable keeps the @@iterator protocol, \
+                 whose own suspension points this index walk does not have",
+            );
+            return ForOfLoweringIr::no_iteration();
+        }
+        let Some(entry_state) = entry_state else {
+            self.unsupported(
+                "async for-of with a body await requires a plain async function body with a \
+                 resumable entry state, and this body has none",
             );
             return ForOfLoweringIr::no_iteration();
         };
@@ -13818,10 +13892,16 @@ impl<'a> ScriptLowerer<'a> {
                 &element_info,
                 body,
                 body_kind,
-                !for_of_environment_is_storage_only(lexical_environment.as_ref())
-                    || pattern_initializer.is_some()
-                    || assignment_pattern_initializer.is_some()
-                    || access_initializer.is_some(),
+                // One closed reason instead of the four-premise boolean that
+                // used to be OR-ed together here. See
+                // `AsyncForOfBindingForm`'s doc comment for the measurement
+                // that forced the split.
+                AsyncForOfBindingForm::classify(
+                    lexical_environment.as_ref(),
+                    pattern_initializer.is_some()
+                        || assignment_pattern_initializer.is_some()
+                        || access_initializer.is_some(),
+                ),
                 plain_async_entry_state,
                 lexical_environment.clone(),
             );
@@ -16247,8 +16327,37 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_async_function_declaration(function),
                 ValueKind::Undefined,
             ),
-            Declaration::GeneratorDeclaration(_) => {
-                self.unsupported("function or class declaration");
+            // Reached only when the guarded arm above declined, i.e. when
+            // `linear_generator_plan` found no plan. The old message,
+            // `"function or class declaration"`, was wrong twice: the
+            // declaration is a generator, and the refusal is about the yield
+            // shape rather than the declaration kind. It also collapsed every
+            // refused generator into one `detail_hash` shared with unrelated
+            // declarations, which is the worst outcome for a sweep whose value
+            // is grouping failures into families.
+            //
+            // Two measured victims, both `NotImplemented` with detail
+            // `unsupported in porffor wasm-aot first slice: function or class
+            // declaration`:
+            // `annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js`
+            // and `annexB/built-ins/RegExp/RegExp-invalid-control-escape-character-class.js`.
+            // Each declares `function* invalidControls()` whose third loop
+            // yields from inside an `if`, so both now report
+            // `GeneratorPlanRejection::LoopBodyYieldNotDirect`.
+            //
+            // The `map_or` default is unreachable — this arm exists precisely
+            // because the plan is absent — and it is spelled as a default rather
+            // than an `expect` so a future edit to the guard above degrades to a
+            // vaguer message instead of a panic in the compiler.
+            Declaration::GeneratorDeclaration(function) => {
+                self.unsupported(
+                    linear_generator_plan_with_reason(function.body())
+                        .err()
+                        .map_or(
+                            "generator body has no linear suspension plan",
+                            GeneratorPlanRejection::message,
+                        ),
+                );
                 (StatementIr::Empty, ValueKind::Undefined)
             }
             Declaration::AsyncGeneratorDeclaration(function) => (
@@ -23971,14 +24080,30 @@ impl<'a> ScriptLowerer<'a> {
             }, ..] => RegExpProgram::compile(pattern, flags),
             _ => return None,
         };
+        // Requested by lane RE-RT (batch 7, `re-rt-b7-integration.md` §5) and
+        // applied in the form that lane preferred: match `error.kind` once,
+        // exhaustively, with no guard and no `unreachable!`.
+        //
+        // Behaviour is unchanged, deliberately. `UnsupportedFeature` means
+        // *legal pattern, this compiler cannot build a program for it yet*, so
+        // it must keep falling through to the runtime path where the fallback
+        // matcher gets a turn; promoting it to a static SyntaxError would invent
+        // a spec violation for every legal-but-unimplemented pattern. What the
+        // catch-all cost was hygiene: a third `RegExpCompileErrorKind` variant
+        // would have been silently treated as "unsupported" here and at the
+        // sibling site below, and nothing would have failed to build.
+        // `porffor-aot-wasm`'s runtime RegExp table draws the same line
+        // (`RuntimeRegExpEntry::{Rejected,Unsupported}`); the two must not drift.
         match compilation {
             Ok(program) => Some(StaticRegExpCompilation::Program(program)),
-            Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax => {
-                Some(StaticRegExpCompilation::InvalidSyntax {
-                    message: format!("invalid regular-expression pattern: {error}"),
-                })
-            }
-            Err(_) => None,
+            Err(error) => match error.kind {
+                RegExpCompileErrorKind::InvalidSyntax => {
+                    Some(StaticRegExpCompilation::InvalidSyntax {
+                        message: format!("invalid regular-expression pattern: {error}"),
+                    })
+                }
+                RegExpCompileErrorKind::UnsupportedFeature => None,
+            },
         }
     }
 
@@ -25139,14 +25264,21 @@ impl<'a> ScriptLowerer<'a> {
                     }, ..] => Some(RegExpProgram::compile(pattern, flags)),
                     _ => None,
                 };
+                // See the note at the sibling site in
+                // `static_regexp_compilation_for_direct_call`: exhaustive on
+                // `RegExpCompileErrorKind` so a third variant is a compile
+                // error, not a silent "unsupported". Behaviour unchanged.
                 match compilation {
                     Some(Ok(program)) => Some(StaticRegExpCompilation::Program(program)),
-                    Some(Err(error)) if error.kind == RegExpCompileErrorKind::InvalidSyntax => {
-                        Some(StaticRegExpCompilation::InvalidSyntax {
-                            message: format!("invalid regular-expression pattern: {error}"),
-                        })
-                    }
-                    Some(Err(_)) | None => None,
+                    Some(Err(error)) => match error.kind {
+                        RegExpCompileErrorKind::InvalidSyntax => {
+                            Some(StaticRegExpCompilation::InvalidSyntax {
+                                message: format!("invalid regular-expression pattern: {error}"),
+                            })
+                        }
+                        RegExpCompileErrorKind::UnsupportedFeature => None,
+                    },
+                    None => None,
                 }
             } else {
                 None

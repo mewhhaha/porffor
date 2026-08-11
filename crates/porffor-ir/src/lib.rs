@@ -6454,8 +6454,14 @@ target[Symbol.iterator];"#,
 
     #[test]
     fn rejects_async_loop_awaits_with_no_resumable_shape() {
-        // Each of these used to compile to a loop that ran its body once and
-        // then reused the first resumed value for every later iteration.
+        // The first five used to compile to a loop that ran its body once and
+        // then reused the first resumed value for every later iteration. This
+        // test is the map of what is deliberately still out, so a case leaves it
+        // only by being implemented, never to make room.
+        //
+        // The last two are not that: they never miscompiled, they are refused.
+        // What batch 7 changed is only the *reason* each is given — see
+        // `AsyncForOfBindingForm` in `lowering_helpers.rs`.
         for (source, message) in [
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",
@@ -6477,9 +6483,34 @@ target[Symbol.iterator];"#,
                 "(async function(){ for (const k in { a: 1 }) { await 0; } })();",
                 "await inside a for-in loop",
             ),
+            // A string iterable is genuinely not an array walk: it has to reach
+            // `GetIterator` and `String.prototype[@@iterator]`, whose own
+            // suspension points this specialization does not have. This case
+            // must stay rejected, and its expected substring is narrowed rather
+            // than weakened — batch 7 split the one four-premise message into
+            // one message per premise, so the tail "and a plain binding" is no
+            // longer part of the answer for a head that binds a plain `const c`.
             (
                 "(async function(){ for (const c of \"ab\") { await 0; } })();",
-                "async for-of with a body await requires an array iterable and a plain binding",
+                "async for-of with a body await requires an array iterable",
+            ),
+            // The premise that message used to hide, and the reason batch 7
+            // split it. Array literal, plain `const v` binding — both premises
+            // the old string named are satisfied — and the arrow captures `v`,
+            // so 14.7.5.7 needs a fresh environment record per iteration and
+            // `StatementIr::GeneratorLoop` has nowhere to put one. This is the
+            // shape of `built-ins/Array/fromAsync/asyncitems-asynciterator-not-callable.js`
+            // and its `@@iterator` sibling, the only two failures in that
+            // 95-case node on the batch-7 baseline sweep.
+            //
+            // It is still REJECTED, deliberately: the fix is a backend change
+            // (persist the environment pointer across the suspension), not a
+            // lowering one, and hoisting the binding into a single activation
+            // slot to make these two tests pass would give every closure the
+            // same cell. What changed is only that the reason is now true.
+            (
+                "(async function(){ const out = []; for (const v of [1, 2]) { out.push(() => v); await 0; } })();",
+                "a closure in the body captures it",
             ),
         ] {
             let program = lower_script(source);

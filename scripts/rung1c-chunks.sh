@@ -133,7 +133,7 @@ DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 # `cksum "crates/porffor-cli/tests/cli/$1.rs" | awk '{print $1}'` drops into
 # `module_test_count`'s shape unchanged, including its fail-open 0. It is not
 # taken here because switching the fingerprint invalidates every recorded row at
-# once and forces a full 18-chunk re-run (~2.5 h); do it at the START of a batch
+# once and forces a full 20-chunk re-run (~2.5 h); do it at the START of a batch
 # with no banked verdicts to lose, never mid-resume.
 #
 # The two unknown cases are deliberately resolved in OPPOSITE directions, and
@@ -512,7 +512,58 @@ run_chunk functions         functions::
 run_chunk frontend          frontend::
 run_chunk typed_array       typed_array::
 run_chunk array             array:: --skip typed_array::
+# THE LANGUAGE TRIO. One module until batch 7, and the only chunk that had never
+# produced a verdict at any head in four batches.
+#
+# `language::` OOMed as a single 105-test libtest process THREE times (batch 6,
+# 22:43Z / 23:29Z / 00:30Z): SIGKILL at t+1200 s after 66, 75 and 75 tests, with
+# `avail` falling MONOTONICALLY 8.5 GiB at ~7 tests -> 3.56 GiB at ~49 ->
+# 1.14 GiB two minutes before the kill. Monotonic, not a plateau: that is
+# cumulative growth across the process, so it is not the three-in-flight working
+# set that `frontend_test262_subset`'s flat 5.55 GiB is. Every runner-level knob
+# was tried and measured:
+#
+#   * per-tier cache limits at 256/64/64 MiB -- NO EFFECT, same trajectory. They
+#     bound bytes on disk (`porffor-engine/src/cache.rs`), not RSS.
+#   * `PORFFOR_CPU_PERCENT` -- overridden by `run_chunk` above, and a CPU share
+#     is not a memory lever anyway.
+#   * `--test-threads` below 3 -- BANNED by property 1 at the top of this file.
+#
+# So the only remaining lever is fewer tests per process, and the split has to be
+# by MODULE FILE rather than by filter: `known_failures::rung_1c_chunks` asserts
+# each chunk's second argument is exactly `<name>::` and that anything further is
+# `--skip <other>::`, so an `--exact` name list is rejected at rung 0.
+#
+# Sized from the measurements. 75 tests in 1200 s is 16.0 s/test and the
+# standalone 30-name tail did 30 in 498.2 s (16.6 s/test), so per-test cost is
+# uniform enough to size by count; the `avail` trajectory is ~0.118 GiB/test.
+# Thirty-odd heavy tests lands near 5 GiB `avail`; a TWO-way split at ~52 heavy
+# tests lands near 3.2 GiB, past where the third attempt was already in trouble.
+# Hence three chunks at 32 / 29 / 31 heavy tests (`language` also keeps the 13
+# cheap `inspect_*` / `build_wasm_*` / `in_process_module_reuse` tests, which
+# cost almost nothing), and the only DIRECT measurement of a language sub-run --
+# the 30-test tail -- completed in a fresh process.
+#
+# NO `--skip` IS NEEDED AND NONE MAY BE ADDED. The overlap rule fires only when
+# `format!("{other}::").ends_with(&format!("{chunk}::"))`, and
+# `"language_errors::".ends_with("language::")` is FALSE -- the character after
+# `language` is `_`, not `:`. That is exactly why `array` carries
+# `--skip typed_array::` and these three do not. By the same token libtest's
+# substring filter `language::` does not select `language_errors::…`, so these
+# run as THREE SEPARATE PROCESSES, which is the entire point: the accumulation
+# is per-process. Do not rename any of the three so that one stem becomes a
+# `::`-suffix of another.
+#
+# Stall budget: all three grow their log on every `... ok`, so the default
+# `RUNG1C_STALL=900` is adequate and none of them needs a `chunk_stall` entry.
+# Projected wall clock from 16.3 s/test: ~590 s / ~480 s / ~515 s.
+#
+# SCHEDULING: like `date::`, do not co-schedule these with the Test262 sweep.
+# The twice-confirmed law is that the sweep (~4.4 GiB) and a heavy CLI chunk do
+# not fit in 15.7 GiB together, and `language` OOMed on an IDLE box.
 run_chunk language          language::
+run_chunk language_errors   language_errors::
+run_chunk language_numerics language_numerics::
 run_chunk binary_data       binary_data::
 
 if [ -n "$UNBANKED" ]; then

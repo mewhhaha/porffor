@@ -382,6 +382,49 @@ fn run_wasm_backend_copies_date_values_without_observing_coercion_hooks() {
     assert!(stdout.contains("number(262"));
 }
 
+/// `class S extends Intl.DateTimeFormat {}` — a subclass with no explicit
+/// constructor — must produce an ordinary object, and its own methods must be
+/// called.
+///
+/// This lives in `date::` rather than a new `intl::` module because
+/// `known_failures::rung_1c_chunks_cover_every_cli_area_module` requires a
+/// bijection between `tests/cli/*.rs`, `main.rs`'s `mod` lines and
+/// `scripts/rung1c-chunks.sh`'s `run_chunk` lines, and those two files belong to
+/// a different lane. `date::` already roots the `Intl` namespace through
+/// `wasm_date_locale_strings.js`.
+///
+/// # It starts from a measured red, not a deduced one
+///
+/// Before the `porffor-ir` change this test exists for,
+/// `porf run --execution-backend wasm` on the fixture exited 1 with
+/// `uncaught throw: wasm-aot completion: string(dtf subclass reduceRight was not
+/// called)`. The fixture's own header records the mechanism and, importantly,
+/// why the obvious assertions (`format`, `resolvedOptions`, `instanceof`) do
+/// **not** exercise it — a first draft asserting only those passed unpatched.
+#[test]
+fn run_wasm_backend_succeeds_for_intl_date_time_format_subclass_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_intl_date_time_format_subclass.js"))
+        .output()
+        .expect("run command should run");
+
+    // Both streams: the fixture reports a defect by throwing a named string,
+    // and which stream carries `uncaught throw: …` is not worth guessing when
+    // the whole point of the message is to say which assertion failed.
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_date_utc_and_exponent_tonumber_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
