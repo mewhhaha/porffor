@@ -1754,6 +1754,18 @@ impl AsyncForOfBindingForm {
     /// `None` when the head is reproducible; otherwise the one premise that
     /// failed, spelled so that the reader is not sent to check the two that
     /// held.
+    ///
+    /// # Caller obligation
+    ///
+    /// Two of these messages end "the iterable type and the binding form are
+    /// both fine", which is a claim about a premise **this type cannot see**.
+    /// The sole caller
+    /// (`Lowering::lower_async_for_of_array_with_body_await`) therefore tests
+    /// the array-typing premise *before* calling this, and that order is not
+    /// stylistic: `for (const c of "ab") { f = () => c; await 0; }` is captured
+    /// and non-array at once, and the other order certifies a String iterable
+    /// as fine. If a second call site ever appears, it owes the same order or
+    /// it owes these two messages a rewrite.
     pub(crate) fn rejection(self) -> Option<&'static str> {
         match self {
             Self::PlainStorageOnly => None,

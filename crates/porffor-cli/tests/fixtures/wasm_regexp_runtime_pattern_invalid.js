@@ -72,6 +72,36 @@ try {
 }
 check(searchErrorName, "SyntaxError", "search rejects the rejected pattern");
 
+// The pattern that exists ONLY as a call argument, inside a nested function.
+//
+// This is the case that makes `StringPool::runtime_regexp_argument_literals`
+// load-bearing, and without it the whole ~40 lines of candidate collection added
+// for this lane could be deleted with both fixtures still green. Every other
+// pattern in this file and in `wasm_regexp_runtime_pattern_valid.js` reaches its
+// construction site out of an array literal, and `ExprIr::ArrayLiteral` already
+// feeds each element into `runtime_regexp_candidate_literals` — the PRE-existing
+// set. So the duplicate-`w` pattern below must appear exactly once in this file
+// (`grep -c` on it returns 1), as a bare argument and nowhere else: an
+// assignment, an array element or a second mention would route it back through
+// the pre-existing path and make this case vacuous.
+//
+// It is inside a function on purpose too. The measured gate case,
+// `annexB/built-ins/RegExp/prototype/compile/duplicate-named-capturing-groups-syntax.js`,
+// spells it `() => r.compile("(?<x>a)(?<x>b)")`, and the same call at top level
+// takes `porffor-ir`'s static path instead, which already threw correctly before
+// this lane. Function-wrapping is exactly what made it silent.
+var wrapped = /[ab]/;
+var wrappedErrorName = "no-throw";
+var callInner = function () {
+  wrapped.compile("(?<w>a)(?<w>b)");
+};
+try {
+  callInner();
+} catch (error) {
+  wrappedErrorName = error.name;
+}
+check(wrappedErrorName, "SyntaxError", "a pattern seen only as a call argument still throws");
+
 // The legal sibling, in the same script, must still compile and match. This is
 // the anti-vacuity half: `(?<x>a)|(?<x>b)` puts its duplicate names in DIFFERENT
 // alternatives, which the spec allows, and a fix that threw for both patterns

@@ -529,20 +529,40 @@ run_chunk array             array:: --skip typed_array::
 #     is not a memory lever anyway.
 #   * `--test-threads` below 3 -- BANNED by property 1 at the top of this file.
 #
-# So the only remaining lever is fewer tests per process, and the split has to be
-# by MODULE FILE rather than by filter: `known_failures::rung_1c_chunks` asserts
-# each chunk's second argument is exactly `<name>::` and that anything further is
-# `--skip <other>::`, so an `--exact` name list is rejected at rung 0.
+# That list is three ENVIRONMENT knobs, and an earlier version of this comment
+# called the split "the only remaining lever" on the strength of it. It is not:
+# the list never examined in-process retention, and the accumulation has a named
+# mechanism there. `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs`)
+# bounds an LRU of fully compiled Wasmtime modules BY ENTRY COUNT AND BY NOTHING
+# ELSE -- 64 entries, no byte ceiling -- and the in-process path these tests take
+# retains into it, i.e. one native module per distinct fixture. That is why the
+# three disk knobs did nothing, and why the ONE-test
+# `frontend_test262_subset` is flat. `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` now
+# overrides that bound; bounding it by bytes is the standing follow-up.
+#
+# Fewer tests per process is still the lever this split reaches for, and the
+# split has to be by MODULE FILE rather than by filter:
+# `known_failures::rung_1c_chunks` asserts each chunk's second argument is
+# exactly `<name>::` and that anything further is `--skip <other>::`, so an
+# `--exact` name list is rejected at rung 0.
 #
 # Sized from the measurements. 75 tests in 1200 s is 16.0 s/test and the
 # standalone 30-name tail did 30 in 498.2 s (16.6 s/test), so per-test cost is
-# uniform enough to size by count; the `avail` trajectory is ~0.118 GiB/test.
-# Thirty-odd heavy tests lands near 5 GiB `avail`; a TWO-way split at ~52 heavy
-# tests lands near 3.2 GiB, past where the third attempt was already in trouble.
-# Hence three chunks at 32 / 29 / 31 heavy tests (`language` also keeps the 13
-# cheap `inspect_*` / `build_wasm_*` / `in_process_module_reuse` tests, which
-# cost almost nothing), and the only DIRECT measurement of a language sub-run --
-# the 30-test tail -- completed in a fresh process.
+# uniform enough to size by count.
+#
+# The `avail` trajectory reads ~0.118 GiB/test, but do NOT re-derive the sizing
+# by extrapolating that line: growth is capped at 64 cached modules, so `avail`
+# plateaus rather than falling forever, and the right unit is CACHED MODULES,
+# not tests. Twelve of `language`'s 13 "cheap" tests cache nothing at all --
+# every `build_wasm_succeeds_for_*` and `inspect_reports_phase_*` runs
+# `Command::new(env!("CARGO_BIN_EXE_porf"))`, a child process -- so only
+# `in_process_module_reuse` counts among them. In those units the three fatal
+# runs reached 53 / 62 / 62 cached modules, just short of the cap; a TWO-way
+# split at ~52 heavy tests lands at ~52, INSIDE that fatal band; the three-way
+# split lands at roughly 33 / 29 / 31, about half of it. `language` keeps the 13
+# cheap tests because they are free, not merely cheap. The only DIRECT
+# measurement of a language sub-run -- the 30-test tail -- completed in a fresh
+# process.
 #
 # NO `--skip` IS NEEDED AND NONE MAY BE ADDED. The overlap rule fires only when
 # `format!("{other}::").ends_with(&format!("{chunk}::"))`, and

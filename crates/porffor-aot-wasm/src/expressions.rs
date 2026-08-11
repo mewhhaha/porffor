@@ -2463,7 +2463,7 @@ impl<'a> FunctionBuilder<'a> {
         // leaves behind, so the post-loop test asks only about `Rejected`. The
         // two are deliberately not merged: see the doc comment.
         function.instruction(&Instruction::I64Const(
-            RUNTIME_REGEXP_ENTRY_KIND_PROGRAM as i64,
+            RuntimeRegExpEntryKind::Program.word() as i64,
         ));
         function.instruction(&Instruction::LocalSet(entry_kind_local));
         function.instruction(&Instruction::I64Const(0));
@@ -2518,7 +2518,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(entry_kind_local));
         function.instruction(&Instruction::LocalGet(entry_kind_local));
         function.instruction(&Instruction::I64Const(
-            RUNTIME_REGEXP_ENTRY_KIND_PROGRAM as i64,
+            RuntimeRegExpEntryKind::Program.word() as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -2583,26 +2583,53 @@ impl<'a> FunctionBuilder<'a> {
         // because the pattern is legal, the second because the runtime fallback
         // matcher may still answer it correctly. The doc comment says why at
         // length; do not "simplify" this into `!= PROGRAM`.
-        function.instruction(&Instruction::LocalGet(entry_kind_local));
-        function.instruction(&Instruction::I64Const(
-            RUNTIME_REGEXP_ENTRY_KIND_REJECTED as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error_to_active_handler(
-            SYNTAX_ERROR_NAME,
-            "Invalid regular expression pattern",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        //
+        // Which kinds throw is decided ONCE, by an exhaustive match over the
+        // closed domain (`RuntimeRegExpEntryKind::throws_syntax_error`), and the
+        // comparison chain is derived from `ALL` rather than transcribed here.
+        // Before that, this reader tested a raw `u64` against two of the three
+        // constants, so a fourth kind would have compiled cleanly and fallen
+        // through as a silent miss — the very class the closed writer type was
+        // introduced to remove. Today exactly one kind throws, so this emits the
+        // same four instructions it always did.
+        let throwing_kind_words = RuntimeRegExpEntryKind::ALL
+            .iter()
+            .copied()
+            .filter(|kind| kind.throws_syntax_error())
+            .map(RuntimeRegExpEntryKind::word)
+            .collect::<Vec<_>>();
+        // Bound rather than `?`-ed. The four `release_temp_local` calls below
+        // are the temp-local stack's only unwind, and returning past them makes
+        // the *next* release trip `release_temp_local`'s `assert_eq!`, replacing
+        // a readable `EmitError` with an unrelated compiler panic. The `End`
+        // must be emitted on the error path too, or `code_sink`'s depth
+        // accounting is left unbalanced as well.
+        let mut thrown = Ok(());
+        if !throwing_kind_words.is_empty() {
+            for (position, word) in throwing_kind_words.iter().enumerate() {
+                function.instruction(&Instruction::LocalGet(entry_kind_local));
+                function.instruction(&Instruction::I64Const(*word as i64));
+                function.instruction(&Instruction::I64Eq);
+                if position > 0 {
+                    function.instruction(&Instruction::I32Or);
+                }
+            }
+            function.instruction(&Instruction::If(BlockType::Empty));
+            thrown = self.emit_throw_runtime_error_to_active_handler(
+                SYNTAX_ERROR_NAME,
+                "Invalid regular expression pattern",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            );
+            function.instruction(&Instruction::End);
+        }
 
         self.release_temp_local(entry_kind_local);
         self.release_temp_local(candidate_payload_local);
         self.release_temp_local(record_ptr_local);
         self.release_temp_local(index_local);
-        Ok(())
+        thrown
     }
 
     fn compile_regexp_literal_payload(

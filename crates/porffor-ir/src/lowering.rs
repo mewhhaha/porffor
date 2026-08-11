@@ -13414,18 +13414,26 @@ impl<'a> ScriptLowerer<'a> {
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
     ) -> ForOfLoweringIr {
-        // Three premises, three messages. They used to be one `&&` chain behind
-        // one string — "requires an array iterable and a plain binding" — which
-        // was reported for `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`,
-        // whose head is `for (const v of [array literal])`, i.e. a case where
-        // both named premises hold. A rejection reason that names the wrong
-        // premise is worse than none: it routes triage away from the defect.
-        // The order below is structural first, then typing, then the async
-        // plan, so the most specific answer wins.
-        if let Some(message) = binding_form.rejection() {
-            self.unsupported(message);
-            return ForOfLoweringIr::no_iteration();
-        }
+        // Four premises, five messages — the binding form contributes three of
+        // the five, one per [`AsyncForOfBindingForm`] variant. They used to be
+        // one `&&`/`||` chain behind one string — "requires an array iterable
+        // and a plain binding" — which was reported for
+        // `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`, whose head
+        // is `for (const v of [array literal])`, i.e. a case where both named
+        // premises hold. A rejection reason that names the wrong premise is
+        // worse than none: it routes triage away from the defect.
+        //
+        // ORDER IS LOAD-BEARING, and it is typing first. Two of the binding-form
+        // messages end "the iterable type and the binding form are both fine",
+        // which is a claim about a premise this function has not tested yet —
+        // and `for (const c of "ab") { f = () => c; await 0; }` is both captured
+        // AND non-array, so under the old structural-first order the compiler
+        // certified a String iterable as fine. That is precisely the
+        // wrong-reason class the split exists to remove, one level down. Testing
+        // the cheaper, more universal premise first makes every message true
+        // without weakening any of them: the measured `fromAsync` family is an
+        // array literal, so it passes this test and still lands on its
+        // binding-form answer.
         if !iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array))
@@ -13435,6 +13443,10 @@ impl<'a> ScriptLowerer<'a> {
                  can be something else; every other iterable keeps the @@iterator protocol, \
                  whose own suspension points this index walk does not have",
             );
+            return ForOfLoweringIr::no_iteration();
+        }
+        if let Some(message) = binding_form.rejection() {
+            self.unsupported(message);
             return ForOfLoweringIr::no_iteration();
         }
         let Some(entry_state) = entry_state else {
@@ -16315,26 +16327,29 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_function_declaration(function),
                 ValueKind::Undefined,
             ),
-            Declaration::GeneratorDeclaration(function)
-                if generator_function_is_aot_supported(function.body(), function.parameters()) =>
-            {
-                (
-                    self.lower_generator_declaration(function),
-                    ValueKind::Undefined,
-                )
-            }
-            Declaration::AsyncFunctionDeclaration(function) => (
-                self.lower_async_function_declaration(function),
-                ValueKind::Undefined,
-            ),
-            // Reached only when the guarded arm above declined, i.e. when
-            // `linear_generator_plan` found no plan. The old message,
-            // `"function or class declaration"`, was wrong twice: the
-            // declaration is a generator, and the refusal is about the yield
-            // shape rather than the declaration kind. It also collapsed every
-            // refused generator into one `detail_hash` shared with unrelated
-            // declarations, which is the worst outcome for a sweep whose value
-            // is grouping failures into families.
+            // One arm, one walk, no unreachable default.
+            //
+            // This used to be a guarded arm calling
+            // `generator_function_is_aot_supported` plus a fall-through arm that
+            // ran `linear_generator_plan_with_reason` a *second* time from
+            // scratch — the whole body walked twice for every refused generator
+            // — and the fall-through then carried a `map_or` default that a
+            // comment described as unreachable. AGENTS.md is explicit that an
+            // unreachable-by-comment path is weaker than one that cannot be
+            // written, and matching on the `Result` directly is that: the plan
+            // is either there or the reason is, and there is no third case to
+            // supply a default for.
+            //
+            // The acceptance decision is unchanged. `generator_function_is_aot_supported`
+            // is exactly `linear_generator_plan(body).is_some()`, i.e. this same
+            // call `.ok().is_some()`, and it ignores its `parameters` argument.
+            //
+            // The old message, `"function or class declaration"`, was wrong
+            // twice: the declaration is a generator, and the refusal is about
+            // the yield shape rather than the declaration kind. It also
+            // collapsed every refused generator into one `detail_hash` shared
+            // with unrelated declarations, which is the worst outcome for a
+            // sweep whose value is grouping failures into families.
             //
             // Two measured victims, both `NotImplemented` with detail
             // `unsupported in porffor wasm-aot first slice: function or class
@@ -16344,22 +16359,22 @@ impl<'a> ScriptLowerer<'a> {
             // Each declares `function* invalidControls()` whose third loop
             // yields from inside an `if`, so both now report
             // `GeneratorPlanRejection::LoopBodyYieldNotDirect`.
-            //
-            // The `map_or` default is unreachable — this arm exists precisely
-            // because the plan is absent — and it is spelled as a default rather
-            // than an `expect` so a future edit to the guard above degrades to a
-            // vaguer message instead of a panic in the compiler.
             Declaration::GeneratorDeclaration(function) => {
-                self.unsupported(
-                    linear_generator_plan_with_reason(function.body())
-                        .err()
-                        .map_or(
-                            "generator body has no linear suspension plan",
-                            GeneratorPlanRejection::message,
-                        ),
-                );
-                (StatementIr::Empty, ValueKind::Undefined)
+                match linear_generator_plan_with_reason(function.body()) {
+                    Ok(_) => (
+                        self.lower_generator_declaration(function),
+                        ValueKind::Undefined,
+                    ),
+                    Err(reason) => {
+                        self.unsupported(reason.message());
+                        (StatementIr::Empty, ValueKind::Undefined)
+                    }
+                }
             }
+            Declaration::AsyncFunctionDeclaration(function) => (
+                self.lower_async_function_declaration(function),
+                ValueKind::Undefined,
+            ),
             Declaration::AsyncGeneratorDeclaration(function) => (
                 self.lower_async_generator_declaration(function),
                 ValueKind::Undefined,

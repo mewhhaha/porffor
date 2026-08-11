@@ -44,7 +44,59 @@ const WASM_HOST_IMPORT_AGENT_CALL: &str = "agent_call";
 const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
 const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
 const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
+/// Default bound on [`memory_wasm_modules`], **in entries and in nothing else**.
+///
+/// # This is the in-process retention that the disk-cache knobs do not touch
+///
+/// Read this next to `cache.rs`'s `PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`.
+/// Those three bound bytes *on disk*. This one bounds fully compiled native
+/// Wasmtime modules held in **this process's memory**, and it bounds them by
+/// count, so the resident cost is `entries x whatever a module happens to weigh`
+/// with no ceiling on the second factor.
+///
+/// That distinction was measured the expensive way. `crates/porffor-cli`'s
+/// `language` CLI module (105 tests in one libtest process) was OOM-SIGKILLed
+/// three times on a 4-CPU / 15.7 GiB container with `avail` falling
+/// *monotonically* — 8.5 GiB at ~7 tests, 3.56 at ~49, 1.14 at ~67 — and the
+/// three per-tier byte knobs changed nothing, because none of them reaches this
+/// deque. The in-process CLI test path is `Retain` (see
+/// `run_source_with_cached_wasm` and `run_with_wasm_bytes`), so it retains one
+/// native module per distinct fixture; the three fatal runs sat at roughly
+/// 53-62 entries, i.e. just short of the 64-entry cap where growth would finally
+/// have plateaued. A test module that spawns `porf` as a child process
+/// contributes nothing here, which is why the cheap tests in that file are free.
+///
+/// So the override below is a real lever for a memory-constrained run, and the
+/// standing follow-up it does not discharge is to bound this deque by **bytes**
+/// as well, the way the disk tiers already are. Until that lands, "fewer tests
+/// per process" is not the only lever — it is the lever that needs no code
+/// change.
 const WASM_MODULE_MEMORY_CACHE_ENTRIES: usize = 64;
+
+/// Override for [`WASM_MODULE_MEMORY_CACHE_ENTRIES`], named to sit beside the
+/// three `PORFFOR_*_CACHE_LIMIT_BYTES` disk knobs it is repeatedly confused
+/// with.
+const MODULE_MEMORY_CACHE_ENTRIES_ENV: &str = "PORFFOR_MODULE_MEMORY_CACHE_ENTRIES";
+
+/// Entry bound actually applied to [`memory_wasm_modules`].
+///
+/// Unset, blank, unparseable and zero all fall back to the default rather than
+/// panicking or disabling the cache, matching `cache.rs::parse_cache_limit`: a
+/// typo in an environment variable must not silently change execution cost for
+/// a run that has been going for hours.
+fn wasm_module_memory_cache_entries() -> usize {
+    static ENTRIES: OnceLock<usize> = OnceLock::new();
+    *ENTRIES.get_or_init(|| {
+        std::env::var(MODULE_MEMORY_CACHE_ENTRIES_ENV)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|entries| *entries > 0)
+            .unwrap_or(WASM_MODULE_MEMORY_CACHE_ENTRIES)
+    })
+}
 /// Cut over before the multi-megabyte function bodies seen in slow Test262
 /// artifacts can exhaust Cranelift's fast-compilation per-function limits.
 /// This is a performance heuristic only; the normal compiler retains its
@@ -775,7 +827,7 @@ fn memory_cached_wasm_module(
     let mut modules = modules
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if modules.len() == WASM_MODULE_MEMORY_CACHE_ENTRIES {
+    while modules.len() >= wasm_module_memory_cache_entries() {
         modules.pop_front();
     }
     modules.push_back((key, module.clone()));

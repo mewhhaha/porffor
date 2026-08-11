@@ -1037,6 +1037,31 @@ pub fn materialize_test(
     let mut used_preludes = Vec::new();
 
     if !case.flags.contains("raw") {
+        // ONE materialization per case, and for the un-flagged majority that is
+        // half of what the suite specifies.
+        //
+        // INTERPRETING.md requires a case carrying none of
+        // `onlyStrict | noStrict | raw | module` to be run TWICE: once in sloppy
+        // mode and once with `"use strict";` prepended. This function prepends
+        // the prologue only for `onlyStrict` and never produces a second
+        // variant, so every such case is executed sloppy-mode only, and every
+        // total this harness reports for it is one of the two executions the
+        // suite asks for.
+        //
+        // That is not a rounding error. Measured over the batch-7 frontier
+        // nodes: 48 of 48 `language/computed-property-names` files, 102 of 102
+        // `language/asi`, 60 of 63 `language/expressions/yield`, 18 of 19
+        // `language/destructuring` and 33 of 42 `language/global-code` carry
+        // none of the four flags, and each node's reported `total` equals its
+        // plain file count exactly. So "yield 63/63" is 63 of 120.
+        //
+        // Do not read this as a skip list — nothing is silently excluded, and
+        // every case that runs is reported honestly. It is an unmeasured HALF,
+        // and it is unmeasured everywhere, not only in that lane. Closing it
+        // means materializing both variants and reporting them as two cases,
+        // which moves every denominator in the project; that is a lane of its
+        // own, and this comment exists so the next count is not quoted as
+        // conformance coverage before it lands.
         if case.flags.contains("onlyStrict") {
             source.push_str("\"use strict\";\n");
         }
@@ -21813,6 +21838,22 @@ fn compile_negative_error_matches(
                     .is_some_and(|kind| kind.as_str() == negative.error_type));
     }
 
+    // FALLBACK ARM, and the weakest thing in this function. A substring match on
+    // the raw engine message, plus an unconditional pass when the expectation
+    // names no type — i.e. exactly the shape that turns a backend error into a
+    // green negative. It is unreachable on the corpus measured in batch 7 (all
+    // 388 negatives across the 14 frontier `language/` nodes carry a `type:`),
+    // which is why no banked number depends on it, but "unreachable today" is
+    // not "cannot pass wrongly".
+    //
+    // Note also what the guarded arms above do NOT distinguish: for
+    // `phase: parse` the comparison is phase + error type only, so any
+    // parse-phase SyntaxError scores a pass whether or not it is the early error
+    // the case is about, and a pass records nothing in the snapshot to tell the
+    // two apart afterwards. The nodes where that matters most are the ones with
+    // the most parse negatives — `language/block-scope` 102 of 145,
+    // `language/statements/switch` 75 of 111, `language/statements/for-in` 62 of
+    // 115.
     let detail = err.message();
     negative.error_type.is_empty() || detail.contains(&negative.error_type)
 }

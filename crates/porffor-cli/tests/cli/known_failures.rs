@@ -80,18 +80,24 @@
 //!   in both directions, so that state is a sub-millisecond red rather than a
 //!   paragraph somebody has to remember.
 //!
-//!   Recounted at the head of batch 7 by the RUNG1C write lane, same exact-line
-//!   `awk`: **619** across `tests/cli/*.rs`, so **611 compile** under default
-//!   features and **610 execute**. The two additions are in `regexp.rs`
-//!   (33 -> 35). The batch-7 split of `language.rs` into `language` (45),
-//!   `language_errors` (29) and `language_numerics` (31) is a **pure move** and
-//!   adds nothing: the three files' `awk` counts sum to 105, and the set of
-//!   function names across them is identical to the pre-split `language.rs`.
-//!   It takes the area-module count 18 -> 20. **611 is the number each chunk's
-//!   `ran + filtered_out` must now sum to** — but that half is *derived* from
-//!   the gate count rather than measured, because the write lane runs no cargo
-//!   at all. Settle it with `--list` before quoting it, exactly as the line
-//!   above already says.
+//!   Recounted at the batch-7 **integration** head, same exact-line `awk`:
+//!   **620** across `tests/cli/*.rs`, so **612 compile** under default features
+//!   and **611 execute**. The three additions are in two modules, not one:
+//!   `regexp.rs` 33 -> 35 and `date.rs` 17 -> 18. The batch-7 split of
+//!   `language.rs` into `language` (45), `language_errors` (29) and
+//!   `language_numerics` (31) is a **pure move** and adds nothing: the three
+//!   files' `awk` counts sum to 105, and the set of function names across them
+//!   is identical to the pre-split `language.rs`. It takes the area-module
+//!   count 18 -> 20. **612 is the number each chunk's `ran + filtered_out`
+//!   must now sum to**, and unlike every previous batch that half is
+//!   *measured*: `--list | tail -1` printed `612 tests` at integration and
+//!   620 - 8 agrees independently.
+//!
+//!   The write lane's figure was 619/611/610 and it was right when it counted;
+//!   it went stale **inside the batch**, because a concurrent `date.rs` lane
+//!   landed the 620th test in the same commit. That is the reason this file
+//!   records how each number was obtained rather than only what it is — a
+//!   number here can be wrong without anyone editing the line it sits on.
 //! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
 //! - **0** `should_panic` attributes. It was 0 before this module existed and 2
@@ -143,10 +149,16 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// lane rather than carried forward. The lane could run no cargo command, so
 /// each figure states how it was obtained.
 ///
-/// - **17 of 20** chunks are banked and **503 of 610** executing tests have a
-///   verdict. Read out of `target/watched/rung1c-done` (17 rows) and
-///   `target/watched/rung1c-done-counts`, not estimated. `language` is the one
-///   chunk that has never produced a verdict at any head across four batches.
+/// - **15 of 20** chunks are banked and **422 of 611** executing tests have a
+///   verdict. Read out of `target/watched/rung1c-done` (15 rows) and
+///   `target/watched/rung1c-done-counts`, not estimated: the banked counts of
+///   those 15 sum to 431, minus `frontend`'s 8 `spec-exec-oracle` gates and
+///   `heap`'s one `#[ignore]`. It was 17/503 when the write lane counted; the
+///   integrator then invalidated `string` and `functions`, because batch 7's
+///   RE-RT lane changed `porffor-aot-wasm/src/{data,expressions}.rs` and a
+///   *compiler* change is invisible to a sidecar that only counts test
+///   sources. `language` is the one chunk that has never produced a verdict at
+///   any head across four batches.
 /// - The chunk denominator moved 18 → 20 in this batch, because `language::`
 ///   OOMed as a single 105-test libtest process **three times** — SIGKILL at
 ///   t+1200 s after 66, 75 and 75 tests, with `avail` falling *monotonically*
@@ -154,20 +166,38 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 ///   into `language` (45), `language_errors` (29) and `language_numerics` (31)
 ///   so the same tests run as three separate processes. Cache tiers and
 ///   `PORFFOR_CPU_PERCENT` were measured to be no lever and `--test-threads`
-///   below 3 is banned, so fewer tests per process was the only one left.
+///   below 3 is banned, so fewer tests per process was the lever this batch
+///   reached for. It was **not** the only lever, and saying so was a mistake
+///   worth correcting here rather than leaving for the next reader to inherit:
+///   those three are environment knobs, and the accumulation's mechanism is
+///   in-process retention —
+///   `porffor-engine`'s `WASM_MODULE_MEMORY_CACHE_ENTRIES`, an LRU of fully
+///   compiled Wasmtime modules bounded by entry count and by no byte ceiling.
+///   See `tests/cli/language.rs`'s header for the corrected sizing model, which
+///   counts cached modules rather than tests.
 /// - All 105 language tests **were** measured green at the batch-6 head, but by
 ///   the UNION of a 75-test chunk attempt and a standalone 30-name tail. A
 ///   union is not a banked verdict, and a banked verdict is this row's own
 ///   standard, so the union does not license deleting it.
-/// - `regexp` is banked at 33 while `tests/cli/regexp.rs` now declares 35, so
-///   the counts sidecar re-runs that chunk. Two of the 610 are therefore
-///   unmeasured for a second, independent reason.
-/// - Recount at this head, exact-line `awk` over `tests/cli/*.rs`: **619**
-///   `#[test]` attributes, of which **8** are `spec-exec-oracle`-gated in
-///   `frontend.rs` and one is `#[ignore]`d in `heap.rs`, hence **611 compiled /
-///   610 executing**. The compiled/executing split is derived from the gate
-///   count, *not* confirmed with `--list`; the write lane runs no cargo.
-/// - The only declared non-pass outcome across the 503 is the `heap` ignore
+/// - `regexp` is banked at 33 while `tests/cli/regexp.rs` now declares 35, and
+///   `date` is banked at 17 while `tests/cli/date.rs` now declares 18, so the
+///   counts sidecar re-runs **both** chunks. Three of the 611 are therefore
+///   unmeasured for a second, independent reason, and **seven** chunks — not
+///   three — actually execute on the next rung 1c: the three `language*`
+///   modules, the two the integrator invalidated (`string`, `functions`), and
+///   these two. "15 of 20 banked" is the banking state, not the amount of work
+///   the next run does.
+/// - Recount at the integrated head, exact-line `awk` over `tests/cli/*.rs`:
+///   **620** `#[test]` attributes, of which **8** are `spec-exec-oracle`-gated
+///   in `frontend.rs` and one is `#[ignore]`d in `heap.rs`, hence **612
+///   compiled / 611 executing**. Unlike every previous batch's figure the
+///   compiled count is **measured**, not derived: `cargo test -p porffor-cli
+///   --test cli -- --list | tail -1` printed `612 tests, 0 benchmarks` at
+///   integration, and 620 − 8 independently agrees. The write lane's 619/611/610
+///   was correct when it counted and went stale within the batch — the
+///   concurrent `date.rs` fixture test is the 620th — which is why this line
+///   says how it was obtained rather than only what it says.
+/// - The only declared non-pass outcome across the 422 is the `heap` ignore
 ///   (T05), which already has its row. The surviving set is otherwise empty.
 ///
 /// So batch 7 takes the alternative the assertion names in its own message, for
@@ -178,11 +208,21 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 ///
 /// **The moment `language`, `language_errors` and `language_numerics` all bank
 /// green, DELETE the row rather than filling it**, because the surviving set is
-/// then empty. That deletion needs no further edit here: the deadline check
-/// lives inside `if unfilled_rows > 0`, so with no `unfilled` row it is not
-/// merely satisfied but never evaluated, and the `batch-8` header goes inert
-/// without becoming wrong. Do NOT delete the header line itself — its absence
-/// is `MissingExpiryHeader` whether or not any `unfilled` row exists.
+/// then empty. The complete recipe, in four steps, lives here rather than in a
+/// lane note under `target/` — that directory is gitignored, no other checkout
+/// has it, and this repository has already lost a cited file that way
+/// (`batch-workflow.md`, "Before adding any tracked data file"):
+///
+/// 1. Delete the single `unfilled` row from `known-failures.tsv`. Nothing else
+///    in that file moves; in particular do **not** touch the `heap` ignore row.
+/// 2. Do NOT delete the `# unfilled-allowed-until: batch-8` header line. Its
+///    absence is `MissingExpiryHeader` whether or not any `unfilled` row
+///    exists; with the row gone it simply goes inert without becoming wrong.
+/// 3. Leave `CURRENT_BATCH` at 7. No second bump is owed, and the deadline
+///    check lives inside `if unfilled_rows > 0`, so with no `unfilled` row it
+///    is not merely satisfied but never evaluated.
+/// 4. Rewrite this doc comment to say the set is complete, instead of leaving
+///    a paragraph that describes a row which no longer exists.
 const CURRENT_BATCH: u32 = 7;
 
 /// Header line carrying the `unfilled` expiry, e.g.
@@ -264,7 +304,13 @@ const SKIP_FLAG: &str = "--skip";
 ///
 /// An anti-vacuity guard, exactly like [`MINIMUM_SCANNED_TESTS`]: if the parse
 /// ever found nothing, the coverage check below would pass for the worst
-/// possible reason. Today there are 17.
+/// possible reason. Today there are 20 (`grep -c '^run_chunk ' ` the runner —
+/// this line said 17 while the answer was 18, and then 20).
+///
+/// The floor deliberately stays well below the true count. Raising it to track
+/// the count would create an edit obligation on every split, and it would buy
+/// nothing: [`rung_1c_chunks_cover_every_cli_area_module`] already fails on a
+/// missing chunk for any real module, which is the property that matters.
 const MINIMUM_RUNG_1C_CHUNKS: usize = 10;
 
 /// The four states a ledger row can be in.

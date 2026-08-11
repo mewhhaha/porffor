@@ -64,7 +64,7 @@
 //   (empty-object) heap shape where it previously had none, so a static
 //   property resolution that goes wrong on the new shape shows up here.
 
-// ------------------------------------------------------- the discriminator
+// ------------------------------------------------------------- the classes
 
 class S extends Intl.DateTimeFormat {
   reduceRight(a) {
@@ -106,8 +106,13 @@ const s = new S();
 const l = new L("en");
 const p = new P();
 
-// The red. Measured `undefined` for the DTF row before the lowering patch.
-if (s.reduceRight(1) !== 2) throw "dtf subclass reduceRight was not called";
+// CONTROLS FIRST, DISCRIMINATOR LAST. This ordering is the whole reason the
+// controls are worth anything. A JavaScript fixture aborts at its first failing
+// assertion, so with `s.reduceRight` on top the pre-patch run died on line one
+// and every row below it — the controls included — was never executed. The
+// header calls these "green on BOTH sides"; only this order demonstrates it.
+// The pre-patch run must now reach the very last check and fail exactly there.
+
 // The two rows that were already green, so a fixture that goes green because
 // dispatch changed wholesale is still visible.
 if (l.reduceRight(1) !== 2) throw "locale subclass reduceRight was not called";
@@ -154,5 +159,16 @@ if (typeof l.toString() !== "string") throw "locale toString() is not a string";
 if (l.toString().length === 0) throw "locale toString() is empty";
 if (typeof l.baseName !== "string") throw "locale baseName is not a string";
 if (l.baseName !== "en") throw "locale baseName is not en";
+
+// ------------------------------------------------------- the discriminator
+//
+// LAST, deliberately. Every row above was green before the lowering patch, and
+// a JavaScript fixture aborts at its first failing assertion — so with this
+// check at the top (where it used to be) the pre-patch run died on its first
+// line and *none* of the controls, boundary rows or regression guards above
+// ever executed. The header calls them "green on BOTH sides"; only this order
+// demonstrates it. Pre-patch, this file must reach exactly here and fail; post
+// patch it must reach `262`.
+if (s.reduceRight(1) !== 2) throw "dtf subclass reduceRight was not called";
 
 262;

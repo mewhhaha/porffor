@@ -10,7 +10,7 @@
 //! 8.5 GiB at ~7 tests to 3.56 GiB at ~49 and 1.14 GiB two minutes before the
 //! kill. That trajectory is cumulative growth across the process, not a
 //! three-in-flight plateau (contrast `frontend_test262_subset`, whose 5.55 GiB
-//! is flat), so the only lever left is fewer tests per process:
+//! is flat), so fewer tests per process was the lever this split reached for:
 //!
 //!   * per-tier cache limits at 256/64/64 MiB were tried and changed nothing —
 //!     they bound bytes on disk, not RSS (`porffor-engine/src/cache.rs`);
@@ -20,6 +20,36 @@
 //!     then names every worker thread `main`, `known_failures::execution_path`
 //!     cannot route on the per-test name, and all ~600 tests fall back to
 //!     spawning a cold `porf` child.
+//!
+//! # What the growth actually is, and why "the only lever" was the wrong claim
+//!
+//! An earlier version of this comment called the split "the only lever left".
+//! That list is three *environment knobs*; it never examined in-process
+//! retention, and the accumulation has a named mechanism there:
+//! `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs`) bounds a
+//! `VecDeque` LRU of fully compiled Wasmtime modules **by entry count and by
+//! nothing else** — 64 entries, no byte ceiling. The in-process path these
+//! tests take retains into it (`WasmModuleMemoryCachePolicy::Retain`), so it
+//! holds one native module per distinct fixture. That is why the three disk
+//! knobs did nothing, and it is why `frontend_test262_subset` is flat: it is
+//! ONE test, so it caches ONE module.
+//!
+//! It also corrects the sizing model below. Growth is capped at 64 entries, so
+//! `avail` cannot fall linearly forever — it plateaus, and the right unit is
+//! cached modules, not tests. Twelve of the 13 "cheap" tests kept here cache
+//! nothing at all: every `build_wasm_succeeds_for_*` and
+//! `inspect_reports_phase_*` runs `Command::new(env!("CARGO_BIN_EXE_porf"))`, a
+//! CHILD process, so it touches neither this process's RSS nor its module
+//! cache. Only `in_process_module_reuse_*` does. In those units the three fatal
+//! runs reached 53, 62 and 62 cached modules — just short of the 64 cap — a
+//! two-way split at ~52 heavy tests would land at ~52 cached modules, i.e.
+//! INSIDE that fatal band, and this three-way split lands at roughly 33/29/31,
+//! about half of it. The linear extrapolation below reaches the same answer,
+//! but for a reason that is wrong in the only regime that matters.
+//!
+//! `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` now overrides that bound, so a
+//! memory-constrained run has a lever that needs no code change; bounding the
+//! deque by bytes, as the disk tiers already are, is the standing follow-up.
 //!
 //! Splitting by libtest FILTER is not available either:
 //! `known_failures::rung_1c_chunks` asserts each chunk's second argument is

@@ -24,9 +24,13 @@ mod language;
 // `language.rs` was one 105-test module and could not be run at all on this
 // container: three consecutive OOM SIGKILLs at t+1200 s, with `avail` falling
 // monotonically across the process rather than plateauing. Splitting it three
-// ways is the only lever left -- the cache tiers bound disk not RSS,
+// ways is the lever batch 7 reached for -- the cache tiers bound disk not RSS,
 // `PORFFOR_CPU_PERCENT` is overridden inside `run_chunk`, and `--test-threads`
-// below 3 is banned. See the header of `language.rs` for the measurements.
+// below 3 is banned. Those three are environment knobs, and calling the split
+// "the only lever left" on the strength of them was wrong: the accumulation is
+// `porffor-engine`'s `WASM_MODULE_MEMORY_CACHE_ENTRIES`, an in-process LRU of
+// compiled Wasmtime modules bounded by entry count and by no byte ceiling. See
+// the header of `language.rs` for the measurements and the corrected sizing.
 //
 // Each of these needs BOTH a `mod` line here AND a `run_chunk` line in
 // `scripts/rung1c-chunks.sh`; a chunk with no `mod` line selects nothing,
@@ -68,15 +72,23 @@ use std::process::Command as ProcessCommand;
 /// 900 s is the same headroom `--stall 900` already buys, chosen from the same
 /// measurement rather than invented. It is a **termination** bound, not a
 /// performance assertion: the suite pays it only when something is actually
-/// stuck, and there is exactly one declared hang.
+/// stuck.
+///
+/// **As of batch 6 the ledger declares no hang at all** — `binary_data::…
+/// atomics_wait_core…` started passing and its row, attribute and `const _`
+/// were deleted together. So the guarded path has a call site and no current
+/// traveller, and every test in the suite takes the bounded in-process path.
+/// That is the intended resting state, not rot: the routing and both bounds
+/// stay because the *next* hang must be catchable, and the paragraph below
+/// describes the mechanism in the tense it will be used in again.
 ///
 /// # What a timeout here does and does not prove
 ///
-/// Be precise, because `#[should_panic(expected = "porf run exceeded")]` asserts
-/// on *this* message and not on anything about blocking.
-/// `wasm_atomics_wait_core.js` prints nothing before it blocks, so "no output
-/// before the deadline" cannot separate "blocked in `Atomics.wait`" from "still
-/// compiling". The calibration above is the only thing separating them. Read a
+/// Be precise, because a declared hang's `#[should_panic(expected = "porf run
+/// exceeded")]` asserts on *this* message and not on anything about blocking. A
+/// fixture that blocks typically prints nothing first — `wasm_atomics_wait_core.js`
+/// did not — so "no output before the deadline" cannot separate "blocked" from
+/// "still compiling". The calibration above is the only thing separating them. Read a
 /// timeout on a test with **no** ledger row as "hung *or* pathologically slow",
 /// investigate before adding a row, and do not raise this constant as the
 /// response to a red run — recalibrate it against a measured cold compile on the
@@ -140,15 +152,19 @@ impl Command {
 
     /// Run `porf` and collect its output.
     ///
-    /// Almost every test takes the in-process path: no process spawn, and the
-    /// 143 MB binary is already linked into this process. The exception is a
-    /// test the ledger declares a hang. `Atomics.wait` blocks the calling thread
-    /// outright, so run directly it consumes a libtest worker forever and the
-    /// whole suite spins at 587 of 588 — which is why the documented invocation
-    /// carried a `--skip` for three batches and rung 1c was never a gate.
-    /// Running that one test as a real child, and killing the child after
-    /// [`HANG_TIMEOUT`], turns the hang into an ordinary bounded failure that
-    /// libtest can report and `should_panic` can pin.
+    /// Every test takes the in-process path unless the ledger declares it a
+    /// hang: no process spawn, and the 143 MB binary is already linked into this
+    /// process. At this head **no row declares a hang**, so the guarded arm is
+    /// currently untravelled; see [`HANG_TIMEOUT`].
+    ///
+    /// It exists because of a measured case. `Atomics.wait` used to block the
+    /// calling thread outright, so run directly it consumed a libtest worker
+    /// forever and the whole suite spun at 587 of 588 — which is why the
+    /// documented invocation carried a `--skip` for three batches and rung 1c
+    /// was never a gate. Running that one test as a real child, and killing the
+    /// child after [`HANG_TIMEOUT`], turned the hang into an ordinary bounded
+    /// failure that libtest could report and `should_panic` could pin — and
+    /// that is what later reported it had started passing.
     ///
     /// **Both paths are bounded, and that is the point.** Routing by ledger row
     /// means the guarded path is only ever reached by a test the ledger already

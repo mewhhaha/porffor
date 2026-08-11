@@ -35,7 +35,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
 | 1 | `cargo test -p porffor-ir`, focused `-p porffor-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
-| 1c | the whole CLI suite, run as 18 resumable chunks by `scripts/rung1c-chunks.sh` (617 `#[test]` attributes at batch 6 → **609 compiled**, 608 executing; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
+| 1c | the whole CLI suite, run as 20 resumable chunks by `scripts/rung1c-chunks.sh` (620 `#[test]` attributes at batch 7 → **612 compiled**, 611 executing; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
 | 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |
@@ -61,8 +61,19 @@ exactly like this. No `--skip`:
 ```
 
 On a container that restarts hourly, that invocation cannot finish, and the
-supported form is `./scripts/rung1c-chunks.sh` — the same suite as 18 resumable
-per-module chunks, banked one verdict at a time. It is tracked precisely because
+supported form is `./scripts/rung1c-chunks.sh` — the same suite as 20 resumable
+per-module chunks, banked one verdict at a time. It was 18 until batch 7 split
+`tests/cli/language.rs` three ways: 105 tests in one libtest process OOM-SIGKILLed
+three times, and the chunk set cannot be partitioned by test-name filter (the
+hygiene test asserts each chunk's filter is exactly `<module>::`), so fewer
+tests per **process**, i.e. more modules, was the lever batch 7 reached for.
+It was not the *only* lever, and the note that said so had checked only
+environment knobs: the accumulation is `porffor-engine`'s
+`WASM_MODULE_MEMORY_CACHE_ENTRIES`, an in-process LRU of fully compiled
+Wasmtime modules bounded by entry count (64) and by no byte ceiling, retained
+on the in-process CLI path. `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` overrides it;
+bounding it by bytes, as the three disk tiers already are, is open. Recount the chunk
+count the same way you recount the test count — it moves. It is tracked precisely because
 every batch used to re-derive it from a lane note. Its own header carries the
 four properties that must not be "simplified", and
 `known_failures::rung_1c_chunks_cover_every_cli_area_module` fails if its chunk
@@ -115,10 +126,17 @@ investigate before adding a row.
 
 `binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture` used to
 hang the suite forever near the end of the run, which is why the old invocation carried
-`--skip atomics_wait_core` and why rung 1c was never actually a gate. It is now
-a declared hang (owner T17): `tests/cli/main.rs` runs it as a real child process
-and kills it after the hang timeout, so it terminates as a bounded, expected
-failure. The underlying defect is still open — the ledger row carries the lead.
+`--skip atomics_wait_core` and why rung 1c was never actually a gate. It was then
+declared a hang (owner T17) and run as a guarded child process, and **that is how
+its fix was detected**: batch 6 measured `test did not panic as expected`, twice,
+which is the second row of the drift table doing its job. The row, the attribute
+and its `const _` were deleted together and it is an ordinary passing test as of
+batch 6.
+
+So **the ledger declares no hang at this head**, and the guarded subprocess path
+in `tests/cli/main.rs` has a call site and no current traveller. Do not delete it
+as dead: both bounds and the ledger routing are what make the *next* hang a
+bounded, reportable failure instead of a suite that spins forever.
 
 Two naming traps, both of which have cost time:
 
@@ -369,17 +387,20 @@ Landed:
   `cargo`, ending recurring full-workspace rebuilds.
 - Per-tier cache budgets (`PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
 - The golden capture (rung G).
-- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — **617** `#[test]`
-  attributes (recounted by this session at the head of batch 6) across the 18
+- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — **620** `#[test]`
+  attributes (recounted at the batch-7 integration head) across the 20
   area modules plus the `known_failures.rs` hygiene module, so feature lanes no
   longer all append to one 10,709-line file. 8 of them sit behind
-  `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **609 compile**
+  `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **612 compile**
   under default features — that is the number every chunk's
-  `ran + filtered_out` must sum to — and **608 actually run**, because one of
-  the 609 is `#[ignore]`d (in `heap.rs`). Ignored is not the same as not
-  compiled: `--list` counts the ignored test, and the 8-test gap between 617 and
-  609 is the `cfg` gates alone.
-  This number moves every batch (593 at batch 3, 607 at batch 5, 617 now), so
+  `ran + filtered_out` must sum to, and `--list` printed exactly that — and
+  **611 actually run**, because one of
+  the 612 is `#[ignore]`d (in `heap.rs`). Ignored is not the same as not
+  compiled: `--list` counts the ignored test, and the 8-test gap between 620 and
+  612 is the `cfg` gates alone.
+  This number moves every batch (593 at batch 3, 607 at batch 5, 617 at batch 6,
+  620 now) and it moved **within** batch 7 — the write lane measured 619 and a
+  concurrent lane added the 620th — so
   **recount it rather than citing this line.** Use the **exact-line** form — the
   same one the hygiene scanner itself uses (`known_failures.rs`), not a
   substring grep — and settle the compiled/executing split with `--list`, the
@@ -391,10 +412,10 @@ Landed:
   cargo test -p porffor-cli --test cli -- --list | tail -1
   ```
 
-  This line has been wrong four times. `grep -h '#\[test\]' … | wc -l` — which
+  This line has been wrong five times. `grep -h '#\[test\]' … | wc -l` — which
   this document used to print as the recount recipe — is a *substring* match and
-  currently returns **619** against the true 617, because it also matches prose
-  lines inside `known_failures.rs` that name the attribute. Do not trust either
+  over-counts, because it also matches prose lines inside `known_failures.rs`
+  (and now `language.rs`) that name the attribute. Do not trust either
   the number or a substring recount; run the `awk` form.
 
 - **`crates/porffor-cli/tests/known-failures.tsv`** — the tracked ledger of

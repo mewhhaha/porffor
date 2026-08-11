@@ -335,6 +335,36 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// [`RegExpCompileErrorKind::InvalidSyntax`] — the pattern is not a legal
 /// ECMAScript Pattern, so constructing a RegExp from it at run time is a spec
 /// SyntaxError.
+///
+/// # The risk this row carries, stated in the other direction
+///
+/// The doc on [`RuntimeRegExpEntry`] argues one direction at length: a *missing*
+/// row is a wrong answer, so seen-and-rejected must be recorded. The mirror
+/// image is real and is not argued anywhere else, so it is stated here.
+///
+/// This row makes the compile-time compiler's `InvalidSyntax` verdict
+/// **load-bearing at run time**. Before it, a pattern this compiler
+/// mis-classified as `InvalidSyntax` merely fell through to the runtime fallback
+/// matcher, which frequently answered it correctly. Now it throws a spurious
+/// SyntaxError at all seven `emit_runtime_regexp_program_slots` call sites.
+/// `porffor-ir/src/regexp.rs` has ~20 `invalid_syntax(` construction sites
+/// against ~7 `unsupported(` ones and none of them has been audited against the
+/// grammar, so the premise "`InvalidSyntax` means the spec says invalid" is
+/// assumed, not established.
+///
+/// Two properties widen the blast radius, and both are deliberate elsewhere:
+/// the table is looked up by string **value** (`emit_string_payload_equality_i32`
+/// is a real byte compare), so a runtime-concatenated string that happens to
+/// equal a mis-rejected script literal also throws; and in fallback mode the
+/// candidate set is every script string literal, so every mis-rejected literal
+/// in a harness file becomes reachable.
+///
+/// Neither named gate detects this. `annexB/built-ins/RegExp/prototype/compile`
+/// is 23 cases and `built-ins/RegExp/named-groups` is 36, and named groups
+/// exercise the `Program` path, which is unchanged. **Measure
+/// `built-ins/RegExp/prototype` (487 cases) as a delta before treating this as
+/// landed, and read any new failure whose detail names SyntaxError as a
+/// false-`InvalidSyntax` candidate rather than as unrelated noise.**
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
 /// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
 /// compile-time compiler answered [`RegExpCompileErrorKind::UnsupportedFeature`]
@@ -349,6 +379,63 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
 /// `Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax` arm, and
 /// the two must not drift apart.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
+
+/// The closed domain the three `RUNTIME_REGEXP_ENTRY_KIND_*` words spell.
+///
+/// # Why this exists on top of [`RuntimeRegExpEntry`]
+///
+/// [`RuntimeRegExpEntry`] closes the **writer**: a fourth outcome is
+/// `error[E0004]` at `append_runtime_regexp_program_table`. That bought nothing
+/// on the **reader** side, which compared a raw `u64` against two of the three
+/// constants. A fourth `RUNTIME_REGEXP_ENTRY_KIND_FOO = 3` would have compiled
+/// cleanly next to its siblings and fallen through both comparisons in
+/// `emit_runtime_regexp_program_slots` as a miss — reinstating, one level down,
+/// the exact silent-skip class this table exists to remove.
+///
+/// So the *decision* the emitter makes is stated here, once, as an exhaustive
+/// match ([`Self::throws_syntax_error`]), and the emitter builds its comparison
+/// chain by iterating [`Self::ALL`]. Adding a variant is then a compile error at
+/// two exhaustive matches in this file, and the emitted comparison follows
+/// automatically rather than being one more transcription.
+///
+/// Residual, stated rather than papered over: [`Self::ALL`] is hand-written.
+/// The compiler cannot enumerate a Rust enum, so the trigger to extend it is
+/// the `error[E0004]` a new variant produces at the two matches below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeRegExpEntryKind {
+    Program,
+    Rejected,
+    Unsupported,
+}
+
+impl RuntimeRegExpEntryKind {
+    /// Every kind. See the type's doc for why this is hand-written and what
+    /// forces it to be kept honest.
+    pub(crate) const ALL: [Self; 3] = [Self::Program, Self::Rejected, Self::Unsupported];
+
+    /// The discriminant word written into
+    /// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`].
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Program => RUNTIME_REGEXP_ENTRY_KIND_PROGRAM,
+            Self::Rejected => RUNTIME_REGEXP_ENTRY_KIND_REJECTED,
+            Self::Unsupported => RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED,
+        }
+    }
+
+    /// Does a run-time hit on a row of this kind throw `SyntaxError`?
+    ///
+    /// This is the whole policy, and it is deliberately not `!= Program`:
+    /// `Unsupported` means the pattern is legal ECMAScript that Lila cannot
+    /// compile yet, so it must behave exactly like a total miss and let the
+    /// runtime fallback matcher have its turn.
+    pub(crate) const fn throws_syntax_error(self) -> bool {
+        match self {
+            Self::Program | Self::Unsupported => false,
+            Self::Rejected => true,
+        }
+    }
+}
 
 /// What the AOT-built runtime RegExp program table says about one
 /// `(source, flags)` pair.
@@ -460,10 +547,29 @@ impl StringPool {
         compiled_standard_builtins: &[StandardBuiltinId],
     ) -> Self {
         let mut pool = Self::default();
+        // `RegExpPrototypeCompile` is what makes the `CallMethod` arm below
+        // able to serve its stated purpose. That arm collects the pattern
+        // argument of `r.compile("…")` but deliberately does not set this flag,
+        // and for the `var r = /[ab]/; function go() { r.compile("xy"); }`
+        // spelling there is no *other* setter — so before this disjunct the
+        // collected literal was written into a set that was never read, the
+        // table was never built, and `emit_runtime_regexp_program_slots`
+        // early-returned on a zero row count.
+        //
+        // Keyed off the compiled-builtin set rather than off call shape because
+        // that set is precise in the direction that matters: `RegExpConstructor`
+        // does **not** root its prototype methods (checked in
+        // `planning.rs::require_standard_builtin` — the dependency edge runs the
+        // other way, `RegExpPrototypeCompile => roots RegExpConstructor`), so
+        // this is true only for a module that actually compiled a `.compile`
+        // call site. `RegExpConstructor` itself must NOT be added the same way
+        // without measuring: it is rooted by any RegExp literal at all, and the
+        // fallback candidate set is every script string literal.
         pool.needs_runtime_regexp_programs = script.functions.iter().any(|function| {
             function.super_constructor_target.as_deref() == Some(BUILTIN_REGEXP_FUNCTION_ID)
         }) || compiled_standard_builtins
-            .contains(&StandardBuiltinId::RegExpPrototypeSymbolSplit);
+            .contains(&StandardBuiltinId::RegExpPrototypeSymbolSplit)
+            || compiled_standard_builtins.contains(&StandardBuiltinId::RegExpPrototypeCompile);
         for value in [
             "",
             " ",
@@ -3621,17 +3727,47 @@ impl StringPool {
                 static_regexp_compilation,
             } => {
                 self.uses_heap = true;
-                if static_regexp_compilation.is_none()
-                    && (matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
-                        || callee.function_targets.iter().any(|target| {
-                            matches!(
-                                target.as_str(),
-                                BUILTIN_REGEXP_FUNCTION_ID
-                                    | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
-                            )
-                        }))
-                {
+                // Two independent recognisers, and they are deliberately not
+                // the same test.
+                //
+                // `resolved_callee` depends on type inference having resolved
+                // the callee to `RegExp` or `RegExp.prototype.compile`. That is
+                // the only one allowed to force a table into existence, because
+                // forcing one is expensive: with no string-valued declaration
+                // initialiser anywhere, `queue_runtime_regexp_programs` falls
+                // back to *every* script string literal.
+                //
+                // `compile_shaped_callee` is structural — the callee is a
+                // property read whose key is literally `compile`. It cannot
+                // narrow anything: collected literals are only ever *unioned*
+                // into the candidate set (`queue_runtime_regexp_programs`), and
+                // the set they are unioned into is not the one whose emptiness
+                // picks the fallback. So widening collection is free, while
+                // widening the flag is not — hence the split.
+                //
+                // The split matters because the measured gate case
+                // (`annexB/built-ins/RegExp/prototype/compile/duplicate-named-capturing-groups-syntax.js`)
+                // spells its illegal pattern as `() => r.compile("(?<x>a)(?<x>b)")`
+                // over a `let r = /[ab]/`, which lowers to `CallIndirect` with a
+                // `PropertyRead` callee, and whether `function_targets` resolves
+                // through the arrow is exactly the thing this lane could not
+                // measure. `lower_indirect_method_call` (`porffor-ir`) keeps the
+                // method name on the callee in *both* of its shapes, so the
+                // structural test answers without needing inference at all.
+                let resolved_regexp_callee = matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
+                    || callee.function_targets.iter().any(|target| {
+                        matches!(
+                            target.as_str(),
+                            BUILTIN_REGEXP_FUNCTION_ID
+                                | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
+                        )
+                    });
+                if static_regexp_compilation.is_none() && resolved_regexp_callee {
                     self.needs_runtime_regexp_programs = true;
+                }
+                if static_regexp_compilation.is_none()
+                    && (resolved_regexp_callee || callee_names_regexp_compile(callee))
+                {
                     // The pattern argument is the one string the script is
                     // demonstrably asking the RegExp compiler about. Offer it
                     // to the compile-time compiler even when it never appears
@@ -3749,6 +3885,12 @@ impl StringPool {
                 // literal — for nothing. Collecting costs nothing when no table
                 // is built, because `queue_runtime_regexp_programs` is then
                 // never called.
+                //
+                // What *does* set the flag for this shape is the
+                // `RegExpPrototypeCompile` disjunct in `collect`'s initialiser.
+                // Without it this arm was strictly inert for the very program
+                // its comment above cites, because no other setter fires on a
+                // `CallMethod` node: read the two together.
                 if matches!(key, PropertyKeyIr::StaticString(name) if name == "compile") {
                     if let Some(pattern) = args.first() {
                         collect_finite_string_choices(
@@ -4028,21 +4170,27 @@ impl StringPool {
         if !literals.iter().any(|source| source == "[object Object]") {
             literals.push("[object Object]".to_string());
         }
+        // The table is `|literals| x |flags|` rows and every row is now written,
+        // including the rejected and unsupported ones, so the flags axis is a
+        // multiplier on static data size and on the *linear* scan the emitted
+        // lookup does at every runtime construction site. Deduplicating it is
+        // therefore not tidiness: the sticky expansion below used to be able to
+        // produce `"iy"` twice for a script containing both `"i"` and `"iy"`,
+        // which doubled a whole column of rows.
         let mut flags = self
             .script_string_literals
             .iter()
             .filter(|value| is_regexp_flags_literal(value))
             .cloned()
-            .collect::<Vec<_>>();
-        if !flags.iter().any(String::is_empty) {
-            flags.push(String::new());
-        }
+            .collect::<BTreeSet<_>>();
+        flags.insert(String::new());
         let sticky_flags = flags
             .iter()
             .filter(|flags| !flags.contains('y'))
             .map(|flags| format!("{flags}y"))
             .collect::<Vec<_>>();
         flags.extend(sticky_flags);
+        let flags = flags.into_iter().collect::<Vec<_>>();
         for literal in &literals {
             self.intern_string(literal);
         }
@@ -4144,10 +4292,10 @@ impl StringPool {
                         program.repeatable_split_count as u64;
                     record[RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD] =
                         program.named_group_table_ptr as u64;
-                    RUNTIME_REGEXP_ENTRY_KIND_PROGRAM
+                    RuntimeRegExpEntryKind::Program.word()
                 }
-                RuntimeRegExpEntry::Rejected => RUNTIME_REGEXP_ENTRY_KIND_REJECTED,
-                RuntimeRegExpEntry::Unsupported => RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED,
+                RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),
+                RuntimeRegExpEntry::Unsupported => RuntimeRegExpEntryKind::Unsupported.word(),
             };
             for value in record {
                 self.bytes.extend_from_slice(&value.to_le_bytes());
@@ -4322,6 +4470,35 @@ impl StringPool {
         self.queue_regexp_program(program);
         self.append_regexp_programs();
         self.regexp_program(program)
+    }
+}
+
+/// Does this `CallIndirect` callee *structurally* name `RegExp.prototype.compile`?
+///
+/// Purely a shape test on the two callee spellings `lower_indirect_method_call`
+/// can produce (`porffor-ir/src/lowering.rs`): an `ExprIr::PropertyRead` with a
+/// static key, and a `GetV` spec operation whose second operand is the key
+/// string. No type inference is consulted, which is the point — the arm that
+/// uses this needs an answer for a call the inference may not have resolved
+/// through an enclosing arrow.
+///
+/// Only ever used to *widen* candidate collection, never to force a table into
+/// existence. A `.compile` on some unrelated object therefore costs at most one
+/// extra literal in a set that is unioned in, and costs nothing at all when no
+/// runtime table is built.
+fn callee_names_regexp_compile(callee: &TypedExpr) -> bool {
+    match &callee.expr {
+        ExprIr::PropertyRead { key, .. } => {
+            matches!(key, PropertyKeyIr::StaticString(name) if name == "compile")
+        }
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } => matches!(
+            operands.get(1).map(|key| &key.expr),
+            Some(ExprIr::String(name)) if name == "compile"
+        ),
+        _ => false,
     }
 }
 
