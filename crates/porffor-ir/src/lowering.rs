@@ -28400,7 +28400,20 @@ impl<'a> ScriptLowerer<'a> {
                             ValueInfo {
                                 kind: ValueKind::Array,
                                 possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                                // `ArrayShape::default()` is an array shape with
+                                // ZERO elements, i.e. the claim `length === 0`.
+                                // It is never a spelling of "an Array whose
+                                // contents are unknown". `arguments.slice()` has
+                                // a statically unknown length, so the only
+                                // honest shape here is `None`: with an empty
+                                // element vector `array_concat_result_info`
+                                // accepts this operand (its proven-layout check
+                                // is vacuous over no elements) and hands the
+                                // spread result a `Some(Array{elements: []})`,
+                                // after which `read_array_shape` types
+                                // `[...args][0]` as `undefined` and
+                                // `static_array_shape_len` reports 0.
+                                heap_shape: None,
                                 function_targets: BTreeSet::new(),
                             },
                             ExprIr::CallIndirect {
@@ -28418,7 +28431,13 @@ impl<'a> ScriptLowerer<'a> {
                         ValueInfo {
                             kind: ValueKind::Array,
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
-                            heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                            // As above: `ArrayShape::default()` asserts "proven
+                            // zero elements", and `Array.from(x)` for an
+                            // arbitrary iterable `x` proves nothing about its
+                            // length. `kind`/`possible_kinds` stay `Array` —
+                            // 23.1.2.1 really does return an Array — but the
+                            // element vector was fabricated, so it goes away.
+                            heap_shape: None,
                             function_targets: BTreeSet::new(),
                         },
                         ExprIr::CallIndirect {
@@ -31158,6 +31177,52 @@ impl<'a> ScriptLowerer<'a> {
                     BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
                 }
                 let binding = self.lookup_binding(&name);
+                // 13.15.2 `AssignmentExpression : LeftHandSideExpression op=
+                // AssignmentExpression` evaluates the LHS Reference, GetValues
+                // it, evaluates the RHS (done above), applies
+                // ApplyStringOrNumericBinaryOperator, and *then* PutValues. A
+                // `const` target fails only at that last step, so everything
+                // before it still runs and can still throw first — `const s =
+                // 'a'; s += { toString() { throw new RangeError(); } }` is a
+                // RangeError, not a TypeError.
+                //
+                // This replaces three separate `unsupported_expr("assignment to
+                // const binding")` sites further down (the coercive-add, the
+                // general-form and the specialised number/string paths). They
+                // sat *after* the specialisation analysis, so which of the three
+                // fired depended on inference — three ways to spell one refusal
+                // of a program the spec says must run. Deciding it once here, on
+                // the binding's mode alone, is both the fix and the reason the
+                // three sites can go: the analysis below is now only ever
+                // reached for a mutable target.
+                let const_target = binding.as_ref().and_then(|binding| {
+                    (binding.mode == BindingMode::Const).then(|| {
+                        (
+                            binding.storage_name.clone(),
+                            ValueInfo {
+                                kind: binding.kind,
+                                possible_kinds: binding.possible_kinds,
+                                heap_shape: binding.heap_shape.clone(),
+                                function_targets: binding.function_targets.clone(),
+                            },
+                        )
+                    })
+                });
+                if let Some((storage_name, lhs_info)) = const_target {
+                    let arithmetic = match op {
+                        AssignOp::Add => ArithmeticOp::Add,
+                        AssignOp::Sub => ArithmeticOp::Sub,
+                        AssignOp::Mul => ArithmeticOp::Mul,
+                        AssignOp::Div => ArithmeticOp::Div,
+                        AssignOp::Mod => ArithmeticOp::Mod,
+                        AssignOp::Exp => ArithmeticOp::Exp,
+                        _ => unreachable!("this match arm covers only the arithmetic operators"),
+                    };
+                    let lhs_read =
+                        TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
+                    let applied = self.combine_arithmetic(arithmetic, lhs_read, value);
+                    return self.immutable_binding_write(&storage_name, applied);
+                }
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
@@ -31207,12 +31272,8 @@ impl<'a> ScriptLowerer<'a> {
                         lhs.kind != ValueKind::Number || value.kind != ValueKind::Number
                     });
                 if coercive_add {
-                    if binding
-                        .as_ref()
-                        .is_some_and(|binding| binding.mode == BindingMode::Const)
-                    {
-                        return self.unsupported_expr("assignment to const binding");
-                    }
+                    // A `const` target returned above; only mutable bindings
+                    // and global properties reach here.
                     let Some(lhs_info) = lhs_info else {
                         self.unsupported_with_message(format!(
                             "unsupported in porffor wasm-aot first slice: unbound identifier `{name}`"
@@ -31294,12 +31355,7 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     };
                 if needs_general_form {
-                    if binding
-                        .as_ref()
-                        .is_some_and(|binding| binding.mode == BindingMode::Const)
-                    {
-                        return self.unsupported_expr("assignment to const binding");
-                    }
+                    // A `const` target returned above.
                     if let Some(lhs_info) = lhs_info {
                         let arithmetic = match op {
                             AssignOp::Add => ArithmeticOp::Add,
@@ -31331,10 +31387,7 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 };
                 if let Some(binding) = binding {
-                    if binding.mode == BindingMode::Const {
-                        return self.unsupported_expr("assignment to const binding");
-                    }
-
+                    // A `const` target returned above.
                     if string_add {
                         if !binding_known_string && !rhs_may_string && !binding_allows_string_add {
                             return self
@@ -31419,12 +31472,18 @@ impl<'a> ScriptLowerer<'a> {
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
-                if binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.mode == BindingMode::Const)
-                {
-                    return self.unsupported_expr("assignment to const binding");
-                }
+                // 13.15.2 for `&&=` / `||=` / `??=`: PutValue runs only on the
+                // branch that evaluates the RHS. `const x = 1; x ||= 2`
+                // short-circuits, never reaches PutValue, and is not an error
+                // at all; `const x = 1; x &&= 2` does reach it and throws a
+                // TypeError. The immutability throw therefore belongs *inside*
+                // the RHS branch below — which is why this consumer cannot take
+                // the early-return shape the other three do, and why the
+                // refusal that used to sit here was wrong in two directions at
+                // once (it rejected the short-circuiting program too).
+                let const_storage_name = binding.as_ref().and_then(|binding| {
+                    (binding.mode == BindingMode::Const).then(|| binding.storage_name.clone())
+                });
                 if binding.is_none()
                     && !global_info.as_ref().is_some_and(|info| info.proven_present)
                 {
@@ -31457,6 +31516,22 @@ impl<'a> ScriptLowerer<'a> {
                     AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
                     _ => unreachable!(),
                 };
+                if let Some(storage_name) = const_storage_name {
+                    let throwing_rhs = self.immutable_binding_write(&storage_name, rhs_value);
+                    // The short-circuit branch yields the old value; the other
+                    // branch diverges (or, under the sloppy carve-out, yields
+                    // the RHS). Merging is sound for both.
+                    let result_info =
+                        self.merge_value_infos(lhs_value.value_info(), throwing_rhs.value_info());
+                    return TypedExpr::from_info(
+                        result_info,
+                        ExprIr::LogicalShortCircuit {
+                            op: logical_op,
+                            lhs: Box::new(lhs_value),
+                            rhs: Box::new(throwing_rhs),
+                        },
+                    );
+                }
                 let result_info =
                     self.merge_value_infos(lhs_value.value_info(), rhs_value.value_info());
                 let value = TypedExpr::from_info(
@@ -31529,12 +31604,12 @@ impl<'a> ScriptLowerer<'a> {
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
-                if binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.mode == BindingMode::Const)
-                {
-                    return self.unsupported_expr("assignment to const binding");
-                }
+                // As for the arithmetic forms: 13.15.2 applies the operator
+                // before PutValue, so a `const` target still coerces both
+                // operands and only then throws.
+                let const_storage_name = binding.as_ref().and_then(|binding| {
+                    (binding.mode == BindingMode::Const).then(|| binding.storage_name.clone())
+                });
                 if binding.is_none()
                     && !global_info.as_ref().is_some_and(|info| info.proven_present)
                 {
@@ -31577,6 +31652,9 @@ impl<'a> ScriptLowerer<'a> {
                         rhs: Box::new(self.lower_expression(rhs)),
                     },
                 );
+                if let Some(storage_name) = const_storage_name {
+                    return self.immutable_binding_write(&storage_name, value);
+                }
                 if let Some(storage_name) = binding_storage_name {
                     self.set_binding_value_info(&name, value.value_info());
                     TypedExpr::from_info(
@@ -31646,6 +31724,68 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// PutValue (6.2.5.6) step 5.c into SetMutableBinding (9.1.1.1.5) step 6.b,
+    /// for a binding whose `[[Mutable]]` is false, in the one place all of its
+    /// callers share.
+    ///
+    /// Four call sites write through an identifier Reference — plain assignment
+    /// (`x = v`), compound assignment (`x += v`), update (`x++`/`x--`) and
+    /// destructuring assignment — and every one of them owes the same
+    /// observable behaviour for a `const` target: run what the spec has already
+    /// evaluated, then throw a `TypeError`. Three of the four used to
+    /// `unsupported_expr` instead, which is a *compile-time* refusal of a
+    /// program the spec says must run and then throw; the difference is
+    /// visible to `assert.throws(TypeError, ...)`.
+    ///
+    /// `evaluated_operand` is whatever 13.15.2 / 13.4.4.1 has already evaluated
+    /// by the time PutValue is reached: the RHS for `x = v`, the *result of the
+    /// applied binary operator* for `x += v`, and `ToNumeric(oldValue)` for
+    /// `x++`. It becomes the lhs of a `Comma`, which is what sequences its
+    /// effects — and its own possible throws, which outrank this one — ahead of
+    /// the immutability `TypeError`. A bare `RuntimeThrow` would drop them, and
+    /// no test262 case in the three this unblocks would notice.
+    fn immutable_binding_write(
+        &self,
+        storage_name: &str,
+        evaluated_operand: TypedExpr,
+    ) -> TypedExpr {
+        let message = if is_class_name_binding_storage_name(storage_name) {
+            "assignment to immutable class name"
+        } else {
+            // SetMutableBinding step 6.b: the write throws only when `S` is
+            // true. A sloppy reference to a named function expression's own
+            // binding is a silent no-op whose value is the operand — the live
+            // case, and the reason this carve-out cannot be folded away.
+            if self
+                .sloppy_immutable_binding_storage_names
+                .contains(storage_name)
+                && !self.reference_strictness().throws_on_failed_set()
+            {
+                return evaluated_operand;
+            }
+            "assignment to immutable binding"
+        };
+        let error = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::TypeError,
+                message,
+            },
+        );
+        TypedExpr::from_info(
+            error.value_info(),
+            ExprIr::Comma {
+                lhs: Box::new(evaluated_operand),
+                rhs: Box::new(error),
+            },
+        )
+    }
+
     fn lower_identifier_assign_value(&mut self, name: String, value: TypedExpr) -> TypedExpr {
         // SetMutableBinding (9.1.1.1.5) step 3 runs *before* the immutability
         // test of step 6/7, and does not consult `S`: an assignment to an
@@ -31668,58 +31808,12 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(binding) = self.lookup_binding(&name) {
             let storage_name = binding.storage_name.clone();
             if binding.mode == BindingMode::Const {
-                if is_class_name_binding_storage_name(&storage_name) {
-                    let error = TypedExpr::from_info(
-                        ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                        },
-                        ExprIr::RuntimeThrow {
-                            name: NativeErrorKind::TypeError,
-                            message: "assignment to immutable class name",
-                        },
-                    );
-                    return TypedExpr::from_info(
-                        error.value_info(),
-                        ExprIr::Comma {
-                            lhs: Box::new(value),
-                            rhs: Box::new(error),
-                        },
-                    );
-                }
-                // SetMutableBinding (9.1.1.1.5) step 6.b: an assignment to an
-                // immutable binding throws only when `S` is true. This is
-                // PutValue consumer 4.c, and it is decided here, at lowering,
-                // which is why the identifier-write IR nodes carry no
-                // `[[Strict]]` of their own.
-                if self
-                    .sloppy_immutable_binding_storage_names
-                    .contains(&storage_name)
-                    && !self.reference_strictness().throws_on_failed_set()
-                {
-                    return value;
-                }
-                let error = TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::RuntimeThrow {
-                        name: NativeErrorKind::TypeError,
-                        message: "assignment to immutable binding",
-                    },
-                );
-                return TypedExpr::from_info(
-                    error.value_info(),
-                    ExprIr::Comma {
-                        lhs: Box::new(value),
-                        rhs: Box::new(error),
-                    },
-                );
+                // This is PutValue consumer 4.c, and it is decided here, at
+                // lowering, which is why the identifier-write IR nodes carry no
+                // `[[Strict]]` of their own. The body now lives in
+                // `immutable_binding_write` so that the update and
+                // compound-assignment consumers cannot drift from it.
+                return self.immutable_binding_write(&storage_name, value);
             }
 
             let binding_info = if binding.mode != BindingMode::Var
@@ -33635,7 +33729,28 @@ impl<'a> ScriptLowerer<'a> {
         let (binding_storage_name, update_kind) = if let Some(binding) = self.lookup_binding(&name)
         {
             if binding.mode == BindingMode::Const {
-                return self.unsupported_expr("update of const binding");
+                // 13.4.4.1 (and 13.4.5.1 / the prefix forms) run
+                //   1. expr = evaluate the UnaryExpression
+                //   2. oldValue = ToNumeric(GetValue(expr))
+                //   3. newValue = the numeric op on oldValue
+                //   4. PutValue(expr, newValue)
+                // — so the ToNumeric of step 2 happens *before* the PutValue of
+                // step 4 fails, and it can throw first. `const s = Symbol();
+                // s++` must report ToNumeric's TypeError, not the immutability
+                // one, and `const o = { valueOf() { log(); return 1; } }; o++`
+                // must call `valueOf`. That is why the operand handed to
+                // `immutable_binding_write` is the coercion and not the bare
+                // read. Step 3 is unobservable once step 4 always throws.
+                let old_value = TypedExpr::spec_to_numeric(TypedExpr::from_info(
+                    ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    },
+                    ExprIr::Identifier(binding.storage_name.clone()),
+                ));
+                return self.immutable_binding_write(&binding.storage_name, old_value);
             }
             let update_kind = if binding
                 .possible_kinds

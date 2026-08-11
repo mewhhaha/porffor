@@ -1429,6 +1429,74 @@ mod tests {
     }
 
     #[test]
+    fn array_spread_of_unshaped_source_does_not_index_pushes_from_zero() {
+        // Anti-vacuity for the fix above: dropping the fabricated
+        // `ArrayShape::default()` must be observable through
+        // `static_array_shape_len`, not only through `heap_shape.is_none()`.
+        // With the empty shape present, `ArrayPrototypePush` computed its
+        // destination index as `base_len + arg_offset` with `base_len == 0`
+        // and recorded `9` at index 0 of a copy whose real index 0 is the
+        // `{ length: 1 }` operand concat appended.
+        let program = lower_script(
+            "let source = [].concat({ length: 1 }); let copy = [...source]; copy.push(9); copy[0];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: copy_init,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected spread copy declaration");
+        };
+        assert_eq!(name, "copy");
+        assert!(
+            copy_init.heap_shape.is_none(),
+            "an unshaped concat input must not become an empty array shape"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[3] else {
+            panic!(
+                "expected spread copy element read, got {:?}",
+                script.body.statements[3]
+            );
+        };
+        assert_eq!(
+            read.kind,
+            ValueKind::Dynamic,
+            "push into an unshaped copy must not type index 0 from a base length of 0"
+        );
+    }
+
+    #[test]
+    fn array_spread_of_unknown_iterable_does_not_claim_empty_array_shape() {
+        // The `Array.from` arm of the array-literal spread desugaring. `x` is
+        // an un-inferred parameter, so it is not a proven Array and the spread
+        // lowers to `[].concat(Array.from(Array, x))`. `Array.from` of an
+        // arbitrary iterable has a statically unknown length; claiming
+        // `ArrayShape::default()` for it claimed `length === 0`.
+        let program = lower_script("function f(x) { return [...x]; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "f")
+            .expect("function should be lowered");
+        let StatementIr::Return(expr) = &function.body.statements[0] else {
+            panic!(
+                "expected return statement, got {:?}",
+                function.body.statements
+            );
+        };
+        assert!(
+            expr.heap_shape.is_none(),
+            "Array.from of an unknown iterable must not carry an element vector"
+        );
+    }
+
+    #[test]
     fn concat_discards_element_shape_after_array_length_write() {
         let program = lower_script(
             "let source = [17, NaN, 'tail']; source.length = 1; let copy = [].concat(source); copy[1];",
