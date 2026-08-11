@@ -23,14 +23,22 @@
 //! whole point of test262's `dynamic-import/catch/` subtree, and it is the
 //! backend's job: `ExprIr::DynamicImport` carries the uncoerced operand.
 //!
-//! # What is memoised
+//! # What a memoisation cell would have to be
 //!
 //! A module evaluates at most once, but *every* `import()` call produces a
 //! fresh promise object — `always-create-new-promise.js` compares the results
-//! of two calls with the same specifier and requires them to be distinct.
-//! [`DynamicComponentIr::completion_cell`] therefore memoises the module's
-//! *evaluation completion*, never a promise object; each call allocates a new
-//! promise and settles it from that cell.
+//! of two calls with the same specifier and requires them to be distinct. A
+//! future `import()` that ran its target lazily would therefore memoise the
+//! module's *evaluation completion* — the namespace object it resolved to, or
+//! the error it threw — never a promise object, and each call would allocate a
+//! new promise and settle it from that cell.
+//!
+//! `DynamicComponentIr` used to carry a `completion_cell: String` for that,
+//! filled from a name-minting function and read by nothing. It is gone. When
+//! the lazy path is built, the cell it needs is a new
+//! [`UnitCellRole`](crate::UnitCellRole) variant with an identifier-legal
+//! suffix — const assertion V3 rejects one that is not, which the deleted
+//! minter's `$m{u}$component.completion` would have failed.
 //!
 //! # How a linked graph actually serves `import()` today
 //!
@@ -42,7 +50,7 @@
 //!   per module *and phase* that writes an `import()`. The objects the
 //!   dispatchers resolve with are *not* minted here: they are the ones
 //!   `modules::namespace` already emits under
-//!   [`module_namespace_cell_name`] and [`module_source_cell_name`], which is
+//!   `UnitCellRole::Namespace` and `UnitCellRole::ModuleSource`, which is
 //!   what makes `import("./a.mjs")` and `import * as ns from "./a.mjs"` produce
 //!   the same object (16.2.1.10 caches `[[Namespace]]` per module) and
 //!   `import.source("./a.mjs")` and `import source s from "./a.mjs"` produce the
@@ -141,7 +149,7 @@
 //! fixes both by rotating the entry's strongly-connected component to the end.
 //!
 //! Removing the eager evaluation altogether is what `StatementIr::ModuleUnitOnce`
-//! and [`DynamicComponentIr::completion_cell`] exist for, and needs a pass that
+//! and the memoisation cell described above exist for, and needs a pass that
 //! hoists a unit's declarations out of its body so the body can be wrapped in a
 //! guarded function without moving its bindings.
 //!
@@ -197,13 +205,6 @@ pub struct DynamicComponentIr {
     /// `import.defer()` the defer phase and `import.source()` the source phase;
     /// the phase decides which object the dispatcher resolves with.
     pub phase: ImportPhaseIr,
-    /// Cell memoising this component's *evaluation completion* — the namespace
-    /// object it resolved to, or the error it threw.
-    ///
-    /// Not a promise. Reusing one promise object across calls is observably
-    /// wrong (`always-create-new-promise.js`); the module evaluates once, the
-    /// promise is new every time.
-    pub completion_cell: String,
 }
 
 /// Registers every statically discoverable `import()` target as a component.
@@ -215,7 +216,8 @@ pub struct DynamicComponentIr {
 pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
     let mut components: Vec<DynamicComponentIr> = Vec::new();
     for index in 0..graph.units.len() {
-        let referrer = ModuleUnitId::try_from(index).unwrap_or(ModuleUnitId::MAX);
+        let referrer = ModuleUnitId::try_from(index)
+            .expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
         let sites = graph.units[index].record.dynamic_import_sites.clone();
         for site in sites {
             let Some(specifier) = site.static_specifier else {
@@ -239,9 +241,6 @@ pub(crate) fn collect_components(graph: &mut ModuleGraphIr) {
                 referrer,
                 module,
                 phase: site.phase,
-                // Keyed by target module, not by call site: two specifiers
-                // naming the same module share one evaluation.
-                completion_cell: module_component_completion_cell_name(module),
             });
         }
     }
@@ -429,12 +428,12 @@ fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String 
 ///   hand back one object, exactly as the two evaluation-phase forms do;
 /// * source — the module source object, which is not a namespace at all: the
 ///   module is loaded and parsed but never instantiated.
-fn component_resolution_cell(component: &DynamicComponentIr) -> String {
+fn component_resolution_cell(component: &DynamicComponentIr) -> MergedName {
     match component.phase {
         ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {
-            module_namespace_cell_name(component.module)
+            MergedName::minted(component.module, UnitCellRole::Namespace)
         }
-        ImportPhaseIr::Source => module_source_cell_name(component.module),
+        ImportPhaseIr::Source => MergedName::minted(component.module, UnitCellRole::ModuleSource),
     }
 }
 
@@ -443,7 +442,7 @@ impl ModuleGraphIr {
     /// namespace prelude `modules::namespace` owns.
     ///
     /// This lane mints no namespace objects of its own. A dispatcher's
-    /// `resolve` names [`module_namespace_cell_name`], the *same* binding
+    /// `resolve` names the unit's `UnitCellRole::Namespace` cell, the *same* binding
     /// `import * as ns` aliases, so `import("./a.mjs")` and
     /// `import * as ns from "./a.mjs"` hand back one object — 16.2.1.10 caches
     /// `[[Namespace]]` per module and test262's `module-code/namespace/`
@@ -510,7 +509,7 @@ impl ModuleGraphIr {
             text.push_str(" if (key === ");
             text.push_str(&js_string_literal(&component.specifier));
             text.push_str(") { resolve(");
-            text.push_str(&component_resolution_cell(component));
+            text.push_str(component_resolution_cell(component).as_str());
             text.push_str("); return; }");
         }
         text.push_str(" reject(new TypeError(\"Cannot find module \" + key)); }); }");
@@ -690,11 +689,44 @@ impl ModuleGraphIr {
         for unit in &self.units {
             let key = &unit.record.key;
             for binding in &unit.record.environment {
-                if binding.name.starts_with(LINKER_NAME_PREFIX) {
+                // The merged spelling: the collision is with a name the linker
+                // declares in the *merged* scope, so both sides are D3. A
+                // `[[LocalName]]` of `*default*` has already become `$d{u}$`
+                // here and cannot be mistaken for a linker name.
+                let merged = unit.record.merged(&binding.name);
+                if merged.as_str().starts_with(LINKER_NAME_PREFIX) {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
                         "unsupported in porffor wasm-aot: module {key}: top-level `{}` collides \
                          with a linker-synthesized name",
-                        binding.name
+                        merged.as_str()
+                    )));
+                }
+                // The `$m<unit>$…` / `$d<unit>$` range is minted by
+                // `MergedName::minted` and `MergedName::anonymous_default`, and
+                // `merged_in` is the identity on a source name — so a module
+                // that declares `$m0$namespace` lands in the same merged cell as
+                // the prelude's `const $m0$namespace = Object.create(null);`.
+                // Left unchecked that is a duplicate-declaration SyntaxError
+                // from the merged script for a legal module. Pathological, but
+                // it is the same merged-name hazard invariant M3 governs, and
+                // the linker-prefix check beside it covers a different family.
+                //
+                // Asked of the *source* spelling, not of `merged`. `merged_in`
+                // is the identity on a `LocalName::Source`, so for that variant
+                // the two spellings are the same string and the question is
+                // unchanged — but `LocalName::AnonymousDefault` is mapped *into*
+                // the minted range on purpose, and asking `merged` there reports
+                // every module with an anonymous `export default` as colliding
+                // with the very cell the linker minted for it. `spec_name` is
+                // `*default*` for that variant, which no `BindingIdentifier` can
+                // spell and which is therefore never minted-shaped, so the two
+                // generators stay distinguishable here by construction rather
+                // than by a second predicate that could drift.
+                if MergedName::is_minted_shaped(binding.name.spec_name()) {
+                    diagnostics.push(IrDiagnostic::unsupported(format!(
+                        "unsupported in porffor wasm-aot: module {key}: top-level `{}` collides \
+                         with a linker-minted per-unit cell name",
+                        merged.as_str()
                     )));
                 }
             }
@@ -739,7 +771,7 @@ impl ModuleGraphIr {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
                         "unsupported in porffor wasm-aot: module {key}: `import()` cannot expose \
                          export `{}`, whose binding has no name in the merged scope",
-                        export.export_name
+                        export.export_name.as_str()
                     )));
                 }
             }
@@ -1364,7 +1396,7 @@ mod tests {
         // never one of its own — that shared binding is the 16.2.1.10 identity.
         let resolution = format!(
             "if (key === \"./a.mjs\") {{ resolve({}); return; }}",
-            module_namespace_cell_name(0)
+            MergedName::minted(0, UnitCellRole::Namespace).as_str()
         );
         assert!(
             prelude.contains(&resolution),
@@ -1625,14 +1657,14 @@ mod tests {
         assert!(
             prelude.contains(&format!(
                 "if (key === \"./a.mjs\") {{ resolve({}); return; }}",
-                module_namespace_cell_name(0)
+                MergedName::minted(0, UnitCellRole::Namespace).as_str()
             )),
             "defer resolves with the (deferred) namespace object, got: {prelude}"
         );
         assert!(
             prelude.contains(&format!(
                 "if (key === \"./b.mjs\") {{ resolve({}); return; }}",
-                module_source_cell_name(1)
+                MergedName::minted(1, UnitCellRole::ModuleSource).as_str()
             )),
             "source resolves with the module source object, got: {prelude}"
         );
@@ -1701,6 +1733,41 @@ mod tests {
         );
     }
 
+    /// The minted-cell half of the same hazard, and the positive control for
+    /// the `spec_name` narrowing beside it: source text *can* spell `$m0$…` and
+    /// `$d0$`, and a top-level declaration of one lands in the merged cell the
+    /// prelude declares, so it is reported.
+    ///
+    /// Paired deliberately with
+    /// [`an_anonymous_default_export_is_exposed_under_its_minted_name`], which
+    /// is the same predicate's negative control: that module's `*default*`
+    /// binding is spelled `$d0$` in the merged scope too, and must *not* be
+    /// reported. A predicate asked of the merged spelling passes this test and
+    /// fails that one, which is how the two together pin the right question.
+    #[test]
+    fn a_user_binding_shaped_like_a_minted_cell_is_reported() {
+        for spelling in [
+            MergedName::minted(0, UnitCellRole::Namespace)
+                .as_str()
+                .to_string(),
+            LocalName::AnonymousDefault
+                .merged_in(0)
+                .as_str()
+                .to_string(),
+        ] {
+            let source = format!("const {spelling} = 1;\nimport(x);");
+            let sources = sources_of(&[("d", source.as_str())], 0, Vec::new());
+            let graph = graph_of(&sources);
+            let diagnostics = graph.check_dynamic_import_linkable();
+            assert!(
+                diagnostics.iter().any(|diagnostic| diagnostic
+                    .message
+                    .contains("linker-minted per-unit cell name")),
+                "{spelling}: got {diagnostics:?}"
+            );
+        }
+    }
+
     /// An anonymous `export default` binds `*default*`, which no source text
     /// can spell — but the merged script declares it under a minted name, so
     /// `import()` exposes it like any other export.
@@ -1722,7 +1789,10 @@ mod tests {
             .expect("the import() target has a namespace");
         let source = namespace.source.as_ref().expect("namespace is expressible");
         assert!(
-            source.contains(&format!("get: () => {}", module_default_binding_name(0))),
+            source.contains(&format!(
+                "get: () => {}",
+                LocalName::AnonymousDefault.merged_in(0).as_str()
+            )),
             "got {source}"
         );
     }
@@ -1743,7 +1813,10 @@ mod tests {
         let prelude = graph.dynamic_import_prelude();
         assert_eq!(
             prelude
-                .matches(&format!("resolve({})", module_namespace_cell_name(0)))
+                .matches(&format!(
+                    "resolve({})",
+                    MergedName::minted(0, UnitCellRole::Namespace).as_str()
+                ))
                 .count(),
             2,
             "got: {prelude}"
@@ -1751,7 +1824,7 @@ mod tests {
     }
 
     /// The whole point of routing `resolve` through
-    /// [`module_namespace_cell_name`]: `import()` and `import * as ns` of one
+    /// one namespace cell: `import()` and `import * as ns` of one
     /// module name the same binding, so the objects are `===`. This lane must
     /// never mint a namespace binding of its own.
     #[test]
@@ -1770,7 +1843,10 @@ mod tests {
         let graph = graph_of(&sources);
         let prelude = graph.dynamic_import_prelude();
         assert!(
-            prelude.contains(&format!("resolve({})", module_namespace_cell_name(0))),
+            prelude.contains(&format!(
+                "resolve({})",
+                MergedName::minted(0, UnitCellRole::Namespace).as_str()
+            )),
             "got: {prelude}"
         );
         assert!(

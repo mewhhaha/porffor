@@ -5,13 +5,44 @@ use num_traits::{One, ToPrimitive, Zero};
 use porffor_front::ParseGoal;
 
 use crate::{
-    ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CallableToStringRepresentation,
-    CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp, HostBuiltinId, IrDiagnostic,
-    IrDiagnosticKind, LogicalBinaryOp, LoweringStage, NumericUpdateOp, RegExpProgram,
+    ArithmeticBinaryOp, ArrayPatternProtocol, BindingMode, BitwiseBinaryOp,
+    CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
+    HostBuiltinId, IrDiagnostic, IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr,
+    LogicalBinaryOp, LoweringStage, NativeErrorKind, NumericUpdateOp, RegExpProgram,
     RelationalBinaryOp, SpecOperationIr, StandardBuiltinId, ToPrimitiveHint, UnaryNumericOp,
     UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
+
+/// Reference Records (6.2.5) and their `[[Strict]]`. See
+/// `docs/rust-rewrite/contracts/reference-records.md`.
+///
+/// Declared here rather than in `lib.rs` because `ExprIr`'s reference-write
+/// variants carry `Strictness` in their fields, so the type has to be in scope
+/// in this file; the `#[path]` keeps the module a sibling file on disk.
+#[path = "reference.rs"]
+pub mod reference;
+
+pub use reference::{carried_put_value_failure, PutValueFailure, Strictness};
+
+/// Numeric conversion codomains (7.1.5, 7.1.6, 7.1.7, 7.1.9, 7.1.20, 7.1.22).
+/// See `docs/rust-rewrite/contracts/numeric-conversion-codomains.md`.
+///
+/// Declared here rather than in `lib.rs` for the same reason as `reference`:
+/// `lib.rs` is a single-lane hub owned by another area this round, and the
+/// `#[path]` keeps the module a sibling file on disk.
+#[path = "numeric_conversions.rs"]
+pub mod numeric_conversions;
+
+/// 26 names. Counted, not estimated — an earlier revision of this list said 18
+/// while carrying 19, which is the same class of drift the whole area is about.
+pub use numeric_conversions::{
+    fold_number_format, reference_to_index, reference_to_int32, reference_to_length,
+    reference_to_uint16, reference_to_uint32, residue_pow2_i64, ExtendedInteger, FiniteInteger,
+    FiniteReceiver, FractionDigits, IntegerOrInfinity, NonFiniteReceiverOrder, NumberFormatClause,
+    NumberFormatFold, Precision, RangeChecked, ResidueCarrier, ResidueWidth, ToExponential,
+    ToFixed, ToIndexOutcome, ToPrecision, Uint16, Uint32, MAX_SAFE_INTEGER_U64,
+};
 
 pub type FunctionId = String;
 
@@ -754,6 +785,23 @@ pub enum DestructuringTargetIr {
     AssignmentProperty {
         target: TypedExpr,
         key: DestructuringPropertyKeyIr,
+        /// The `[[Strict]]` of the Reference this destructuring element
+        /// writes through.
+        ///
+        /// 13.15.5.4 DestructuringAssignmentEvaluation routes an
+        /// `AssignmentProperty` whose target is a property access through
+        /// PutValue, exactly as an ordinary `o.x = v` is — so 3.d's TypeError
+        /// on a `[[Set]]` that answered `false` is selected by *this*
+        /// Reference's `[[Strict]]`, not by the mode of the Wasm function the
+        /// pattern happens to be emitted into. The two differ whenever
+        /// lowering hoists the pattern into a generated function.
+        ///
+        /// `AssignmentIdentifier` and `AssignmentPrivate` deliberately carry
+        /// no such field: the first discharges PutValue at branch 4.c
+        /// (SetMutableBinding, whose only mode-dependent step is decided at
+        /// lowering time) and the second at PrivateSet, which throws in both
+        /// modes. See [`crate::reference::carried_put_value_failure`].
+        strictness: Strictness,
     },
     AssignmentPrivate {
         target: TypedExpr,
@@ -778,6 +826,37 @@ pub enum ArrayDestructuringElementIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArrayDestructuringPatternIr {
     pub elements: Vec<ArrayDestructuringElementIr>,
+    /// How this pattern's own `GetIterator` discharged the four 7.4
+    /// obligations.
+    ///
+    /// **Per pattern, not per statement.** 8.6.3 IteratorBindingInitialization
+    /// and 13.15.5.5 IteratorDestructuringAssignmentEvaluation each acquire a
+    /// fresh iterator for *every* ArrayBindingPattern / ArrayAssignmentPattern,
+    /// including each one reached through
+    /// [`DestructuringTargetIr::NestedArray`]. A field on
+    /// `ExprIr::ArrayDestructure` would witness the outermost acquisition and
+    /// silently cover none of the nested ones, so the field lives here.
+    ///
+    /// Non-optional, no `Default`: `ArrayDestructuringPatternIr` is matched
+    /// exhaustively nowhere in the workspace and constructed in exactly two
+    /// places, both in `lowering.rs`, so an array pattern built without saying
+    /// how its iterator was accounted for is `E0063` at those two lines and
+    /// byte-neutral everywhere else.
+    ///
+    /// The type is [`ArrayPatternProtocol`], **not** `IteratorProtocolWitness`.
+    /// The bare witness type is the whole witness domain, so
+    /// `protocol: IteratorProtocolWitness::NO_ITERATION` — or
+    /// `::ARRAY_INDEX_WALK`, which assumes away all of 23.1.3.x — compiled at
+    /// both construction sites and every const assertion still passed. The
+    /// newtype has one inhabitant and a private constructor, so any other
+    /// witness here is `E0308`: the guarantee is now "the right constant", not
+    /// "a constant".
+    ///
+    /// **The emitter must not read this**, and cannot: every reader of a
+    /// witness's contents — including [`ArrayPatternProtocol::witness`] — is
+    /// `pub(crate)` to `porffor-ir`, so a `porffor-aot-wasm` arm that binds it
+    /// and branches on it is `E0624`.
+    pub protocol: ArrayPatternProtocol,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -815,7 +894,7 @@ fn visit_destructuring_target_expressions(
     visit: &mut impl FnMut(&TypedExpr),
 ) {
     match target {
-        DestructuringTargetIr::AssignmentProperty { target, key } => {
+        DestructuringTargetIr::AssignmentProperty { target, key, .. } => {
             visit(target);
             if let DestructuringPropertyKeyIr::Computed(key) = key {
                 visit(key);
@@ -1068,6 +1147,20 @@ impl TypedExpr {
         )
     }
 
+    /// **Reachable only from tests as of `091487732`.** Measured: this
+    /// constructor has exactly two references workspace-wide besides its own
+    /// definition, and both sit inside `#[cfg(test)]` modules — `ir.rs:3856`
+    /// (gate at `ir.rs:3451`) and `crates/porffor-aot-wasm/src/lib.rs:1468`
+    /// (gate at `lib.rs:109`). AGENTS.md wants unreachable-from-product code to
+    /// fail to build; deleting this requires editing an aot-wasm test module,
+    /// which is outside this area's lane. Ledger **LN4** in
+    /// `docs/rust-rewrite/contracts/numeric-conversion-codomains.md`.
+    ///
+    /// Of the 31 `pub fn spec_*` constructors in this file, these three were the
+    /// ones verified line by line. Do not delete this from this lane; do not
+    /// add a product call site to make the count look better either — the
+    /// codomain of 7.1.5 that a real call site would need is
+    /// [`crate::IntegerOrInfinity`], not the `ValueKind::Number` claimed here.
     pub fn spec_to_integer_or_infinity(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Number),
@@ -1078,6 +1171,11 @@ impl TypedExpr {
         )
     }
 
+    /// **Reachable only from tests as of `091487732`.** Measured: exactly two
+    /// references besides this definition, both inside `#[cfg(test)]` modules —
+    /// `ir.rs:3878` (gate at `ir.rs:3451`) and
+    /// `crates/porffor-aot-wasm/src/lib.rs:1486` (gate at `lib.rs:109`).
+    /// Ledger **LN4**; see `spec_to_integer_or_infinity` above.
     pub fn spec_to_length(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Number),
@@ -1088,6 +1186,13 @@ impl TypedExpr {
         )
     }
 
+    /// **Reachable only from tests as of `091487732`.** Measured: exactly two
+    /// references besides this definition, both inside `#[cfg(test)]` modules —
+    /// `ir.rs:3900` (gate at `ir.rs:3451`) and
+    /// `crates/porffor-aot-wasm/src/lib.rs:1503` (gate at `lib.rs:109`).
+    /// Ledger **LN4**; see `spec_to_integer_or_infinity` above. 7.1.22 is the
+    /// one *partial* conversion in this area — see
+    /// [`crate::ToIndexOutcome`] — and `ValueKind::Number` cannot say so.
     pub fn spec_to_index(argument: TypedExpr) -> Self {
         Self::from_info(
             ValueInfo::new(ValueKind::Number),
@@ -1370,12 +1475,24 @@ pub enum ExprIr {
     GlobalPropertyWrite {
         name: String,
         value: Box<TypedExpr>,
+        /// The lowerer could not prove the property already exists on the
+        /// global object, so this write may *create* a global binding.
+        ///
+        /// **Not** a backend input, and deliberately so: which of PutValue's
+        /// two branches applies is a runtime fact, and `strictness` alone
+        /// selects the guarded write (`emit_global_property_write_checked`)
+        /// that performs the presence test 2.a needs. Its one consumer is the
+        /// `implicit_globals` counter in this file's AST-stat visitor, which is
+        /// what keeps it from being an unread field — check there before
+        /// deleting it.
         implicit: bool,
-        /// `true` when the assignment appears in strict code. PutValue step 2.b
-        /// then requires a ReferenceError if the reference is unresolvable, so
-        /// the backend guards the write with a runtime presence check on the
-        /// global object rather than silently creating the property.
-        strict: bool,
+        /// The `[[Strict]]` of the Reference this write consumes. PutValue
+        /// step 2.a requires a ReferenceError when the Reference is
+        /// unresolvable and `[[Strict]]` is true, so the backend guards the
+        /// write with a runtime presence check on the global object rather
+        /// than silently creating the property; step 3.d then makes a
+        /// `[[Set]]` that answered `false` a TypeError.
+        strictness: Strictness,
     },
     PropertyRead {
         target: Box<TypedExpr>,
@@ -1393,6 +1510,10 @@ pub enum ExprIr {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
         value: Box<TypedExpr>,
+        /// The `[[Strict]]` of the Reference this write consumes. PutValue
+        /// step 3.d: a `[[Set]]` that answered `false` is a TypeError only
+        /// when it is true.
+        strictness: Strictness,
     },
     PropertyUpdate {
         target: Box<TypedExpr>,
@@ -1400,12 +1521,16 @@ pub enum ExprIr {
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
         value_kind: ValueKind,
+        /// PutValue step 3.d, for the write-back half of `++`/`--`.
+        strictness: Strictness,
     },
     PropertyCompoundAssign {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
         op: ArithmeticBinaryOp,
         value: Box<TypedExpr>,
+        /// PutValue step 3.d, for the write-back half of `op=`.
+        strictness: Strictness,
     },
     UpdateIdentifier {
         name: String,
@@ -1418,6 +1543,9 @@ pub enum ExprIr {
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
         value_kind: ValueKind,
+        /// PutValue steps 2.a and 3.d, for the write-back half of `++`/`--`
+        /// on a global Reference.
+        strictness: Strictness,
     },
     CompoundAssignIdentifier {
         name: String,
@@ -1428,6 +1556,9 @@ pub enum ExprIr {
         name: String,
         op: ArithmeticBinaryOp,
         value: Box<TypedExpr>,
+        /// PutValue steps 2.a and 3.d, for the write-back half of `op=` on a
+        /// global Reference.
+        strictness: Strictness,
     },
     UnaryNumber {
         op: UnaryNumericOp,
@@ -1445,14 +1576,15 @@ pub enum ExprIr {
     },
     DeleteGlobalProperty {
         name: String,
-        /// `true` when the `delete` appears in strict code, so a `false`
-        /// `[[Delete]]` result must raise a TypeError (13.5.1.2 step 5.d).
-        strict: bool,
+        /// The `[[Strict]]` of the Reference `delete` evaluated, so a `false`
+        /// `[[Delete]]` result raises a TypeError (13.5.1.2 step 5.e).
+        strictness: Strictness,
     },
     DeleteProperty {
         target: Box<TypedExpr>,
         key: PropertyKeyIr,
-        strict: bool,
+        /// 13.5.1.2 step 5.e, as above.
+        strictness: Strictness,
     },
     TypeOf {
         expr: Box<TypedExpr>,
@@ -1557,8 +1689,16 @@ pub enum ExprIr {
         expected: Box<TypedExpr>,
         message: String,
     },
+    /// Throw a fresh instance of an error intrinsic, chosen at compile time.
+    ///
+    /// `name` is a [`NativeErrorKind`] rather than a `&'static str` so that a
+    /// misspelt or invented error name is `error[E0308]` at the construction
+    /// site instead of a value that falls through the backend's
+    /// name-to-prototype table to `%Object.prototype%` — a thrown value for
+    /// which `e instanceof TypeError` is `false` and `e.message` is
+    /// `undefined`, with no diagnostic.
     RuntimeThrow {
-        name: &'static str,
+        name: NativeErrorKind,
         message: &'static str,
     },
     CallIndirect {
@@ -1597,6 +1737,11 @@ pub enum ExprIr {
     SuperPropertyWrite {
         key: PropertyKeyIr,
         value: Box<TypedExpr>,
+        /// PutValue step 3.d. The Receiver of the `[[Set]]` is `[[ThisValue]]`
+        /// (GetThisValue, 6.2.5.4) and is still implicit in the backend; see
+        /// the MC4b entry in
+        /// `docs/rust-rewrite/contracts/reference-records.md`.
+        strictness: Strictness,
     },
     PrivateRead {
         target: Box<TypedExpr>,
@@ -1751,26 +1896,19 @@ pub struct ForInOfEnvironmentIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AsyncForOfPlanIr {
-    pub entry_state: u32,
-    pub continuation_resume_state: u32,
-    pub value_resume_state: u32,
-    pub exit_state: u32,
-    pub iterable_binding: String,
-    pub index_binding: String,
-    pub done_binding: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncForOfIteratorPlanIr {
     pub entry_state: u32,
     pub value_resume_state: u32,
     pub close_resume_state: u32,
     pub exit_state: u32,
-    pub iterator_binding: String,
-    pub next_binding: String,
+    /// `{ [[Iterator]], [[NextMethod]], [[Done]] }` (7.4). These were three
+    /// same-typed `String` fields; transposing `[[Iterator]]` and
+    /// `[[NextMethod]]` type-checked and miscompiled every `for await`.
+    pub record: IteratorRecordIr,
+    /// Not an Iterator Record field: the runtime flag for whether the iterable
+    /// supplied `@@asyncIterator` rather than a wrapped sync iterator.
     pub async_iterator_binding: String,
-    pub done_binding: String,
+    /// Not an Iterator Record field: whether a rejection must run the close.
     pub close_on_rejection_binding: String,
 }
 
@@ -1927,7 +2065,16 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
-        async_plan: Option<AsyncForOfPlanIr>,
+        /// How this specialization discharged the four 7.4 obligations.
+        ///
+        /// **The emitter must not read this**, and cannot: every reader of a
+        /// witness's contents is `pub(crate)` to `porffor-ir`, so a
+        /// `porffor-aot-wasm` arm that binds `protocol` and branches on it is
+        /// `E0624`. It exists so that a for-of specialization cannot be
+        /// constructed without stating, for every obligation, whether it is
+        /// emitted or assumed away and on which premise. Non-optional and
+        /// without a `Default` on purpose.
+        protocol: IteratorProtocolWitness,
     },
     ForOfString {
         mode: BindingMode,
@@ -1935,6 +2082,8 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        /// See `ForOfArray::protocol`.
+        protocol: IteratorProtocolWitness,
     },
     ForOfIterator {
         mode: BindingMode,
@@ -1942,6 +2091,8 @@ pub enum StatementIr {
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+        /// See `ForOfArray::protocol`.
+        protocol: IteratorProtocolWitness,
         async_plan: Option<AsyncForOfIteratorPlanIr>,
     },
     ForInArray {
@@ -2012,18 +2163,142 @@ pub enum StatementIr {
 }
 
 impl StatementIr {
+    /// The Completion Record (6.2.4) this statement itself produces, if any.
+    ///
+    /// Exhaustive with **no catch-all**: the previous `_ => None` absorbed 29
+    /// of 33 variants, so "I added a statement that is an abrupt completion and
+    /// forgot to say so" answered *not abrupt* silently. It is now `E0004`.
     pub fn abrupt_completion_record(&self) -> Option<CompletionRecordIr<TypedExpr>> {
         match self {
             Self::Throw(value) => Some(CompletionRecordIr::throw(value.clone())),
             Self::Return(value) => Some(CompletionRecordIr::return_(value.clone())),
             Self::Break { label } => Some(CompletionRecordIr::break_(None, label.clone())),
             Self::Continue { label } => Some(CompletionRecordIr::continue_(None, label.clone())),
-            _ => None,
+            Self::Empty
+            | Self::ModuleUnitOnce { .. }
+            | Self::Lexical { .. }
+            | Self::AnnexBFunctionCopy { .. }
+            | Self::LexicalBlock(_)
+            | Self::ParameterInitialization { .. }
+            | Self::Var(_)
+            | Self::Expression(_)
+            | Self::GeneratorYield { .. }
+            | Self::AsyncAwait { .. }
+            | Self::GeneratorLoop { .. }
+            | Self::GeneratorIf { .. }
+            | Self::Block(_)
+            | Self::If { .. }
+            | Self::While { .. }
+            | Self::DoWhile { .. }
+            | Self::For { .. }
+            | Self::ForOfArray { .. }
+            | Self::ForOfString { .. }
+            | Self::ForOfIterator { .. }
+            | Self::ForInArray { .. }
+            | Self::ForInString { .. }
+            | Self::ForInObject { .. }
+            | Self::Switch { .. }
+            | Self::Labelled { .. }
+            | Self::Debugger
+            | Self::TryCatch { .. }
+            | Self::TryFinally { .. }
+            | Self::TryCatchFinally { .. } => None,
         }
     }
 
     pub fn is_abrupt_completion_statement(&self) -> bool {
         self.abrupt_completion_record().is_some()
+    }
+}
+
+/// What lowering a `for`-`of` head produced: the statement, the kind its body
+/// evaluates to, and the witness saying how that statement discharged the four
+/// 7.4 obligations.
+///
+/// Attaching the witness to the three `ForOf*` variants alone was not enough.
+/// There is already a **fourth** for-of specialization that is not spelled as a
+/// `ForOf*` variant: `for (x of arr) { … await … }` inside a plain async
+/// function is desugared to `StatementIr::GeneratorLoop` with an explicit
+/// `index < PropertyKeyIr::ArrayLength` test and `PropertyKeyIr::ArrayIndex`
+/// element reads — an index walk resting on all the array premises, which no
+/// `protocol` field on a `ForOf*` variant could have demanded.
+///
+/// So the obligation is attached to the *lowering of the head* instead. Every
+/// path out of `ScriptLowerer::lower_for_of_head` returns one of these, the
+/// only constructor takes a witness, and there is no `Default`. A new
+/// desugaring target therefore cannot be added without naming its premises,
+/// and the `ForOf*` `protocol` field becomes a consumer of that value rather
+/// than the only place it is demanded.
+///
+/// The witness is dropped at the boundary back to `lower_statement`; its work
+/// is done at the type level by then. Spread, `yield*` and array destructuring
+/// reach the protocol by other routes and are named as `EmissionSite`s instead
+/// — see ledger L6.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForOfLoweringIr {
+    statement: StatementIr,
+    result_kind: ValueKind,
+    protocol: IteratorProtocolWitness,
+}
+
+impl ForOfLoweringIr {
+    pub fn new(
+        statement: StatementIr,
+        result_kind: ValueKind,
+        protocol: IteratorProtocolWitness,
+    ) -> Self {
+        Self {
+            statement,
+            result_kind,
+            protocol,
+        }
+    }
+
+    /// The head did not lower to an iteration: an unsupported form was reported
+    /// and the statement is `StatementIr::Empty`.
+    pub fn no_iteration() -> Self {
+        Self::new(
+            StatementIr::Empty,
+            ValueKind::Undefined,
+            IteratorProtocolWitness::NO_ITERATION,
+        )
+    }
+
+    /// The statement and the kind its body evaluates to. The witness is dropped
+    /// here — its work is done by the time the head has lowered — but it is
+    /// *read* on the way out rather than silently discarded.
+    ///
+    /// The `protocol()` accessor this replaces had **zero callers anywhere in
+    /// the workspace** and was `pub`, so no `dead_code` warning fired: the
+    /// "survival by `pub`" shape ledger row I7 exists to delete, one file over
+    /// from where this area diagnoses it. The two conditions below are its
+    /// replacement, and each names a real mistake:
+    ///
+    /// * A head that lowered to *nothing* must carry the bail-out witness.
+    ///   Returning `StatementIr::Empty` with, say,
+    ///   `SYNC_ITERATOR_PROTOCOL` would credit `compile_for_of_iterator` with
+    ///   emitting four obligations for a statement that never runs, which is
+    ///   exactly the attribution K1 and J10 exist to keep honest.
+    /// * A head that lowered to a real for-of specialization must *not* carry
+    ///   it: `NO_ITERATION` says every obligation is vacuous because nothing
+    ///   runs, and one of the three `ForOf*` statements is not nothing.
+    pub fn into_statement_and_kind(self) -> (StatementIr, ValueKind) {
+        debug_assert!(
+            !matches!(self.statement, StatementIr::Empty)
+                || self.protocol == IteratorProtocolWitness::NO_ITERATION,
+            "a for-of head that lowered to no statement must carry the NO_ITERATION witness",
+        );
+        debug_assert!(
+            !matches!(
+                self.statement,
+                StatementIr::ForOfArray { .. }
+                    | StatementIr::ForOfString { .. }
+                    | StatementIr::ForOfIterator { .. }
+            ) || self.protocol != IteratorProtocolWitness::NO_ITERATION,
+            "a for-of head that lowered to a real specialization must not claim that no \
+             iteration was lowered",
+        );
+        (self.statement, self.result_kind)
     }
 }
 
@@ -2833,7 +3108,9 @@ impl IrSummaryCounts {
                     }
                 }
             }
-            ExprIr::PropertyWrite { target, key, value } => {
+            ExprIr::PropertyWrite {
+                target, key, value, ..
+            } => {
                 self.property_writes += 1;
                 if matches!(key, PropertyKeyIr::StaticString(name) if name == "prototype") {
                     self.prototype_writes += 1;
@@ -3170,7 +3447,7 @@ impl IrSummaryCounts {
                 self.super_uses += 1;
                 self.visit_property_key(key);
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite { key, value, .. } => {
                 self.super_uses += 1;
                 self.visit_property_key(key);
                 self.visit_expr(value);

@@ -1,5 +1,6 @@
 mod array;
 mod array_from_async;
+mod async_disposable_stack;
 mod async_iterator;
 mod binary_data;
 mod bootstrap;
@@ -22,8 +23,30 @@ mod string;
 mod temporal;
 mod temporal_duration;
 mod temporal_duration_methods;
+mod temporal_instant;
+/// The unvalidated epoch-nanosecond local pair, re-exported for `date.rs`:
+/// `Date.prototype.toTemporalInstant` shares the millisecond widening.
+pub(crate) use temporal_instant::UnvalidatedEpochNanoseconds;
 mod temporal_options;
 mod temporal_plain_date;
+/// The calendar table, re-exported for `data.rs`: the string pool derives the
+/// interned calendar spellings *and* every era spelling by walking
+/// `TemporalCalendarId::ALL -> eras() -> spellings()`, which is exactly the
+/// table `emit_temporal_resolve_era_to_year` matches an incoming `era`
+/// against. `Era::code()` is `Era::spellings()[0]`, so an alias such as `ad`
+/// or `bc` added to that table is interned, accepted by
+/// `CalendarResolveFields` and excluded from the `era` accessor's answer
+/// without a second edit anywhere — and a *calendar* added with a complete
+/// `eras()` is interned without an edit here at all.
+pub(crate) use temporal_plain_date::TemporalCalendarId;
+/// The `DifferenceTemporal*` guard messages, re-exported for `data.rs` for the
+/// same reason as the calendar table: the string pool derives them by walking
+/// `TemporalDifferenceGuard::ALL -> message()`, gated on
+/// `emitting_builtins()`, instead of repeating the five literals. A message
+/// spelled at an emitter and not interned is a *compile-time panic* in every
+/// full bootstrap (`string ... must exist in pool`), which is how batch 6 took
+/// 24 `porffor-aot-wasm --lib` tests down with two new `&str` literals.
+pub(crate) use temporal_plain_date::TemporalDifferenceGuard;
 mod temporal_plain_date_methods;
 mod temporal_plain_date_time;
 mod temporal_plain_date_time_methods;
@@ -32,6 +55,20 @@ mod temporal_plain_time;
 mod temporal_plain_time_methods;
 mod temporal_plain_year_month;
 mod temporal_plain_year_month_methods;
+/// `Temporal.ZonedDateTime.prototype.{add,subtract,until,since,withCalendar}`.
+///
+/// Split from `temporal.rs` on the same boundary
+/// `temporal_plain_date_time_methods` is split from
+/// `temporal_plain_date_time`: record/constructor/accessors on one side,
+/// prototype method bodies on the other. `check-module-boundaries.sh` requires
+/// both, so the split cannot silently collapse back.
+mod temporal_zoned_date_time_methods;
+/// The two closed direction domains of that surface. `add`/`subtract` and
+/// `until`/`since` are adjacent arms of one `match` in `standard.rs`; as
+/// `bool`s a transposition compiled and silently inverted the operation.
+pub(crate) use temporal_zoned_date_time_methods::{
+    ZonedDateTimeArithmetic, ZonedDateTimeDifference,
+};
 mod weak_ref;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xC2, 0xA0],       // U+00A0

@@ -1823,7 +1823,10 @@ impl<'a> AnalysisBuilder<'a> {
                     | IterableLoopInitializer::Const(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
-                                bindings.insert(tdz_binding_storage_name(&bound.source_name));
+                                bindings.insert(
+                                    TdzPlaceholderName::for_source_name(&bound.source_name)
+                                        .into_string(),
+                                );
                             }
                         }
                     }
@@ -1858,7 +1861,10 @@ impl<'a> AnalysisBuilder<'a> {
                     | IterableLoopInitializer::Const(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
-                                bindings.insert(tdz_binding_storage_name(&bound.source_name));
+                                bindings.insert(
+                                    TdzPlaceholderName::for_source_name(&bound.source_name)
+                                        .into_string(),
+                                );
                             }
                         }
                     }
@@ -2035,7 +2041,10 @@ impl<'a> AnalysisBuilder<'a> {
                     | IterableLoopInitializer::Const(binding) => {
                         if let Some(bound_names) = supported_bound_names(interner, binding) {
                             for bound in bound_names {
-                                bindings.insert(tdz_binding_storage_name(&bound.source_name));
+                                bindings.insert(
+                                    TdzPlaceholderName::for_source_name(&bound.source_name)
+                                        .into_string(),
+                                );
                                 bindings.insert(for_of_loop_binding_storage_name(
                                     for_of,
                                     &bound.source_name,
@@ -2337,7 +2346,9 @@ impl<'a> AnalysisBuilder<'a> {
                 supported_bound_names(interner, binding)
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|bound| tdz_binding_storage_name(&bound.source_name))
+                    .map(|bound| {
+                        TdzPlaceholderName::for_source_name(&bound.source_name).into_string()
+                    })
                     .collect()
             }
             _ => BTreeSet::new(),
@@ -2357,7 +2368,12 @@ impl<'a> AnalysisBuilder<'a> {
         supported_bound_names(interner, binding)
             .unwrap_or_default()
             .into_iter()
-            .map(|bound| (tdz_binding_storage_name(&bound.source_name), mode))
+            .map(|bound| {
+                (
+                    TdzPlaceholderName::for_source_name(&bound.source_name).into_string(),
+                    mode,
+                )
+            })
             .collect()
     }
 
@@ -2410,7 +2426,9 @@ impl<'a> AnalysisBuilder<'a> {
                 supported_bound_names(interner, binding)
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|bound| tdz_binding_storage_name(&bound.source_name))
+                    .map(|bound| {
+                        TdzPlaceholderName::for_source_name(&bound.source_name).into_string()
+                    })
                     .collect()
             }
             _ => BTreeSet::new(),
@@ -2430,7 +2448,12 @@ impl<'a> AnalysisBuilder<'a> {
         supported_bound_names(interner, binding)
             .unwrap_or_default()
             .into_iter()
-            .map(|bound| (tdz_binding_storage_name(&bound.source_name), mode))
+            .map(|bound| {
+                (
+                    TdzPlaceholderName::for_source_name(&bound.source_name).into_string(),
+                    mode,
+                )
+            })
             .collect()
     }
 
@@ -4145,7 +4168,8 @@ impl<'a> AnalysisBuilder<'a> {
                             for bound in bound_names {
                                 head_aliases.insert(
                                     bound.source_name.clone(),
-                                    tdz_binding_storage_name(&bound.source_name),
+                                    TdzPlaceholderName::for_source_name(&bound.source_name)
+                                        .into_string(),
                                 );
                             }
                         }
@@ -4296,7 +4320,8 @@ impl<'a> AnalysisBuilder<'a> {
                         for bound in bound_names {
                             head_aliases.insert(
                                 bound.source_name.clone(),
-                                tdz_binding_storage_name(&bound.source_name),
+                                TdzPlaceholderName::for_source_name(&bound.source_name)
+                                    .into_string(),
                             );
                         }
                     }

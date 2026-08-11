@@ -87,8 +87,8 @@ use crate::{
     FunctionId, AGENT_BROADCAST_NAME, AGENT_GET_REPORT_NAME, AGENT_LEAVING_NAME,
     AGENT_MONOTONIC_NOW_NAME, AGENT_RECEIVE_BROADCAST_NAME, AGENT_REPORT_NAME, AGENT_SLEEP_NAME,
     AGENT_START_NAME, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ASSERT_THROWS_NAME,
-    BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
-    BUILTIN_AGGREGATE_ERROR_FUNCTION_ID, BUILTIN_ARRAY_BUFFER_FUNCTION_ID,
+    ASYNC_DISPOSABLE_STACK_NAME, BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME,
+    BOOLEAN_NAME, BUILTIN_AGGREGATE_ERROR_FUNCTION_ID, BUILTIN_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_PROTOTYPE_DETACHED_GETTER_FUNCTION_ID,
@@ -125,7 +125,17 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID,
-    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
+    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID,
+    BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
     BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
     BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
     BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FULFILLED_FUNCTION_ID,
@@ -387,12 +397,16 @@ use crate::{
     BUILTIN_STRING_PROTOTYPE_TRIM_START_FUNCTION_ID, BUILTIN_STRING_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_STRING_RAW_FUNCTION_ID, BUILTIN_SUPPRESSED_ERROR_FUNCTION_ID,
     BUILTIN_SYMBOL_FOR_FUNCTION_ID, BUILTIN_SYMBOL_FUNCTION_ID, BUILTIN_SYMBOL_KEY_FOR_FUNCTION_ID,
-    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID,
-    BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID,
+    BUILTIN_SYNTAX_ERROR_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID, BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID,
     BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID,
+    BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID,
     BUILTIN_TEMPORAL_NOW_INSTANT_FUNCTION_ID, BUILTIN_TEMPORAL_NOW_TIME_ZONE_ID_FUNCTION_ID,
     BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID,
     BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID, BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID,
@@ -464,11 +478,14 @@ use crate::{
     BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID,
@@ -479,8 +496,13 @@ use crate::{
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
@@ -1090,10 +1112,15 @@ pub enum StandardBuiltinId {
     TemporalNowZonedDateTimeIso,
     TemporalInstantConstructor,
     TemporalInstantFrom,
+    TemporalInstantCompare,
+    TemporalInstantFromEpochMilliseconds,
+    TemporalInstantFromEpochNanoseconds,
     TemporalInstantPrototypeEpochMillisecondsGetter,
     TemporalInstantPrototypeEpochNanosecondsGetter,
     TemporalInstantPrototypeEquals,
     TemporalInstantPrototypeToString,
+    TemporalInstantPrototypeToJson,
+    TemporalInstantPrototypeValueOf,
     TemporalZonedDateTimeConstructor,
     TemporalZonedDateTimeFrom,
     TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
@@ -1102,6 +1129,8 @@ pub enum StandardBuiltinId {
     TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
     TemporalZonedDateTimePrototypeTimeZoneIdGetter,
     TemporalZonedDateTimePrototypeCalendarIdGetter,
+    TemporalZonedDateTimePrototypeEraGetter,
+    TemporalZonedDateTimePrototypeEraYearGetter,
     TemporalZonedDateTimePrototypeYearGetter,
     TemporalZonedDateTimePrototypeMonthGetter,
     TemporalZonedDateTimePrototypeMonthCodeGetter,
@@ -1114,7 +1143,32 @@ pub enum StandardBuiltinId {
     TemporalZonedDateTimePrototypeNanosecondGetter,
     TemporalZonedDateTimePrototypeEquals,
     TemporalZonedDateTimePrototypeToInstant,
+    TemporalZonedDateTimePrototypeToPlainDateTime,
     TemporalZonedDateTimePrototypeWithTimeZone,
+    // The five members added in batch 6 sit at the end of the ZonedDateTime
+    // block rather than in spec property order, because variant order is
+    // load-bearing three ways and none of them is "reads like the spec":
+    // `all_functions()` order feeds Wasm function indices, `all_globals()` is
+    // deliberately not declaration order, and variant order feeds `Ord` for the
+    // `BTreeSet<StandardBuiltinId>` the rooting plan iterates. Spec property
+    // order is expressed where it is actually observable, in the define-property
+    // sequence in `install_temporal_zoned_date_time_constructor_intrinsics`.
+    //
+    // "END OF THE ZONEDDATETIME BLOCK" IS NOT "END OF THE ENUM", and an earlier
+    // wording here — "appending keeps every pre-existing index stable" — read as
+    // though it were. Counted on this file: `all_functions()` holds 770 entries
+    // and `TemporalZonedDateTimePrototypeWithCalendar` is at index 480, so the
+    // 285 entries after these five each moved by 5 and their Wasm function
+    // indices moved with them (`emit.rs` assigns from that iteration order).
+    // That is fine for FEATURE work, which is what this was; it is exactly what
+    // a refactor gated on rung G byte-identity must not do. If you are inserting
+    // a variant during such a refactor, append at the END OF THE ENUM instead,
+    // and re-read this paragraph before deciding the two are the same thing.
+    TemporalZonedDateTimePrototypeWithCalendar,
+    TemporalZonedDateTimePrototypeAdd,
+    TemporalZonedDateTimePrototypeSubtract,
+    TemporalZonedDateTimePrototypeUntil,
+    TemporalZonedDateTimePrototypeSince,
     IntlGetCanonicalLocales,
     IntlLocaleConstructor,
     IntlLocalePrototypeLanguageGetter,
@@ -1356,6 +1410,15 @@ pub enum StandardBuiltinId {
     FinalizationRegistryConstructor,
     FinalizationRegistryPrototypeRegister,
     FinalizationRegistryPrototypeUnregister,
+    AsyncDisposableStackConstructor,
+    AsyncDisposableStackPrototypeUse,
+    AsyncDisposableStackPrototypeAdopt,
+    AsyncDisposableStackPrototypeDefer,
+    AsyncDisposableStackPrototypeMove,
+    AsyncDisposableStackPrototypeDisposeAsync,
+    AsyncDisposableStackPrototypeDisposedGetter,
+    AsyncDisposableStackDisposeAsyncFulfilled,
+    AsyncDisposableStackDisposeAsyncRejected,
     SetConstructor,
     SetSpeciesGetter,
     SetPrototypeAdd,
@@ -1467,6 +1530,15 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryConstructor => Some(FINALIZATION_REGISTRY_NAME),
             Self::FinalizationRegistryPrototypeRegister
             | Self::FinalizationRegistryPrototypeUnregister => None,
+            Self::AsyncDisposableStackConstructor => Some(ASYNC_DISPOSABLE_STACK_NAME),
+            Self::AsyncDisposableStackPrototypeUse
+            | Self::AsyncDisposableStackPrototypeAdopt
+            | Self::AsyncDisposableStackPrototypeDefer
+            | Self::AsyncDisposableStackPrototypeMove
+            | Self::AsyncDisposableStackPrototypeDisposeAsync
+            | Self::AsyncDisposableStackPrototypeDisposedGetter
+            | Self::AsyncDisposableStackDisposeAsyncFulfilled
+            | Self::AsyncDisposableStackDisposeAsyncRejected => None,
             Self::SetConstructor => Some(SET_NAME),
             Self::SetSpeciesGetter
             | Self::SetPrototypeAdd
@@ -1657,10 +1729,15 @@ impl StandardBuiltinId {
             | Self::TemporalNowZonedDateTimeIso
             | Self::TemporalInstantConstructor
             | Self::TemporalInstantFrom
+            | Self::TemporalInstantCompare
+            | Self::TemporalInstantFromEpochMilliseconds
+            | Self::TemporalInstantFromEpochNanoseconds
             | Self::TemporalInstantPrototypeEpochMillisecondsGetter
             | Self::TemporalInstantPrototypeEpochNanosecondsGetter
             | Self::TemporalInstantPrototypeEquals
             | Self::TemporalInstantPrototypeToString
+            | Self::TemporalInstantPrototypeToJson
+            | Self::TemporalInstantPrototypeValueOf
             | Self::TemporalZonedDateTimeConstructor
             | Self::TemporalZonedDateTimeFrom
             | Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
@@ -1669,6 +1746,8 @@ impl StandardBuiltinId {
             | Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | Self::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | Self::TemporalZonedDateTimePrototypeEraGetter
+            | Self::TemporalZonedDateTimePrototypeEraYearGetter
             | Self::TemporalZonedDateTimePrototypeYearGetter
             | Self::TemporalZonedDateTimePrototypeMonthGetter
             | Self::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1681,7 +1760,13 @@ impl StandardBuiltinId {
             | Self::TemporalZonedDateTimePrototypeNanosecondGetter
             | Self::TemporalZonedDateTimePrototypeEquals
             | Self::TemporalZonedDateTimePrototypeToInstant
+            | Self::TemporalZonedDateTimePrototypeToPlainDateTime
             | Self::TemporalZonedDateTimePrototypeWithTimeZone
+            | Self::TemporalZonedDateTimePrototypeWithCalendar
+            | Self::TemporalZonedDateTimePrototypeAdd
+            | Self::TemporalZonedDateTimePrototypeSubtract
+            | Self::TemporalZonedDateTimePrototypeUntil
+            | Self::TemporalZonedDateTimePrototypeSince
             | Self::IntlGetCanonicalLocales
             | Self::IntlLocaleConstructor
             | Self::IntlLocalePrototypeLanguageGetter
@@ -2803,6 +2888,9 @@ impl StandardBuiltinId {
             Self::TemporalNowZonedDateTimeIso => "Temporal.Now.zonedDateTimeISO",
             Self::TemporalInstantConstructor => "Temporal.Instant",
             Self::TemporalInstantFrom => "Temporal.Instant.from",
+            Self::TemporalInstantCompare => "Temporal.Instant.compare",
+            Self::TemporalInstantFromEpochMilliseconds => "Temporal.Instant.fromEpochMilliseconds",
+            Self::TemporalInstantFromEpochNanoseconds => "Temporal.Instant.fromEpochNanoseconds",
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 "get Temporal.Instant.prototype.epochMilliseconds"
             }
@@ -2811,6 +2899,8 @@ impl StandardBuiltinId {
             }
             Self::TemporalInstantPrototypeEquals => "Temporal.Instant.prototype.equals",
             Self::TemporalInstantPrototypeToString => "Temporal.Instant.prototype.toString",
+            Self::TemporalInstantPrototypeToJson => "Temporal.Instant.prototype.toJSON",
+            Self::TemporalInstantPrototypeValueOf => "Temporal.Instant.prototype.valueOf",
             Self::TemporalZonedDateTimeConstructor => "Temporal.ZonedDateTime",
             Self::TemporalZonedDateTimeFrom => "Temporal.ZonedDateTime.from",
             Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
@@ -2830,6 +2920,12 @@ impl StandardBuiltinId {
             }
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter => {
                 "get Temporal.ZonedDateTime.prototype.calendarId"
+            }
+            Self::TemporalZonedDateTimePrototypeEraGetter => {
+                "get Temporal.ZonedDateTime.prototype.era"
+            }
+            Self::TemporalZonedDateTimePrototypeEraYearGetter => {
+                "get Temporal.ZonedDateTime.prototype.eraYear"
             }
             Self::TemporalZonedDateTimePrototypeYearGetter => {
                 "get Temporal.ZonedDateTime.prototype.year"
@@ -2865,9 +2961,21 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeToInstant => {
                 "Temporal.ZonedDateTime.prototype.toInstant"
             }
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime => {
+                "Temporal.ZonedDateTime.prototype.toPlainDateTime"
+            }
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 "Temporal.ZonedDateTime.prototype.withTimeZone"
             }
+            Self::TemporalZonedDateTimePrototypeWithCalendar => {
+                "Temporal.ZonedDateTime.prototype.withCalendar"
+            }
+            Self::TemporalZonedDateTimePrototypeAdd => "Temporal.ZonedDateTime.prototype.add",
+            Self::TemporalZonedDateTimePrototypeSubtract => {
+                "Temporal.ZonedDateTime.prototype.subtract"
+            }
+            Self::TemporalZonedDateTimePrototypeUntil => "Temporal.ZonedDateTime.prototype.until",
+            Self::TemporalZonedDateTimePrototypeSince => "Temporal.ZonedDateTime.prototype.since",
             Self::IntlGetCanonicalLocales => "Intl.getCanonicalLocales",
             Self::IntlLocaleConstructor => "Intl.Locale",
             Self::IntlLocalePrototypeLanguageGetter => "get Intl.Locale.prototype.language",
@@ -3124,6 +3232,23 @@ impl StandardBuiltinId {
             }
             Self::FinalizationRegistryPrototypeUnregister => {
                 "FinalizationRegistry.prototype.unregister"
+            }
+            Self::AsyncDisposableStackConstructor => ASYNC_DISPOSABLE_STACK_NAME,
+            Self::AsyncDisposableStackPrototypeUse => "AsyncDisposableStack.prototype.use",
+            Self::AsyncDisposableStackPrototypeAdopt => "AsyncDisposableStack.prototype.adopt",
+            Self::AsyncDisposableStackPrototypeDefer => "AsyncDisposableStack.prototype.defer",
+            Self::AsyncDisposableStackPrototypeMove => "AsyncDisposableStack.prototype.move",
+            Self::AsyncDisposableStackPrototypeDisposeAsync => {
+                "AsyncDisposableStack.prototype.disposeAsync"
+            }
+            Self::AsyncDisposableStackPrototypeDisposedGetter => {
+                "get AsyncDisposableStack.prototype.disposed"
+            }
+            Self::AsyncDisposableStackDisposeAsyncFulfilled => {
+                "AsyncDisposableStack disposeAsync Fulfilled Function"
+            }
+            Self::AsyncDisposableStackDisposeAsyncRejected => {
+                "AsyncDisposableStack disposeAsync Rejected Function"
             }
             Self::SetConstructor => SET_NAME,
             Self::SetSpeciesGetter => "get Set [Symbol.species]",
@@ -4282,6 +4407,15 @@ impl StandardBuiltinId {
             }
             Self::TemporalInstantConstructor => BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID.to_string(),
             Self::TemporalInstantFrom => BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID.to_string(),
+            Self::TemporalInstantCompare => {
+                BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantFromEpochMilliseconds => {
+                BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantFromEpochNanoseconds => {
+                BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID.to_string()
+            }
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID.to_string()
             }
@@ -4293,6 +4427,12 @@ impl StandardBuiltinId {
             }
             Self::TemporalInstantPrototypeToString => {
                 BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeToJson => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID.to_string()
+            }
+            Self::TemporalInstantPrototypeValueOf => {
+                BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID.to_string()
             }
             Self::TemporalZonedDateTimeConstructor => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID.to_string()
@@ -4322,6 +4462,12 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID
                     .to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeEraGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeEraYearGetter => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID.to_string()
             }
             Self::TemporalZonedDateTimePrototypeYearGetter => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID.to_string()
@@ -4361,8 +4507,27 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeToInstant => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID.to_string()
             }
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID
+                    .to_string()
+            }
             Self::TemporalZonedDateTimePrototypeWithTimeZone => {
                 BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeWithCalendar => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeAdd => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeSubtract => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeUntil => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID.to_string()
+            }
+            Self::TemporalZonedDateTimePrototypeSince => {
+                BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID.to_string()
             }
             Self::IntlGetCanonicalLocales => {
                 BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID.to_string()
@@ -4781,6 +4946,33 @@ impl StandardBuiltinId {
             }
             Self::FinalizationRegistryPrototypeUnregister => {
                 BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackConstructor => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeUse => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeAdopt => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeDefer => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeMove => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeDisposeAsync => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeDisposedGetter => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackDisposeAsyncFulfilled => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackDisposeAsyncRejected => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID.to_string()
             }
             Self::SetConstructor => BUILTIN_SET_FUNCTION_ID.to_string(),
             Self::SetSpeciesGetter => BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID.to_string(),
@@ -5831,6 +6023,13 @@ impl StandardBuiltinId {
             }
             BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID => Some(Self::TemporalInstantConstructor),
             BUILTIN_TEMPORAL_INSTANT_FROM_FUNCTION_ID => Some(Self::TemporalInstantFrom),
+            BUILTIN_TEMPORAL_INSTANT_COMPARE_FUNCTION_ID => Some(Self::TemporalInstantCompare),
+            BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_MILLISECONDS_FUNCTION_ID => {
+                Some(Self::TemporalInstantFromEpochMilliseconds)
+            }
+            BUILTIN_TEMPORAL_INSTANT_FROM_EPOCH_NANOSECONDS_FUNCTION_ID => {
+                Some(Self::TemporalInstantFromEpochNanoseconds)
+            }
             BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID => {
                 Some(Self::TemporalInstantPrototypeEpochMillisecondsGetter)
             }
@@ -5842,6 +6041,12 @@ impl StandardBuiltinId {
             }
             BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID => {
                 Some(Self::TemporalInstantPrototypeToString)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeToJson)
+            }
+            BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID => {
+                Some(Self::TemporalInstantPrototypeValueOf)
             }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimeConstructor)
@@ -5866,6 +6071,12 @@ impl StandardBuiltinId {
             }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_CALENDAR_ID_GETTER_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeCalendarIdGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEraGetter)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeEraYearGetter)
             }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeYearGetter)
@@ -5903,8 +6114,26 @@ impl StandardBuiltinId {
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeToInstant)
             }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeToPlainDateTime)
+            }
             BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID => {
                 Some(Self::TemporalZonedDateTimePrototypeWithTimeZone)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeWithCalendar)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeAdd)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeSubtract)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeUntil)
+            }
+            BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID => {
+                Some(Self::TemporalZonedDateTimePrototypeSince)
             }
             BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID => Some(Self::IntlGetCanonicalLocales),
             BUILTIN_INTL_LOCALE_FUNCTION_ID => Some(Self::IntlLocaleConstructor),
@@ -6251,6 +6480,33 @@ impl StandardBuiltinId {
             BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID => {
                 Some(Self::FinalizationRegistryPrototypeUnregister)
             }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackConstructor)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeUse)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeAdopt)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeDefer)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeMove)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeDisposeAsync)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeDisposedGetter)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackDisposeAsyncFulfilled)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackDisposeAsyncRejected)
+            }
             BUILTIN_SET_FUNCTION_ID => Some(Self::SetConstructor),
             BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID => Some(Self::SetSpeciesGetter),
             BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID => Some(Self::SetPrototypeAdd),
@@ -6345,6 +6601,7 @@ impl StandardBuiltinId {
             Self::WeakSetConstructor,
             Self::WeakRefConstructor,
             Self::FinalizationRegistryConstructor,
+            Self::AsyncDisposableStackConstructor,
             Self::SetConstructor,
             Self::SymbolConstructor,
             Self::ErrorConstructor,
@@ -6814,10 +7071,15 @@ impl StandardBuiltinId {
             Self::TemporalNowZonedDateTimeIso,
             Self::TemporalInstantConstructor,
             Self::TemporalInstantFrom,
+            Self::TemporalInstantCompare,
+            Self::TemporalInstantFromEpochMilliseconds,
+            Self::TemporalInstantFromEpochNanoseconds,
             Self::TemporalInstantPrototypeEpochMillisecondsGetter,
             Self::TemporalInstantPrototypeEpochNanosecondsGetter,
             Self::TemporalInstantPrototypeEquals,
             Self::TemporalInstantPrototypeToString,
+            Self::TemporalInstantPrototypeToJson,
+            Self::TemporalInstantPrototypeValueOf,
             Self::TemporalZonedDateTimeConstructor,
             Self::TemporalZonedDateTimeFrom,
             Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
@@ -6826,6 +7088,8 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
             Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter,
+            Self::TemporalZonedDateTimePrototypeEraGetter,
+            Self::TemporalZonedDateTimePrototypeEraYearGetter,
             Self::TemporalZonedDateTimePrototypeYearGetter,
             Self::TemporalZonedDateTimePrototypeMonthGetter,
             Self::TemporalZonedDateTimePrototypeMonthCodeGetter,
@@ -6838,7 +7102,13 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeNanosecondGetter,
             Self::TemporalZonedDateTimePrototypeEquals,
             Self::TemporalZonedDateTimePrototypeToInstant,
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime,
             Self::TemporalZonedDateTimePrototypeWithTimeZone,
+            Self::TemporalZonedDateTimePrototypeWithCalendar,
+            Self::TemporalZonedDateTimePrototypeAdd,
+            Self::TemporalZonedDateTimePrototypeSubtract,
+            Self::TemporalZonedDateTimePrototypeUntil,
+            Self::TemporalZonedDateTimePrototypeSince,
             Self::IntlGetCanonicalLocales,
             Self::IntlLocaleConstructor,
             Self::IntlLocalePrototypeLanguageGetter,
@@ -7080,6 +7350,15 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryConstructor,
             Self::FinalizationRegistryPrototypeRegister,
             Self::FinalizationRegistryPrototypeUnregister,
+            Self::AsyncDisposableStackConstructor,
+            Self::AsyncDisposableStackPrototypeUse,
+            Self::AsyncDisposableStackPrototypeAdopt,
+            Self::AsyncDisposableStackPrototypeDefer,
+            Self::AsyncDisposableStackPrototypeMove,
+            Self::AsyncDisposableStackPrototypeDisposeAsync,
+            Self::AsyncDisposableStackPrototypeDisposedGetter,
+            Self::AsyncDisposableStackDisposeAsyncFulfilled,
+            Self::AsyncDisposableStackDisposeAsyncRejected,
             Self::SetConstructor,
             Self::SetSpeciesGetter,
             Self::SetPrototypeAdd,
@@ -7154,6 +7433,7 @@ impl StandardBuiltinId {
                 | Self::WeakSetConstructor
                 | Self::WeakRefConstructor
                 | Self::FinalizationRegistryConstructor
+                | Self::AsyncDisposableStackConstructor
                 | Self::SetConstructor
                 | Self::BoundFunctionInvoker
                 | Self::ObjectConstructor
@@ -7844,10 +8124,15 @@ impl StandardBuiltinId {
             Self::TemporalNowZonedDateTimeIso => Some("zonedDateTimeISO"),
             Self::TemporalInstantConstructor => Some(TEMPORAL_INSTANT_NAME),
             Self::TemporalInstantFrom => Some("from"),
+            Self::TemporalInstantCompare => Some("compare"),
+            Self::TemporalInstantFromEpochMilliseconds => Some("fromEpochMilliseconds"),
+            Self::TemporalInstantFromEpochNanoseconds => Some("fromEpochNanoseconds"),
             Self::TemporalInstantPrototypeEpochMillisecondsGetter => Some("get epochMilliseconds"),
             Self::TemporalInstantPrototypeEpochNanosecondsGetter => Some("get epochNanoseconds"),
             Self::TemporalInstantPrototypeEquals => Some("equals"),
             Self::TemporalInstantPrototypeToString => Some("toString"),
+            Self::TemporalInstantPrototypeToJson => Some("toJSON"),
+            Self::TemporalInstantPrototypeValueOf => Some("valueOf"),
             Self::TemporalZonedDateTimeConstructor => Some("ZonedDateTime"),
             Self::TemporalZonedDateTimeFrom => Some("from"),
             Self::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
@@ -7862,6 +8147,8 @@ impl StandardBuiltinId {
             }
             Self::TemporalZonedDateTimePrototypeTimeZoneIdGetter => Some("get timeZoneId"),
             Self::TemporalZonedDateTimePrototypeCalendarIdGetter => Some("get calendarId"),
+            Self::TemporalZonedDateTimePrototypeEraGetter => Some("get era"),
+            Self::TemporalZonedDateTimePrototypeEraYearGetter => Some("get eraYear"),
             Self::TemporalZonedDateTimePrototypeYearGetter => Some("get year"),
             Self::TemporalZonedDateTimePrototypeMonthGetter => Some("get month"),
             Self::TemporalZonedDateTimePrototypeMonthCodeGetter => Some("get monthCode"),
@@ -7874,7 +8161,13 @@ impl StandardBuiltinId {
             Self::TemporalZonedDateTimePrototypeNanosecondGetter => Some("get nanosecond"),
             Self::TemporalZonedDateTimePrototypeEquals => Some("equals"),
             Self::TemporalZonedDateTimePrototypeToInstant => Some("toInstant"),
+            Self::TemporalZonedDateTimePrototypeToPlainDateTime => Some("toPlainDateTime"),
             Self::TemporalZonedDateTimePrototypeWithTimeZone => Some("withTimeZone"),
+            Self::TemporalZonedDateTimePrototypeWithCalendar => Some("withCalendar"),
+            Self::TemporalZonedDateTimePrototypeAdd => Some("add"),
+            Self::TemporalZonedDateTimePrototypeSubtract => Some("subtract"),
+            Self::TemporalZonedDateTimePrototypeUntil => Some("until"),
+            Self::TemporalZonedDateTimePrototypeSince => Some("since"),
             Self::RegExpConstructor => Some(REGEXP_NAME),
             Self::RegExpSpeciesGetter => Some("get [Symbol.species]"),
             Self::RegExpPrototypeFlagsGetter => Some("get flags"),
@@ -8096,6 +8389,15 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryConstructor => Some(FINALIZATION_REGISTRY_NAME),
             Self::FinalizationRegistryPrototypeRegister => Some("register"),
             Self::FinalizationRegistryPrototypeUnregister => Some("unregister"),
+            Self::AsyncDisposableStackConstructor => Some(ASYNC_DISPOSABLE_STACK_NAME),
+            Self::AsyncDisposableStackPrototypeUse => Some("use"),
+            Self::AsyncDisposableStackPrototypeAdopt => Some("adopt"),
+            Self::AsyncDisposableStackPrototypeDefer => Some("defer"),
+            Self::AsyncDisposableStackPrototypeMove => Some("move"),
+            Self::AsyncDisposableStackPrototypeDisposeAsync => Some("disposeAsync"),
+            Self::AsyncDisposableStackPrototypeDisposedGetter => Some("get disposed"),
+            Self::AsyncDisposableStackDisposeAsyncFulfilled
+            | Self::AsyncDisposableStackDisposeAsyncRejected => Some(""),
             Self::SetConstructor => Some(SET_NAME),
             Self::SetSpeciesGetter => Some("get [Symbol.species]"),
             Self::SetPrototypeAdd => Some("add"),
@@ -8442,6 +8744,70 @@ mod tests {
             .contains(&StandardBuiltinId::FinalizationRegistryConstructor));
     }
 
+    /// Every `AsyncDisposableStack` member is reachable by its spec function id
+    /// and carries the `name` that `built-ins/AsyncDisposableStack/**/name.js`
+    /// asserts. The two settlement callbacks are anonymous (`""`), matching the
+    /// `AsyncIterator` `@@asyncDispose` pair they are copied from.
+    #[test]
+    fn async_disposable_stack_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (
+                StandardBuiltinId::AsyncDisposableStackConstructor,
+                "AsyncDisposableStack",
+            ),
+            (StandardBuiltinId::AsyncDisposableStackPrototypeUse, "use"),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeAdopt,
+                "adopt",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeDefer,
+                "defer",
+            ),
+            (StandardBuiltinId::AsyncDisposableStackPrototypeMove, "move"),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync,
+                "disposeAsync",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter,
+                "get disposed",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled,
+                "",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected,
+                "",
+            ),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+
+        // `is-a-constructor.js` and every `prototype/*/not-a-constructor.js`
+        // must hold simultaneously: only the constructor is constructable.
+        assert!(StandardBuiltinId::AsyncDisposableStackConstructor.constructable());
+        for builtin in [
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse,
+            StandardBuiltinId::AsyncDisposableStackPrototypeAdopt,
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer,
+            StandardBuiltinId::AsyncDisposableStackPrototypeMove,
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync,
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter,
+        ] {
+            assert!(!builtin.constructable(), "{builtin:?} must not construct");
+        }
+        assert!(StandardBuiltinId::all_globals()
+            .contains(&StandardBuiltinId::AsyncDisposableStackConstructor));
+    }
+
     #[test]
     fn temporal_now_members_are_registered_as_nonconstructable_functions() {
         for (builtin, debug_name, native_name) in [
@@ -8528,6 +8894,19 @@ mod tests {
     #[test]
     fn temporal_zoned_date_time_civil_accessors_and_equals_are_registered() {
         for (builtin, native_name) in [
+            // `era`/`eraYear` sit here rather than in their own test because
+            // they are the same kind of thing as the ten civil accessors: a
+            // zero-argument prototype getter that reads the receiver's record.
+            // The only difference is that their answer can be `undefined`,
+            // which is a codegen fact, not a registration one.
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+                "get era",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+                "get eraYear",
+            ),
             (
                 StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
                 "get year",
@@ -8598,6 +8977,101 @@ mod tests {
         assert_eq!(builtin.native_function_name(), Some("withTimeZone"));
         assert!(!builtin.constructable());
         assert!(StandardBuiltinId::all_functions().contains(&builtin));
+    }
+
+    /// `toPlainDateTime` is the inverse of
+    /// `Temporal.PlainDateTime.prototype.toZonedDateTime`, and the only way the
+    /// `intl402/Temporal/ZonedDateTime/**/era-boundary-gregory.js` family can
+    /// observe a ZonedDateTime's calendar fields at all — `TemporalHelpers`
+    /// asserts on a `PlainDateTime`, never on the zoned value.
+    #[test]
+    fn temporal_zoned_date_time_to_plain_date_time_is_registered_as_a_nonconstructable_method() {
+        let builtin = StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime;
+
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&builtin.function_id()),
+            Some(builtin)
+        );
+        assert_eq!(
+            builtin.debug_name(),
+            "Temporal.ZonedDateTime.prototype.toPlainDateTime"
+        );
+        assert_eq!(builtin.native_function_name(), Some("toPlainDateTime"));
+        assert!(!builtin.constructable());
+        assert!(StandardBuiltinId::all_functions().contains(&builtin));
+    }
+
+    /// The arithmetic/calendar surface added in batch 6.
+    ///
+    /// Before it, `Temporal.ZonedDateTime.prototype` carried 18 accessors and
+    /// exactly four data methods (`equals`, `toInstant`, `withTimeZone`,
+    /// `toPlainDateTime`), so `zdt.add(...)` read `undefined` off the prototype
+    /// and the call threw `TypeError: value is not callable`. That is the whole
+    /// mechanism behind the 28 measured
+    /// `intl402/Temporal/ZonedDateTime/prototype/{add,subtract,since,until}/era-boundary-*.js`
+    /// failures — nothing was mis-rooted, the members did not exist.
+    ///
+    /// `withCalendar` is in this list because it is not optional for the
+    /// gate: `since/era-boundary-gregory.js:65` and its `until` twin call
+    /// `one.withCalendar("iso8601")` to build the ISO oracle they compare the
+    /// `weeks`/`days` answers against, so four of the 28 cases need five
+    /// callables, not four.
+    #[test]
+    fn temporal_zoned_date_time_arithmetic_surface_is_registered_as_nonconstructable_methods() {
+        for (builtin, native_name, debug_name) in [
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+                "withCalendar",
+                "Temporal.ZonedDateTime.prototype.withCalendar",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+                "add",
+                "Temporal.ZonedDateTime.prototype.add",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+                "subtract",
+                "Temporal.ZonedDateTime.prototype.subtract",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+                "until",
+                "Temporal.ZonedDateTime.prototype.until",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+                "since",
+                "Temporal.ZonedDateTime.prototype.since",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin),
+                "{debug_name} must round-trip through its function id"
+            );
+            assert_eq!(builtin.debug_name(), debug_name);
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(!builtin.constructable());
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+            // The function ids of the five must be distinct from their
+            // `Temporal.PlainDateTime` namesakes, which is the one collision a
+            // copy-paste of the sibling family would produce: the ZonedDateTime
+            // bodies *delegate* to those, so an id collision would make the
+            // delegation a self-call.
+            assert_ne!(
+                builtin.function_id(),
+                match native_name {
+                    "withCalendar" =>
+                        StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar.function_id(),
+                    "add" => StandardBuiltinId::TemporalPlainDateTimePrototypeAdd.function_id(),
+                    "subtract" =>
+                        StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract.function_id(),
+                    "until" => StandardBuiltinId::TemporalPlainDateTimePrototypeUntil.function_id(),
+                    _ => StandardBuiltinId::TemporalPlainDateTimePrototypeSince.function_id(),
+                }
+            );
+        }
     }
 
     #[test]

@@ -212,15 +212,38 @@ Useful local checks:
 
 ```sh
 cargo test -p porffor-engine --quiet
-./scripts/run-watched.sh --label cli -- cargo test -p porffor-cli --test cli -- --skip atomics_wait_core
+./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p porffor-cli --test cli -- --test-threads=2
 ./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
 ./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
-The CLI suite takes about 26 minutes and **must** skip `atomics_wait_core`:
-that case hangs indefinitely, so a plain `cargo test -p porffor-cli` reaches 580
-of 581 tests and then spins forever (tracked under T17). Compare results against
-`crates/porffor-cli/tests/known-failures.txt` rather than against zero.
+The CLI suite is 589 executing tests (590 compile; 8 more sit behind the
+`spec-exec-oracle` feature): about 26 minutes at `--test-threads=8` on 16 CPUs,
+an estimated 1 h 45 min at `--test-threads=2`. Raise the thread count on a
+machine with spare cores, but keep `--stall 900` — a single cold Wasm-AOT
+compile can exceed the 300 s default of log silence, and the guard then kills a
+healthy run with exit code 124.
+
+**Do not use `--test-threads=1`.** libtest then runs every test on the thread
+named `main`, the per-test name the suite routes on is unavailable, and all 589
+tests fall back to spawning a cold `porf` child process instead of the warm
+in-process call the 26-minute figure is built on. It is correct and terminating,
+just far slower. For a single test use `-- --exact <name>`.
+
+It no longer needs `--skip atomics_wait_core`. That case still hangs (tracked
+under T17), but it is now a declared hang in
+`crates/porffor-cli/tests/known-failures.tsv`: `tests/cli/main.rs` runs it as a
+real child process and kills it after the hang timeout, so the suite terminates
+and the hang is reported as a bounded, expected failure. A hang in a test with
+*no* ledger row is bounded too, on the in-process path, so the suite terminates
+either way.
+
+Do not compare the result against a list by hand. That ledger is enforced by
+the suite itself — a new failure, a declared failure that starts passing, a
+declared failure that fails for a *different* reason, a renamed or deleted
+declared test, an orphan ledger row, or an `#[ignore]` with no owner all turn
+rung 1c red. Green means exactly the declared outcomes, for the declared
+reasons.
 
 For local Wasm-AOT Test262 iteration, use the default in-process case runner:
 execution remains exact-source, realm-isolated, and epoch-timeout bounded while
@@ -4458,7 +4481,7 @@ cargo test -p porffor-test262 --quiet
 Wrap anything long in the stall guard rather than watching elapsed time:
 
 ```sh
-./scripts/run-watched.sh --label cli --stall 420 -- cargo test -p porffor-cli --test cli -- --test-threads=8 --skip atomics_wait_core
+./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p porffor-cli --test cli -- --test-threads=2
 ```
 
 `scripts/run-watched.sh` writes the command's output to `target/watched/<label>.log`,
@@ -4475,6 +4498,29 @@ modules of one target rather than separate `tests/*.rs` files because each extra
 integration target statically relinks a 143 MB binary. Per-test cost varies by
 more than 1.7x across modules, so do not extrapolate one module's runtime to the
 whole suite.
+
+Every expected non-green outcome in **`porffor-cli`'s three integration-test
+targets** (`cli`, `perf`, `async_generator`) is declared in
+`crates/porffor-cli/tests/known-failures.tsv` — target, libtest name, state
+(`fail`/`hang`/`ignored`/`unfilled`), owner task, reason, evidence — and
+enforced by `crates/porffor-cli/tests/cli/known_failures.rs`. Within that scope
+there is no skip list and no expected failure without an owner: an `#[ignore]`
+or a `#[should_panic]` with no row fails the suite, a row whose test no longer
+exists fails `cargo xc`, and a bare `#[should_panic]` (which would pass on any
+panic at all) is rejected outright.
+
+The scope is real, not a hedge: `TestTarget` is a closed three-variant enum and
+the source scan reads only `crates/porffor-cli/tests/`. Undeclared cases of
+exactly this shape survive one crate over — `porffor-aot-wasm` carries an
+`#[ignore]` with a reason but no owner, expiry or row (`src/planning.rs`), and an
+undeclared `#[should_panic]` (`src/control_flow.rs`). Extending the ledger to
+unit tests in other crates is open work, not a claim this paragraph makes.
+
+Before adding any tracked data file, run `git check-ignore -v <path>` and
+require exit status 1. `.gitignore` line 3 is a bare `*.txt` that applies
+tree-wide; it has already silently swallowed two files, which is why the ledger
+is a `.tsv` and why it is loaded with `include_str!` so its absence is a compile
+error.
 
 The workspace forbids unsafe Rust through workspace lints. Keep changes scoped
 to the Rust path unless a legacy file is being used deliberately as an oracle or

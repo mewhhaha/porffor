@@ -528,6 +528,23 @@ fn run_wasm_backend_succeeds_for_atomics_notify_core_fixture() {
     assert!(stdout.contains("number(890"));
 }
 
+/// Was the declared T17 hang; it is an ordinary passing test as of batch 6.
+///
+/// `Atomics.wait` used to block the process outright, so this ran as a guarded
+/// child killed after `main.rs`'s `HANG_TIMEOUT` and was pinned by
+/// `#[should_panic(expected = "porf run exceeded")]`. Batch 6 measured the
+/// stale-baseline signal the ledger row existed to produce: `binary_data::`
+/// reported `test did not panic as expected at binary_data.rs:550`, twice —
+/// once inside the chunk (37 passed / 1 failed, 870 s) and once alone under
+/// `--exact` (146 s). The row, the attribute, the `pub(crate)` and the
+/// compile-time assertion in `known_failures.rs` were deleted together, which
+/// is exactly what that comment asked the next batch to do.
+///
+/// The assertion is not vacuous: the fixture's untimed waits must each return
+/// `"not-equal"` immediately (`i32[0]` is set to `1` before
+/// `Atomics.wait(i32, 0, 0)`, and `assertGoodIndexes` stores `37` at
+/// `indexes[i]` before waiting on that same index), and the test pins the
+/// fixture's own completion value `number(901)` rather than merely a zero exit.
 #[test]
 fn run_wasm_backend_succeeds_for_atomics_wait_core_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))

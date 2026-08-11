@@ -8,6 +8,7 @@ use super::temporal_options::{
     ShowCalendarName, StringValuedOption, TemporalOverflow, TemporalRoundingMode, TemporalUnit,
     TemporalUnitSlot,
 };
+use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedYear};
 use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
 /// `ISO_REFERENCE_YEAR`, the year every `Temporal.PlainMonthDay` stores. 1972
@@ -141,13 +142,20 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `PrepareCalendarFields` for the `« year, month, month-code, day »` key
-    /// set, in the alphabetical order Test262's `order-of-operations.js` pins:
-    /// `calendar`, then `day`, `month`, `monthCode`, `year`.
+    /// set plus the era pair, in the alphabetical order Test262's
+    /// `order-of-operations.js` pins: `calendar`, then `day`, `era`, `eraYear`,
+    /// `month`, `monthCode`, `year`.
     ///
     /// Only reads. Validation is deliberately left to
-    /// `emit_temporal_plain_date_resolve_fields`, because
-    /// `CalendarResolveFields` runs after `GetTemporalOverflowOption` and the
-    /// option read is observable.
+    /// `emit_temporal_plain_date_resolve_fields` and
+    /// `emit_temporal_resolve_era_to_year`, because `CalendarResolveFields`
+    /// runs after `GetTemporalOverflowOption` and the option read is
+    /// observable.
+    ///
+    /// The era slots are reserved *before* this emitter's own scratch locals
+    /// and handed back to the caller, because `reserve_temp_local` is a strict
+    /// LIFO stack and the era pair has to outlive the sweep — see
+    /// [`FunctionBuilder::reserve_temporal_era_slots`].
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_plain_date_read_fields(
         &mut self,
@@ -166,7 +174,8 @@ impl<'a> FunctionBuilder<'a> {
         read_calendar: bool,
         strict_month_code: bool,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<TemporalEraLocals, EmitError> {
+        let era_slots = self.reserve_temporal_era_slots();
         let property_key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
@@ -194,27 +203,50 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        for (property, output_local, output_present_local) in [
-            ("day", day_local, day_present_local),
-            ("month", month_local, month_present_local),
-        ] {
-            self.emit_temporal_property_bag_positive_integer(
-                argument_payload_local,
-                argument_tag_local,
-                property,
-                property_key_local,
-                value_payload_local,
-                value_tag_local,
-                present_local,
-                output_local,
-                0,
-                "Temporal.PlainDate fields must be finite",
-                "Temporal.PlainDate month and day must be positive",
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::LocalSet(output_present_local));
-        }
+        // `day`, then the era pair, then `month`: the era keys sort between
+        // them, and the whole point of the sweep is that a Proxy bag observes
+        // the reads in exactly this order.
+        self.emit_temporal_property_bag_positive_integer(
+            argument_payload_local,
+            argument_tag_local,
+            "day",
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            present_local,
+            day_local,
+            0,
+            "Temporal.PlainDate fields must be finite",
+            "Temporal.PlainDate month and day must be positive",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::LocalSet(day_present_local));
+
+        let era = self.emit_temporal_read_era_fields(
+            era_slots,
+            argument_payload_local,
+            argument_tag_local,
+            calendar_payload_local,
+            function,
+        )?;
+
+        self.emit_temporal_property_bag_positive_integer(
+            argument_payload_local,
+            argument_tag_local,
+            "month",
+            property_key_local,
+            value_payload_local,
+            value_tag_local,
+            present_local,
+            month_local,
+            0,
+            "Temporal.PlainDate fields must be finite",
+            "Temporal.PlainDate month and day must be positive",
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::LocalSet(month_present_local));
 
         function.instruction(&Instruction::I64Const(self.strings.payload("monthCode")));
         function.instruction(&Instruction::LocalSet(property_key_local));
@@ -277,18 +309,23 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.release_temp_local(local);
         }
-        Ok(())
+        Ok(era)
     }
 
     /// `CalendarResolveFields` + `RegulateISODate`. Type errors for missing
     /// required keys come first, then the range errors — Test262's
     /// `from/calendarresolvefields-error-ordering.js` asserts exactly that
     /// split.
+    ///
+    /// The year arrives as a [`TemporalResolvedYear`] rather than as a bare
+    /// `(year, year-present)` pair, so a bag path that never ran
+    /// [`FunctionBuilder::emit_temporal_resolve_era_to_year`] cannot reach here
+    /// — it would answer "fields require year" for a perfectly good
+    /// `{ era, eraYear }` bag, which is the exact defect this replaces.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_plain_date_resolve_fields(
         &mut self,
-        year_local: u32,
-        year_present_local: u32,
+        resolved_year: &TemporalResolvedYear,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -298,6 +335,8 @@ impl<'a> FunctionBuilder<'a> {
         overflow_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let year_local = resolved_year.year_local();
+        let year_present_local = resolved_year.year_present_local();
         let month_from_code_local = self.reserve_temp_local();
         let expected_payload_local = self.reserve_temp_local();
 
@@ -543,7 +582,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_date_read_fields(
+        let era = self.emit_temporal_plain_date_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -568,9 +607,15 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        self.emit_temporal_plain_date_resolve_fields(
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
             year_local,
             year_present_local,
+            function,
+        )?;
+        self.emit_temporal_plain_date_resolve_fields(
+            &resolved_year,
             month_local,
             month_present_local,
             month_code_payload_local,
@@ -979,7 +1024,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
-        self.emit_temporal_plain_date_read_fields(
+        let era = self.emit_temporal_plain_date_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -996,6 +1041,9 @@ impl<'a> FunctionBuilder<'a> {
             false,
             function,
         )?;
+        // `era`/`eraYear` are date fields too: `instance.with({ era: "bce",
+        // eraYear: 1 })` must reach `CalendarResolveFields`, not this TypeError
+        // (`with/mutually-exclusive-fields-gregory.js`).
         function.instruction(&Instruction::LocalGet(year_present_local));
         function.instruction(&Instruction::LocalGet(month_present_local));
         function.instruction(&Instruction::I64Or);
@@ -1003,6 +1051,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalGet(day_present_local));
         function.instruction(&Instruction::I64Or);
+        for local in era.present_locals() {
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Or);
+        }
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -1021,12 +1073,16 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        function.instruction(&Instruction::LocalGet(year_present_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(year_local));
-        function.instruction(&Instruction::LocalSet(new_year_local));
-        function.instruction(&Instruction::End);
+        // Era resolution runs before the receiver merge, so `{ era, eraYear }`
+        // *excludes* the receiver's year rather than being checked against it.
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
+            new_year_local,
+            year_present_local,
+            function,
+        )?;
+        self.emit_temporal_resolved_year_default_to(&resolved_year, year_local, function);
         function.instruction(&Instruction::LocalGet(day_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1043,14 +1099,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(month_present_local));
         function.instruction(&Instruction::End);
-        for local in [year_present_local, day_present_local] {
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(local));
-        }
+        // `year` is already forced present by
+        // `emit_temporal_resolved_year_default_to` above.
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(day_present_local));
 
         self.emit_temporal_plain_date_resolve_fields(
-            new_year_local,
-            year_present_local,
+            &resolved_year,
             new_month_local,
             month_present_local,
             month_code_payload_local,
@@ -1257,48 +1312,17 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // `FormatCalendarAnnotation`: `auto` suppresses the annotation for the
-        // ISO calendar, which is the only calendar this backend has.
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("[u-ca=")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
+        // `FormatCalendarAnnotation`. Shared with `Temporal.PlainYearMonth`
+        // and `Temporal.PlainMonthDay` so the `auto` suppression rule — print
+        // the annotation for every calendar except `iso8601` — is decided in
+        // one place for all three.
+        self.emit_temporal_append_calendar_annotation(
+            show_calendar_local,
+            calendar_payload_local,
             output_payload_local,
             piece_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(calendar_payload_local));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("]")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(output_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1899,6 +1923,16 @@ impl<'a> FunctionBuilder<'a> {
             other_month_local,
             other_day_local,
             other_calendar_payload_local,
+            function,
+        )?;
+        // `DifferenceTemporalPlainDate` step 2: `CalendarEquals` runs
+        // immediately after `ToTemporalDate` and before `GetOptionsObject`, so
+        // a calendar mismatch is a RangeError even when the options bag would
+        // also have thrown.
+        self.emit_temporal_require_same_calendar(
+            calendar_payload_local,
+            other_calendar_payload_local,
+            TemporalDifferenceGuard::PlainDateSameCalendar,
             function,
         )?;
 

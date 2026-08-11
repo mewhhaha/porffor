@@ -25,8 +25,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn compile_decimal_to_binary64_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::DecimalToBinary64);
         let input_ptr = self.reserve_temp_local();
         let input_len = self.reserve_temp_local();
         let index = self.reserve_temp_local();

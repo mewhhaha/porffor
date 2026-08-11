@@ -74,7 +74,7 @@
 //!
 //! `export default` binds `*default*` (8.2.2), which no source text can spell,
 //! so `modules::source` rewrites the two keywords into a declaration of
-//! [`module_default_binding_name`] in place — the named forms
+//! `MergedName::anonymous_default` in place — the named forms
 //! (`export default function f() {}`) already bind their own name and only lose
 //! the keywords. `export * from` needs nothing here at all: `GetExportedNames`
 //! and `ResolveExport` already walk star paths, so the importer resolves
@@ -118,11 +118,9 @@ use crate::*;
 use super::dynamic::collect_components;
 use super::namespace::{
     collect_observed_namespaces, deferred_body_source, namespace_prelude_source,
-    namespace_target_reference,
+    namespace_target_reference, shadows_prelude_global,
 };
-use super::record::{
-    import_meta_binding, module_binding_reference, rewrite_import_meta, DefaultExportFormIr,
-};
+use super::record::{import_meta_binding, rewrite_import_meta, DefaultExportFormIr};
 use super::source::{strip_module_syntax, DefaultExportRewrite};
 
 /// Result of merging a linked graph.
@@ -241,7 +239,10 @@ pub(crate) fn linked_script_source(
             }
             continue;
         }
-        let default_name = module_default_binding_name(unit_id);
+        // The only other caller of `MergedName::anonymous_default`; the one in
+        // `LocalName::merged_in` is what every reader of this binding goes
+        // through, and the two agree by construction.
+        let default_name = MergedName::anonymous_default(unit_id);
         let default_export = match unit.record.default_export_form() {
             DefaultExportFormIr::Absent => DefaultExportRewrite::None,
             DefaultExportFormIr::Named => DefaultExportRewrite::DeleteKeywords,
@@ -469,7 +470,7 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     // Two units cannot declare the same top-level name: the merged environment
     // holds one cell per name. Import bindings are excluded because they are
     // deliberately the exporting unit's cell.
-    let mut owners: BTreeMap<String, &str> = BTreeMap::new();
+    let mut owners: BTreeMap<MergedName, &str> = BTreeMap::new();
     for unit_id in &graph.evaluation_order {
         // A deferred unit's bindings live in its thunk's scope and a
         // source-phase-only unit has no body at all, so neither can collide
@@ -491,13 +492,15 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
             }
             // The merged spelling, not the spec one: two units with an
             // anonymous `export default` both name it `*default*` and would
-            // collide over a name neither of them declares.
-            let name = module_binding_reference(*unit_id, &binding.name);
+            // collide over a name neither of them declares. The type is what
+            // says which of the two this is.
+            let name = unit.record.merged(&binding.name);
             if let Some(previous) = owners.insert(name.clone(), unit.record.key.as_str()) {
                 if previous != unit.record.key {
                     diagnostics.push(IrDiagnostic::unsupported(format!(
-                        "unsupported in porffor wasm-aot: modules {previous} and {} both declare top-level `{name}`",
-                        unit.record.key
+                        "unsupported in porffor wasm-aot: modules {previous} and {} both declare top-level `{}`",
+                        unit.record.key,
+                        name.as_str()
                     )));
                 }
             }
@@ -519,10 +522,10 @@ fn check_linkable(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
 fn collect_binding_aliases(
     graph: &ModuleGraphIr,
     diagnostics: &mut Vec<IrDiagnostic>,
-) -> Vec<(String, String)> {
+) -> Vec<(MergedName, MergedName)> {
     let declared = merged_lexical_names(graph);
-    let mut aliases: Vec<(String, String)> = Vec::new();
-    let mut owners: BTreeMap<String, (String, String)> = BTreeMap::new();
+    let mut aliases: Vec<(MergedName, MergedName)> = Vec::new();
+    let mut owners: BTreeMap<MergedName, (MergedName, String)> = BTreeMap::new();
 
     for unit in &graph.units {
         if graph.evaluation_mode(unit.record.id) == ModuleEvaluationModeIr::NotEvaluated {
@@ -557,46 +560,52 @@ fn collect_binding_aliases(
                     key,
                     &format!(
                         "import binding `{}` resolves to a name the merged script cannot spell",
-                        entry.local_name
+                        entry.local_name.spec_name()
                     ),
                 ));
                 continue;
             };
             // The importer spells it the way the exporter does, so the merged
             // scope already shares the exporter's cell: no alias needed.
-            if reference == entry.local_name {
+            //
+            // This comparison is D3 against D3, written out. It used to be a
+            // `String` `reference` compared against a `String` `local_name`,
+            // i.e. a merged name against a spec name, and was right only
+            // because the two coincide on a source-spelled binding. An import
+            // binding is always source-spelled, so `merged_in` is the identity
+            // here — but that is now a fact the reader can see rather than one
+            // the code depended on silently.
+            let local = unit.record.merged(&entry.local_name);
+            if reference == local {
                 continue;
             }
-            if matches!(
-                entry.local_name.as_str(),
-                OBJECT_NAME | SYMBOL_NAME | GLOBAL_THIS_NAME
-            ) {
+            if shadows_prelude_global(local.as_str()) {
                 diagnostics.push(unsupported(
                     key,
                     &format!(
                         "renamed import binding `{}` is a global the merged script's own prelude spells",
-                        entry.local_name
+                        entry.local_name.spec_name()
                     ),
                 ));
                 continue;
             }
-            if let Some(owner) = declared.get(&entry.local_name) {
+            if let Some(owner) = declared.get(&local) {
                 diagnostics.push(unsupported(
                     key,
                     &format!(
                         "renamed import binding `{}` is shadowed by a top-level declaration in module {owner}",
-                        entry.local_name
+                        entry.local_name.spec_name()
                     ),
                 ));
                 continue;
             }
-            match owners.get(&entry.local_name) {
+            match owners.get(&local) {
                 Some((previous, owner)) if *previous != reference => {
                     diagnostics.push(unsupported(
                         key,
                         &format!(
                             "renamed import binding `{}` already names a different export in module {owner}",
-                            entry.local_name
+                            entry.local_name.spec_name()
                         ),
                     ));
                 }
@@ -604,11 +613,8 @@ fn collect_binding_aliases(
                 // want the same alias, so one definition serves both.
                 Some(_) => {}
                 None => {
-                    owners.insert(
-                        entry.local_name.clone(),
-                        (reference.clone(), key.to_string()),
-                    );
-                    aliases.push((entry.local_name.clone(), reference));
+                    owners.insert(local.clone(), (reference.clone(), key.to_string()));
+                    aliases.push((local, reference));
                 }
             }
         }
@@ -623,7 +629,7 @@ fn collect_binding_aliases(
 /// live inside its thunk and a source-phase-only unit has no body. A deferred
 /// unit's own aliases are safe from its own thunk-local names, because a module
 /// that both imports and declares one name is an early error.
-fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<String, String> {
+fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<MergedName, String> {
     let mut declared = BTreeMap::new();
     for unit in &graph.units {
         if graph.evaluation_mode(unit.record.id) != ModuleEvaluationModeIr::Eager {
@@ -631,10 +637,7 @@ fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<String, String> {
         }
         for binding in &unit.record.environment {
             if binding.kind != ModuleBindingKindIr::Import {
-                declared.insert(
-                    module_binding_reference(unit.record.id, &binding.name),
-                    unit.record.key.clone(),
-                );
+                declared.insert(unit.record.merged(&binding.name), unit.record.key.clone());
             }
         }
         // A namespace or module-source alias is a real `const` in the merged
@@ -647,7 +650,10 @@ fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<String, String> {
                     ..
                 })
             ) {
-                declared.insert(entry.local_name.clone(), unit.record.key.clone());
+                declared.insert(
+                    unit.record.merged(&entry.local_name),
+                    unit.record.key.clone(),
+                );
             }
         }
     }
@@ -660,7 +666,7 @@ fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<String, String> {
 /// the exporter's cell, and no setter because an import binding is immutable.
 /// Non-enumerable and non-configurable so the property is as close to invisible
 /// as a global property gets.
-fn binding_alias_prelude(aliases: &[(String, String)]) -> String {
+fn binding_alias_prelude(aliases: &[(MergedName, MergedName)]) -> String {
     let mut text = String::new();
     for (local, reference) in aliases {
         text.push_str(OBJECT_NAME);
@@ -669,9 +675,9 @@ fn binding_alias_prelude(aliases: &[(String, String)]) -> String {
         text.push_str(", \"");
         // A local name is a `BindingIdentifier`, so it holds nothing a string
         // literal would have to escape.
-        text.push_str(local);
+        text.push_str(local.as_str());
         text.push_str("\", { get: () => ");
-        text.push_str(reference);
+        text.push_str(reference.as_str());
         text.push_str(", enumerable: false, configurable: false });\n");
     }
     text
@@ -973,7 +979,8 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("default export links");
 
-        let binding = module_default_binding_name(0);
+        let binding = MergedName::anonymous_default(0);
+        let binding = binding.as_str();
         assert!(
             linked
                 .source_text
@@ -1010,16 +1017,18 @@ mod tests {
         let linked =
             linked_script_source(&sources, &mut graph).expect("two anonymous defaults link");
         assert!(
-            linked
-                .source_text
-                .contains(&format!("let {}     = 1;", module_default_binding_name(0))),
+            linked.source_text.contains(&format!(
+                "let {}     = 1;",
+                MergedName::anonymous_default(0).as_str()
+            )),
             "got {}",
             linked.source_text
         );
         assert!(
-            linked
-                .source_text
-                .contains(&format!("let {}     = 2;", module_default_binding_name(1))),
+            linked.source_text.contains(&format!(
+                "let {}     = 2;",
+                MergedName::anonymous_default(1).as_str()
+            )),
             "got {}",
             linked.source_text
         );
@@ -1099,9 +1108,10 @@ mod tests {
             linked.source_text
         );
         assert!(
-            linked
-                .source_text
-                .contains(&format!("resolve({})", module_namespace_cell_name(0))),
+            linked.source_text.contains(&format!(
+                "resolve({})",
+                MergedName::minted(0, UnitCellRole::Namespace).as_str()
+            )),
             "got {}",
             linked.source_text
         );
@@ -1131,7 +1141,8 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("namespace should link");
 
-        let cell = module_namespace_cell_name(0);
+        let cell = MergedName::minted(0, UnitCellRole::Namespace);
+        let cell = cell.as_str();
         assert!(
             linked
                 .source_text
@@ -1179,11 +1190,13 @@ mod tests {
         );
         let linked = linked_script_source(&sources, &mut graph).expect("defer should link");
 
-        let evaluate = module_defer_evaluate_function_name(0);
+        let evaluate = MergedName::minted(0, UnitCellRole::DeferEvaluate);
+        let evaluate = evaluate.as_str();
         assert!(
-            linked
-                .source_text
-                .contains(&format!("let {};", module_defer_cells_cell_name(0))),
+            linked.source_text.contains(&format!(
+                "let {};",
+                MergedName::minted(0, UnitCellRole::DeferCells).as_str()
+            )),
             "got {}",
             linked.source_text
         );
@@ -1236,7 +1249,8 @@ mod tests {
             "got {}",
             linked.source_text
         );
-        let cell = module_source_cell_name(0);
+        let cell = MergedName::minted(0, UnitCellRole::ModuleSource);
+        let cell = cell.as_str();
         assert!(
             linked
                 .source_text

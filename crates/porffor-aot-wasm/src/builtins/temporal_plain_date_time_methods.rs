@@ -17,23 +17,180 @@ use super::super::*;
 use super::temporal_options::{
     ShowCalendarName, TemporalOverflow, TemporalRoundingMode, TemporalUnit, TemporalUnitSlot,
 };
+use super::temporal_plain_date::TemporalEraLocals;
 use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
 use super::temporal_plain_time_methods::{TEMPORAL_PRECISION_AUTO, TEMPORAL_PRECISION_MINUTE};
 
-/// `ToTemporalTimeRecord` field order for the six wall-clock keys inside the
-/// combined alphabetical `PrepareCalendarFields` sweep.
-const PLAIN_DATE_TIME_ALPHABETICAL_KEYS: [(&str, usize); 10] = [
-    ("day", 2),
-    ("hour", 3),
-    ("microsecond", 7),
-    ("millisecond", 6),
-    ("minute", 4),
-    ("month", 1),
-    ("monthCode", usize::MAX),
-    ("nanosecond", 8),
-    ("second", 5),
-    ("year", 0),
-];
+/// One row of the combined `PrepareCalendarFields` / `ToTemporalTimeRecord`
+/// sweep for a `Temporal.PlainDateTime` property bag, in the alphabetical order
+/// the reads are observable in.
+///
+/// This replaces a `(&str, usize)` table whose `monthCode` row carried
+/// `usize::MAX` as "not one of the nine numeric slots". Two more keys with no
+/// slot of their own (`era`, `eraYear`, which fold into `year`) would have
+/// meant two more magic values, each interpreted by an `if` at the consuming
+/// site. A closed enum matched exhaustively puts that interpretation in one
+/// place, and makes "you added a key and did not say how it is read" a compile
+/// error.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TemporalDateTimeFieldKey {
+    Day,
+    EraPair,
+    Hour,
+    Microsecond,
+    Millisecond,
+    Minute,
+    Month,
+    MonthCode,
+    Nanosecond,
+    Second,
+    Year,
+}
+
+/// How a [`TemporalDateTimeFieldKey`] is read, and where its value lands.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TemporalDateTimeFieldRead {
+    /// `ToPositiveIntegerWithTruncation` into `field_locals[index]`. Only the
+    /// two calendar rows take it; `hour` .. `nanosecond` accept zero.
+    PositiveInteger {
+        property: &'static str,
+        index: usize,
+    },
+    /// `ToIntegerWithTruncation` into `field_locals[index]`.
+    Integer {
+        property: &'static str,
+        index: usize,
+    },
+    /// The `monthCode` string, which has no numeric slot.
+    MonthCode,
+    /// `era` and `eraYear` together. They are one row because the shared era
+    /// emitter owns the order of the pair and the gate that decides whether
+    /// either is read at all, and they fold into `year` in the resolver rather
+    /// than occupying a slot.
+    EraPair,
+}
+
+impl TemporalDateTimeFieldKey {
+    const ALL: [Self; 11] = [
+        Self::Day,
+        Self::EraPair,
+        Self::Hour,
+        Self::Microsecond,
+        Self::Millisecond,
+        Self::Minute,
+        Self::Month,
+        Self::MonthCode,
+        Self::Nanosecond,
+        Self::Second,
+        Self::Year,
+    ];
+
+    const fn read(self) -> TemporalDateTimeFieldRead {
+        match self {
+            Self::Day => TemporalDateTimeFieldRead::PositiveInteger {
+                property: "day",
+                index: 2,
+            },
+            Self::EraPair => TemporalDateTimeFieldRead::EraPair,
+            Self::Hour => TemporalDateTimeFieldRead::Integer {
+                property: "hour",
+                index: 3,
+            },
+            Self::Microsecond => TemporalDateTimeFieldRead::Integer {
+                property: "microsecond",
+                index: 7,
+            },
+            Self::Millisecond => TemporalDateTimeFieldRead::Integer {
+                property: "millisecond",
+                index: 6,
+            },
+            Self::Minute => TemporalDateTimeFieldRead::Integer {
+                property: "minute",
+                index: 4,
+            },
+            Self::Month => TemporalDateTimeFieldRead::PositiveInteger {
+                property: "month",
+                index: 1,
+            },
+            Self::MonthCode => TemporalDateTimeFieldRead::MonthCode,
+            Self::Nanosecond => TemporalDateTimeFieldRead::Integer {
+                property: "nanosecond",
+                index: 8,
+            },
+            Self::Second => TemporalDateTimeFieldRead::Integer {
+                property: "second",
+                index: 5,
+            },
+            Self::Year => TemporalDateTimeFieldRead::Integer {
+                property: "year",
+                index: 0,
+            },
+        }
+    }
+
+    /// The first and last property name this row reads. They differ only for
+    /// [`Self::EraPair`], and only so the ordering assertion below can compare
+    /// adjacent rows across a multi-key row.
+    const fn read_name_bounds(self) -> (&'static str, &'static str) {
+        match self.read() {
+            TemporalDateTimeFieldRead::PositiveInteger { property, .. }
+            | TemporalDateTimeFieldRead::Integer { property, .. } => (property, property),
+            TemporalDateTimeFieldRead::MonthCode => ("monthCode", "monthCode"),
+            TemporalDateTimeFieldRead::EraPair => ("era", "eraYear"),
+        }
+    }
+}
+
+/// Byte-order `<` on `&str`, because `str::lt` is not `const fn`.
+const fn const_str_lt(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let mut index = 0;
+    while index < left.len() && index < right.len() {
+        if left[index] != right[index] {
+            return left[index] < right[index];
+        }
+        index += 1;
+    }
+    left.len() < right.len()
+}
+
+/// The sweep order is observable — `TemporalHelpers.propertyBagObserver` logs
+/// every `get`, and `built-ins/Temporal/PlainDateTime/from/order-of-operations.js`
+/// compares the whole log — so the table must be strictly alphabetical. A key
+/// inserted in the wrong place is a build failure rather than a diff in a
+/// 20-minute Test262 node.
+const _: () = {
+    let mut index = 1;
+    while index < TemporalDateTimeFieldKey::ALL.len() {
+        let (_, previous_last) = TemporalDateTimeFieldKey::ALL[index - 1].read_name_bounds();
+        let (current_first, _) = TemporalDateTimeFieldKey::ALL[index].read_name_bounds();
+        assert!(
+            const_str_lt(previous_last, current_first),
+            "TemporalDateTimeFieldKey::ALL must be in strict alphabetical read order"
+        );
+        index += 1;
+    }
+};
+
+/// Exactly one row reads the era pair, which is what makes the `Option` dance
+/// in `emit_temporal_plain_date_time_read_fields` total.
+const _: () = {
+    let mut count = 0;
+    let mut index = 0;
+    while index < TemporalDateTimeFieldKey::ALL.len() {
+        if matches!(
+            TemporalDateTimeFieldKey::ALL[index].read(),
+            TemporalDateTimeFieldRead::EraPair
+        ) {
+            count += 1;
+        }
+        index += 1;
+    }
+    assert!(
+        count == 1,
+        "TemporalDateTimeFieldKey::ALL must read the era pair exactly once"
+    );
+};
 
 impl<'a> FunctionBuilder<'a> {
     fn emit_temporal_plain_date_time_overflow_option(
@@ -478,7 +635,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    /// `PrepareCalendarFields` over the ten date-and-time keys, in the
+    /// `PrepareCalendarFields` over the eleven date-and-time keys, in the
     /// alphabetical order the reads are observable in.
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_plain_date_time_read_fields(
@@ -494,7 +651,9 @@ impl<'a> FunctionBuilder<'a> {
         any_present_local: u32,
         read_calendar: bool,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<TemporalEraLocals, EmitError> {
+        let mut era_slots = Some(self.reserve_temporal_era_slots());
+        let mut era = None;
         let property_key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
@@ -525,75 +684,105 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        for (property, index) in PLAIN_DATE_TIME_ALPHABETICAL_KEYS {
-            if index == usize::MAX {
-                function.instruction(&Instruction::I64Const(self.strings.payload("monthCode")));
-                function.instruction(&Instruction::LocalSet(property_key_local));
-                self.emit_object_read(
-                    argument_payload_local,
-                    argument_tag_local,
-                    argument_payload_local,
-                    argument_tag_local,
-                    property_key_local,
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalGet(value_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(month_code_present_local));
-                function.instruction(&Instruction::LocalGet(month_code_present_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(any_present_local));
-                function.instruction(&Instruction::End);
-                self.emit_temporal_property_bag_string(
-                    value_payload_local,
-                    value_tag_local,
-                    "Temporal.PlainDate monthCode must be a string",
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::LocalSet(month_code_payload_local));
-                continue;
-            }
-            // Only the two calendar rows use `ToPositiveIntegerWithTruncation`;
-            // `hour` .. `nanosecond` legitimately take zero.
-            if matches!(property, "day" | "month") {
-                self.emit_temporal_property_bag_positive_integer(
-                    argument_payload_local,
-                    argument_tag_local,
-                    property,
-                    property_key_local,
-                    value_payload_local,
-                    value_tag_local,
-                    present_local,
-                    parsed_local,
-                    0,
-                    "Temporal.PlainDateTime fields must be finite",
-                    "Temporal.PlainDateTime month and day must be positive",
-                    function,
-                )?;
-            } else {
-                self.emit_temporal_property_bag_integer(
-                    argument_payload_local,
-                    argument_tag_local,
-                    property,
-                    property_key_local,
-                    value_payload_local,
-                    value_tag_local,
-                    present_local,
-                    parsed_local,
-                    0,
-                    "Temporal.PlainDateTime fields must be finite",
-                    function,
-                )?;
-            }
+        for key in TemporalDateTimeFieldKey::ALL {
+            let index = match key.read() {
+                TemporalDateTimeFieldRead::MonthCode => {
+                    function.instruction(&Instruction::I64Const(self.strings.payload("monthCode")));
+                    function.instruction(&Instruction::LocalSet(property_key_local));
+                    self.emit_object_read(
+                        argument_payload_local,
+                        argument_tag_local,
+                        argument_payload_local,
+                        argument_tag_local,
+                        property_key_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion_if_throw(function);
+                    function.instruction(&Instruction::LocalGet(value_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I64ExtendI32U);
+                    function.instruction(&Instruction::LocalSet(month_code_present_local));
+                    function.instruction(&Instruction::LocalGet(month_code_present_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::I32Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(any_present_local));
+                    function.instruction(&Instruction::End);
+                    self.emit_temporal_property_bag_string(
+                        value_payload_local,
+                        value_tag_local,
+                        "Temporal.PlainDate monthCode must be a string",
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(value_payload_local));
+                    function.instruction(&Instruction::LocalSet(month_code_payload_local));
+                    continue;
+                }
+                TemporalDateTimeFieldRead::EraPair => {
+                    let slots = era_slots
+                        .take()
+                        .expect("TemporalDateTimeFieldKey::ALL reads the era pair exactly once");
+                    let read = self.emit_temporal_read_era_fields(
+                        slots,
+                        argument_payload_local,
+                        argument_tag_local,
+                        calendar_payload_local,
+                        function,
+                    )?;
+                    // `with` needs a supplied `era`/`eraYear` to count as a
+                    // field, or `instance.with({ era: "bce", eraYear: 1 })`
+                    // dies on "requires at least one date or time field"
+                    // before `CalendarResolveFields` ever sees the pair.
+                    for local in read.present_locals() {
+                        function.instruction(&Instruction::LocalGet(local));
+                        function.instruction(&Instruction::I64Eqz);
+                        function.instruction(&Instruction::I32Eqz);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::LocalSet(any_present_local));
+                        function.instruction(&Instruction::End);
+                    }
+                    era = Some(read);
+                    continue;
+                }
+                TemporalDateTimeFieldRead::PositiveInteger { property, index } => {
+                    self.emit_temporal_property_bag_positive_integer(
+                        argument_payload_local,
+                        argument_tag_local,
+                        property,
+                        property_key_local,
+                        value_payload_local,
+                        value_tag_local,
+                        present_local,
+                        parsed_local,
+                        0,
+                        "Temporal.PlainDateTime fields must be finite",
+                        "Temporal.PlainDateTime month and day must be positive",
+                        function,
+                    )?;
+                    index
+                }
+                TemporalDateTimeFieldRead::Integer { property, index } => {
+                    self.emit_temporal_property_bag_integer(
+                        argument_payload_local,
+                        argument_tag_local,
+                        property,
+                        property_key_local,
+                        value_payload_local,
+                        value_tag_local,
+                        present_local,
+                        parsed_local,
+                        0,
+                        "Temporal.PlainDateTime fields must be finite",
+                        function,
+                    )?;
+                    index
+                }
+            };
             function.instruction(&Instruction::LocalGet(present_local));
             function.instruction(&Instruction::LocalSet(present_locals[index]));
             function.instruction(&Instruction::LocalGet(present_local));
@@ -616,7 +805,7 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.release_temp_local(local);
         }
-        Ok(())
+        Ok(era.expect("TemporalDateTimeFieldKey::ALL reads the era pair exactly once"))
     }
 
     /// `ToTemporalDateTime`. Accepts a branded `Temporal.PlainDateTime`
@@ -747,7 +936,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_date_time_read_fields(
+        let era = self.emit_temporal_plain_date_time_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -768,9 +957,15 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        self.emit_temporal_plain_date_resolve_fields(
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
             field_locals[0],
             present_locals[0],
+            function,
+        )?;
+        self.emit_temporal_plain_date_resolve_fields(
+            &resolved_year,
             field_locals[1],
             present_locals[1],
             month_code_payload_local,
@@ -1155,7 +1350,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(month_code_present_local));
-        self.emit_temporal_plain_date_time_read_fields(
+        let era = self.emit_temporal_plain_date_time_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -1187,6 +1382,20 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        // Era resolution before the merge below: `{ era, eraYear }` excludes
+        // the receiver's `year`, which is still sitting untouched in
+        // `field_locals[0]` because `read_fields` only overwrites a slot the
+        // bag actually supplied. `present_locals[0]` is therefore still 0 for
+        // an era-only bag, so the era/year agreement check cannot fire against
+        // a year the caller never wrote.
+        let resolved_year = self.emit_temporal_resolve_era_to_year(
+            era,
+            calendar_payload_local,
+            field_locals[0],
+            present_locals[0],
+            function,
+        )?;
+
         // `CalendarMergeFields` drops the receiver's `monthCode` as soon as the
         // argument supplies either `month` or `monthCode`, so a lone `month` is
         // never a conflict; every other absent key keeps the receiver's value,
@@ -1206,8 +1415,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         self.emit_temporal_plain_date_resolve_fields(
-            field_locals[0],
-            present_locals[0],
+            &resolved_year,
             field_locals[1],
             present_locals[1],
             month_code_payload_local,
@@ -2093,6 +2301,15 @@ impl<'a> FunctionBuilder<'a> {
             other_calendar_payload_local,
             function,
         )?;
+        // `DifferenceTemporalPlainDateTime` step 2: `CalendarEquals` runs
+        // between `ToTemporalDateTime` and `GetOptionsObject`, which is what
+        // `since/different-calendars-throws.js` and its `until` twin pin.
+        self.emit_temporal_require_same_calendar(
+            calendar_payload_local,
+            other_calendar_payload_local,
+            TemporalDifferenceGuard::PlainDateTimeSameCalendar,
+            function,
+        )?;
 
         // `GetDifferenceSettings` reads largestUnit, then the two rounding
         // options, then smallestUnit - the order is observable.
@@ -2708,48 +2925,15 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalSet(output_payload_local));
 
-        // `FormatCalendarAnnotation`: `auto` suppresses the annotation for the
-        // ISO calendar, which is the only calendar this backend has.
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(show_calendar_local));
-        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(self.strings.payload("[!u-ca=")));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("[u-ca=")));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
+        // `FormatCalendarAnnotation`, shared with the three date-only types so
+        // the `auto` suppression rule is decided in one place.
+        self.emit_temporal_append_calendar_annotation(
+            show_calendar_local,
+            calendar_payload_local,
             output_payload_local,
             piece_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(calendar_payload_local));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("]")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(output_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));

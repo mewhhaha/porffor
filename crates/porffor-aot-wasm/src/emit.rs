@@ -12,10 +12,19 @@ use crate::objects::{
 use porffor_ir::{
     FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId, ValueKind,
 };
+// `CodeSection` is deliberately absent from this list. Every code-section entry
+// now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
+// without an identity and records the body's measured size; keeping the raw
+// section unnameable here is what makes "emit a body without attributing it"
+// a compile error rather than a review finding. See `emitted_function.rs`.
+// `Function` is deliberately absent from this list too: it names
+// `code_sink::Function`, reached through the glob below. Importing the encoder
+// type here would shadow the sink in this file alone, which is precisely the
+// hole the sink exists to close.
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection,
-    Function, FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction,
-    MemorySection, MemoryType, Module, RefType, TableSection, TableType, TypeSection, ValType,
+    ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, FunctionSection,
+    GlobalSection, GlobalType, ImportSection, Instruction, MemorySection, MemoryType, Module,
+    RefType, TableSection, TableType, TypeSection, ValType,
 };
 
 use super::*;
@@ -27,10 +36,63 @@ pub(crate) enum ControlFrameKind {
     Loop,
 }
 
+/// What a call site wants done with a throw the callee left behind.
+///
+/// This was spelled `Option<u32>`: `Some(n)` meant "route it to the active
+/// handler, and by the way the caller has `n` raw Wasm frames open that the
+/// branch arithmetic cannot see", `None` meant "leave it in the completion
+/// tuple". The depth half is gone — branch immediates come from the real label
+/// depth now — but the choice half is a real, closed decision, so it is an enum
+/// rather than a `bool`: `Some(0)` and `Some(1)` read like tuning and were the
+/// same decision spelled two ways.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PropagateCallThrow {
+    /// Emit the propagation, so the throw reaches the enclosing `try`/`finally`
+    /// (or returns the completion when there is none).
+    ToActiveHandler,
+    /// Leave `completion_local == THROW` for the caller to inspect.
+    LeaveInCompletion,
+}
+
+/// What the ordinary property-read path does with a throw raised by a getter.
+///
+/// This one is deliberately **not** the same mechanism as
+/// [`PropagateCallThrow`]. `BreakToOrdinaryReadExit` emits a raw `Br` out of
+/// frames the read path opened and closes itself, not a `ControlTarget`
+/// branch, so it survives the retirement of the hand-counted `extra_depth`
+/// arguments (see the closing section of `code_sink.rs`). It used to be spelled
+/// `Option<u32>` with `Some(8)` at its single call site, and the `8` was then
+/// `saturating_sub(1)`-ed inside the callee — a number that crossed a module
+/// boundary to be adjusted at the far end. Now nothing crosses: the depth is a
+/// constant beside the code that emits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AccessorThrowRouting {
+    /// Break out to the ordinary-read exit the caller opened.
+    BreakToOrdinaryReadExit,
+    /// Leave `completion_local == THROW` in place.
+    LeaveInCompletion,
+}
+
+impl AccessorThrowRouting {
+    /// Labels between the getter-call site and the ordinary-read exit block,
+    /// counted from inside the `is_callable` `If`. Was `Some(8) - 1` written at
+    /// the call site.
+    pub(crate) const ORDINARY_READ_EXIT_BREAK_DEPTH: u32 = 7;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ControlTarget {
+    /// Index into `FunctionBuilder::control_stack`. This is an *identity* —
+    /// it orders two targets (`innermost_target`, `finalizer_crosses_branch`)
+    /// and names one in the completion dispatcher's `target_id`. It is no
+    /// longer used to compute a branch immediate; `label` is.
     pub(crate) frame: usize,
     pub(crate) environment_depth: u32,
+    /// The real Wasm label this frame opened, recorded by
+    /// `ControlFlow::open_frame` from the sink immediately after the frame
+    /// instruction was written. Subtracting it from the sink's current depth
+    /// is the whole branch arithmetic; see `code_sink.rs`.
+    pub(crate) label: LabelDepth,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,6 +139,35 @@ pub(crate) enum ReturnAbi {
 pub(crate) enum OrdinarySetDataOnReceiverEmission {
     Inline,
     Outlined,
+}
+
+/// Which of the two OrdinarySet-with-explicit-receiver helpers is being
+/// compiled.
+///
+/// One `compile_ordinary_set_helper` body serves both, and the two things that
+/// distinguish them — the [`RuntimeHelperId`] its body is filed under, and
+/// whether an exotic receiver may fall back to its generic `[[Set]]` — used to
+/// be a `bool` parameter next to a separately written helper id. Carrying them
+/// as one value is what makes "compiled the fallback body, filed it as the
+/// no-fallback helper" unrepresentable rather than a silent index swap at every
+/// `Reflect.set` call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrdinarySetReceiverFallback {
+    Allowed,
+    Denied,
+}
+
+impl OrdinarySetReceiverFallback {
+    const fn helper(self) -> RuntimeHelperId {
+        match self {
+            Self::Allowed => RuntimeHelperId::OrdinarySet,
+            Self::Denied => RuntimeHelperId::OrdinarySetWithoutReceiverFallback,
+        }
+    }
+
+    const fn allows_receiver_generic_write(self) -> bool {
+        matches!(self, Self::Allowed)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,7 +305,7 @@ pub(crate) struct FunctionBuilder<'a> {
     /// arithmetic expressions, so outlining it keeps user functions below
     /// Cranelift's per-function virtual-register limit.
     pub(crate) outline_value_to_numeric: bool,
-    /// When false, `emit_object_get_prototype_of_with_depth` inlines the
+    /// When false, `emit_object_get_prototype_of` inlines the
     /// proxy-aware `[[GetPrototypeOf]]` state machine instead of emitting a call
     /// to the shared helper. Set false only while compiling that helper itself.
     /// The proxy get-prototype-of expansion (which mutually inlines the
@@ -223,7 +314,7 @@ pub(crate) struct FunctionBuilder<'a> {
     /// what keeps `instanceof other.X` reading functions from blowing past
     /// Cranelift's per-function code-size limit.
     pub(crate) outline_object_get_prototype_of: bool,
-    /// When false, `emit_object_is_extensible_i32_with_depth` inlines the
+    /// When false, `emit_object_is_extensible_i32` inlines the
     /// proxy-aware `[[IsExtensible]]` state machine instead of emitting a call to
     /// the shared helper. Set false only while compiling that helper itself.
     pub(crate) outline_object_is_extensible: bool,
@@ -236,6 +327,53 @@ pub(crate) struct FunctionBuilder<'a> {
     /// outlining it is the dominant code-size win for realm modules.
     pub(crate) outline_object_read_proxy: bool,
     pub(crate) outline_array_write: bool,
+    /// When false, `emit_typed_array_or_object_index_read_from_locals` inlines
+    /// the whole `expr[index]` read composite (Arguments / Array-with-prototype
+    /// / TypedArray element load / ordinary object key read, including the
+    /// number→string key materialization) instead of calling the shared helper.
+    /// Set false only while compiling that helper itself.
+    ///
+    /// Measured at 72,635 bytes per inline site. The 26 bracket reads in
+    /// `testIntl.js`'s `canonicalizeLanguageTag` alone accounted for 1,671,288
+    /// of that function's 3,615,449 bytes — 51.0% — which is what tripped
+    /// wasmtime's `Code for function is too large` in the 17
+    /// `intl402/DateTimeFormat` cases that `include: [testIntl.js]`.
+    pub(crate) outline_indexed_element_read: bool,
+    /// When false, `emit_typed_array_or_object_index_write_from_locals` inlines
+    /// the `expr[index] = value` composite (TypedArray element store versus
+    /// ordinary `[[Set]]`) instead of calling the shared helper. Set false only
+    /// while compiling that helper itself. 174,558 bytes per inline site.
+    pub(crate) outline_indexed_element_write: bool,
+    /// When false, `emit_tagged_to_primitive_locals` (and its
+    /// `_without_throw_propagation` twin) inline the whole ToPrimitive
+    /// composite — the `@@toPrimitive`/`valueOf`/`toString` hook chain plus the
+    /// Array/Arguments/Function arms — instead of calling the shared helper for
+    /// the hint. Set false only while compiling one of those helper bodies.
+    ///
+    /// **One flag for all three hints, deliberately.** Each hint has its own
+    /// body ([`RuntimeHelperId::helper_for`]), but clearing per-hint would let
+    /// the body of one hint's helper emit a call to another's, and this lane
+    /// could not run the compiler to prove that graph acyclic. One flag makes
+    /// "a ToPrimitive helper body contains no ToPrimitive call at all" a
+    /// property of the seam rather than of a call-graph argument; the cost is
+    /// that the three bodies each carry their own inline copy of any nested
+    /// composite, which is bounded because they are emitted once per module.
+    ///
+    /// Measured at 70,072 bytes per inline site (`x + y` on two operands of
+    /// unknown kind costs 140,144), and ~49 copies of it are 98.0% of the
+    /// 3,615,449-byte `js::canonicalizeLanguageTag#f46` body. See
+    /// [`RuntimeHelperId::ValueToPrimitiveDefault`] for the measurement and how
+    /// to reproduce it.
+    pub(crate) outline_value_to_primitive: bool,
+    /// When false, `emit_value_to_property_key_locals` inlines ToPropertyKey
+    /// (ToPrimitive with the string hint, then the symbol-marker/ToString
+    /// split) instead of calling the shared helper. Set false only while
+    /// compiling that helper itself.
+    ///
+    /// 72,528 bytes per inline site, of which the ToPrimitive composite above
+    /// is 70,072; every computed member access whose key is not statically a
+    /// String or a Symbol reaches it.
+    pub(crate) outline_value_to_property_key: bool,
     /// Controls whether the shared object-write helper emits receiver-side
     /// ordinary data writes as calls to their dedicated runtime helper. Other
     /// builders keep these writes inline so only the repeated copies inside the
@@ -246,8 +384,16 @@ pub(crate) struct FunctionBuilder<'a> {
     /// behavior from the runtime value of `local` (a helper parameter carrying
     /// the calling function's strictness) rather than from the compile-time
     /// `is_current_function_strict()` of the helper body itself (which is a
-    /// fixed, mode-less runtime helper). `None` for inline emission, where the
-    /// compile-time strictness of the enclosing function is authoritative.
+    /// fixed, mode-less runtime helper).
+    ///
+    /// `None` only where **no Reference is in play** — property installation,
+    /// class field definition, internal helper writes — and there
+    /// `ambient_object_write_strict_flag_word` is authoritative. A Reference
+    /// write installs its own carried `[[Strict]]` here through
+    /// `expressions.rs`'s `with_reference_strictness`, inline emission
+    /// included, because PutValue 3.d asks about `V.[[Strict]]` and not about
+    /// the mode of the code being emitted. The two differ whenever lowering
+    /// hoists a write into a generated function.
     pub(crate) object_write_strict_flag_local: Option<u32>,
 }
 
@@ -381,11 +527,7 @@ fn async_generator_contains_suspension(
         // iteration and awaits the iterator close on exit. Only recursing into
         // the body would report a nested for-await as suspension-free and let it
         // through a guard that exists precisely to keep second suspensions out.
-        StatementIr::ForOfArray {
-            async_plan: Some(_),
-            ..
-        }
-        | StatementIr::ForOfIterator {
+        StatementIr::ForOfIterator {
             async_plan: Some(_),
             ..
         } => matches!(suspension, AsyncGeneratorSuspension::Await),
@@ -559,21 +701,6 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         // fail the loop's entry test and skip the loop entirely. So a
         // suspension-free body compiles like any ordinary loop body, and a
         // suspending one is still refused rather than miscompiled.
-        StatementIr::ForOfArray {
-            body,
-            async_plan: Some(_),
-            ..
-        } => {
-            // `compile_async_for_of_array` still gates the loop on the three
-            // states the loop itself owns, so a body suspension would resume
-            // outside that test and skip the loop entirely.
-            if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Await)
-                || async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
-            {
-                return Some("for-await iteration with a suspension in the loop body");
-            }
-            None
-        }
         StatementIr::ForOfIterator {
             body,
             lexical_environment,
@@ -847,16 +974,20 @@ fn emit_script_with_forced_builtins(
         + compiled_host_builtins.len();
     let heap_alloc_function_index =
         uses_heap.then_some(imported_function_count + 1 + callable_function_count as u32);
+    // Derived through `RuntimeHelperId::index` like every other helper index,
+    // not by chaining `+ 1` off the previous one. A `+ 1` chain keeps compiling
+    // — and keeps pointing one function too low — when a helper is inserted
+    // ahead of these six, while the enum's own arithmetic shifts with the list.
     let object_append_data_property_function_index =
-        heap_alloc_function_index.map(|heap_alloc_function_index| heap_alloc_function_index + 1);
-    let object_append_accessor_property_function_index = object_append_data_property_function_index
-        .map(|append_function_index| append_function_index + 1);
-    let function_object_alloc_function_index = object_append_accessor_property_function_index
-        .map(|append_function_index| append_function_index + 1);
-    let plain_object_alloc_function_index = function_object_alloc_function_index
-        .map(|function_object_alloc_function_index| function_object_alloc_function_index + 1);
-    let array_alloc_function_index = plain_object_alloc_function_index
-        .map(|plain_object_alloc_function_index| plain_object_alloc_function_index + 1);
+        heap_alloc_function_index.map(|base| RuntimeHelperId::ObjectAppendDataProperty.index(base));
+    let object_append_accessor_property_function_index = heap_alloc_function_index
+        .map(|base| RuntimeHelperId::ObjectAppendAccessorProperty.index(base));
+    let function_object_alloc_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::FunctionObjectAlloc.index(base));
+    let plain_object_alloc_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::PlainObjectAlloc.index(base));
+    let array_alloc_function_index =
+        heap_alloc_function_index.map(|base| RuntimeHelperId::ArrayAlloc.index(base));
     let mut main_builder = FunctionBuilder::new_main(
         script,
         &string_pool,
@@ -871,7 +1002,9 @@ fn emit_script_with_forced_builtins(
         array_alloc_function_index,
     );
     let main_function = main_builder.compile()?;
-    let mut compiled_functions = Vec::with_capacity(callable_function_count);
+    // Every element is an `EmittedFunction`: a body that already knows which
+    // source-level function it belongs to and how many bytes it encodes to.
+    let mut compiled_functions: Vec<EmittedFunction> = Vec::with_capacity(callable_function_count);
     for function in &script.functions {
         let mut builder = FunctionBuilder::new_function(
             function,
@@ -887,7 +1020,13 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::Script {
+                id: function.id.clone(),
+                name: function.name.clone(),
+            },
+            builder.compile()?,
+        ));
     }
     for builtin in &emitted_standard_builtins {
         let mut builder = FunctionBuilder::new_standard_builtin(
@@ -904,7 +1043,10 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile_builtin()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::StandardBuiltin(*builtin),
+            builder.compile_builtin()?,
+        ));
     }
     if has_shared_stub {
         let stub_builtin = stubbed_standard_builtins
@@ -925,7 +1067,10 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile_builtin()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::StandardBuiltinStub(stub_builtin),
+            builder.compile_builtin()?,
+        ));
     }
     for builtin in &compiled_host_builtins {
         let mut builder = FunctionBuilder::new_host_builtin(
@@ -940,7 +1085,10 @@ fn emit_script_with_forced_builtins(
             plain_object_alloc_function_index,
             array_alloc_function_index,
         );
-        compiled_functions.push(builder.compile_builtin()?);
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::HostBuiltin(*builtin),
+            builder.compile_builtin()?,
+        ));
     }
 
     // Shared object-read / object-write runtime helpers. These carry the large
@@ -1302,7 +1450,7 @@ fn emit_script_with_forced_builtins(
                 plain_object_alloc_function_index,
                 array_alloc_function_index,
             );
-            builder.compile_ordinary_set_helper(true)
+            builder.compile_ordinary_set_helper(OrdinarySetReceiverFallback::Allowed)
         })
         .transpose()?;
     let ordinary_set_without_receiver_fallback_helper_function = uses_heap
@@ -1319,7 +1467,7 @@ fn emit_script_with_forced_builtins(
                 plain_object_alloc_function_index,
                 array_alloc_function_index,
             );
-            builder.compile_ordinary_set_helper(false)
+            builder.compile_ordinary_set_helper(OrdinarySetReceiverFallback::Denied)
         })
         .transpose()?;
     let decimal_to_binary64_helper_function = uses_heap
@@ -1373,6 +1521,88 @@ fn emit_script_with_forced_builtins(
             builder.compile_json_stringify_value_helper()
         })
         .transpose()?;
+    let indexed_element_read_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_indexed_element_read_helper()
+        })
+        .transpose()?;
+    let indexed_element_write_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_indexed_element_write_helper()
+        })
+        .transpose()?;
+    // One ToPrimitive body per hint, built from the closed `ToPrimitiveHint`
+    // domain rather than from three copied blocks, so a fourth hint is a
+    // compile error in `RuntimeHelperId::helper_for` and not a missing body
+    // here. `BTreeMap` keys them by helper id, so the order of this loop does
+    // not decide the order they are written in — `RuntimeHelperId::ALL` does.
+    let mut value_to_primitive_helper_functions: BTreeMap<RuntimeHelperId, Function> =
+        BTreeMap::new();
+    if uses_heap {
+        for hint in [
+            ToPrimitiveHint::Default,
+            ToPrimitiveHint::Number,
+            ToPrimitiveHint::String,
+        ] {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            value_to_primitive_helper_functions.insert(
+                RuntimeHelperId::helper_for(hint),
+                builder.compile_value_to_primitive_helper(hint)?,
+            );
+        }
+    }
+    let value_to_property_key_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_value_to_property_key_helper()
+        })
+        .transpose()?;
     // Both Temporal calendar helpers are emitted whenever the heap is enabled,
     // with a stub body when no calendar-bearing Temporal builtin is compiled,
     // so their fixed function offsets never shift. Order matters: the probe
@@ -1411,6 +1641,207 @@ fn emit_script_with_forced_builtins(
             builder.compile_temporal_calendar_identifier_helper(uses_temporal_calendar)
         })
         .transpose()?;
+
+    // Compiled helper bodies, keyed by identity rather than by position. The
+    // code section below is generated by walking `RuntimeHelperId::ALL` and
+    // draining this map, so emission order comes from the enum's declaration
+    // order alone and a helper whose body was compiled but never emitted (or
+    // vice versa) is a panic here instead of a silently shifted function index
+    // at every call site.
+    let mut helper_bodies: BTreeMap<RuntimeHelperId, Function> = BTreeMap::new();
+    if uses_heap {
+        let heap_alloc_index =
+            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled");
+        let append_data_index = object_append_data_property_function_index
+            .expect("object append helper index must exist when heap is enabled");
+        helper_bodies.insert(
+            RuntimeHelperId::HeapAlloc,
+            emit_heap_alloc_helper_function(),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectAppendDataProperty,
+            emit_object_append_data_property_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectAppendAccessorProperty,
+            emit_object_append_accessor_property_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::FunctionObjectAlloc,
+            emit_function_object_alloc_helper_function(heap_alloc_index, append_data_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::PlainObjectAlloc,
+            emit_plain_object_alloc_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ArrayAlloc,
+            emit_array_alloc_helper_function(heap_alloc_index),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectRead,
+            object_read_helper_function
+                .expect("object-read helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectWrite,
+            object_write_helper_function
+                .expect("object-write helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectDefineData,
+            object_define_data_helper_function
+                .expect("object-define-data helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ProxyCall,
+            proxy_call_helper_function.expect("proxy-call helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ProxyConstruct,
+            proxy_construct_helper_function
+                .expect("proxy-construct helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::StringEquality,
+            string_equality_helper_function
+                .expect("string-equality helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::NumberToString,
+            number_to_string_helper_function
+                .expect("number-to-string helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::StringToNumber,
+            string_to_number_helper_function
+                .expect("string-to-number helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToString,
+            value_to_string_helper_function
+                .expect("value-to-string helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToNumber,
+            value_to_number_helper_function
+                .expect("value-to-number helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToNumeric,
+            value_to_numeric_helper_function
+                .expect("value-to-numeric helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectGetPrototypeOf,
+            object_get_prototype_of_helper_function
+                .expect("get-prototype-of helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectIsExtensible,
+            object_is_extensible_helper_function
+                .expect("is-extensible helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ObjectReadProxy,
+            object_read_proxy_helper_function
+                .expect("object-read-proxy helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::RegExpMatcher,
+            regexp_matcher_helper_function
+                .expect("regexp matcher helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::FunctionCall,
+            function_call_helper_function
+                .expect("function-call helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::DynamicPropertyRead,
+            dynamic_property_read_helper_function
+                .expect("dynamic property-read helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySetDataOnReceiver,
+            ordinary_set_data_on_receiver_helper_function
+                .expect("ordinary receiver-set helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback,
+            ordinary_set_data_on_receiver_with_fallback_helper_function
+                .expect("ordinary receiver-set fallback helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ArrayWrite,
+            array_write_helper_function
+                .expect("array-write helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySet,
+            ordinary_set_helper_function
+                .expect("ordinary-set helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::OrdinarySetWithoutReceiverFallback,
+            ordinary_set_without_receiver_fallback_helper_function
+                .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::DecimalToBinary64,
+            decimal_to_binary64_helper_function
+                .expect("decimal converter helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::BigIntArithmetic,
+            bigint_arithmetic_helper_function
+                .expect("BigInt arithmetic helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::TemporalCalendarIsoDateProbe,
+            temporal_calendar_iso_date_probe_helper_function
+                .expect("temporal calendar date-probe helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::TemporalCalendarIdentifier,
+            temporal_calendar_identifier_helper_function
+                .expect("temporal calendar identifier helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::IndexedElementRead,
+            indexed_element_read_helper_function
+                .expect("indexed element-read helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::IndexedElementWrite,
+            indexed_element_write_helper_function
+                .expect("indexed element-write helper must exist when heap is enabled"),
+        );
+        for hint in [
+            ToPrimitiveHint::Default,
+            ToPrimitiveHint::Number,
+            ToPrimitiveHint::String,
+        ] {
+            let helper = RuntimeHelperId::helper_for(hint);
+            helper_bodies.insert(
+                helper,
+                value_to_primitive_helper_functions
+                    .remove(&helper)
+                    .expect("every ToPrimitive hint helper must exist when heap is enabled"),
+            );
+        }
+        helper_bodies.insert(
+            RuntimeHelperId::ValueToPropertyKey,
+            value_to_property_key_helper_function
+                .expect("to-property-key helper must exist when heap is enabled"),
+        );
+        if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
+            helper_bodies.insert(
+                RuntimeHelperId::JsonStringifyValue,
+                json_stringify_value_helper_function,
+            );
+        }
+    }
 
     let mut types = TypeSection::new();
     types.ty().function([], [ValType::I64]);
@@ -1477,71 +1908,23 @@ fn emit_script_with_forced_builtins(
 
     let main_wasm_index = imported_function_count;
 
+    // The function section, the code section, the helper-index accessors and
+    // the `debug_dump` helper count are all generated from one traversal of
+    // `RuntimeHelperId::ALL`. Before this they were four hand-maintained lists
+    // of the same 33 entries, and the `debug_dump` copy had already drifted
+    // (`27` against a counted 32 + 1).
+    let helper_emission =
+        RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify);
     let mut functions = FunctionSection::new();
     functions.function(0);
     for _ in 0..callable_function_count {
         functions.function(JS_FUNCTION_TYPE_INDEX);
     }
     if uses_heap {
-        functions.function(HEAP_ALLOC_TYPE_INDEX);
-        functions.function(OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX);
-        functions.function(OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX);
-        functions.function(FUNCTION_OBJECT_ALLOC_TYPE_INDEX);
-        functions.function(PLAIN_OBJECT_ALLOC_TYPE_INDEX);
-        functions.function(ARRAY_ALLOC_TYPE_INDEX);
-        // object-read + object-write runtime helpers share the JS function type.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // object-define-data helper: seven i64 params, no results.
-        functions.function(OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX);
-        // proxy call + construct dispatch helpers share the JS function type.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // string-payload-equality helper (also the JS function type).
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // number-to-string + string-to-number conversion helpers.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dynamic ToString (value-to-string) helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dynamic ToNumber (value-to-number) helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dynamic ToNumeric (value-to-numeric) helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // proxy-aware [[GetPrototypeOf]] + [[IsExtensible]] helpers.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // proxy-aware [[Get]] helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // sequence-only RegExp matcher helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // plain function-call dispatcher helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // runtime-kind dynamic property-read helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // receiver-side OrdinarySet data-property helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // receiver-side OrdinarySet helper with generic write fallback.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // dense/sparse Array element-write helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // OrdinarySet helper with an explicit receiver.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // OrdinarySet helper without generic receiver write fallback.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Exact decimal source text to binary64 conversion helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Arbitrary-precision BigInt arithmetic helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Temporal ParseTemporalCalendarString ISO-date probe helper.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // Temporal ToTemporalCalendarIdentifier string-resolution helper.
-        // Both carry stub bodies unless a calendar-bearing Temporal builtin is
-        // compiled, so their fixed offsets never shift.
-        functions.function(JS_FUNCTION_TYPE_INDEX);
-        // JSON.stringify value helper (only when JSON.stringify is compiled).
-        if uses_json_stringify {
-            functions.function(JS_FUNCTION_TYPE_INDEX);
+        for helper in RuntimeHelperId::ALL {
+            if helper.is_emitted(helper_emission) {
+                functions.function(helper.type_index());
+            }
         }
     }
 
@@ -1566,6 +1949,16 @@ fn emit_script_with_forced_builtins(
         THROW_ERROR_NAME_EXPORT,
         ExportKind::Global,
         throw_error_name_global_index(uses_heap),
+    );
+    // The message travels beside the name so a host-visible throw reports what
+    // went wrong, not only which error class it was. In a module with no heap
+    // both resolve to the same global index; two exports of one global are
+    // legal Wasm and the pair is unobservable there, because the message is
+    // only read when the completion value is a heap object.
+    exports.export(
+        THROW_ERROR_MESSAGE_EXPORT,
+        ExportKind::Global,
+        throw_error_message_global_index(uses_heap),
     );
 
     let mut globals = GlobalSection::new();
@@ -1665,166 +2058,49 @@ fn emit_script_with_forced_builtins(
         );
     }
 
-    let mut code = CodeSection::new();
-    code.function(&main_function);
-    for function in &compiled_functions {
-        code.function(function);
+    let mut code = ModuleCode::new(imported_function_count);
+    code.push(EmittedFunction::new(FunctionIdentity::Main, main_function));
+    for function in compiled_functions {
+        code.push(function);
     }
     if uses_heap {
-        code.function(&emit_heap_alloc_helper_function());
-        code.function(&emit_object_append_data_property_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_object_append_accessor_property_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_function_object_alloc_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-            object_append_data_property_function_index
-                .expect("object append helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_plain_object_alloc_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(&emit_array_alloc_helper_function(
-            heap_alloc_function_index.expect("heap helper index must exist when heap is enabled"),
-        ));
-        code.function(
-            object_read_helper_function
-                .as_ref()
-                .expect("object-read helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_write_helper_function
-                .as_ref()
-                .expect("object-write helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_define_data_helper_function
-                .as_ref()
-                .expect("object-define-data helper must exist when heap is enabled"),
-        );
-        code.function(
-            proxy_call_helper_function
-                .as_ref()
-                .expect("proxy-call helper must exist when heap is enabled"),
-        );
-        code.function(
-            proxy_construct_helper_function
-                .as_ref()
-                .expect("proxy-construct helper must exist when heap is enabled"),
-        );
-        code.function(
-            string_equality_helper_function
-                .as_ref()
-                .expect("string-equality helper must exist when heap is enabled"),
-        );
-        code.function(
-            number_to_string_helper_function
-                .as_ref()
-                .expect("number-to-string helper must exist when heap is enabled"),
-        );
-        code.function(
-            string_to_number_helper_function
-                .as_ref()
-                .expect("string-to-number helper must exist when heap is enabled"),
-        );
-        code.function(
-            value_to_string_helper_function
-                .as_ref()
-                .expect("value-to-string helper must exist when heap is enabled"),
-        );
-        code.function(
-            value_to_number_helper_function
-                .as_ref()
-                .expect("value-to-number helper must exist when heap is enabled"),
-        );
-        code.function(
-            value_to_numeric_helper_function
-                .as_ref()
-                .expect("value-to-numeric helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_get_prototype_of_helper_function
-                .as_ref()
-                .expect("get-prototype-of helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_is_extensible_helper_function
-                .as_ref()
-                .expect("is-extensible helper must exist when heap is enabled"),
-        );
-        code.function(
-            object_read_proxy_helper_function
-                .as_ref()
-                .expect("object-read-proxy helper must exist when heap is enabled"),
-        );
-        code.function(
-            regexp_matcher_helper_function
-                .as_ref()
-                .expect("regexp matcher helper must exist when heap is enabled"),
-        );
-        code.function(
-            function_call_helper_function
-                .as_ref()
-                .expect("function-call helper must exist when heap is enabled"),
-        );
-        code.function(
-            dynamic_property_read_helper_function
-                .as_ref()
-                .expect("dynamic property-read helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_data_on_receiver_helper_function
-                .as_ref()
-                .expect("ordinary receiver-set helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_data_on_receiver_with_fallback_helper_function
-                .as_ref()
-                .expect("ordinary receiver-set fallback helper must exist when heap is enabled"),
-        );
-        code.function(
-            array_write_helper_function
-                .as_ref()
-                .expect("array-write helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_helper_function
-                .as_ref()
-                .expect("ordinary-set helper must exist when heap is enabled"),
-        );
-        code.function(
-            ordinary_set_without_receiver_fallback_helper_function
-                .as_ref()
-                .expect("ordinary-set no-fallback helper must exist when heap is enabled"),
-        );
-        code.function(
-            decimal_to_binary64_helper_function
-                .as_ref()
-                .expect("decimal converter helper must exist when heap is enabled"),
-        );
-        code.function(
-            bigint_arithmetic_helper_function
-                .as_ref()
-                .expect("BigInt arithmetic helper must exist when heap is enabled"),
-        );
-        code.function(
-            temporal_calendar_iso_date_probe_helper_function
-                .as_ref()
-                .expect("temporal calendar date-probe helper must exist when heap is enabled"),
-        );
-        code.function(
-            temporal_calendar_identifier_helper_function
-                .as_ref()
-                .expect("temporal calendar identifier helper must exist when heap is enabled"),
-        );
-        if let Some(json_stringify_value_helper_function) =
-            json_stringify_value_helper_function.as_ref()
-        {
-            code.function(json_stringify_value_helper_function);
+        for helper in RuntimeHelperId::ALL {
+            if !helper.is_emitted(helper_emission) {
+                continue;
+            }
+            let body = helper_bodies.remove(&helper).unwrap_or_else(|| {
+                panic!(
+                    "runtime helper `{}` is emitted in this module but has no compiled body",
+                    helper.debug_name()
+                )
+            });
+            code.push(EmittedFunction::new(
+                FunctionIdentity::RuntimeHelper(helper),
+                body,
+            ));
         }
     }
+    assert!(
+        helper_bodies.is_empty(),
+        "compiled runtime helper bodies were never emitted: {:?}",
+        helper_bodies.keys().collect::<Vec<_>>()
+    );
+    let (code, function_table) = code.finish();
+    // The function section and the code section must describe the same number
+    // of functions, or wasmtime rejects the module as malformed. This compares
+    // the code section's own record count against `FunctionSection`'s own
+    // counter — two independently maintained accumulators, one incremented by
+    // `FunctionSection::function` above and one by `ModuleCode::push` below it.
+    //
+    // Recomputing the expectation from `callable_function_count` and a second
+    // `RuntimeHelperId::ALL.filter(is_emitted)` walk would *not* be a check:
+    // both sides would derive from the same two variables and the assertion
+    // could never fire on any input.
+    assert_eq!(
+        u32::try_from(function_table.records().len()).expect("emitted function count fits u32"),
+        functions.len(),
+        "code section entries must match the function section declarations"
+    );
 
     let mut module = Module::new();
     module.section(&types);
@@ -1928,13 +2204,13 @@ fn emit_script_with_forced_builtins(
         format!("static result kind: {}", script.result_kind().as_str()),
         format!("locals: {}", main_builder.emitted_local_count()),
         format!("internal functions: {}", callable_function_count),
+        // Derived from the same table the bodies were pushed into, so it
+        // cannot go stale the way the previous hand-written `27` did: the
+        // counted truth was already 32 unconditional helpers plus one
+        // conditional one.
         format!(
             "runtime helper functions: {}",
-            if uses_heap {
-                27 + usize::from(uses_json_stringify)
-            } else {
-                0
-            }
+            function_table.runtime_helper_count()
         ),
         format!(
             "standard builtin bodies: {} real, {} shared-stubbed",
@@ -1973,8 +2249,65 @@ fn emit_script_with_forced_builtins(
         format!("export global: {COMPLETION_KIND_EXPORT}"),
         format!("export global: {COMPLETION_AUX_EXPORT}"),
         format!("export global: {THROW_ERROR_NAME_EXPORT}"),
+        format!("export global: {THROW_ERROR_MESSAGE_EXPORT}"),
         format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
     ];
+
+    // Emitted-size attribution. `tests/emit_golden.rs` records `debug_dump` per
+    // fixture, so these two lines make the largest emitted body a tracked
+    // artifact across all 527 CLI fixtures at no extra cost, and give a
+    // `Code for function is too large` failure a named suspect.
+    //
+    // (The `[origin:unknown]` prefix such a failure also carries is a
+    // `porffor-test262` `FailureOrigin` taxonomy value, not a function name;
+    // nothing here changes it, and the engine-side attribution is deliberately
+    // index-only so that it cannot change it either.)
+    //
+    // Both lines use the `key=value` shape `EmittedFunctionSummary::report_lines`
+    // uses, with `name=` **last**. Emitted names contain spaces
+    // (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`,
+    // `get #private`), so a positional layout cannot be parsed back: putting the
+    // free-form name last is what makes it unambiguous without quoting, and
+    // `tests/emit_golden.rs` parses exactly these keys.
+    //
+    // One traversal, three consumers. `function_sizes` on the artifact, the two
+    // attribution lines below and the opt-in full report are all rendered from
+    // `summaries`, so no reader can be told two different things about the same
+    // body. The precedent is the `runtime helper functions: 27` line above,
+    // which was a second copy of a fact and had drifted by five.
+    let function_sizes = function_table.summaries();
+    debug_dump.push(EmittedFunctionSummary::attribution_line(
+        "largest emitted function",
+        EmittedFunctionSummary::largest(&function_sizes),
+    ));
+    // Reported separately because it is often a different function, and it is
+    // the one that predicts Cranelift's virtual-register exhaustion.
+    debug_dump.push(EmittedFunctionSummary::attribution_line(
+        "most locals in an emitted function",
+        EmittedFunctionSummary::most_locals(&function_sizes),
+    ));
+    debug_dump.push(format!(
+        "emitted code bytes: {}",
+        function_table.total_body_bytes()
+    ));
+    if emit_size_report_requested() {
+        debug_dump.extend(EmittedFunctionSummary::report_lines(
+            &function_sizes,
+            usize::MAX,
+        ));
+    }
+    // The same report, written from inside the emitter to a file the caller
+    // names. Unlike `debug_dump` this survives every wrapper between here and
+    // `main`: the dump has exactly one printer, two crates away, and it was
+    // unreachable from `porf build wasm` and from the Test262 wasm-aot backend
+    // for the whole of batch 2 — which is how a size claim went a full batch
+    // without anyone noticing the measurement was silently empty.
+    //
+    // `emit_script` runs this function as a fixpoint over the builtin stub
+    // partitions (2-4 passes), so the file is rewritten once per pass and the
+    // last write is the one that describes the module actually returned. That is
+    // the wanted behaviour, and it is why the sink truncates rather than appends.
+    write_size_report_file_if_requested(&function_sizes);
     if uses_host_print {
         debug_dump.push(format!(
             "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_PRINT_LINE_UTF8}"
@@ -2086,6 +2419,30 @@ fn emit_script_with_forced_builtins(
         debug_dump.push("data segments: 0".to_string());
     }
 
+    // The Wasm custom `name` section, built from the same identity table that
+    // measured every body. Wasmtime composes its per-function symbol as
+    // `wasm[0]::function[N]::<clean_symbol(name)>` from exactly this section
+    // (wasmtime/src/compile.rs), so a native-compilation failure that used to
+    // read `[origin:unknown] ... Code for function is too large` can now name
+    // the function it is about. Custom sections are ignored by validation and
+    // do not participate in `largest_wasm_code_body_size`, so this does not
+    // move the engine's size-optimized routing threshold.
+    module.section(&function_table.name_section());
+    debug_dump.push(format!(
+        "name section: {} named functions",
+        function_table.records().len()
+    ));
+
+    // Report-only by default: a budget below the largest body Cranelift accepts
+    // today would turn green tests red, and that maximum has not been measured
+    // across the fixture corpus yet. Opt in with
+    // `PORFFOR_EMIT_FUNCTION_BODY_BUDGET_BYTES` to have the compiler fail in
+    // milliseconds with a named function instead of waiting ~37 s for Cranelift
+    // to fail anonymously.
+    if let Some(budget) = FunctionBodyBudget::from_env() {
+        function_table.check_budget(budget)?;
+    }
+
     // Builtins codegen proved reachable (materialized or direct-called) while
     // their body was stubbed this pass: the caller force-compiles these and
     // re-emits (see `emit_script`).
@@ -2108,6 +2465,7 @@ fn emit_script_with_forced_builtins(
             bytes: module.finish(),
             invariant_note: "direct-js-to-wasm module",
             debug_dump: debug_dump.join("\n"),
+            function_sizes,
         },
         touched_stubbed,
     ))
@@ -2445,6 +2803,10 @@ impl<'a> FunctionBuilder<'a> {
             outline_object_is_extensible: true,
             outline_object_read_proxy: true,
             outline_array_write: true,
+            outline_indexed_element_read: true,
+            outline_indexed_element_write: true,
+            outline_value_to_primitive: true,
+            outline_value_to_property_key: true,
             ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission::Inline,
             object_write_strict_flag_local: None,
         }
@@ -2453,155 +2815,212 @@ impl<'a> FunctionBuilder<'a> {
     /// Wasm function index of the shared object-read runtime helper. It is
     /// emitted immediately after the six heap/object allocation helpers.
     pub(crate) fn object_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 6)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectRead.index(base))
     }
 
     /// Wasm function index of the shared object-write runtime helper.
     pub(crate) fn object_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 7)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectWrite.index(base))
     }
 
     /// Wasm function index of the shared object-define-data runtime helper.
     pub(crate) fn object_define_data_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 8)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectDefineData.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware call-dispatch helper.
     pub(crate) fn proxy_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 9)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ProxyCall.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware construct-dispatch helper.
     pub(crate) fn proxy_construct_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 10)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ProxyConstruct.index(base))
     }
 
     /// Wasm function index of the shared string-equality helper.
     pub(crate) fn string_equality_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 11)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::StringEquality.index(base))
     }
 
     /// Wasm function index of the shared number-to-string helper.
     pub(crate) fn number_to_string_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 12)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::NumberToString.index(base))
     }
 
     /// Wasm function index of the shared string-to-number helper.
     pub(crate) fn string_to_number_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 13)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::StringToNumber.index(base))
     }
 
     /// Wasm function index of the shared dynamic ToString (value-to-string)
     /// helper.
     pub(crate) fn value_to_string_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 14)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToString.index(base))
     }
 
     /// Wasm function index of the shared dynamic ToNumber (value-to-number)
     /// helper. Unconditional (like value-to-string) so its fixed offset never
     /// shifts.
     pub(crate) fn value_to_number_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 15)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToNumber.index(base))
     }
 
     /// Wasm function index of the shared dynamic ToNumeric helper.
     pub(crate) fn value_to_numeric_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 16)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToNumeric.index(base))
+    }
+
+    /// Wasm function index of the shared ToPrimitive helper for `hint`.
+    ///
+    /// The hint picks the *callee*, through
+    /// [`RuntimeHelperId::helper_for`]'s exhaustive match, rather than being
+    /// forwarded to one body as data.
+    pub(crate) fn value_to_primitive_helper_function_index(
+        &self,
+        hint: ToPrimitiveHint,
+    ) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::helper_for(hint).index(base))
+    }
+
+    /// Wasm function index of the shared ToPropertyKey helper.
+    pub(crate) fn value_to_property_key_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ValueToPropertyKey.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[GetPrototypeOf]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_get_prototype_of_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 17)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectGetPrototypeOf.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[IsExtensible]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_is_extensible_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 18)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectIsExtensible.index(base))
     }
 
     /// Wasm function index of the shared proxy-aware `[[Get]]` helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn object_read_proxy_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 19)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ObjectReadProxy.index(base))
     }
 
     /// Wasm function index of the sequence-only RegExp matcher helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn regexp_matcher_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 20)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::RegExpMatcher.index(base))
     }
 
     /// Wasm function index of the shared plain function-call dispatcher.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn function_call_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 21)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::FunctionCall.index(base))
     }
 
     /// Wasm function index of the runtime-kind dynamic property-read helper.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
     pub(crate) fn dynamic_property_read_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 22)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::DynamicPropertyRead.index(base))
     }
 
     /// Wasm function index of the receiver-side OrdinarySet data-property
     /// helper. Unconditional (emitted whenever heap is used) so its fixed
     /// offset never shifts.
     pub(crate) fn ordinary_set_data_on_receiver_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 23)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySetDataOnReceiver.index(base))
     }
 
     pub(crate) fn ordinary_set_data_on_receiver_with_fallback_helper_function_index(
         &self,
     ) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 24)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback.index(base))
     }
 
     /// Wasm function index of the shared dense/sparse Array element-write helper.
     pub(crate) fn array_write_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 25)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ArrayWrite.index(base))
     }
 
     /// Wasm function index of the shared OrdinarySet helper with an explicit receiver.
     pub(crate) fn ordinary_set_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 26)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySet.index(base))
     }
 
     pub(crate) fn ordinary_set_without_receiver_fallback_helper_function_index(
         &self,
     ) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 27)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::OrdinarySetWithoutReceiverFallback.index(base))
     }
 
     /// Wasm function index of the exact decimal source-text to binary64 helper.
     pub(crate) fn decimal_to_binary64_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 28)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::DecimalToBinary64.index(base))
     }
 
     /// Wasm function index of the shared arbitrary-precision BigInt arithmetic
     /// helper.
     pub(crate) fn bigint_arithmetic_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 29)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::BigIntArithmetic.index(base))
     }
 
     /// Wasm function index of the Temporal ISO-date calendar-probe helper.
     /// Always emitted (stubbed when no calendar-bearing Temporal builtin is
     /// compiled) so its fixed offset never shifts.
     pub(crate) fn temporal_calendar_iso_date_probe_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 30)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::TemporalCalendarIsoDateProbe.index(base))
     }
 
     /// Wasm function index of the shared `ToTemporalCalendarIdentifier`
     /// string-resolution helper. Always emitted (stubbed when unused).
     pub(crate) fn temporal_calendar_identifier_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 31)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::TemporalCalendarIdentifier.index(base))
+    }
+
+    /// Wasm function index of the shared `expr[index]` read composite.
+    pub(crate) fn indexed_element_read_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::IndexedElementRead.index(base))
+    }
+
+    /// Wasm function index of the shared `expr[index] = value` write composite.
+    pub(crate) fn indexed_element_write_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::IndexedElementWrite.index(base))
     }
 
     /// Wasm function index of the shared JSON.stringify value helper. Emitted
@@ -2609,7 +3028,8 @@ impl<'a> FunctionBuilder<'a> {
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
-        self.heap_alloc_function_index.map(|base| base + 32)
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::JsonStringifyValue.index(base))
     }
 
     pub(crate) fn local_count(&self) -> usize {
@@ -2652,6 +3072,15 @@ impl<'a> FunctionBuilder<'a> {
         assert_eq!(local, expected);
     }
 
+    /// Rewrites the body's local declaration down to the locals actually used.
+    ///
+    /// This is the single funnel every compiled body passes through, but it is
+    /// deliberately *not* where attribution happens: six of its call sites live
+    /// in `bigint.rs`, `builtins/{temporal,json,decimal,regexp}.rs`, and the six
+    /// heap/alloc helpers never reach it at all. Attribution instead lives at
+    /// the one point every code-section element does pass through —
+    /// [`EmittedFunction::new`], which measures the finished body and is the
+    /// only thing [`ModuleCode::push`] accepts. See `emitted_function.rs`.
     pub(crate) fn finish_function(&self, function: Function) -> Function {
         let planned_local_count = self.local_count() as u32;
         let emitted_local_count = self.emitted_local_count();
@@ -2659,17 +3088,11 @@ impl<'a> FunctionBuilder<'a> {
             return function;
         }
 
-        let local_declaration =
-            Function::new([(planned_local_count, ValType::I64)]).into_raw_body();
-        let mut body_bytes = function.into_raw_body();
-        assert!(
-            body_bytes.starts_with(&local_declaration),
-            "function local declaration does not match planned local count {planned_local_count}"
-        );
-        let instruction_bytes = body_bytes.split_off(local_declaration.len());
-        let mut function = Function::new([(emitted_local_count, ValType::I64)]);
-        function.raw(instruction_bytes);
-        function
+        // The rebuild itself lives in `code_sink.rs`: it is the one operation
+        // that reconstructs a body from raw bytes, and going through the public
+        // constructors here would reset the label depth to "fresh body" on a
+        // body that is already closed.
+        function.rewrite_local_declaration(planned_local_count, emitted_local_count)
     }
 
     fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
@@ -2835,10 +3258,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.result_tag_local,
                 &mut function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+            self.emit_propagate_throw_from_locals_if_needed(
                 self.result_local,
                 self.result_tag_local,
-                0,
                 &mut function,
             )?;
         }
@@ -3150,6 +3572,93 @@ impl<'a> FunctionBuilder<'a> {
         Ok(self.finish_function(function))
     }
 
+    /// Starts the body of `helper` and, in the same step, switches that
+    /// helper's own inline seam off for the rest of this builder's life.
+    ///
+    /// The clearing is *derived from the helper id* instead of being written
+    /// out again in every `compile_*_helper`. That matters because the failure
+    /// mode of forgetting it is invisible to every cheap check: a helper whose
+    /// body reaches its own seam emits `call $itself`, which type-checks in
+    /// Rust, encodes to valid Wasm, links, validates, and only diverges when
+    /// the case that reaches it is executed. Twenty compilers each carrying
+    /// their own `self.outline_x = false;` line is twenty chances to omit it;
+    /// this is one place, and the match below is exhaustive with no `_` arm, so
+    /// a new [`RuntimeHelperId`] does not build until it states whether it owns
+    /// a seam.
+    ///
+    /// Twenty-two of the thirty-nine helpers own a seam. The other seventeen
+    /// own none: their call sites have no inline body to fall back *to* (the six
+    /// allocation helpers are plain free functions, not `FunctionBuilder`
+    /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
+    /// keeps its seam live: nested-value serialization *is* a runtime self-call
+    /// (`emit_json_stringify_value_call`), which is why "the body must never
+    /// name its own index" cannot be a blanket rule.
+    ///
+    /// The helper bodies compiled outside this file — `objects.rs`,
+    /// `bigint.rs`, `builtins/{decimal,json,regexp,temporal}.rs` — route
+    /// through here too, which is why this is `pub(crate)`. That leaves
+    /// `FunctionBuilder::compile`/`compile_builtin` as the only two places in
+    /// the crate that build a body-shaped [`Function`] without naming a helper,
+    /// and neither of those is a helper.
+    ///
+    /// That last sentence is a fact about the source, not a property the type
+    /// system can hold: [`Function`] is `code_sink::Function` and anyone in the
+    /// crate may construct one, so a new `compile_x_helper` may construct one
+    /// directly. It is kept true by
+    /// `runtime_helpers::tests::only_three_places_build_a_function_builder_body`,
+    /// which counts the construction sites; do not restate it as an
+    /// enforcement claim anywhere else.
+    pub(crate) fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
+        match helper {
+            RuntimeHelperId::ObjectRead => self.outline_object_read = false,
+            RuntimeHelperId::ObjectWrite => self.outline_object_write = false,
+            RuntimeHelperId::ObjectDefineData => self.outline_object_define_data = false,
+            RuntimeHelperId::ProxyCall => self.outline_proxy_call = false,
+            RuntimeHelperId::ProxyConstruct => self.outline_proxy_construct = false,
+            RuntimeHelperId::StringEquality => self.outline_string_equality = false,
+            RuntimeHelperId::NumberToString => self.outline_number_to_string = false,
+            RuntimeHelperId::StringToNumber => self.outline_string_to_number = false,
+            RuntimeHelperId::ValueToString => self.outline_value_to_string = false,
+            RuntimeHelperId::ValueToNumber => self.outline_value_to_number = false,
+            RuntimeHelperId::ValueToNumeric => self.outline_value_to_numeric = false,
+            RuntimeHelperId::ObjectGetPrototypeOf => self.outline_object_get_prototype_of = false,
+            RuntimeHelperId::ObjectIsExtensible => self.outline_object_is_extensible = false,
+            RuntimeHelperId::ObjectReadProxy => self.outline_object_read_proxy = false,
+            RuntimeHelperId::FunctionCall => self.outline_function_call = false,
+            RuntimeHelperId::ArrayWrite => self.outline_array_write = false,
+            RuntimeHelperId::IndexedElementRead => self.outline_indexed_element_read = false,
+            RuntimeHelperId::IndexedElementWrite => self.outline_indexed_element_write = false,
+            // All three hints clear the one ToPrimitive seam flag: see
+            // `outline_value_to_primitive` for why it is one flag and not three.
+            RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString => self.outline_value_to_primitive = false,
+            // Only its own seam: the ToPropertyKey body *should* reach the
+            // ToPrimitive helper by call rather than inline it again.
+            RuntimeHelperId::ValueToPropertyKey => self.outline_value_to_property_key = false,
+            // No inline seam of their own.
+            RuntimeHelperId::HeapAlloc
+            | RuntimeHelperId::ObjectAppendDataProperty
+            | RuntimeHelperId::ObjectAppendAccessorProperty
+            | RuntimeHelperId::FunctionObjectAlloc
+            | RuntimeHelperId::PlainObjectAlloc
+            | RuntimeHelperId::ArrayAlloc
+            | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::DynamicPropertyRead
+            | RuntimeHelperId::OrdinarySetDataOnReceiver
+            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
+            | RuntimeHelperId::OrdinarySet
+            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
+            | RuntimeHelperId::DecimalToBinary64
+            | RuntimeHelperId::BigIntArithmetic
+            | RuntimeHelperId::TemporalCalendarIsoDateProbe
+            | RuntimeHelperId::TemporalCalendarIdentifier
+            // Deliberately recursive: see above.
+            | RuntimeHelperId::JsonStringifyValue => {}
+        }
+        Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()))
+    }
+
     /// Compiles the shared object-read runtime helper. Rather than inlining the
     /// large ordinary/proxy property-read state machine at every read site, that
     /// sequence is emitted exactly once here and reached with a plain `call`.
@@ -3159,9 +3668,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 3=receiver tag, 4=key payload. Params 5/6 are unused. Results are the
     /// standard `(result, result_tag, completion, completion_aux)` tuple.
     fn compile_object_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_read = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectRead);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3173,7 +3680,7 @@ impl<'a> FunctionBuilder<'a> {
             4,
             self.result_local,
             self.result_tag_local,
-            None,
+            AccessorThrowRouting::LeaveInCompletion,
             &mut function,
         )?;
         self.pop_scope();
@@ -3195,9 +3702,7 @@ impl<'a> FunctionBuilder<'a> {
     /// zero). On a setter/proxy throw the thrown value is surfaced through the
     /// `(result, result_tag, completion, completion_aux)` result tuple.
     fn compile_object_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_write = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectWrite);
         self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
         // Helper parameter 5 carries the calling function's strictness (0 sloppy,
         // nonzero strict). Parameter 6 carries a standard builtin's self-backed
@@ -3230,8 +3735,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `(result, result_tag, completion, aux)` tuple; on normal completion the
     /// first result is the boolean success value.
     fn compile_ordinary_set_data_on_receiver_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::OrdinarySetDataOnReceiver);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3264,7 +3768,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
     ) -> Result<Function, EmitError> {
         let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+            self.begin_helper_body(RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3297,9 +3801,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Params: 0=array payload, 1=index, 2=value payload, 3=value tag,
     /// 4=calling realm environment. Params 5/6 are unused.
     fn compile_array_write_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_array_write = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ArrayWrite);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(4));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
@@ -3320,10 +3822,9 @@ impl<'a> FunctionBuilder<'a> {
     /// argument vector in params 5/6.
     fn compile_ordinary_set_helper(
         &mut self,
-        allow_receiver_generic_write_fallback: bool,
+        receiver_fallback: OrdinarySetReceiverFallback,
     ) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(receiver_fallback.helper());
         self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
@@ -3370,7 +3871,7 @@ impl<'a> FunctionBuilder<'a> {
             value_payload_local,
             value_tag_local,
             self.result_local,
-            allow_receiver_generic_write_fallback,
+            receiver_fallback.allows_receiver_generic_write(),
             &mut function,
         )?;
         self.object_write_strict_flag_local = None;
@@ -3411,9 +3912,7 @@ impl<'a> FunctionBuilder<'a> {
     /// i64 params, no results). Params: 0=object payload, 1=key payload,
     /// 2=value payload, 3=value tag, 4=writable, 5=enumerable, 6=configurable.
     fn compile_object_define_data_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_define_data = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectDefineData);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_object_define_data_with_flag_locals(0, 1, 2, 3, 4, 5, 6, &mut function)?;
@@ -3429,9 +3928,7 @@ impl<'a> FunctionBuilder<'a> {
     /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
     /// throws are surfaced through the completion rather than propagated.
     fn compile_function_call_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_function_call = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::FunctionCall);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3443,7 +3940,7 @@ impl<'a> FunctionBuilder<'a> {
             5,
             self.result_local,
             self.result_tag_local,
-            None,
+            PropagateCallThrow::LeaveInCompletion,
             &mut function,
         )?;
         self.pop_scope();
@@ -3462,8 +3959,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 5=property-key tag. Param 6 is unused. Results are the standard
     /// `(result, result_tag, completion, aux)` tuple.
     fn compile_dynamic_property_read_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::DynamicPropertyRead);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3496,9 +3992,7 @@ impl<'a> FunctionBuilder<'a> {
     /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
     /// throws are surfaced through the completion rather than propagated.
     fn compile_proxy_call_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_proxy_call = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ProxyCall);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3530,9 +4024,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Param 6 is unused. Results are the `(result, result_tag, completion,
     /// aux)` tuple.
     fn compile_proxy_construct_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_proxy_construct = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ProxyConstruct);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3568,9 +4060,7 @@ impl<'a> FunctionBuilder<'a> {
     /// standard four-i64 tuple with the comparison result (0 or 1) in the first
     /// slot; the other three are always zero.
     fn compile_string_equality_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_string_equality = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::StringEquality);
         self.push_scope();
         self.emit_string_payload_equality_i32_with_ascii_case_folding(0, 1, Some(2), &mut function);
         function.instruction(&Instruction::I64ExtendI32U);
@@ -3591,9 +4081,7 @@ impl<'a> FunctionBuilder<'a> {
     /// (f64 bits). Params 1-6 are unused. Results are the standard four-i64
     /// tuple with the string payload in the first slot; the rest are zero.
     fn compile_number_to_string_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_number_to_string = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::NumberToString);
         self.push_scope();
         self.emit_number_to_string_payload(0, &mut function)?;
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -3613,9 +4101,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Params 1-6 are unused. Results are the standard four-i64 tuple with the
     /// number payload (f64 bits) in the first slot; the rest are zero.
     fn compile_string_to_number_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_string_to_number = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::StringToNumber);
         self.push_scope();
         self.emit_string_to_number_payload(0, &mut function)?;
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -3637,9 +4123,7 @@ impl<'a> FunctionBuilder<'a> {
     /// tuple: on normal completion the string payload is in the first slot; a
     /// ToPrimitive/Symbol throw is surfaced through the completion slots.
     fn compile_value_to_string_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_value_to_string = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToString);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3689,9 +4173,7 @@ impl<'a> FunctionBuilder<'a> {
     /// first slot with a Number tag; a BigInt/Symbol/ToPrimitive throw is
     /// surfaced through the completion slots.
     fn compile_value_to_number_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_value_to_number = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumber);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3736,15 +4218,124 @@ impl<'a> FunctionBuilder<'a> {
     /// resulting Number-or-BigInt tag and any abrupt completion produced by
     /// ToPrimitive.
     fn compile_value_to_numeric_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_value_to_numeric = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToNumeric);
         self.push_scope();
         function.instruction(&Instruction::LocalGet(6));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_numeric_locals(0, 1, &mut function)?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(0));
+        function.instruction(&Instruction::LocalGet(1));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles one of the three shared ToPrimitive helpers.
+    ///
+    /// One body per [`ToPrimitiveHint`], selected by
+    /// [`RuntimeHelperId::helper_for`], because the hook order the composite
+    /// emits genuinely differs by hint (`toString` before `valueOf` for the
+    /// string hint, the reverse otherwise). Passing the hint as a runtime `i64`
+    /// parameter to a single body would replace three compile-time-distinct
+    /// callees with one, and a wrong-hint call would then be invisible until a
+    /// Test262 case observed the wrong coercion order.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
+    /// 1=value tag, 6=calling function's realm environment. Params 2-5 are
+    /// unused. Results are the standard four-i64
+    /// tuple: on normal completion the primitive `(payload, tag)` is in the
+    /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
+    /// surfaced through the completion slots with the thrown value in the first
+    /// two, which is exactly what the inline composite leaves in its output
+    /// locals, so the seam's callers cannot tell the difference.
+    ///
+    /// Param 6 is loaded into `current_env_local` for the reason recorded on
+    /// `emit_value_to_primitive_via_helper_if_outlined`: inline, this composite
+    /// ran with the caller's environment, and `compile_value_to_numeric_helper`
+    /// already forwards param 6 into a path that now reaches this helper.
+    fn compile_value_to_primitive_helper(
+        &mut self,
+        hint: ToPrimitiveHint,
+    ) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::helper_for(hint));
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        let primitive_payload_local = self.reserve_temp_local();
+        let primitive_tag_local = self.reserve_temp_local();
+        self.emit_tagged_to_primitive_locals(
+            hint,
+            0,
+            1,
+            primitive_payload_local,
+            primitive_tag_local,
+            &mut function,
+        )?;
+        self.pop_scope();
+        // The output locals are returned **unconditionally**, and this is the
+        // one place this helper deliberately does *not* copy
+        // `compile_value_to_string_helper`.
+        //
+        // That helper needs a `completion == THROW` guard because
+        // `emit_value_to_string_payload` hands back a *stack* value which is
+        // meaningless on the throw path, so committing it over
+        // `self.result_local` would overwrite the real error. Here the composite
+        // has no stack result at all: every throw path inside
+        // `emit_object_to_primitive_locals_inner` writes the thrown value into
+        // these same two output locals before setting completion — the
+        // hook-read arm and the `@@toPrimitive` arm both `local.set` them from
+        // the failing value, and `emit_throw_runtime_error` takes them as its
+        // out-params. That is not an inference: it is the contract all sixteen
+        // inline call sites already depend on, since every one of them
+        // propagates with `emit_propagate_throw_from_locals_if_needed(out_payload,
+        // out_tag)`. Returning `self.result_local` instead would be strictly
+        // *worse* than the inline body, because the hook-read throw arm leaves
+        // the error in the output locals without routing it through
+        // `emit_throw_from_locals`.
+        //
+        // The seam's `store_call_results` re-homes the returned pair into
+        // `result_local`/`result_tag_local` on throw, so callers that read the
+        // current completion instead of the output locals (
+        // `emit_return_current_completion_if_throw` in `emit_value_to_bigint_locals`)
+        // see what they saw before.
+        function.instruction(&Instruction::LocalGet(primitive_payload_local));
+        function.instruction(&Instruction::LocalGet(primitive_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        self.release_temp_local(primitive_tag_local);
+        self.release_temp_local(primitive_payload_local);
+        Ok(self.finish_function(function))
+    }
+
+    /// Compiles the shared ToPropertyKey helper: ToPrimitive with the string
+    /// hint, then the Symbol-marker / ToString split.
+    ///
+    /// Its body reaches the ToPrimitive *helper* rather than inlining the
+    /// composite again, because `begin_helper_body` clears only this helper's
+    /// own seam. That is the one intended helper-to-helper edge in this pair.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
+    /// 1=value tag, updated in place, 6=calling function's realm environment.
+    /// Params 2-5 are unused. Results are the
+    /// standard four-i64 tuple. The inline body's own throw propagation is what
+    /// produces the abrupt result: inside a helper there is no active catch
+    /// target, so it becomes a completion return, exactly as in
+    /// `compile_value_to_numeric_helper`.
+    fn compile_value_to_property_key_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::ValueToPropertyKey);
+        self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_value_to_property_key_locals(0, 1, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(0));
         function.instruction(&Instruction::LocalGet(1));
@@ -3766,18 +4357,15 @@ impl<'a> FunctionBuilder<'a> {
     /// tuple: on normal completion the prototype `(payload, tag)` is in the first
     /// two slots; a proxy-trap throw is surfaced through the completion slots.
     fn compile_object_get_prototype_of_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_get_prototype_of = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectGetPrototypeOf);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_get_prototype_of_with_depth(
+        self.emit_object_get_prototype_of(
             0,
             1,
             self.result_local,
             self.result_tag_local,
-            0,
             &mut function,
         )?;
         self.pop_scope();
@@ -3798,13 +4386,11 @@ impl<'a> FunctionBuilder<'a> {
     /// tuple: on normal completion the boolean result (0/1) is in the first slot;
     /// a proxy-trap throw is surfaced through the completion slots.
     fn compile_object_is_extensible_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_is_extensible = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectIsExtensible);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        self.emit_object_is_extensible_i32_with_depth(0, 1, self.result_local, 0, &mut function)?;
+        self.emit_object_is_extensible_i32(0, 1, self.result_local, &mut function)?;
         self.pop_scope();
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
@@ -3826,9 +4412,7 @@ impl<'a> FunctionBuilder<'a> {
     /// completion the value `(payload, tag)` is in the first two slots; a
     /// proxy-trap throw is surfaced through the completion slots.
     fn compile_object_read_proxy_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
-        self.outline_object_read_proxy = false;
+        let mut function = self.begin_helper_body(RuntimeHelperId::ObjectReadProxy);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -3851,6 +4435,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
+
+    // `compile_indexed_element_read_helper` and
+    // `compile_indexed_element_write_helper` live in `objects.rs`, beside the
+    // composites they outline, and are the only `compile_*_helper` pair that
+    // does. That is not a filing preference: the bodies they emit are the two
+    // largest inline expansions in the crate (72,635 and 174,558 bytes), and
+    // keeping the compiler in the same module as the body is what lets the body
+    // itself stay module-private with exactly two callers — its seam's fallback
+    // arm and its helper compiler. A third caller elsewhere in the crate would
+    // re-inline the composite and quietly undo the outlining; with the body
+    // private, that call does not compile.
 
     fn init_current_env(&mut self, function: &mut Function) -> Result<(), EmitError> {
         match self.return_abi {

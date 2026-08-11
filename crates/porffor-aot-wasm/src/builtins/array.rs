@@ -673,14 +673,13 @@ impl<'a> FunctionBuilder<'a> {
             // through this Array path. Those entries cannot be accessors; keep
             // the unreachable accessor branch finite while compiling that
             // helper instead of recursively embedding another Proxy dispatcher.
-            self.emit_function_handle_call_with_throw_extra_depth(
+            self.emit_function_handle_call_with_throw_propagation(
                 getter_payload_local,
                 getter_tag_local,
                 Some((receiver_payload_local, Some(receiver_tag_local))),
                 &[],
                 payload_local,
                 tag_local,
-                6,
                 function,
             )?;
         }
@@ -1181,11 +1180,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else(
-            "Cannot assign to read only property",
-            2,
-            function,
-        )?;
+        self.emit_object_write_set_failure_else("Cannot assign to read only property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -1204,7 +1199,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to array index", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to array index", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -3002,10 +2997,9 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -4990,7 +4984,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_object_write_set_failure_else(
             "Cannot add property to non-extensible array",
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -6851,10 +6844,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8307,10 +8299,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8586,10 +8577,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            3,
             function,
         )?;
         self.emit_concat_create_target_property(
@@ -9230,10 +9220,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -10558,10 +10547,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -13420,10 +13408,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -14452,10 +14439,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -15424,10 +15410,9 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             target_payload_local,
             target_tag_local,
-            0,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -16389,7 +16374,6 @@ impl<'a> FunctionBuilder<'a> {
             "Array.prototype.push receiver is not array",
             payload_local,
             tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -16457,7 +16441,6 @@ impl<'a> FunctionBuilder<'a> {
                 "Array.prototype.push index write failed",
                 payload_local,
                 tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -16480,7 +16463,6 @@ impl<'a> FunctionBuilder<'a> {
                 "Array.prototype.push index write failed",
                 payload_local,
                 tag_local,
-                2,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -16500,7 +16482,6 @@ impl<'a> FunctionBuilder<'a> {
             "Invalid array length",
             payload_local,
             tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -16517,7 +16498,6 @@ impl<'a> FunctionBuilder<'a> {
             "Array.prototype.push length is not writable",
             payload_local,
             tag_local,
-            1,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -20583,10 +20563,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            2,
             function,
         )?;
         self.emit_array_write(
@@ -20793,10 +20772,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -21042,10 +21020,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            2,
             function,
         )?;
         self.emit_array_write(
@@ -21134,10 +21111,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            2,
             function,
         )?;
         self.emit_array_write(
@@ -22412,10 +22388,9 @@ impl<'a> FunctionBuilder<'a> {
             element_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -22731,10 +22706,9 @@ impl<'a> FunctionBuilder<'a> {
             element_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            6,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -23086,10 +23060,9 @@ impl<'a> FunctionBuilder<'a> {
             element_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            6,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -23811,10 +23784,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             element_payload_local,
             element_tag_local,
-            2,
             function,
         )?;
 
@@ -23842,10 +23814,9 @@ impl<'a> FunctionBuilder<'a> {
             callback_result_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             callback_result_payload_local,
             callback_result_tag_local,
-            2,
             function,
         )?;
 

@@ -163,7 +163,6 @@ impl<'a> FunctionBuilder<'a> {
             root_tag_local,
             JsonStaticPropertyKey::String(""),
             true,
-            0,
             reviver_payload_local,
             reviver_tag_local,
             payload_local,
@@ -188,7 +187,6 @@ impl<'a> FunctionBuilder<'a> {
         holder_tag_local: u32,
         key: JsonStaticPropertyKey<'_>,
         is_root_property: bool,
-        throw_extra_depth: u32,
         reviver_payload_local: u32,
         reviver_tag_local: u32,
         result_payload_local: u32,
@@ -233,10 +231,9 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
         }
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             current_payload_local,
             current_tag_local,
-            throw_extra_depth,
             function,
         )?;
 
@@ -253,7 +250,6 @@ impl<'a> FunctionBuilder<'a> {
                         current_tag_local,
                         JsonStaticPropertyKey::ArrayIndex(index),
                         false,
-                        throw_extra_depth + 1,
                         reviver_payload_local,
                         reviver_tag_local,
                         self.scratch_local,
@@ -293,7 +289,6 @@ impl<'a> FunctionBuilder<'a> {
                         current_tag_local,
                         JsonStaticPropertyKey::String(property_key),
                         false,
-                        throw_extra_depth + 1,
                         reviver_payload_local,
                         reviver_tag_local,
                         self.scratch_local,
@@ -3331,8 +3326,11 @@ impl<'a> FunctionBuilder<'a> {
     /// Results are the `(result, result_tag, completion, completion_aux)` tuple
     /// where a normal completion carries the serialized string payload.
     pub(crate) fn compile_json_stringify_value_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        // `JsonStringifyValue` is the one helper whose seam stays live inside
+        // its own body: nested-value serialization is a real self-call through
+        // `emit_json_stringify_value_call`. `begin_helper_body` encodes that in
+        // its no-seam arm, so this is a declaration of identity, not a clear.
+        let mut function = self.begin_helper_body(RuntimeHelperId::JsonStringifyValue);
         self.push_scope();
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);

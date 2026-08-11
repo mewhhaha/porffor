@@ -54,22 +54,46 @@ use porffor_front::{ParseGoal, SourceUnit};
 use regress::Regex;
 
 mod analysis;
+/// Environment Record binding lifecycle (ECMA-262 9.1.1.1): the `Initialization`
+/// state that lives on `BindingInfo`, and the `$tdz.` name domain. See
+/// `docs/rust-rewrite/contracts/environment-record-tdz.md`.
+mod binding_lifecycle;
+mod binding_names;
 mod builtins;
 mod diagnostics;
+// The `EarlyErrorCode` -> rejection-stage map. UNRELATED to `early_errors`
+// below, despite the adjacency: this is the diagnostic taxonomy, that is
+// derived-constructor validation over `ExprIr` arms.
+mod early_error_code;
 mod early_errors;
 mod ir;
+mod iterator_obligations;
 mod lowering;
 mod lowering_helpers;
 mod modules;
 mod names;
+mod native_error;
 mod operations;
+/// The Property Descriptor lattice (ECMA-262 6.2.6). See
+/// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
+pub mod property_descriptor;
 mod regexp;
+mod well_known;
 pub(crate) use analysis::*;
+pub(crate) use binding_lifecycle::*;
 pub use builtins::{CallableToStringRepresentation, HostBuiltinId, StandardBuiltinId};
 pub use diagnostics::{IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, LoweringStage};
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use ir::*;
 pub(crate) use ir::{read_heap_shape_property, summarize_block};
+/// The iterator-protocol obligations of 7.4 and the witness a for-of
+/// specialization carries. See
+/// `docs/rust-rewrite/contracts/iterator-protocol.md`.
+pub use iterator_obligations::{
+    ArrayPatternProtocol, EmissionSite, GetIteratorDischarge, IntactnessPremise,
+    IteratorCloseDischarge, IteratorObligation, IteratorProtocolWitness, IteratorStepDischarge,
+    IteratorValueDischarge, ObligationDischarge, PremiseKind,
+};
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub(crate) use lowering_helpers::*;
 pub use modules::{
@@ -83,14 +107,14 @@ pub use modules::{
 };
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
-    AbstractRelationalComparisonResult, ArithmeticBinaryOp, ArraySpeciesCreateIr, BindingMode,
-    BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind, CompletionKindIr, CompletionRecordIr,
-    CreateDataPropertyIr, DefinePropertyIr, EcmaLanguageType, EqualityBinaryOp,
-    IntegerIndexedConversionIr, IntegerIndexedElementType, IteratorRecordIr, IteratorRecordKind,
-    LogicalBinaryOp, NumericUpdateOp, OperationLoweringStatus, OrdinaryCreateFromConstructorIr,
-    PropertyDescriptorIr, PropertyDescriptorKind, RelationalBinaryOp, SpecOperationCatalogEntry,
-    SpecOperationFamily, SpecOperationIr, SpeciesConstructorIr, ToPrimitiveHint, UnaryNumericOp,
-    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG,
+    AbruptDiscipline, ArithmeticBinaryOp, BindingMode, BitwiseBinaryOp, CompletionAbiSlot,
+    CompletionAbruptKind, CompletionKindIr, CompletionRecordIr, DoneSlot, EcmaLanguageType,
+    EmitterEvidence, EqualityBinaryOp, IteratorRecordIr, IteratorSlot, LogicalBinaryOp,
+    NextMethodSlot, NormalResult, NumericUpdateOp, OperationLoweringStatus, OwnerTaskId,
+    RelationalBinaryOp, RowSource, SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr,
+    StatementEmissionRow, ToPrimitiveHint, TrackedGapReason, TrackedGapRow, UnaryNumericOp,
+    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
+    STATEMENT_EMISSION_ROWS, TRACKED_GAP_ROWS,
 };
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,
@@ -109,6 +133,38 @@ pub use regexp::{
 pub use names::*;
 pub(crate) use names::{
     MAX_ARRAY_INDEX, MAX_STATIC_ARRAY_SHAPE_INDEX, SCRIPT_OWNER_ID, TDZ_BINDING_STORAGE_PREFIX,
+};
+
+/// The three module binding-name domains. See
+/// `docs/rust-rewrite/contracts/module-binding-names.md`.
+pub use binding_names::*;
+pub(crate) use binding_names::{
+    DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, DEFAULT_KEYWORD,
+    EXPORT_KEYWORD, IMPORT_META_HEAD, IMPORT_META_TAIL,
+};
+
+/// The two closed spec name domains. See
+/// `docs/rust-rewrite/contracts/closed-name-domains.md`.
+pub use native_error::NativeErrorKind;
+
+/// The closed domain of pre-evaluation rejection codes, re-exported from
+/// `porffor-front` so consumers of `IrDiagnostic::code` have one path to it. See
+/// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
+pub use early_error_code::{EarlyErrorCode, ParseClassified};
+pub use well_known::{
+    is_symbol_description, shape_namespace_key, SymbolDescription, SymbolMemberName,
+    WellKnownSymbol,
+};
+
+/// The Property Descriptor lattice: one closed 6.2.6 type, one derived
+/// classification, and the two carriers that share them. See
+/// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
+pub use crate::property_descriptor::{
+    classify, complete_property_descriptor, AccessorSide, BothDataAndAccessor, CompleteDescriptor,
+    CompletionDefaults, DataSide, DescriptorCarrier, DescriptorClassification, DescriptorField,
+    DescriptorSide, DescriptorSideMarker, DescriptorSourceText, KindTerms, KnownPresence,
+    PartialDescriptor, Presence, PropertyDescriptorKind, SourceText, ValidateError,
+    ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
 };
 
 #[cfg(test)]
@@ -1151,10 +1207,9 @@ mod tests {
     fn allows_non_prototype_proto_property_forms() {
         let program = lower_script(r#"({ __proto__() { return 1; }, ["__proto__"]: 2 });"#);
         assert!(
-            program
-                .diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.code != Some("E_OBJECT_DUPLICATE_PROTO")),
+            program.diagnostics.iter().all(|diagnostic| {
+                diagnostic.code() != Some(EarlyErrorCode::ObjectDuplicateProto)
+            }),
             "diagnostics: {:?}",
             program.diagnostics
         );
@@ -1371,6 +1426,74 @@ mod tests {
             panic!("expected spread copy element read");
         };
         assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn array_spread_of_unshaped_source_does_not_index_pushes_from_zero() {
+        // Anti-vacuity for the fix above: dropping the fabricated
+        // `ArrayShape::default()` must be observable through
+        // `static_array_shape_len`, not only through `heap_shape.is_none()`.
+        // With the empty shape present, `ArrayPrototypePush` computed its
+        // destination index as `base_len + arg_offset` with `base_len == 0`
+        // and recorded `9` at index 0 of a copy whose real index 0 is the
+        // `{ length: 1 }` operand concat appended.
+        let program = lower_script(
+            "let source = [].concat({ length: 1 }); let copy = [...source]; copy.push(9); copy[0];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Lexical {
+            name,
+            init: copy_init,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected spread copy declaration");
+        };
+        assert_eq!(name, "copy");
+        assert!(
+            copy_init.heap_shape.is_none(),
+            "an unshaped concat input must not become an empty array shape"
+        );
+
+        let StatementIr::Expression(read) = &script.body.statements[3] else {
+            panic!(
+                "expected spread copy element read, got {:?}",
+                script.body.statements[3]
+            );
+        };
+        assert_eq!(
+            read.kind,
+            ValueKind::Dynamic,
+            "push into an unshaped copy must not type index 0 from a base length of 0"
+        );
+    }
+
+    #[test]
+    fn array_spread_of_unknown_iterable_does_not_claim_empty_array_shape() {
+        // The `Array.from` arm of the array-literal spread desugaring. `x` is
+        // an un-inferred parameter, so it is not a proven Array and the spread
+        // lowers to `[].concat(Array.from(Array, x))`. `Array.from` of an
+        // arbitrary iterable has a statically unknown length; claiming
+        // `ArrayShape::default()` for it claimed `length === 0`.
+        let program = lower_script("function f(x) { return [...x]; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "f")
+            .expect("function should be lowered");
+        let StatementIr::Return(expr) = &function.body.statements[0] else {
+            panic!(
+                "expected return statement, got {:?}",
+                function.body.statements
+            );
+        };
+        assert!(
+            expr.heap_shape.is_none(),
+            "Array.from of an unknown iterable must not carry an element vector"
+        );
     }
 
     #[test]
@@ -5019,7 +5142,7 @@ target[Symbol.iterator];"#,
                     .as_ref()
                     .map(|init| &init.expr),
                 Some(ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     ..
                 })
             ));
@@ -6399,8 +6522,14 @@ target[Symbol.iterator];"#,
 
     #[test]
     fn rejects_async_loop_awaits_with_no_resumable_shape() {
-        // Each of these used to compile to a loop that ran its body once and
-        // then reused the first resumed value for every later iteration.
+        // The first five used to compile to a loop that ran its body once and
+        // then reused the first resumed value for every later iteration. This
+        // test is the map of what is deliberately still out, so a case leaves it
+        // only by being implemented, never to make room.
+        //
+        // The last two are not that: they never miscompiled, they are refused.
+        // What batch 7 changed is only the *reason* each is given — see
+        // `AsyncForOfArrayWalkForm` in `lowering_helpers.rs`.
         for (source, message) in [
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",
@@ -6422,9 +6551,34 @@ target[Symbol.iterator];"#,
                 "(async function(){ for (const k in { a: 1 }) { await 0; } })();",
                 "await inside a for-in loop",
             ),
+            // A string iterable is genuinely not an array walk: it has to reach
+            // `GetIterator` and `String.prototype[@@iterator]`, whose own
+            // suspension points this specialization does not have. This case
+            // must stay rejected, and its expected substring is narrowed rather
+            // than weakened — batch 7 split the one four-premise message into
+            // one message per premise, so the tail "and a plain binding" is no
+            // longer part of the answer for a head that binds a plain `const c`.
             (
                 "(async function(){ for (const c of \"ab\") { await 0; } })();",
-                "async for-of with a body await requires an array iterable and a plain binding",
+                "async for-of with a body await requires an array iterable",
+            ),
+            // The premise that message used to hide, and the reason batch 7
+            // split it. Array literal, plain `const v` binding — both premises
+            // the old string named are satisfied — and the arrow captures `v`,
+            // so 14.7.5.7 needs a fresh environment record per iteration and
+            // `StatementIr::GeneratorLoop` has nowhere to put one. This is the
+            // shape of `built-ins/Array/fromAsync/asyncitems-asynciterator-not-callable.js`
+            // and its `@@iterator` sibling, the only two failures in that
+            // 95-case node on the batch-7 baseline sweep.
+            //
+            // It is still REJECTED, deliberately: the fix is a backend change
+            // (persist the environment pointer across the suspension), not a
+            // lowering one, and hoisting the binding into a single activation
+            // slot to make these two tests pass would give every closure the
+            // same cell. What changed is only that the reason is now true.
+            (
+                "(async function(){ const out = []; for (const v of [1, 2]) { out.push(() => v); await 0; } })();",
+                "a closure in the body captures it",
             ),
         ] {
             let program = lower_script(source);
@@ -6435,6 +6589,70 @@ target[Symbol.iterator];"#,
                     .iter()
                     .any(|diagnostic| diagnostic.message.contains(message)),
                 "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+
+    /// A refused generator declaration must say what about it was refused.
+    ///
+    /// The arm this pins used to report `"function or class declaration"` for
+    /// every generator with no linear suspension plan — wrong about the
+    /// declaration kind *and* about the reason, and it collapsed the whole
+    /// family into one `detail_hash`. Measured before the change, on the first
+    /// source below, `porf run --execution-backend wasm` printed exactly
+    /// `unsupported in porffor wasm-aot first slice: function or class
+    /// declaration`.
+    ///
+    /// This is a diagnostic test, not an acceptance test: all three sources are
+    /// still refused, and `linear_generator_plan` is still `.ok()` over the same
+    /// walk. The final assertion is the one that would catch a regression to the
+    /// old wording.
+    #[test]
+    fn a_refused_generator_declaration_reports_its_yield_shape() {
+        for (source, message) in [
+            // The `annexB` `invalidControls` shape, reduced: the third loop's
+            // yield sits inside an `if`. This is
+            // `RegExp-control-escape-russian-letter.js` and
+            // `RegExp-invalid-control-escape-character-class.js`.
+            (
+                "function* invalidControls() {\
+                   for (var a = 0x41; a <= 0x43; a++) { yield String.fromCharCode(a); }\
+                   for (a = 0; a <= 0x10; a++) {\
+                     let letter = String.fromCharCode(a);\
+                     if (letter.length > 0) { yield letter; }\
+                   }\
+                 }\
+                 invalidControls();",
+                "a loop body whose yield is nested inside another statement",
+            ),
+            // A different family, so the test cannot pass by reporting one
+            // message for everything.
+            (
+                "function* g() { for (var i = 0; i < 3; i++) { yield i; break; } } g();",
+                "a loop carrying `break`, `continue` or a capturing nested function",
+            ),
+            (
+                "function* g() { switch (1) { case 1: yield 1; } } g();",
+                "a yield inside a statement kind with no resumable lowering",
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(!program.is_wasm_supported(), "{source} should not compile");
+            assert!(
+                program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains(message)),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            assert!(
+                !program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("function or class declaration")),
+                "a generator must not be reported as a function or class declaration: {:?}",
                 program.diagnostics
             );
         }
@@ -7148,7 +7366,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             default_init.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -7206,7 +7424,7 @@ target[Symbol.iterator];"#,
                 .as_ref()
                 .map(|init| &init.expr),
             Some(ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             })
         ));
@@ -7273,7 +7491,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             block.params[0].default_init.as_ref().map(|init| &init.expr),
             Some(ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             })
         ));
@@ -7505,15 +7723,15 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.iterator_binding));
+            .any(|binding| binding.name == plan.record.iterator().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.next_binding));
+            .any(|binding| binding.name == plan.record.next_method().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.done_binding));
+            .any(|binding| binding.name == plan.record.done().as_str()));
     }
 
     #[test]
@@ -7553,11 +7771,11 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.iterator_binding));
+            .any(|binding| binding.name == plan.record.iterator().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.next_binding));
+            .any(|binding| binding.name == plan.record.next_method().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
@@ -7565,7 +7783,7 @@ target[Symbol.iterator];"#,
         assert!(function
             .owned_env_bindings
             .iter()
-            .any(|binding| binding.name == plan.done_binding));
+            .any(|binding| binding.name == plan.record.done().as_str()));
         assert!(function
             .owned_env_bindings
             .iter()
@@ -8161,7 +8379,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             &init.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -8256,7 +8474,7 @@ target[Symbol.iterator];"#,
         fn has_reference_error_throw(expr: &TypedExpr) -> bool {
             match &expr.expr {
                 ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     ..
                 } => true,
                 ExprIr::ObjectLiteral(properties) => {
@@ -8316,7 +8534,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             value.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -9165,10 +9383,172 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             rhs.expr,
             ExprIr::RuntimeThrow {
-                name: TYPE_ERROR_NAME,
+                name: NativeErrorKind::TypeError,
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn every_identifier_put_value_consumer_throws_the_same_immutable_binding_error() {
+        // The PutValue consumers that write through an *identifier* Reference —
+        // plain assignment, compound arithmetic assignment, compound bitwise
+        // assignment and update — all route through
+        // `immutable_binding_write`, so the class and the message are asserted
+        // once here, over every shape, rather than end to end in four places
+        // that can drift. Three of the four used to be `unsupported_expr`
+        // refusals of programs the spec says must run, which is why
+        // `is_wasm_supported` is part of the assertion and not an aside.
+        for source in [
+            "const x = 1; x = 2;",
+            "const x = 1; x += 2;",
+            "const x = 1; x &= 2;",
+            "const x = 1; x++;",
+            "const x = 1; --x;",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(expression) = &script.body.statements[1] else {
+                panic!("{source}: expected an expression statement");
+            };
+            let ExprIr::Comma { lhs, rhs } = &expression.expr else {
+                panic!(
+                    "{source}: expected the already-evaluated operand ahead of the throw, got {:?}",
+                    expression.expr
+                );
+            };
+            assert!(
+                !matches!(lhs.expr, ExprIr::RuntimeThrow { .. }),
+                "{source}: the operand must still be evaluated, not replaced by the throw"
+            );
+            let ExprIr::RuntimeThrow { name, message } = &rhs.expr else {
+                panic!("{source}: expected a runtime throw, got {:?}", rhs.expr);
+            };
+            assert_eq!(*name, NativeErrorKind::TypeError, "{source}");
+            assert_eq!(*message, "assignment to immutable binding", "{source}");
+        }
+    }
+
+    #[test]
+    fn lowers_const_update_operand_through_to_numeric_before_the_throw() {
+        // 13.4.4.1 step 2 coerces the old value with ToNumeric *before* the
+        // step-4 PutValue fails, so `const s = Symbol(); s++` must report
+        // ToNumeric's TypeError and `const o = { valueOf() { … } }; o++` must
+        // call `valueOf`. A bare identifier read on the `Comma`'s lhs would
+        // satisfy every test262 case in this family and do neither.
+        let program = lower_script("const x = 1; x++;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[1] else {
+            panic!("expected an update expression statement");
+        };
+        let ExprIr::Comma { lhs, .. } = &expression.expr else {
+            panic!("expected the coerced old value ahead of the throw");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &lhs.expr
+        else {
+            panic!(
+                "expected ToNumeric on the update operand, got {:?}",
+                lhs.expr
+            );
+        };
+        assert_eq!(*operation, SpecOperationIr::ToNumeric);
+        assert_eq!(operands.len(), 1);
+        assert!(
+            matches!(&operands[0].expr, ExprIr::Identifier(_)),
+            "{:?}",
+            operands[0].expr
+        );
+    }
+
+    #[test]
+    fn lowers_nullish_for_in_head_as_an_evaluated_head_with_zero_iterations() {
+        // 14.7.5.6 step 3.a. `StatementIr::Empty` would pass every test262 case
+        // in this family — none of the four has an effectful head — and would
+        // silently drop the head expression, so the shape is pinned here.
+        for source in [
+            "for (var k in null) { k; }",
+            "for (var k in undefined) { k; }",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let head = script
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::Expression(expression) => Some(expression),
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{source}: the head must survive as an evaluated expression statement: {:?}",
+                        script.body.statements
+                    )
+                });
+            assert!(
+                matches!(head.expr, ExprIr::Comma { .. }),
+                "{source}: {:?}",
+                head.expr
+            );
+            assert_eq!(
+                head.kind,
+                ValueKind::Undefined,
+                "{source}: a nullish for-in completes with undefined, not with the head's value"
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_prove_a_for_in_key_is_a_string() {
+        // `infer_var_binding_info_from_statement`'s `ForInLoop` arm used to
+        // publish a proven `String` for any `var` named as a `for-in` key,
+        // regardless of the head. A loop that runs zero times assigns nothing,
+        // so the hoisted `var` is still `undefined`, and `k + 1` must lower to a
+        // numeric addition (`NaN`) rather than to `ExprIr::StringConcat`, which
+        // stringifies both operands and yields `"undefined1"`.
+        //
+        // Both heads below run zero times: `null` takes 14.7.5.6 step 3.a's
+        // break completion, and `{}` has no enumerable own properties. The
+        // second one is the case that was wrong before the nullish head was
+        // supported at all, so it is not a regression test for that lane alone.
+        for source in [
+            "for (var k in null) { k; } k + 1;",
+            "for (var k in ({})) { k; } k + 1;",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let concat = script.body.statements.iter().find(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::Expression(expression)
+                        if matches!(expression.expr, ExprIr::StringConcat { .. })
+                )
+            });
+            assert!(
+                concat.is_none(),
+                "{source}: `k + 1` must not lower to a string concatenation: {:?}",
+                script.body.statements
+            );
+        }
     }
 
     #[test]
@@ -10857,7 +11237,7 @@ target[Symbol.iterator];"#,
             &block.statements[0],
             StatementIr::Expression(TypedExpr {
                 expr: ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     ..
                 },
                 ..
@@ -10896,7 +11276,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             &init.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));
@@ -10931,7 +11311,7 @@ target[Symbol.iterator];"#,
         assert!(matches!(
             &condition.expr,
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 ..
             }
         ));

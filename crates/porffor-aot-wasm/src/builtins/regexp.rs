@@ -33,8 +33,7 @@ impl<'a> FunctionBuilder<'a> {
     /// low-surrogate state). Results are found, match start, match end, and
     /// status (1 for a corrupt program, 2 for matcher resource exhaustion).
     pub(crate) fn compile_regexp_matcher_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::RegExpMatcher);
         let input_offset = self.reserve_temp_local();
         let program_ptr = self.reserve_temp_local();
         let named_group_table_ptr = self.reserve_temp_local();
@@ -2886,9 +2885,16 @@ impl<'a> FunctionBuilder<'a> {
 
     /// On an atom failure, restore the latest ordered fallback. If none exists,
     /// branch out of the instruction loop to advance the unanchored candidate.
+    ///
+    /// `caller_block_depth` is a **raw** branch offset, not a
+    /// `ControlTarget`-relative one: this whole matcher is a self-contained
+    /// emitted body whose frames it opens and closes itself, so its `Br`
+    /// immediates are relative to the position they are written at and the
+    /// label-depth work does not move them. See the closing section of
+    /// `code_sink.rs` for why this shape is kept rather than converted.
     fn emit_regexp_backtrack_or_fail(
         &self,
-        extra_depth: u32,
+        caller_block_depth: u32,
         depth: u32,
         address: u32,
         byte: u32,
@@ -2905,7 +2911,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(depth));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Br(3 + extra_depth));
+        function.instruction(&Instruction::Br(3 + caller_block_depth));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(depth));
         function.instruction(&Instruction::I64Const(1));
@@ -2971,7 +2977,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(1 + extra_depth));
+        function.instruction(&Instruction::Br(1 + caller_block_depth));
         function.instruction(&Instruction::End);
     }
 

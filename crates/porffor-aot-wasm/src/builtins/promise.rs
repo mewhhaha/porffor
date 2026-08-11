@@ -1323,6 +1323,23 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `AsyncFromSyncIteratorContinuation` (27.1.4.4) steps 5 and 14 ONLY, for
+    /// the `for await` path.
+    ///
+    /// Steps 6.a and 13 — the `IteratorClose` obligation — are NOT discharged
+    /// here. On this path they are discharged separately by
+    /// `compile_async_for_of_iterator` in `control_flow.rs`, off
+    /// `close_on_rejection_storage`; the async-generator delegation path
+    /// discharges them in `emit_async_from_sync_close_on_rejection` below,
+    /// against a different guard.
+    ///
+    /// So one spec obligation has two independent implementations in this
+    /// backend and they can drift. The delegation path's fixture
+    /// (`wasm_async_from_sync_iterator_close_on_rejection.js`) covers an absent
+    /// `return`, a non-callable `return`, a throwing `return`, `done: true` and
+    /// `closeOnRejection === false`; nothing covers those five over a `for await`
+    /// driver. Duplicating the fixture's cases over `for await` is the follow-up
+    /// that would pin both continuations with one oracle.
     pub(crate) fn emit_async_from_sync_value_continuation(
         &mut self,
         value_payload_local: u32,
@@ -1335,6 +1352,238 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(continuation_payload_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::LocalSet(continuation_tag_local));
+        Ok(())
+    }
+
+    /// `AsyncFromSyncIteratorContinuation` (27.1.4.4) steps 6.a and 13, for the
+    /// async-generator delegation path.
+    ///
+    /// The spec splits one obligation across two steps that this backend
+    /// reaches through a single edge:
+    ///
+    /// - step 6.a — `PromiseResolve(%Promise%, value)` abrupt-completes, so
+    ///   `valueWrapper` is set to `IteratorClose(syncIteratorRecord, valueWrapper)`;
+    /// - step 13 — the value wrapper settles as a rejection, so the `onRejected`
+    ///   closure performs `IteratorClose(syncIteratorRecord, ThrowCompletion(error))`.
+    ///
+    /// They converge because `emit_intrinsic_await_reactions` turns an abrupt
+    /// `PromiseResolve` into an already-rejected wrapper promise and then
+    /// attaches the same reject reaction (see the `COMPLETION_KIND_THROW` arm
+    /// there). So both spec steps arrive here, in the async-generator await
+    /// job, as `resume_kind == ASYNC_GENERATOR_RESUME_KIND_REJECT` — and one
+    /// emission discharges both.
+    ///
+    /// The three-part guard is the spec's, not a heuristic:
+    ///
+    /// - `[[AwaitingSyncValue]]` distinguishes *this* await from every other
+    ///   await an async generator can be suspended in. It is set by
+    ///   `compile_async_generator_delegation` immediately before it awaits the
+    ///   value of a **sync** iterator's result, and it is the only state in
+    ///   which an async-from-sync value wrapper is in flight. The flag is
+    ///   *consumed* here — read, then cleared — so a close can happen at most
+    ///   once per await, which is the `returnCount === 1` invariant expressed in
+    ///   the state rather than in a test.
+    /// - `done` is step 12's condition. `done === true` selects step 12, which
+    ///   installs no `onRejected` at all, so a rejected wrapper must reject the
+    ///   capability without closing. The stored `done` is the raw value read
+    ///   from the iterator result, so it is coerced with `ToBoolean` exactly as
+    ///   the delegation's own test does.
+    /// - `closeOnRejection` is false for exactly one caller,
+    ///   `%AsyncFromSyncIteratorPrototype%.return` (27.1.4.2.3), which this
+    ///   backend reaches as a delegation resumed with
+    ///   `ASYNC_GENERATOR_RESUME_KIND_RETURN`. There the sync `return` has
+    ///   *already* been called to produce the result being unwrapped, so
+    ///   closing again would call it twice — the double close that
+    ///   `sameValue(returnCount, 1)` cannot see but a counting fixture can.
+    ///
+    /// `IteratorClose` is invoked with a throw completion, whose 7.4.9 shape is
+    /// exactly what `emit_iterator_close_preserving_current_throw` emits: step 6
+    /// returns the *original* completion before step 7 can consider the close's
+    /// own result, so a `return` that throws, a `return` that is not callable,
+    /// and a `return` that answers a non-object are all swallowed, while an
+    /// absent or nullish `return` skips the call entirely. The rejection reason
+    /// the generator is resumed with is therefore untouched by this emission.
+    fn emit_async_from_sync_close_on_rejection(
+        &mut self,
+        activation_local: u32,
+        resume_kind_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let delegate_record_local = self.reserve_temp_local();
+        let awaiting_sync_value_local = self.reserve_temp_local();
+        let pending_kind_local = self.reserve_temp_local();
+        let done_payload_local = self.reserve_temp_local();
+        let done_tag_local = self.reserve_temp_local();
+        let close_iterator_payload_local = self.reserve_temp_local();
+        let close_iterator_tag_local = self.reserve_temp_local();
+        let close_key_local = self.reserve_temp_local();
+        let close_return_payload_local = self.reserve_temp_local();
+        let close_return_tag_local = self.reserve_temp_local();
+        let close_result_payload_local = self.reserve_temp_local();
+        let close_result_tag_local = self.reserve_temp_local();
+        let close_saved_payload_local = self.reserve_temp_local();
+        let close_saved_tag_local = self.reserve_temp_local();
+        let close_saved_completion_local = self.reserve_temp_local();
+        let close_saved_aux_local = self.reserve_temp_local();
+
+        // Frame A: only a rejected await can owe an IteratorClose.
+        function.instruction(&Instruction::LocalGet(resume_kind_local));
+        function.instruction(&Instruction::I64Const(
+            ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+
+        // Frame B: a cheap pre-filter, and ONLY that. A non-zero record means a
+        // delegation was entered — it does NOT mean one is still live. The four
+        // sites that zero `HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET`
+        // (`generator_delegation.rs`) are all reachable only from the
+        // `resume_kind == FULFILL` arm and its `ForAwaitYield` sub-branches; the
+        // `REJECT` arm returns without clearing. So the first time this emission
+        // closes an iterator, the record stays non-zero for the rest of that
+        // generator's life and every later rejecting await in the same
+        // activation passes this frame.
+        //
+        // `[[AwaitingSyncValue]]` below is the real liveness test, and the
+        // read-then-clear of it is load-bearing rather than tidy-up.
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
+            delegate_record_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(delegate_record_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+
+        self.load_i64_to_local_from_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET,
+            awaiting_sync_value_local,
+            function,
+        );
+        // Consume the flag before deciding: the await it describes is over
+        // either way, and clearing it here makes a second close structurally
+        // unreachable rather than merely unreached.
+        //
+        // Why the flag cannot go stale, in full — the step that carries it is
+        // the one a later editor needs and it is not the two clears. The flag is
+        // set immediately before the await (`generator_delegation.rs`, the
+        // `async_iterator == 0` arm) and it has exactly TWO clears: the
+        // `resume_kind == FULFILL` arm, and this one. That is exhaustive
+        // because a generator in `ASYNC_GENERATOR_STATE_SUSPENDED_AWAIT` cannot
+        // be resumed by `.next()`/`.throw()`/`.return()` at all —
+        // `builtins/standard.rs`'s `AsyncGeneratorPrototype{Next,Return,Throw}`
+        // dispatch tests only `SUSPENDED_YIELD` and `SUSPENDED_START` — so every
+        // resume that can observe the flag comes from the await job itself and
+        // is FULFILL or REJECT.
+        self.store_i64_const_at_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_AWAITING_SYNC_VALUE_OFFSET,
+            0,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
+            pending_kind_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_RESULT_DONE_PAYLOAD_OFFSET,
+            done_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_RESULT_DONE_TAG_OFFSET,
+            done_tag_local,
+            function,
+        );
+        // Materialise `ToBoolean(done)` into a local before building the
+        // condition, so no operand is left under the nested blocks
+        // `compile_truthy_tagged_i32` opens.
+        self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(done_payload_local));
+
+        // Frame C: `[[AwaitingSyncValue]]` and `closeOnRejection` and `done is false`.
+        //
+        // Two of these three terms are NOT exercised by
+        // `built-ins/AsyncFromSyncIteratorPrototype`. Counted over all 38 corpus
+        // files: none pairs a rejecting value with `done: true`, and none pairs
+        // a `.return()`-during-`yield*` with a rejecting value and a `return`
+        // counter. Deleting the `pending_kind != RETURN` term or the
+        // `ToBoolean(done) == false` term therefore keeps that node at 38/38
+        // while silently closing a done-true iterator, or calling `return`
+        // twice. Their only oracle is the counting fixture
+        // `wasm_async_from_sync_iterator_close_on_rejection.js` (markers `f` and
+        // `h`, both counts). Do not "simplify" this guard against a green node.
+        function.instruction(&Instruction::LocalGet(awaiting_sync_value_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(pending_kind_local));
+        function.instruction(&Instruction::I64Const(
+            ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
+        ));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(done_payload_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+
+        self.load_i64_to_local_from_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_ITERATOR_PAYLOAD_OFFSET,
+            close_iterator_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            delegate_record_local,
+            HEAP_GENERATOR_DELEGATE_ITERATOR_TAG_OFFSET,
+            close_iterator_tag_local,
+            function,
+        );
+        self.emit_iterator_close_preserving_current_throw(
+            IteratorCloseOnThrowLocals {
+                iterator_payload_local: close_iterator_payload_local,
+                iterator_tag_local: close_iterator_tag_local,
+                key_local: close_key_local,
+                return_payload_local: close_return_payload_local,
+                return_tag_local: close_return_tag_local,
+                result_payload_local: close_result_payload_local,
+                result_tag_local: close_result_tag_local,
+                saved_payload_local: close_saved_payload_local,
+                saved_tag_local: close_saved_tag_local,
+                saved_completion_local: close_saved_completion_local,
+                saved_aux_local: close_saved_aux_local,
+            },
+            function,
+        )?;
+
+        function.instruction(&Instruction::End); // frame C
+        function.instruction(&Instruction::End); // frame B
+        function.instruction(&Instruction::End); // frame A
+
+        self.release_temp_local(close_saved_aux_local);
+        self.release_temp_local(close_saved_completion_local);
+        self.release_temp_local(close_saved_tag_local);
+        self.release_temp_local(close_saved_payload_local);
+        self.release_temp_local(close_result_tag_local);
+        self.release_temp_local(close_result_payload_local);
+        self.release_temp_local(close_return_tag_local);
+        self.release_temp_local(close_return_payload_local);
+        self.release_temp_local(close_key_local);
+        self.release_temp_local(close_iterator_tag_local);
+        self.release_temp_local(close_iterator_payload_local);
+        self.release_temp_local(done_tag_local);
+        self.release_temp_local(done_payload_local);
+        self.release_temp_local(pending_kind_local);
+        self.release_temp_local(awaiting_sync_value_local);
+        self.release_temp_local(delegate_record_local);
         Ok(())
     }
 
@@ -2974,6 +3223,27 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::LocalSet(resume_kind_local));
         function.instruction(&Instruction::End);
+
+        // `AsyncFromSyncIteratorContinuation` steps 6.a and 13. This runs
+        // before the body is resumed, and leaves both the resume payload and
+        // the current completion untouched: the generator is still resumed
+        // with the *original* rejection reason.
+        //
+        // Known microtask-ordering deviation, recorded rather than fixed. In the
+        // spec the close happens in the valueWrapper's `onRejected` reaction job
+        // and the generator's `Await(innerResult)` reaction is a LATER job; here
+        // the close and `emit_start_async_generator_body` below run in ONE
+        // invocation of the await job, because this backend never materialises
+        // the AsyncFromSync wrapper promise. Observable only when the sync
+        // `return` method itself schedules a microtask: under the spec that
+        // microtask runs before the generator resumes, here after. This follows
+        // from the pre-existing job fusion, not from the close emission, and no
+        // case in `built-ins/AsyncFromSyncIteratorPrototype` observes it.
+        self.emit_async_from_sync_close_on_rejection(
+            activation_local,
+            resume_kind_local,
+            function,
+        )?;
 
         self.store_i64_local_at_offset(
             activation_local,

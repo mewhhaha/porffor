@@ -68,12 +68,7 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                0,
-                function,
-            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
             self.release_temp_local(argv_local);
             self.release_temp_local(argc_local);
             self.release_temp_local(callee_tag_local);
@@ -91,12 +86,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            0,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
             function.instruction(&Instruction::LocalGet(callee_tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -195,11 +185,13 @@ impl<'a> FunctionBuilder<'a> {
                 rhs_proto_tag_local,
                 function,
             )?;
-            // The throw sits inside the guard `If` opened above, so the dispatch
-            // has to skip that extra frame when it branches to an active catch
-            // handler; without it the branch lands on the guard's own `End` and
-            // execution falls through as if nothing had been thrown.
-            self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+            // The throw sits inside the guard `If` opened above, and the
+            // dispatch branches out of it to an active catch handler. Both
+            // frames are counted by the sink, so neither needs declaring here
+            // — this comment used to sit above a hand-written correction, and
+            // the correction is what made the branch land on the guard's own
+            // `End` when the count drifted.
+            self.emit_dispatch_current_completion(function)?;
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(rhs_tag_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -241,10 +233,9 @@ impl<'a> FunctionBuilder<'a> {
             rhs_proto_tag_local,
             function,
         )?;
-        // Same extra frame as the callability guard above: the dispatch is
-        // nested inside this `If`, so an active catch handler is one level
-        // further away than the default depth assumes.
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        // Same shape as the callability guard above: the dispatch is nested
+        // inside this `If`, and the sink counts the frame. Nothing to declare.
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(lhs_tag_local));
@@ -272,12 +263,11 @@ impl<'a> FunctionBuilder<'a> {
             .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
         {
-            self.emit_object_get_prototype_of_with_depth(
+            self.emit_object_get_prototype_of(
                 search_local,
                 search_tag_local,
                 next_proto_local,
                 next_proto_tag_local,
-                3,
                 function,
             )?;
         } else {
@@ -1247,7 +1237,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1274,7 +1264,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1347,7 +1337,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1500,7 +1490,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1568,7 +1558,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1615,7 +1605,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1683,7 +1673,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1707,7 +1697,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1722,7 +1712,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1798,7 +1788,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1826,7 +1816,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1903,7 +1893,7 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                         if let Some(target) = self.active_throw_target() {
-                            self.emit_branch_to_target(target, 1, function);
+                            self.emit_branch_to_target(target, function);
                         } else {
                             self.emit_return_current_completion(function);
                         }
@@ -1930,7 +1920,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     if let Some(target) = self.active_throw_target() {
-                        self.emit_branch_to_target(target, 1, function);
+                        self.emit_branch_to_target(target, function);
                     } else {
                         self.emit_return_current_completion(function);
                     }
@@ -1985,8 +1975,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 self.compile_nullish_tagged_i32(source_tag_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::Else);
                 self.emit_value_to_object_locals(
                     source_payload_local,
@@ -2298,35 +2287,19 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// There used to be a `_with_extra_depth` twin of this, for call sites that
+    /// sat some number of untracked wasm blocks deeper than
+    /// `self.control_stack` reflected (e.g. already inside a manually-emitted
+    /// `If`), so that the internal throw propagation's `Br` reached the correct
+    /// active handler. Branch immediates come from the real label depth now, so
+    /// there is nothing for such a caller to declare and one entry point does
+    /// both jobs.
     pub(crate) fn compile_expr_to_primitive_locals(
         &mut self,
         expr: &TypedExpr,
         hint: ToPrimitiveHint,
         payload_local: u32,
         tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.compile_expr_to_primitive_locals_with_extra_depth(
-            expr,
-            hint,
-            payload_local,
-            tag_local,
-            0,
-            function,
-        )
-    }
-
-    /// Same as `compile_expr_to_primitive_locals`, but for call sites that sit
-    /// `extra_depth` untracked wasm blocks deeper than `self.control_stack`
-    /// reflects (e.g. already inside a manually-emitted `If`), so the internal
-    /// throw propagation's `Br` reaches the correct active handler.
-    pub(crate) fn compile_expr_to_primitive_locals_with_extra_depth(
-        &mut self,
-        expr: &TypedExpr,
-        hint: ToPrimitiveHint,
-        payload_local: u32,
-        tag_local: u32,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if expr.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
@@ -2350,21 +2323,17 @@ impl<'a> FunctionBuilder<'a> {
         // in `payload_local`/`tag_local` rather than branching internally (see
         // `emit_object_to_primitive_locals_locals_inner`). Propagate here to
         // reach the active in-function try/catch handler (or return the
-        // completion when there is none); `extra_depth` accounts for any
-        // untracked wasm blocks the caller already has open at this point.
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            extra_depth,
-            function,
-        )?;
+        // completion when there is none); the branch immediate accounts for
+        // every wasm block the caller has open, tracked or not, because it is
+        // read from the sink rather than from `control_stack`.
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         self.release_temp_local(raw_tag_local);
         self.release_temp_local(raw_payload_local);
         Ok(())
     }
 
     /// `emit_tagged_to_primitive_locals` plus the throw propagation that
-    /// `compile_expr_to_primitive_locals_with_extra_depth` performs, for
+    /// `compile_expr_to_primitive_locals` performs, for
     /// callers that need to split "evaluate the operand" from "coerce it".
     fn emit_to_primitive_from_raw_locals(
         &mut self,
@@ -2383,12 +2352,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            0,
-            function,
-        )
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
     }
 
     /// Evaluates both operands of a binary operator first, and only then runs
@@ -2586,6 +2550,98 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The four tags whose `ToPrimitive` is more than a copy: everything else
+    /// is already a primitive and the composite's final `else` arm just moves
+    /// it. Leaves an i32 boolean on the stack.
+    fn emit_is_to_primitive_object_tag_i32(&self, tag_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        for kind in [ValueKind::Array, ValueKind::Arguments, ValueKind::Function] {
+            function.instruction(&Instruction::LocalGet(tag_local));
+            function.instruction(&Instruction::I64Const(kind.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32Or);
+        }
+    }
+
+    /// The ToPrimitive seam. Returns `true` when the shared helper was called
+    /// and the caller must emit nothing further.
+    ///
+    /// The primitive fast path stays **inline**, copied from
+    /// `emit_value_to_string_payload`'s string fast path rather than invented:
+    /// only the four object-ish tags pay a call, and an already-primitive value
+    /// takes the same two `local.set`s the inline composite's final `else` arm
+    /// takes. Without that guard the common case at all sixteen call sites
+    /// would start paying a call, and a fixture's emitted bytes could *grow*.
+    ///
+    /// No throw propagation is emitted here, and that is not an omission.
+    /// `emit_tagged_to_primitive_locals` deliberately leaves abrupt completions
+    /// in its output locals for the caller to route — its own comment at the
+    /// ToPropertyKey call site says so — and every call site already follows it
+    /// with `emit_propagate_throw_from_locals_if_needed*` or
+    /// `emit_return_current_completion_if_throw`. `store_call_results` leaves
+    /// exactly the state the inline body leaves on a throw: the thrown value in
+    /// the output locals *and* in `result_local`/`result_tag_local`, with
+    /// `completion_local == THROW`. So the seam adopts the completion tuple,
+    /// needs no depth argument (no such argument exists any more), and emits no
+    /// branch of its own.
+    ///
+    /// Param 6 forwards [`Self::current_env_local`], and the two conflicting
+    /// in-tree precedents are reconciled as follows rather than picked between.
+    /// Inline, this composite always ran inside the *caller's* body, so it saw
+    /// the caller's `current_env_local`. Outlining it into a helper that leaves
+    /// `current_env_local` at zero would silently replace that environment with
+    /// zero at every one of the sixteen call sites, which is a behaviour change,
+    /// not a relocation. Forwarding is therefore the behaviour-preserving
+    /// choice, and it is the one `compile_value_to_numeric_helper` /
+    /// `emit_value_to_numeric_locals` already make (emit.rs `LocalGet(6)` /
+    /// `LocalSet(current_env_local)`) — load-bearing here, because that helper's
+    /// body reaches this composite through
+    /// `emit_tagged_to_primitive_locals_without_throw_propagation` and hence
+    /// through this seam, so a zero here would drop an environment that path
+    /// demonstrably carries today.
+    ///
+    /// The zero-passing seams (`emit_value_to_number_payload`,
+    /// `emit_value_to_string_payload`, `IndexedElementRead`) are not a
+    /// counter-precedent to follow: they drop the caller's environment for the
+    /// same reason, which is a pre-existing defect of this same class rather
+    /// than a decision. Do not "harmonise" this seam down to theirs.
+    /// `compile_value_to_primitive_helper` reads the parameter back.
+    fn emit_value_to_primitive_via_helper_if_outlined(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input_payload_local: u32,
+        input_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> bool {
+        if !self.outline_value_to_primitive {
+            return false;
+        }
+        let Some(helper) = self.value_to_primitive_helper_function_index(hint) else {
+            return false;
+        };
+        self.emit_is_to_primitive_object_tag_i32(input_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::LocalGet(input_tag_local));
+        for _ in 0..4 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::Call(helper));
+        self.store_call_results(payload_local, tag_local, function);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(input_tag_local));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::End);
+        true
+    }
+
     pub(crate) fn emit_tagged_to_primitive_locals(
         &mut self,
         hint: ToPrimitiveHint,
@@ -2595,6 +2651,16 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_value_to_primitive_via_helper_if_outlined(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        ) {
+            return Ok(());
+        }
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -2651,6 +2717,25 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Shares the ToPrimitive seam with [`Self::emit_tagged_to_primitive_locals`],
+    /// deliberately.
+    ///
+    /// The two inline bodies below are byte-identical today, and that is a
+    /// fact about this file rather than a guess: the only difference is which
+    /// wrapper each names (`emit_object_to_primitive_locals` versus
+    /// `..._without_throw_propagation`, and the same pair for the `Function`
+    /// arm), and each pair of wrappers forwards to
+    /// `emit_object_to_primitive_locals_inner` with *identical arguments*.
+    /// Neither wrapper propagates anything; the `_without_throw_propagation`
+    /// name records an intent the code stopped expressing. Sharing the seam is
+    /// therefore provably behaviour-preserving, and it takes the three call
+    /// sites of this variant (one inside `helper::value_to_numeric`, two in the
+    /// `Map`/`Set` key normalizations) off the inline composite too.
+    ///
+    /// Merging the two functions outright is the right end state and is
+    /// deliberately *not* done here: this lane could run no compiler, and
+    /// deleting a `pub(crate)` entry point is a change whose blast radius is
+    /// worth a `cargo check`.
     pub(crate) fn emit_tagged_to_primitive_locals_without_throw_propagation(
         &mut self,
         hint: ToPrimitiveHint,
@@ -2660,6 +2745,16 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_value_to_primitive_via_helper_if_outlined(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        ) {
+            return Ok(());
+        }
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -3841,17 +3936,11 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            0,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::End);
 
         self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_bigint_binary_op_to_locals(
             BigIntHelperOp::from_arithmetic(op),
             lhs_payload_local,
@@ -4503,6 +4592,58 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        // The ToPropertyKey seam. 72,528 bytes per inline site, measured; every
+        // computed member access whose key is not statically a String or a
+        // Symbol reaches it.
+        //
+        // The property-key fast path stays inline, mirroring
+        // `emit_value_to_string_payload`. A String key is already a PropertyKey
+        // and needs nothing; a Symbol key needs only its marker bit, which is
+        // the same `i64.or` the inline body's Symbol arm emits. Everything else
+        // pays one call.
+        //
+        // The propagation is emitted *after* the `end` of the seam's `if`, so
+        // it stands at the same label depth the inline body would have — the
+        // same shape `emit_value_to_number_payload`'s seam uses.
+        //
+        // Param 6 forwards `current_env_local` for the reason spelled out on
+        // `emit_value_to_primitive_via_helper_if_outlined`: inline, this body ran
+        // with the caller's environment, so an outlined copy that leaves it at
+        // zero is a behaviour change rather than a relocation. The ToPropertyKey
+        // helper body reaches the ToPrimitive helper by call, and that inner call
+        // forwards the same local again, so the environment survives both hops.
+        if self.outline_value_to_property_key {
+            if let Some(helper) = self.value_to_property_key_helper_function_index() {
+                self.emit_is_property_key_i32(tag_local, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(payload_local));
+                function.instruction(&Instruction::LocalGet(tag_local));
+                for _ in 0..4 {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results(payload_local, tag_local, function);
+                function.instruction(&Instruction::End);
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                return Ok(());
+            }
+        }
+
         let primitive_payload_local = self.reserve_temp_local();
         let primitive_tag_local = self.reserve_temp_local();
 
@@ -4517,10 +4658,9 @@ impl<'a> FunctionBuilder<'a> {
         // `emit_tagged_to_primitive_locals` deliberately leaves abrupt
         // completions in locals. This call site has no manually-emitted Wasm
         // blocks open, so no additional untracked depth is needed here.
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             primitive_payload_local,
             primitive_tag_local,
-            0,
             function,
         )?;
 
@@ -6006,8 +6146,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::LocalGet(completed_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_tagged_to_primitive_locals(
             ToPrimitiveHint::Default,
             lhs_raw_payload,
@@ -7499,8 +7638,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::LocalGet(payload_local));
                 function.instruction(&Instruction::LocalSet(result_payload_local));
                 function.instruction(&Instruction::Else);

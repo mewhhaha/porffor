@@ -250,6 +250,12 @@ pub(crate) const HEAP_WEAK_SET_ENTRY_SIZE: u64 = 24;
 pub(crate) const HEAP_WEAK_REF_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_SIZE: u64 = 56;
+/// `[[AsyncDisposableState]]` plus the `[[DisposeCapability]]`'s
+/// `[[DisposableResourceStack]]` (pointer, length, capacity).
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE: u64 = 32;
+/// One `DisposableResource` record: its kind, its `[[ResourceValue]]` and its
+/// `[[DisposeMethod]]`.
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE: u64 = 40;
 pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE: u64 = 32;
@@ -257,7 +263,7 @@ pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
-pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 168;
+pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 184;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -746,6 +752,27 @@ pub(crate) const HEAP_INTL_DTF_BOUND_FORMAT_OFFSET: u64 = 152;
 /// bag named no date/time component and no dateStyle/timeStyle, so the
 /// Temporal `toLocaleString` path may substitute the type's own defaults.
 pub(crate) const HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET: u64 = 160;
+/// The resolved time zone's offset from UTC, in whole signed minutes.
+///
+/// This is the *other half* of [`HEAP_INTL_DTF_TIME_ZONE_OFFSET`]: that slot
+/// holds the identifier `resolvedOptions().timeZone` reports, this one holds
+/// the shift `PartitionDateTimePattern` applies to an exact time value before
+/// breaking it into components. `"UTC"`, `"Etc/GMT+7"` and `"-07:00"` are three
+/// identifiers, two offsets and one formatted output for two of them, so
+/// neither slot can be derived from the other and both are stored.
+///
+/// A raw signed `i64` holding a value in `-1439..=1439` — the `TzOffsetMinutes`
+/// range of `crate::builtins::intl_datetimeformat` — never an f64 bit pattern.
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET: u64 = 168;
+/// The localized GMT name (`"GMT-07:00"`) of a **non-zero** offset zone, or `0`
+/// when the offset is zero and CLDR `en`'s real UTC names apply instead.
+///
+/// Pre-rendered by the constructor rather than built inside the format walk.
+/// That walk is emitted once per `format`, `formatToParts`, `formatRange` and
+/// `formatRangeToParts` body and is already the largest thing this crate emits;
+/// the string concatenations this slot replaces would have been paid for four
+/// times over, in the one function whose size budget is known to be tight.
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET: u64 = 176;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
@@ -853,6 +880,129 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET: u64 = 24;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET: u64 = 32;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET: u64 = 48;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET: u64 = 32;
+/// `[[AsyncDisposableState]]` is a two-element domain, so it is stored as a
+/// flag rather than a string: `pending` is the value `AsyncDisposableStack()`
+/// installs, and `disposed` is what `disposeAsync` and `move` set. The
+/// `disposed` getter reads exactly this word, which is why
+/// `prototype/disposed/returns-true-when-disposed.js` observes the transition
+/// synchronously.
+///
+/// This is an enum rather than the pair of `u64` constants it started as
+/// because those constants shared a type — and a *value* — with the entry-kind
+/// words below: `..._STATE_DISPOSED` and `..._ENTRY_KIND_ADOPT` were both
+/// `u64 = 1`, so every emitter site accepted either one. The two domains index
+/// different words of different records and are never interchangeable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableStackState {
+    Pending,
+    Disposed,
+}
+
+impl AsyncDisposableStackState {
+    /// The word stored at [`HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET`].
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Pending => 0,
+            Self::Disposed => 1,
+        }
+    }
+}
+
+/// The closed domain of `[[DisposableResourceStack]]` entry shapes, stored at
+/// [`HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET`].
+///
+/// # Why this is an enum and not four `u64` constants
+///
+/// The disposal walk in `builtins/async_disposable_stack.rs` dispatches on this
+/// word by emitting a comparison chain, and the chain's **last arm is an
+/// emitted `Else`**. A fifth `..._ENTRY_KIND_FOO: u64 = 4` would have compiled
+/// cleanly next to its siblings and then been disposed *as a `Defer`* — called
+/// with an undefined receiver and no arguments — with nothing to notice. That
+/// is the same silent-fallthrough class [`crate::data::RuntimeRegExpEntryKind`]
+/// was introduced for in batch 7, one record over.
+///
+/// So the decision the emitter makes is stated here once, as the exhaustive
+/// [`Self::dispose_call`], and the emitter builds its comparison chain by
+/// iterating [`Self::ALL`]. Adding a variant is then an `error[E0004]` here and
+/// the emitted chain extends itself.
+///
+/// Residual, stated rather than papered over: [`Self::ALL`] is hand-written,
+/// because stable Rust cannot enumerate an enum's variants. The trigger to
+/// extend it is the `error[E0004]` a new variant produces at the two matches
+/// below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableStackEntryKind {
+    /// A `use(V)` entry: `Call(method, V)` with no arguments.
+    Use,
+    /// An `adopt(V, onDisposeAsync)` entry: the spec's captured closure is
+    /// `Call(onDisposeAsync, undefined, « V »)`, which is stored flat here
+    /// instead of minting a builtin function object per call.
+    Adopt,
+    /// A `defer(onDisposeAsync)` entry: `Call(onDisposeAsync, undefined, « »)`.
+    Defer,
+    /// A `use(null)` / `use(undefined)` entry. CreateDisposableResource leaves
+    /// both `[[ResourceValue]]` and `[[DisposeMethod]]` undefined, so disposal
+    /// performs no call — but the entry is still on the stack, so `Dispose`
+    /// still awaits, which is what
+    /// `disposeAsync/explicit-await-for-null.js` measures.
+    Empty,
+}
+
+/// How the disposal walk calls one entry.
+///
+/// "No call at all" is spelled as the `None` of the [`Option`] returned by
+/// [`AsyncDisposableStackEntryKind::dispose_call`], not as a variant here, so
+/// the emitter's match over the shapes has no arm it must prove unreachable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableStackDisposeCall {
+    /// `Call(method, V)` — the resource is the receiver, no arguments.
+    ResourceReceiver,
+    /// `Call(onDisposeAsync, undefined, « V »)` — the resource is the sole
+    /// argument.
+    UndefinedReceiverWithResourceArgument,
+    /// `Call(onDisposeAsync, undefined, « »)`.
+    UndefinedReceiverNoArguments,
+}
+
+impl AsyncDisposableStackEntryKind {
+    /// Every kind, in the order the emitted comparison chain tests them. See
+    /// the type's doc for why this is hand-written and what keeps it honest.
+    pub(crate) const ALL: [Self; 4] = [Self::Use, Self::Adopt, Self::Defer, Self::Empty];
+
+    /// The word stored at
+    /// [`HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET`].
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Use => 0,
+            Self::Adopt => 1,
+            Self::Defer => 2,
+            Self::Empty => 3,
+        }
+    }
+
+    /// What disposal does with an entry of this kind, or `None` when the entry
+    /// carries no dispose method and the walk only awaits. This is the whole
+    /// dispatch policy; the emitter transcribes nothing.
+    pub(crate) const fn dispose_call(self) -> Option<AsyncDisposableStackDisposeCall> {
+        match self {
+            Self::Use => Some(AsyncDisposableStackDisposeCall::ResourceReceiver),
+            Self::Adopt => {
+                Some(AsyncDisposableStackDisposeCall::UndefinedReceiverWithResourceArgument)
+            }
+            Self::Defer => Some(AsyncDisposableStackDisposeCall::UndefinedReceiverNoArguments),
+            Self::Empty => None,
+        }
+    }
+}
 pub(crate) const HEAP_WEAK_SET_ENTRIES_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_CAP_OFFSET: u64 = 16;
@@ -924,16 +1074,271 @@ pub(crate) const ENV_SLOT_SIZE: u64 = 16;
 pub(crate) const ENV_SLOT_TAG_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const ENV_SLOT_UNINITIALIZED_TAG: i64 = -1;
-pub(crate) const OBJECT_DESCRIPTOR_ACCESSOR: u64 = 1;
-pub(crate) const OBJECT_DESCRIPTOR_CONFIGURABLE: u64 = 2;
-pub(crate) const OBJECT_DESCRIPTOR_WRITABLE: u64 = 4;
-pub(crate) const OBJECT_DESCRIPTOR_ENUMERABLE: u64 = 8;
+pub(crate) const OBJECT_DESCRIPTOR_ACCESSOR: u64 = DescriptorBit::Accessor.word();
+pub(crate) const OBJECT_DESCRIPTOR_CONFIGURABLE: u64 = DescriptorBit::Configurable.word();
+pub(crate) const OBJECT_DESCRIPTOR_WRITABLE: u64 = DescriptorBit::Writable.word();
+pub(crate) const OBJECT_DESCRIPTOR_ENUMERABLE: u64 = DescriptorBit::Enumerable.word();
+/// Data is the **absence** of the accessor bit, which is why the illegal word
+/// `ACCESSOR | WRITABLE` was representable: nothing forced a choice.
+/// [`DescriptorWord::of_data`] is the constructor that makes the absence a
+/// decision rather than a default.
 pub(crate) const OBJECT_DESCRIPTOR_DATA: u64 = 0;
 pub(crate) const PROPERTY_KEY_SYMBOL_MARKER: u64 = 1 << 63;
-pub(crate) const ARRAY_DESCRIPTOR_OWN_PROPERTY: u64 = 16;
-pub(crate) const ARGUMENTS_DESCRIPTOR_MAPPED: u64 = 32;
+pub(crate) const ARRAY_DESCRIPTOR_OWN_PROPERTY: u64 = DescriptorBit::ArrayOwnProperty.word();
+pub(crate) const ARGUMENTS_DESCRIPTOR_MAPPED: u64 = DescriptorBit::ArgumentsMapped.word();
 pub(crate) const ARRAY_DESCRIPTOR_NORMAL_DATA: u64 =
-    OBJECT_DESCRIPTOR_CONFIGURABLE | OBJECT_DESCRIPTOR_WRITABLE | OBJECT_DESCRIPTOR_ENUMERABLE;
+    DescriptorWord::of_data(true, true, true).bits();
+
+// These eight are not tautologies. They pin the **wire format** of a word that
+// is written at nine distinct heap offsets and read by 176 references across 11
+// files, so reordering `DescriptorBit`'s variants is a compile error rather
+// than a silent, total corruption of every object's property attributes.
+const _: () = assert!(OBJECT_DESCRIPTOR_ACCESSOR == 1);
+const _: () = assert!(OBJECT_DESCRIPTOR_CONFIGURABLE == 2);
+const _: () = assert!(OBJECT_DESCRIPTOR_WRITABLE == 4);
+const _: () = assert!(OBJECT_DESCRIPTOR_ENUMERABLE == 8);
+const _: () = assert!(OBJECT_DESCRIPTOR_DATA == 0);
+const _: () = assert!(ARRAY_DESCRIPTOR_OWN_PROPERTY == 16);
+const _: () = assert!(ARGUMENTS_DESCRIPTOR_MAPPED == 32);
+const _: () = assert!(ARRAY_DESCRIPTOR_NORMAL_DATA == 14);
+
+/// One bit of the descriptor-kind word stored at every
+/// `*_DESCRIPTOR_KIND_OFFSET`.
+///
+/// The word has **three** axes, not one:
+///
+/// | Bits | Meaning | Axis |
+/// |---|---|---|
+/// | 0 | `[[Get]]`/`[[Set]]` kind: 1 = accessor, 0 = data | descriptor kind |
+/// | 1 | `[[Configurable]]` | attribute |
+/// | 2 | `[[Writable]]` | attribute |
+/// | 3 | `[[Enumerable]]` | attribute |
+/// | 4 | array exotic: this index has an own property record | exotic flag |
+/// | 5 | mapped arguments: this index is mapped | exotic flag |
+/// | 32..63 | mapped-arguments environment slot index | exotic payload |
+///
+/// The third axis is the one that decides the shape of these types: a type that
+/// modelled only the four attribute bits would corrupt mapped arguments, whose
+/// environment slot rides in the top half of the same `u64`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DescriptorBit {
+    Accessor = 0,
+    Configurable = 1,
+    Writable = 2,
+    Enumerable = 3,
+    ArrayOwnProperty = 4,
+    ArgumentsMapped = 5,
+}
+
+impl DescriptorBit {
+    pub(crate) const fn word(self) -> u64 {
+        1u64 << (self as u32)
+    }
+}
+
+/// A descriptor-kind word as **stored** in a heap slot.
+///
+/// The constructors are exactly the two 6.2.6.6 licenses, and `of_accessor`
+/// takes no `writable` argument — so the bit pattern `ACCESSOR | WRITABLE`
+/// (= 5), an accessor property carrying a stale writable bit that a later
+/// accessor-to-data conversion reads back as `writable: true`, has **no
+/// constructor**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DescriptorWord(u64);
+
+impl DescriptorWord {
+    /// 6.2.6.6 for a data property: `[[Writable]]`, `[[Enumerable]]`,
+    /// `[[Configurable]]`, and the accessor bit clear.
+    pub(crate) const fn of_data(writable: bool, enumerable: bool, configurable: bool) -> Self {
+        let mut bits = 0u64;
+        if writable {
+            bits |= DescriptorBit::Writable.word();
+        }
+        if enumerable {
+            bits |= DescriptorBit::Enumerable.word();
+        }
+        if configurable {
+            bits |= DescriptorBit::Configurable.word();
+        }
+        Self(bits)
+    }
+
+    /// 6.2.6.6 for an accessor property. 10.1.6.3 steps 6.b and 7 say a
+    /// conversion between kinds preserves only `[[Enumerable]]` and
+    /// `[[Configurable]]`; there is no `writable` parameter because an accessor
+    /// property has no `[[Writable]]` attribute to preserve.
+    pub(crate) const fn of_accessor(enumerable: bool, configurable: bool) -> Self {
+        let mut bits = DescriptorBit::Accessor.word();
+        if enumerable {
+            bits |= DescriptorBit::Enumerable.word();
+        }
+        if configurable {
+            bits |= DescriptorBit::Configurable.word();
+        }
+        Self(bits)
+    }
+
+    /// Attach the orthogonal exotic axis. Separate from the two constructors so
+    /// that the descriptor kind is never decided *by* an exotic flag.
+    pub(crate) const fn with_flags(self, flags: DescriptorFlags) -> Self {
+        let mut bits = self.0;
+        if flags.array_own_property {
+            bits |= DescriptorBit::ArrayOwnProperty.word();
+        }
+        match flags.mapped {
+            None => {}
+            Some(slot) => bits |= DescriptorBit::ArgumentsMapped.word() | slot.packed(),
+        }
+        Self(bits)
+    }
+
+    pub(crate) const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) const fn as_i64(self) -> i64 {
+        self.0 as i64
+    }
+}
+
+/// A **test** against a descriptor word.
+///
+/// Deliberately a different type from [`DescriptorWord`], with no conversion in
+/// either direction: composites like `ACCESSOR | WRITABLE` are illegal as
+/// stored values and *legal and needed* as masks — the one at
+/// [`DescriptorMask::ACCESSOR_OR_WRITABLE`] asks "is the existing entry a data
+/// property that is not writable" in a single `I64And`, and banning the bit
+/// pattern outright would break correct code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DescriptorMask(u64);
+
+impl DescriptorMask {
+    pub(crate) const ACCESSOR: Self = Self(DescriptorBit::Accessor.word());
+    pub(crate) const WRITABLE: Self = Self(DescriptorBit::Writable.word());
+    pub(crate) const ENUMERABLE: Self = Self(DescriptorBit::Enumerable.word());
+    pub(crate) const CONFIGURABLE: Self = Self(DescriptorBit::Configurable.word());
+    /// "The existing entry is a data descriptor **and** is not writable", in
+    /// one `I64And`. A legal mask; not a legal word.
+    pub(crate) const ACCESSOR_OR_WRITABLE: Self =
+        Self(DescriptorBit::Accessor.word() | DescriptorBit::Writable.word());
+    /// Bits 0..3: the descriptor kind and the three attributes.
+    pub(crate) const KIND_AND_ATTRIBUTES: Self = Self(
+        DescriptorBit::Accessor.word()
+            | DescriptorBit::Configurable.word()
+            | DescriptorBit::Writable.word()
+            | DescriptorBit::Enumerable.word(),
+    );
+    /// Bits 4..5: the two exotic flags.
+    pub(crate) const EXOTIC_FLAGS: Self =
+        Self(DescriptorBit::ArrayOwnProperty.word() | DescriptorBit::ArgumentsMapped.word());
+
+    pub(crate) const fn of(bit: DescriptorBit) -> Self {
+        Self(bit.word())
+    }
+
+    pub(crate) const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) const fn as_i64(self) -> i64 {
+        self.0 as i64
+    }
+
+    pub(crate) const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+/// The exotic axis. Orthogonal to the descriptor kind: an array's own-property
+/// marker and an arguments object's mapping are not descriptor kinds and must
+/// not share the kind namespace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct DescriptorFlags {
+    pub(crate) array_own_property: bool,
+    /// `Some(slot)` sets bit 5 **and** packs `slot` into bits 32..63. The two
+    /// cannot be set independently, which is what the mapped-arguments writer
+    /// in `functions.rs` does by hand today.
+    pub(crate) mapped: Option<MappedSlot>,
+}
+
+/// A mapped-arguments environment slot index, living in bits 32..63 of the
+/// descriptor-kind word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MappedSlot(u32);
+
+impl MappedSlot {
+    pub(crate) const SHIFT: u32 = 32;
+
+    pub(crate) const fn new(slot: u32) -> Self {
+        Self(slot)
+    }
+
+    pub(crate) const fn packed(self) -> u64 {
+        (self.0 as u64) << Self::SHIFT
+    }
+}
+
+// The layout the three axes depend on, asserted at build time.
+const _: () = assert!(
+    DescriptorMask::KIND_AND_ATTRIBUTES.bits() & DescriptorMask::EXOTIC_FLAGS.bits() == 0,
+    "the descriptor kind bits and the exotic flag bits must not overlap",
+);
+const _: () = assert!(
+    (DescriptorMask::KIND_AND_ATTRIBUTES.bits() | DescriptorMask::EXOTIC_FLAGS.bits())
+        < (1u64 << MappedSlot::SHIFT),
+    "every flag bit must sit below the mapped-slot payload at bit 32",
+);
+// The three bare literals this used to guard are gone: `functions.rs`'s writer
+// now goes through `DescriptorWord::with_flags` and both readers shift by
+// `MappedSlot::SHIFT`. What is left to pin is the *reproduction* assertion
+// directly below, which spells the shift as a literal `32` in order to state
+// the old wire format independently — if `SHIFT` moved and that literal did
+// not, the assertion below would be comparing against a word no writer
+// produces, and would fail rather than silently agreeing.
+const _: () = assert!(
+    MappedSlot::SHIFT == 32,
+    "the mapped-arguments wire format below is written against a literal 32",
+);
+const _: () = assert!(
+    DescriptorWord::of_data(false, false, false)
+        .with_flags(DescriptorFlags {
+            array_own_property: false,
+            mapped: Some(MappedSlot::new(7)),
+        })
+        .bits()
+        == (ARGUMENTS_DESCRIPTOR_MAPPED | (7u64 << 32)),
+    "DescriptorFlags must reproduce the mapped-arguments writer's \
+     `ARGUMENTS_DESCRIPTOR_MAPPED | ((slot as i64) << 32)`",
+);
+const _: () = assert!(
+    DescriptorWord::of_accessor(false, false)
+        .with_flags(DescriptorFlags {
+            array_own_property: true,
+            mapped: None,
+        })
+        .bits()
+        == (ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR),
+    "DescriptorFlags must reproduce the two hand-built \
+     `ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR` words",
+);
+const _: () = assert!(
+    DescriptorMask::ACCESSOR
+        .union(DescriptorMask::WRITABLE)
+        .bits()
+        == DescriptorMask::ACCESSOR_OR_WRITABLE.bits(),
+);
+// A mask is not a word: the bit pattern 5 is reachable as a `DescriptorMask`
+// and unreachable as a `DescriptorWord`. There is no constructor that produces
+// it, which is the whole point, so this asserts the negation on the two that
+// exist.
+const _: () = assert!(
+    DescriptorWord::of_accessor(true, true).bits() & DescriptorBit::Writable.word() == 0,
+    "an accessor word can never carry [[Writable]]",
+);
+const _: () = assert!(
+    DescriptorWord::of_data(true, true, true).bits() & DescriptorBit::Accessor.word() == 0,
+    "a data word can never carry the accessor bit",
+);
 pub(crate) const BOXED_PRIMITIVE_KIND_NONE: u64 = 0;
 pub(crate) const BOXED_PRIMITIVE_KIND_NUMBER: u64 = 1;
 pub(crate) const BOXED_PRIMITIVE_KIND_STRING: u64 = 2;
@@ -981,6 +1386,11 @@ pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME: u64 = 35;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH: u64 = 36;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY: u64 = 37;
 pub(crate) const OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT: u64 = 38;
+/// The `[[AsyncDisposableState]]` brand. Every
+/// `prototype/*/this-does-not-have-internal-asyncdisposablestate-throws.js`
+/// case turns on this word being absent from an ordinary object, from
+/// `AsyncDisposableStack.prototype` itself, and from the constructor.
+pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -3227,6 +3637,22 @@ pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot] = &
         width: 8,
         pointer: true,
     },
+    // Sits beside the identifier it belongs to rather than at the end of the
+    // record, because the two are written and read as one value.
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_zone_offset_minutes",
+        offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "intl-date-time-format-record",
+        name: "time_zone_gmt_name_payload",
+        offset: HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
+        width: 8,
+        pointer: true,
+    },
     HeapLayoutSlot {
         record: "intl-date-time-format-record",
         name: "hour_cycle_code",
@@ -3727,6 +4153,81 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
         width: 8,
         pointer: false,
+    },
+];
+
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "state",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "entries_ptr",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "entries_len",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "entries_cap",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+/// Both the resource value and the dispose method are strongly reachable: an
+/// `AsyncDisposableStack` keeps every registered resource alive until disposal,
+/// which is the whole point of the type and the opposite of a
+/// `FinalizationRegistry` cell.
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "kind",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "value_tag",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "value_payload",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "method_tag",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "method_payload",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
     },
 ];
 
@@ -5194,6 +5695,8 @@ mod tests {
         assert_eq!(HEAP_WEAK_REF_RECORD_SIZE, 16);
         assert_eq!(HEAP_FINALIZATION_REGISTRY_RECORD_SIZE, 40);
         assert_eq!(HEAP_FINALIZATION_REGISTRY_CELL_SIZE, 56);
+        assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, 32);
+        assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE, 40);
         assert_eq!(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE, 48);
         assert_eq!(HEAP_MAP_ITERATOR_RECORD_SIZE, 32);
         assert_eq!(HEAP_SET_RECORD_SIZE, 32);
@@ -5264,6 +5767,14 @@ mod tests {
         assert_layout(
             HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT,
             HEAP_FINALIZATION_REGISTRY_CELL_SIZE,
+        );
+        assert_layout(
+            HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT,
+            HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
         );
         assert_layout(
             HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
@@ -5353,6 +5864,8 @@ mod tests {
             .chain(HEAP_WEAK_REF_RECORD_LAYOUT.iter())
             .chain(HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT.iter())
             .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
+            .chain(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
+            .chain(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT.iter())

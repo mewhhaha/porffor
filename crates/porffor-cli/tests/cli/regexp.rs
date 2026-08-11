@@ -578,6 +578,89 @@ fn run_wasm_backend_succeeds_for_regexp_symbol_search_internal_slots_fixture() {
     assert!(stdout.contains("boolean(true)"));
 }
 
+/// The accepted half of the AOT runtime RegExp pattern table, plus the recorded
+/// policy for a pattern the table has never seen.
+///
+/// Companion to `…_regexp_runtime_pattern_invalid_fixture`. Both fixtures reach
+/// the table only through *computed* pattern values, because with a literal
+/// argument `porffor-ir`'s static lowering answers first and the runtime path is
+/// never taken — which is exactly how the defect these pin stayed invisible.
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_runtime_pattern_valid_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_runtime_pattern_valid.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+/// The rejected half: a pattern the compile-time RegExp compiler answered
+/// `InvalidSyntax` for must throw SyntaxError at run time rather than produce a
+/// live RegExp carrying a null program.
+///
+/// This is the CLI-level form of the one Bug-outcome failure in the batch-7
+/// sweep, `annexB/built-ins/RegExp/prototype/compile/
+/// duplicate-named-capturing-groups-syntax.js`, and it covers three of the seven
+/// call sites of `emit_runtime_regexp_program_slots` — the constructor,
+/// `compile`, and a `String.prototype` entry point.
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_runtime_pattern_invalid_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_runtime_pattern_invalid.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+/// The two Unicode-mode productions `porffor-ir`'s RegExp parser was missing,
+/// through the STATIC (source-literal) path.
+///
+/// `IdentityEscape[+UnicodeMode] :: SyntaxCharacter | `/`` lost its SOLIDUS
+/// alternative and `RegExpUnicodeEscapeSequence[+UnicodeMode] :: `u{` CodePoint
+/// `}`` was never implemented in the atom parser at all, so `/\//u` and
+/// `/\u{41}/u` were answered `InvalidSyntax` — a `SyntaxError` claim about legal
+/// programs. Both were implemented correctly one function away, in the class
+/// parser, which is why `/[\/]/u` and `/[\u{41}]/u` compiled the whole time; the
+/// fixture asserts the class positions next to the atom positions so that
+/// agreement is what fails if the rule is ever split again.
+///
+/// Companion: `…_regexp_runtime_pattern_valid_fixture` covers the same two
+/// patterns through batch 7's runtime table, where an `InvalidSyntax` verdict
+/// does not merely lose a program but throws `SyntaxError` at construction.
+#[test]
+fn run_wasm_backend_succeeds_for_regexp_identity_escape_solidus_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_regexp_identity_escape_solidus.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_regexp_prototype_accessors_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))

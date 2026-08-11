@@ -589,3 +589,25 @@ fn run_wasm_backend_succeeds_for_array_property_is_enumerable_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
+
+/// The `%AsyncDisposableStack%` intrinsic's synchronous surface, as a CLI
+/// oracle independent of test262: constructor and prototype descriptors, the
+/// `@@asyncDispose`/`disposeAsync` shared identity, the `[[AsyncDisposableState]]`
+/// brand checks, `use`/`adopt`/`defer` argument validation, `move`, and the
+/// synchronous half of `disposeAsync`. The disposal walk's microtask ordering
+/// is deliberately not asserted here — see the fixture's header.
+#[test]
+fn run_wasm_backend_succeeds_for_async_disposable_stack_surface_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_async_disposable_stack_surface.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}

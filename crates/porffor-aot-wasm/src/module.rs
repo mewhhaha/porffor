@@ -4,6 +4,12 @@ pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
 pub(crate) const COMPLETION_KIND_EXPORT: &str = "completion_kind";
 pub(crate) const COMPLETION_AUX_EXPORT: &str = "completion_aux";
 pub(crate) const THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
+/// Companion export to `THROW_ERROR_NAME_EXPORT`. The host reads both at an
+/// uncaught throw so a failure detail can name the defect
+/// (`TypeError: RegExp.prototype.exec unsupported pattern`) instead of printing
+/// a raw linear-memory address (`TypeError: object(handle@5397552)`), which is
+/// neither stable across builds nor resolvable to an allocation site.
+pub(crate) const THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
 
 pub(crate) const HOST_IMPORT_MODULE: &str = "porf_host";
 pub(crate) const HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
@@ -165,8 +171,27 @@ pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX: u32 = 131;
 pub(crate) const TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 132;
 pub(crate) const INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX: u32 = 133;
 pub(crate) const INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 134;
+// Appended after the previous maximum so no existing index moves. The registry
+// is dense and position-indexed (`global_index_registry_is_unique_and_dense`),
+// so the matching `GlobalIndexSlot` row goes at the END of
+// `GLOBAL_INDEX_REGISTRY`, not next to `throw_error_name_heap`: a row inserted
+// beside its sibling would renumber every global after it.
+pub(crate) const THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX: u32 = 135;
+// Appended after the previous maximum, for the same density reason spelled out
+// above: the matching `GlobalIndexSlot` rows go at the END of
+// `GLOBAL_INDEX_REGISTRY`, after `throw_error_message_heap`.
+pub(crate) const ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 136;
+pub(crate) const ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 137;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
+/// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
+///
+/// A module compiled without a heap emits four globals, so both throw-diagnostic
+/// exports land on the same i64 slot and clobber each other. That is
+/// unobservable rather than merely tolerated: the host reads either global only
+/// when the completion value is a heap object (`Object`/`Array`/`Function`/
+/// `Arguments`), and a module with no heap cannot produce one.
+pub(crate) const THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
 pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 2;
 pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 3;
@@ -731,6 +756,24 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Intl.DateTimeFormat",
         index: INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    // This registry is asserted to be dense with `index == position`, and
+    // `emit.rs` emits `GLOBAL_INDEX_REGISTRY.len()` globals. Its sibling
+    // `throw_error_name_heap` sits at index 64 and cannot be joined here
+    // without renumbering 70 globals. It no longer holds the highest index —
+    // the `AsyncDisposableStack` pair below was appended after it — but it
+    // must stay at *this* position, because its index is 135.
+    GlobalIndexSlot {
+        name: "throw_error_message_heap",
+        index: THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "AsyncDisposableStack.prototype",
+        index: ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "AsyncDisposableStack",
+        index: ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -754,6 +797,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::WeakRefConstructor => Some(WEAK_REF_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::FinalizationRegistryConstructor => {
             Some(FINALIZATION_REGISTRY_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::AsyncDisposableStackConstructor => {
+            Some(ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::SetConstructor => Some(SET_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::AggregateErrorConstructor => {
@@ -1500,7 +1546,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalInstantFrom
+        | StandardBuiltinId::TemporalInstantCompare
+        | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+        | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
         | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToJson
+        | StandardBuiltinId::TemporalInstantPrototypeValueOf
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
@@ -1508,6 +1559,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1520,7 +1573,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
         | StandardBuiltinId::IntlGetCanonicalLocales
         | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
@@ -1536,7 +1595,15 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlDateTimeFormatBoundFormat
         | StandardBuiltinId::WeakRefPrototypeDeref
         | StandardBuiltinId::FinalizationRegistryPrototypeRegister
-        | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => None,
+        | StandardBuiltinId::FinalizationRegistryPrototypeUnregister
+        | StandardBuiltinId::AsyncDisposableStackPrototypeUse
+        | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+        | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => None,
     }
 }
 
@@ -1722,6 +1789,14 @@ pub(crate) const fn throw_error_name_global_index(uses_heap: bool) -> u32 {
     }
 }
 
+pub(crate) const fn throw_error_message_global_index(uses_heap: bool) -> u32 {
+    if uses_heap {
+        THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX
+    } else {
+        THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX
+    }
+}
+
 pub(crate) fn error_prototype_global_index(name: &str) -> u32 {
     match name {
         ERROR_NAME => ERROR_PROTOTYPE_GLOBAL_INDEX,
@@ -1814,6 +1889,9 @@ pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId
         StandardBuiltinId::FinalizationRegistryConstructor => {
             Some(FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX)
         }
+        StandardBuiltinId::AsyncDisposableStackConstructor => {
+            Some(ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX)
+        }
         StandardBuiltinId::SetConstructor => Some(SET_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::ArrayConstructor => Some(ARRAY_PROTOTYPE_GLOBAL_INDEX),
         StandardBuiltinId::IteratorConstructor => Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
@@ -1893,6 +1971,17 @@ pub struct WasmArtifact {
     pub bytes: Vec<u8>,
     pub invariant_note: &'static str,
     pub debug_dump: String,
+    /// Per-function attribution for every body in `bytes`, in code-section
+    /// order, always populated.
+    ///
+    /// Typed rather than parsed back out of `debug_dump`: the dump's full
+    /// report is opt-in behind `PORFFOR_EMIT_SIZE_REPORT` and its only printer
+    /// lives two crates away, so "how big is `js::probe#f0`?" was a question the
+    /// compiler could answer but no test could ask. It is derived from the same
+    /// single [`crate::emitted_function::ModuleFunctionTable::summaries`] call
+    /// that renders the `largest emitted function:` line, so the two cannot
+    /// disagree.
+    pub function_sizes: Vec<EmittedFunctionSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1904,6 +1993,30 @@ impl EmitError {
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+        }
+    }
+
+    /// A function body exceeded the configured per-function budget.
+    ///
+    /// The constructor takes the [`FunctionIdentity`] rather than a name or a
+    /// bare size, so this diagnostic cannot be produced without knowing which
+    /// function it is about — precisely what the `[origin:unknown] ... Code for
+    /// function is too large` failure lacks. The budget arrives as a
+    /// [`FunctionBodyBudget`], validated once at construction, so there is no
+    /// bare `u32` threshold to mis-thread.
+    pub(crate) fn function_too_large(
+        identity: &FunctionIdentity,
+        body_bytes: FunctionBodySize,
+        budget: FunctionBodyBudget,
+    ) -> Self {
+        Self {
+            message: format!(
+                "emitted function body exceeds the configured budget: {} ({}) is {} against a budget of {}",
+                identity.wasm_name(),
+                identity.category(),
+                body_bytes,
+                budget
+            ),
         }
     }
 }
@@ -1941,8 +2054,25 @@ mod tests {
             "no-heap throw-error-name export intentionally aliases the heap pointer slot"
         );
         assert_eq!(
+            THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX, HEAP_PTR_GLOBAL_INDEX,
+            "no-heap throw-error-message export aliases the same slot as its name sibling; a \
+             heap-less module cannot produce an object completion, so neither is ever read"
+        );
+        assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX as usize + 1
+            ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
+            "the registry length tracks the highest index, and `emit.rs` emits exactly this many \
+             globals for a heap module"
+        );
+        assert!(
+            THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX > INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+            "the throw-error-message slot was appended after the previous maximum precisely so no \
+             existing global index moved"
+        );
+        assert!(
+            ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX > THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX,
+            "the AsyncDisposableStack pair was appended after the previous maximum for the same \
+             reason: no existing global index may move"
         );
     }
 

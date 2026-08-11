@@ -6,13 +6,13 @@ use icu_normalizer::{
 };
 use icu_properties::{props, CodePointSetData};
 use porffor_ir::{
-    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpProgram, StaticRegExpCompilation,
-    TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
-    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
-    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
-    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
+    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT,
+    REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
+    REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT,
+    REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
 };
 use std::sync::OnceLock;
 
@@ -20,6 +20,173 @@ use std::sync::OnceLock;
 /// The high 32 bits are the format version and the low 32 bits are `NRGT`.
 pub(crate) const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
     (1_u64 << 32) | u32::from_le_bytes(*b"NRGT") as u64;
+
+/// Runtime-error message literals that no other interning path reaches.
+///
+/// Why this table exists at all, stated once so it is not rediscovered a fourth
+/// time. `emit_runtime_error_object` (`builtins/errors.rs`) used to define the
+/// error's `message` property from its *name* payload and throw the message
+/// argument away, so `e.message === e.name` for every error the runtime threw.
+/// The obvious one-token repair could not land alone: `StringPool::payload`
+/// takes `&self`, cannot extend the pool during emission, and **panics** with
+/// ``string `..` must exist in pool``. Because that function never asked the
+/// pool for a message, the messages that reach only it were never required to
+/// be interned -- and were not. Landing the repair without this table turns
+/// `null.x` into a compiler panic.
+///
+/// The list is measured, not guessed. Every call site of the seven throw entry
+/// points (`emit_throw_runtime_error`, `_to_active_handler`,
+/// `_with_prototype_local` and the four `emit_throw_current_function_realm_*`
+/// wrappers) was walked transitively through the `&str` parameters they forward
+/// through, giving 903 reachable message literals; the 125 below are the ones
+/// absent from both this file and
+/// `builtins::intl_date_time_format_pool_strings()`.
+///
+/// It over-approximates on purpose. A string interned twice costs nothing --
+/// `intern_string` returns early on a hit -- while a string missed once is a
+/// compiler panic on a program as ordinary as `null.x`. Two families here are
+/// reachable only through an enum-selected `match` arm
+/// (`Map`/`WeakMap`/`Set`/`WeakSet` constructor messages, `yield*` iterator
+/// protocol messages), which a call-site-literal audit alone does not see.
+///
+/// KNOWN INCOMPLETENESS, and the reason this is a table rather than a claim:
+/// a static audit cannot resolve every `&'static str` that reaches a throw
+/// through a local binding or a helper's parameter. If a message is still
+/// missing, the pool says so loudly at run time by name. That is the correct
+/// failure mode and it is deliberately not softened -- see the standing
+/// instruction on `emit_runtime_error_object` never to fall back to the name.
+///
+/// The right long-term shape is one `RUNTIME_ERROR_MESSAGES` domain that the
+/// emitters index into, so "add a message" is one edit and "forgot to intern"
+/// is a compile error. That is a refactor across ~1,120 call sites and does not
+/// belong to this lane; this table is the honest intermediate.
+pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
+    "Atomics.wait cannot suspend the current agent",
+    "BigInt division by zero",
+    "Cannot add property to non-extensible array",
+    "Cannot assign inherited typed array index on receiver",
+    "Cannot assign to arguments index",
+    "Cannot assign to arguments.callee",
+    "Cannot assign to array index",
+    "Cannot assign to array length",
+    "Cannot assign to array property",
+    "Cannot assign to inherited accessor without setter",
+    "Cannot assign to inherited read only property",
+    "Cannot change enumerable flag of non-configurable arguments accessor",
+    "Cannot change enumerable flag of non-configurable arguments property",
+    "Cannot change enumerable flag of non-configurable arguments.callee",
+    "Cannot change kind of non-configurable arguments.callee",
+    "Cannot change non-configurable arguments accessor",
+    "Cannot change non-configurable arguments.callee accessor",
+    "Cannot change non-writable arguments.callee",
+    "Cannot change value of non-writable arguments property",
+    "Cannot define array length",
+    "Cannot make non-configurable arguments property writable",
+    "Cannot make non-configurable arguments.callee writable",
+    "Cannot read properties of null or undefined",
+    "Cannot redefine non-configurable arguments accessor",
+    "Cannot redefine non-configurable arguments property",
+    "Cannot redefine non-configurable arguments.callee",
+    "Cannot replace non-configurable accessor arguments property",
+    "Cannot replace non-configurable data arguments property",
+    "Function has non-object prototype in instanceof check",
+    "Get target is not an object",
+    "Map constructor iterator method is not callable",
+    "Map constructor iterator method must return an object",
+    "Map constructor iterator next method is not callable",
+    "Map constructor iterator next result must be an object",
+    "Map constructor iterator value must be an object",
+    "Map constructor requires new",
+    "Map constructor set method is not callable",
+    "Map.prototype.forEach callback must be callable",
+    "Object.prototype.__proto__ setter called on null or undefined",
+    "Object.prototype.__proto__ setter could not set prototype",
+    "Object.prototype.hasOwnProperty called on null or undefined",
+    "Promise cannot resolve to itself",
+    "Promise capability constructor is not a constructor",
+    "Promise capability did not initialize callable resolving functions",
+    "Promise capability executor called more than once",
+    "Promise constructor property is not an object",
+    "Promise constructor requires new",
+    "Promise executor is not callable",
+    "Promise species is not a constructor",
+    "Promise.all constructor resolve property is not callable",
+    "Promise.all input is not iterable",
+    "Promise.all iterable contains too many values",
+    "Promise.all iterator method is not callable",
+    "Promise.all iterator method must return an object",
+    "Promise.all iterator next method is not callable",
+    "Promise.all iterator next result must be an object",
+    "Promise.prototype.finally called on non-object receiver",
+    "Promise.prototype.then called on incompatible receiver",
+    "Promise.race constructor resolve property is not callable",
+    "Promise.race input is not iterable",
+    "Promise.race iterator method is not callable",
+    "Promise.race iterator method must return an object",
+    "Promise.race iterator next method is not callable",
+    "Promise.race iterator next result must be an object",
+    "Proxy ownKeys trap result contained a duplicate key",
+    "Proxy ownKeys trap result contained a non-property key",
+    "Proxy ownKeys trap result contains an extra key for a non-extensible target",
+    "Proxy ownKeys trap result does not match non-extensible target",
+    "Proxy ownKeys trap result must be an object",
+    "RegExp compiled program matcher failed",
+    "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+    "RegExp.prototype[Symbol.matchAll] receiver is not object",
+    "RegExp.prototype[Symbol.replace] exec result is not an object or null",
+    "RegExp.prototype[Symbol.replace] receiver is not an object",
+    "RegExp.prototype[Symbol.split] constructor is not an object",
+    "RegExp.prototype[Symbol.split] exec result is not an object or null",
+    "RegExp.prototype[Symbol.split] species is not a constructor",
+    "Set constructor add method is not callable",
+    "Set constructor iterator method is not callable",
+    "Set constructor iterator method must return an object",
+    "Set constructor iterator next method is not callable",
+    "Set constructor iterator next result must be an object",
+    "Set constructor requires new",
+    "Set.prototype.forEach callback must be callable",
+    "String method RegExp flags must contain g",
+    "TypedArray allocation size is too large",
+    "TypedArray iterator method must be callable",
+    "TypedArray iterator method must return an object",
+    "TypedArray iterator next method must be callable",
+    "TypedArray iterator next result must be an object",
+    "WeakMap constructor iterator method is not callable",
+    "WeakMap constructor iterator method must return an object",
+    "WeakMap constructor iterator next method is not callable",
+    "WeakMap constructor iterator next result must be an object",
+    "WeakMap constructor iterator value must be an object",
+    "WeakMap constructor requires new",
+    "WeakMap constructor set method is not callable",
+    "assignment to immutable destructuring target",
+    "assignment to unresolvable reference",
+    "cannot get function realm from a revoked Proxy",
+    "for-await-of async iterator next result must be object",
+    "for-await-of async iterator return result must be object",
+    "for-await-of iterator method must be callable",
+    "for-await-of iterator method must return object",
+    "for-await-of iterator next must be callable",
+    "for-await-of iterator next result must be object",
+    "for-await-of iterator return must be callable",
+    "for-await-of iterator return result must be object",
+    "for-await-of target is not iterable",
+    "lexical binding accessed before initialization",
+    "private accessor has no getter",
+    "private element already installed on object",
+    "private element cannot be installed on non-extensible object",
+    "private element has no setter",
+    "private environment is missing its declared name",
+    "right-hand side of private in is not an object",
+    "unbound identifier",
+    "yield* iterator has no throw method",
+    "yield* iterator method must be callable",
+    "yield* iterator method must return object",
+    "yield* iterator result must be object",
+    "yield* next method must be callable",
+    "yield* return method must be callable",
+    "yield* target is not iterable",
+    "yield* throw method must be callable",
+];
 
 #[derive(Debug)]
 struct StringRef {
@@ -94,6 +261,234 @@ impl RegExpProgramStaticKey {
     }
 }
 
+/// Word index of `source`'s interned payload in a runtime RegExp program table
+/// record.
+///
+/// # Why these are constants and not literals on each side
+///
+/// The record is written here by [`StringPool::append_runtime_regexp_program_table`]
+/// and read in `expressions.rs` by `emit_runtime_regexp_program_slots`. Those
+/// were the only two places that knew the layout, and each spelled it out
+/// independently: the writer as the *order* of an array literal, the reader as
+/// bare `16`/`24`/…/`64` offsets and a `72` stride. Nothing connected them, so
+/// adding, reordering or resizing a word compiled cleanly on both sides and
+/// produced garbage program slots at run time — the same silent wrong-answer
+/// class this table exists to remove.
+///
+/// Naming the words once fixes that in three ways, and all three are compile
+/// errors rather than test failures:
+///
+/// * the writer builds a `[u64; RUNTIME_REGEXP_RECORD_WORDS]` and assigns
+///   **through these indices**, so a word with no index cannot be written and an
+///   index with no word is an out-of-bounds `const` evaluation;
+/// * [`RUNTIME_REGEXP_RECORD_SIZE`] is derived from the word count rather than
+///   typed as `72`, so the reader's stride cannot fall behind the writer's row;
+/// * the reader's offsets come from [`runtime_regexp_record_offset`] applied to
+///   the same indices, so a reordering moves both sides at once.
+pub(crate) const RUNTIME_REGEXP_RECORD_SOURCE_WORD: usize = 0;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' interned payload.
+pub(crate) const RUNTIME_REGEXP_RECORD_FLAGS_WORD: usize = 1;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. Static pointer to the compiled
+/// program's instructions, or 0 for a non-`Program` row.
+pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD: usize = 2;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD: usize = 3;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD: usize = 4;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD: usize = 5;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD: usize = 6;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD: usize = 7;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. The `RUNTIME_REGEXP_ENTRY_KIND_*`
+/// discriminant, i.e. which [`RuntimeRegExpEntry`] this row is.
+pub(crate) const RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD: usize = 8;
+
+/// Number of `u64` words in one runtime RegExp program table record.
+///
+/// Keep this the last word's index plus one: it is the length of the writer's
+/// array, so a word added without extending it fails to compile at the
+/// assignment rather than corrupting the next row.
+pub(crate) const RUNTIME_REGEXP_RECORD_WORDS: usize = RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD + 1;
+
+/// Byte stride between runtime RegExp program table records. **Derived**, never
+/// typed — see [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_SIZE: u64 = (RUNTIME_REGEXP_RECORD_WORDS * 8) as u64;
+
+/// Byte offset of a record word, for the emitter's `i64.load` memargs.
+pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
+    (word * 8) as u64
+}
+
+/// The `entry_kind` word of a runtime RegExp program table record.
+///
+/// The record is [`RUNTIME_REGEXP_RECORD_SIZE`] bytes: the eight words the
+/// emitter already read, plus this discriminant at
+/// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`]. It is a word rather than a
+/// sentinel (`ptr == 0`, `instruction_count == 0`) on purpose — a sentinel is
+/// what the emitter used to be forced into, and it cannot tell "the compiler
+/// rejected this pattern" apart from "this row was never written".
+pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
+/// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
+/// compile-time `RegExpProgram::compile` answered
+/// [`RegExpCompileErrorKind::InvalidSyntax`] — the pattern is not a legal
+/// ECMAScript Pattern, so constructing a RegExp from it at run time is a spec
+/// SyntaxError.
+///
+/// # The risk this row carries, stated in the other direction
+///
+/// The doc on [`RuntimeRegExpEntry`] argues one direction at length: a *missing*
+/// row is a wrong answer, so seen-and-rejected must be recorded. The mirror
+/// image is real and is not argued anywhere else, so it is stated here.
+///
+/// This row makes the compile-time compiler's `InvalidSyntax` verdict
+/// **load-bearing at run time**. Before it, a pattern this compiler
+/// mis-classified as `InvalidSyntax` merely fell through to the runtime fallback
+/// matcher, which frequently answered it correctly. Now it throws a spurious
+/// SyntaxError at all seven `emit_runtime_regexp_program_slots` call sites.
+/// `porffor-ir/src/regexp.rs` has ~20 `invalid_syntax(` construction sites
+/// against ~7 `unsupported(` ones and none of them has been audited against the
+/// grammar, so the premise "`InvalidSyntax` means the spec says invalid" is
+/// assumed, not established.
+///
+/// Two properties widen the blast radius, and both are deliberate elsewhere:
+/// the table is looked up by string **value** (`emit_string_payload_equality_i32`
+/// is a real byte compare), so a runtime-concatenated string that happens to
+/// equal a mis-rejected script literal also throws; and in fallback mode the
+/// candidate set is every script string literal, so every mis-rejected literal
+/// in a harness file becomes reachable.
+///
+/// Neither named gate detects this. `annexB/built-ins/RegExp/prototype/compile`
+/// is 23 cases and `built-ins/RegExp/named-groups` is 36, and named groups
+/// exercise the `Program` path, which is unchanged. **Measure
+/// `built-ins/RegExp/prototype` (487 cases) as a delta before treating this as
+/// landed, and read any new failure whose detail names SyntaxError as a
+/// false-`InvalidSyntax` candidate rather than as unrelated noise.**
+pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
+/// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
+/// compile-time compiler answered [`RegExpCompileErrorKind::UnsupportedFeature`]
+/// — the pattern **is** legal ECMAScript and Lila simply cannot compile it yet.
+///
+/// This is the distinction that makes the table worth having and the one a
+/// bare "compile failed, so throw" would destroy: a `SyntaxError` here would be
+/// a *new* wrong answer, thrown for a pattern the spec says is fine. Such a row
+/// deliberately behaves exactly like a total miss — zeroed program slots, and
+/// the runtime's own fallback matcher gets its turn. `porffor-ir`'s
+/// `try_lower_static_regexp_compilation` draws the same line at its
+/// `Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax` arm, and
+/// the two must not drift apart.
+pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
+
+/// The closed domain the three `RUNTIME_REGEXP_ENTRY_KIND_*` words spell.
+///
+/// # Why this exists on top of [`RuntimeRegExpEntry`]
+///
+/// [`RuntimeRegExpEntry`] closes the **writer**: a fourth outcome is
+/// `error[E0004]` at `append_runtime_regexp_program_table`. That bought nothing
+/// on the **reader** side, which compared a raw `u64` against two of the three
+/// constants. A fourth `RUNTIME_REGEXP_ENTRY_KIND_FOO = 3` would have compiled
+/// cleanly next to its siblings and fallen through both comparisons in
+/// `emit_runtime_regexp_program_slots` as a miss — reinstating, one level down,
+/// the exact silent-skip class this table exists to remove.
+///
+/// So the *decision* the emitter makes is stated here, once, as an exhaustive
+/// match ([`Self::throws_syntax_error`]), and the emitter builds its comparison
+/// chain by iterating [`Self::ALL`]. Adding a variant is then a compile error at
+/// two exhaustive matches in this file, and the emitted comparison follows
+/// automatically rather than being one more transcription.
+///
+/// Residual, stated rather than papered over: [`Self::ALL`] is hand-written.
+/// The compiler cannot enumerate a Rust enum, so the trigger to extend it is
+/// the `error[E0004]` a new variant produces at the two matches below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeRegExpEntryKind {
+    Program,
+    Rejected,
+    Unsupported,
+}
+
+impl RuntimeRegExpEntryKind {
+    /// Every kind. See the type's doc for why this is hand-written and what
+    /// forces it to be kept honest.
+    pub(crate) const ALL: [Self; 3] = [Self::Program, Self::Rejected, Self::Unsupported];
+
+    /// The discriminant word written into
+    /// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`].
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Program => RUNTIME_REGEXP_ENTRY_KIND_PROGRAM,
+            Self::Rejected => RUNTIME_REGEXP_ENTRY_KIND_REJECTED,
+            Self::Unsupported => RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED,
+        }
+    }
+
+    /// Does a run-time hit on a row of this kind throw `SyntaxError`?
+    ///
+    /// This is the whole policy, and it is deliberately not `!= Program`:
+    /// `Unsupported` means the pattern is legal ECMAScript that Lila cannot
+    /// compile yet, so it must behave exactly like a total miss and let the
+    /// runtime fallback matcher have its turn.
+    pub(crate) const fn throws_syntax_error(self) -> bool {
+        match self {
+            Self::Program | Self::Unsupported => false,
+            Self::Rejected => true,
+        }
+    }
+}
+
+/// What the AOT-built runtime RegExp program table says about one
+/// `(source, flags)` pair.
+///
+/// The table is looked up **by string value** at run time, so an absent row and
+/// an illegal pattern used to be the same observable state. `queue_runtime_regexp_programs`
+/// wrote rows with
+///
+/// ```ignore
+/// let Ok(program) = RegExpProgram::compile(compilation_source, flags) else {
+///     continue;
+/// };
+/// ```
+///
+/// so a pattern the compiler had *seen and rejected* left no trace at all, the
+/// emitted lookup fell out of its loop with no else arm, and
+/// `new RegExp("(?<x>a)(?<x>b)")` returned a live RegExp carrying
+/// `instruction_count == 0` instead of throwing SyntaxError. That is a
+/// wrong-answer class, not a missing feature.
+///
+/// Making the table's value a closed type is what stops it recurring: the
+/// writer below matches exhaustively, so a third outcome added later is
+/// `error[E0004]` at the table writer rather than one more silently skipped
+/// row. `Option<RegExpProgramRef>` would not do it — `unwrap_or`, `if let` and
+/// `continue` are all one keystroke away, and `continue` is exactly what was
+/// written here.
+#[derive(Debug, Clone, Copy)]
+enum RuntimeRegExpEntry {
+    /// `RegExpProgram::compile` accepted the pair; this is its static data.
+    Program(RegExpProgramRef),
+    /// `RegExpProgram::compile` answered `InvalidSyntax`: the pattern is not a
+    /// legal ECMAScript Pattern. The emitted lookup turns a hit on this row
+    /// into a SyntaxError.
+    Rejected,
+    /// `RegExpProgram::compile` answered `UnsupportedFeature`: the pattern is
+    /// legal and Lila cannot compile it yet. A hit on this row must **not**
+    /// throw — see [`RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED`].
+    Unsupported,
+}
+
+/// [`RuntimeRegExpEntry`] before the static program data exists.
+///
+/// `queue_regexp_program` only queues; the `RegExpProgramRef` a `Program` row
+/// needs is not known until `append_regexp_programs` has run. This carries the
+/// same three answers across that gap by key instead of by ref, so the
+/// intermediate never has to be an `Option` — the shape whose `None` arm is
+/// what the original `continue` collapsed into.
+enum CandidateOutcome {
+    Program(RegExpProgramStaticKey),
+    Rejected,
+    Unsupported,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
@@ -101,9 +496,28 @@ pub(crate) struct StringPool {
     refs: BTreeMap<String, StringRef>,
     script_string_literals: BTreeSet<String>,
     runtime_regexp_candidate_literals: BTreeSet<String>,
+    /// Pattern strings the script names **directly at a RegExp construction
+    /// site** (`new RegExp("…")`, `RegExp("…")`, `r.compile("…")`).
+    ///
+    /// Separate from `runtime_regexp_candidate_literals` because that set has a
+    /// second job: when it is empty the candidate set falls back to *every*
+    /// script string literal. Folding construction-site arguments into it would
+    /// silently flip that fallback off for any script that has one, narrowing
+    /// the table instead of widening it. This set is always unioned in, so it
+    /// can only add rows.
+    ///
+    /// Measured motivation: `runtime_regexp_candidate_literals` is populated
+    /// from declaration initialisers, assignments and array literals — never
+    /// from call arguments. In
+    /// `annexB/built-ins/RegExp/prototype/compile/duplicate-named-capturing-groups-syntax.js`
+    /// the valid pattern reaches it through `let source = "(?<x>a)|(?<x>b)"`,
+    /// while the invalid `"(?<x>a)(?<x>b)"` appears only as a call argument, so
+    /// the set was non-empty, the fallback did not fire, and the pattern the
+    /// test is *about* was never offered to the compiler at all.
+    runtime_regexp_argument_literals: BTreeSet<String>,
     regexp_programs: BTreeMap<RegExpProgramStaticKey, RegExpProgramRef>,
     pending_regexp_programs: Vec<(RegExpProgramStaticKey, u32, u32, u32)>,
-    runtime_regexp_programs: Vec<(String, String, RegExpProgramRef)>,
+    runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
     pub(crate) runtime_regexp_program_table_ptr: u32,
     pub(crate) runtime_regexp_program_count: u32,
@@ -133,10 +547,29 @@ impl StringPool {
         compiled_standard_builtins: &[StandardBuiltinId],
     ) -> Self {
         let mut pool = Self::default();
+        // `RegExpPrototypeCompile` is what makes the `CallMethod` arm below
+        // able to serve its stated purpose. That arm collects the pattern
+        // argument of `r.compile("…")` but deliberately does not set this flag,
+        // and for the `var r = /[ab]/; function go() { r.compile("xy"); }`
+        // spelling there is no *other* setter — so before this disjunct the
+        // collected literal was written into a set that was never read, the
+        // table was never built, and `emit_runtime_regexp_program_slots`
+        // early-returned on a zero row count.
+        //
+        // Keyed off the compiled-builtin set rather than off call shape because
+        // that set is precise in the direction that matters: `RegExpConstructor`
+        // does **not** root its prototype methods (checked in
+        // `planning.rs::require_standard_builtin` — the dependency edge runs the
+        // other way, `RegExpPrototypeCompile => roots RegExpConstructor`), so
+        // this is true only for a module that actually compiled a `.compile`
+        // call site. `RegExpConstructor` itself must NOT be added the same way
+        // without measuring: it is rooted by any RegExp literal at all, and the
+        // fallback candidate set is every script string literal.
         pool.needs_runtime_regexp_programs = script.functions.iter().any(|function| {
             function.super_constructor_target.as_deref() == Some(BUILTIN_REGEXP_FUNCTION_ID)
         }) || compiled_standard_builtins
-            .contains(&StandardBuiltinId::RegExpPrototypeSymbolSplit);
+            .contains(&StandardBuiltinId::RegExpPrototypeSymbolSplit)
+            || compiled_standard_builtins.contains(&StandardBuiltinId::RegExpPrototypeCompile);
         for value in [
             "",
             " ",
@@ -504,6 +937,27 @@ impl StringPool {
             "FinalizationRegistry target and holdings must not be the same value",
             "FinalizationRegistry unregister token cannot be held weakly",
             "FinalizationRegistry method receiver does not have [[Cells]]",
+            // `AsyncDisposableStack`: the property keys its intrinsic installer
+            // defines, plus every message its emitters throw. A key or message
+            // spelled at an emitter and missing here is a compile-time panic in
+            // every full bootstrap (`string ... must exist in pool`), not a
+            // runtime miss.
+            "AsyncDisposableStack",
+            "use",
+            "adopt",
+            "defer",
+            "move",
+            "disposed",
+            "disposeAsync",
+            "AsyncDisposableStack constructor requires new",
+            "AsyncDisposableStack method receiver is not an object",
+            "AsyncDisposableStack method receiver does not have [[AsyncDisposableState]]",
+            "AsyncDisposableStack is already disposed",
+            "AsyncDisposableStack.prototype.use value is not an object",
+            "AsyncDisposableStack.prototype.use value is not disposable",
+            "AsyncDisposableStack.prototype.use dispose method is not callable",
+            "AsyncDisposableStack.prototype.adopt onDisposeAsync is not callable",
+            "AsyncDisposableStack.prototype.defer onDisposeAsync is not callable",
             "Object.groupBy items cannot be null or undefined",
             "Object.groupBy callback must be callable",
             "Object.groupBy iterator method must be callable",
@@ -1373,6 +1827,18 @@ impl StringPool {
             "withCalendar",
             "era",
             "eraYear",
+            // The `era` half of `CalendarResolveFields` is one emitter shared
+            // by `PlainDate`, `PlainDateTime`, `PlainYearMonth`,
+            // `PlainMonthDay` and `ZonedDateTime`, so its messages are not
+            // per-family and cannot sit behind any one family's gate. They
+            // join the unconditional block beside the two property names the
+            // same emitter reads.
+            "Temporal era must be a string",
+            "Temporal eraYear must be finite",
+            "Temporal era and eraYear must be provided together",
+            "Invalid Temporal era for this calendar",
+            "Temporal era and year must agree",
+            "Temporal.PlainMonthDay year is outside the supported range",
             "dayOfWeek",
             "dayOfYear",
             "weekOfYear",
@@ -1433,7 +1899,6 @@ impl StringPool {
             "M12",
             "toInstant",
             "UTC",
-            "iso8601",
             "Temporal.ZonedDateTime constructor requires new",
             "Temporal.ZonedDateTime time zone must be a string",
             "Invalid Temporal.ZonedDateTime time zone",
@@ -1445,6 +1910,8 @@ impl StringPool {
             "Temporal.ZonedDateTime receiver does not have [[InitializedTemporalZonedDateTime]]",
             "Temporal.Instant receiver does not have [[InitializedTemporalInstant]]",
             "Temporal.Instant epoch nanoseconds are outside the supported range",
+            "Temporal.Instant.fromEpochMilliseconds requires an integral Number",
+            "Temporal.Instant does not support implicit conversion; use compare() or equals()",
             "RegExp.escape input must be a string",
             "RegExp.prototype.compile receiver is not a direct RegExp instance",
             "RegExp.prototype.compile flags must be undefined when pattern is RegExp",
@@ -1594,6 +2061,56 @@ impl StringPool {
             "&quot;",
         ] {
             pool.intern_string(value);
+        }
+        // Unconditional, and it must stay unconditional: these are the messages
+        // `emit_runtime_error_object` now reads out of the pool, and the paths
+        // that throw them (`null.x`, an unbound identifier, a TDZ read) are
+        // reachable from any program at all. Gating them behind a feature
+        // predicate would reintroduce the exact `string must exist in pool`
+        // panic this table exists to prevent.
+        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
+            pool.intern_string(value);
+        }
+        // Every `TemporalCalendarId` spelling and canonical form, plus every
+        // `Era` code, derived from the tables the emitters read rather than
+        // listed again. Listing them was a standing drift risk in both
+        // directions: a calendar spelling added to `TemporalCalendarId` and
+        // forgotten here is the `string must exist in pool` compiler panic
+        // fixed in e04bdc061, and `"gregorian"` was already interned twice
+        // because it is also an `INTL_DTF_ACCEPTED_CALENDARS` row.
+        //
+        // Unconditional, and it cannot move behind the `Temporal.PlainDate`
+        // gate below: the shared calendar helpers
+        // (`compile_temporal_calendar_identifier_helper` and
+        // `compile_temporal_calendar_iso_date_probe_helper`) are compiled from
+        // `uses_temporal_calendar` in `emit.rs`, whose predicate also fires for
+        // a program touching only `Temporal.ZonedDateTime` — and that program
+        // does not satisfy the gate.
+        for calendar in TemporalCalendarId::ALL {
+            pool.intern_string(calendar.canonical());
+            for spelling in calendar.spellings() {
+                pool.intern_string(spelling);
+            }
+            // Every era spelling, not just `code()`: `code()` is defined as
+            // `spellings()[0]`, and `CalendarResolveFields` matches an incoming
+            // `era` against all of them (`ad`/`bc` are the CLDR aliases of
+            // `ce`/`bce`). Interning the same table the resolver reads is what
+            // makes "add an alias" a one-place change instead of three.
+            //
+            // The walk is `TemporalCalendarId::ALL -> eras() -> spellings()`,
+            // i.e. literally the table
+            // `FunctionBuilder::emit_temporal_resolve_era_to_year` reads, and
+            // not a second `Era`-side list that could be short of it. That
+            // matters because the resolver emits `strings.payload(spelling)`
+            // for every spelling of every era of every calendar: an era
+            // reachable from `eras()` but missing here is the `string must
+            // exist in pool` compiler panic fixed in e04bdc061, and no
+            // `const` assertion can see a list that is never consulted.
+            for era in calendar.eras() {
+                for spelling in era.spellings() {
+                    pool.intern_string(spelling);
+                }
+            }
         }
         for value in crate::builtins::intl_date_time_format_pool_strings() {
             pool.intern_string(&value);
@@ -1773,6 +2290,18 @@ impl StringPool {
                 // `until`/`since` reject an out-of-range smallestUnit or
                 // largestUnit with this one message for both options.
                 "Invalid Temporal.PlainDate unit option",
+                // `CalendarEquals` in `DifferenceTemporal*`. One message per
+                // family, spelled by `TemporalDifferenceGuard` and nowhere
+                // else. These three entries keep their historical position in
+                // this array on purpose: pool offsets are assignment-ordered,
+                // so deleting them in favour of the walk below is a pure
+                // reordering that still moves every later string's offset, and
+                // that needs rung G. The walk is idempotent
+                // (`intern_string` returns early on a hit), so it adds nothing
+                // here and only fills the case this gate misses.
+                TemporalDifferenceGuard::PlainDateSameCalendar.message(),
+                TemporalDifferenceGuard::PlainDateTimeSameCalendar.message(),
+                TemporalDifferenceGuard::PlainYearMonthSameCalendar.message(),
                 "Invalid Temporal.PlainDate calendarName option",
                 "Temporal.PlainDate.prototype.with requires an object",
                 "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",
@@ -1838,8 +2367,20 @@ impl StringPool {
                 "Temporal.PlainMonthDay fields require day",
                 "Temporal.PlainMonthDay fields require month or monthCode",
                 "Temporal.PlainMonthDay is not a valid ISO date",
+                // `ToTemporalMonthDay` step (k): a non-ISO calendar bounds the
+                // *parsed* date by `ISODateWithinLimits`, so this is thrown by
+                // the shared `emit_temporal_iso_date_within_limits` rather than
+                // by a `Temporal.PlainDate` emitter, and it needs its own row.
+                "Temporal.PlainMonthDay is outside the supported date range",
                 "Temporal.PlainMonthDay month and day must be positive",
                 "Temporal.PlainMonthDay month and monthCode must agree",
+                // `ToTemporalMonthDay` step (g). `emit_throw_*_range_error`
+                // resolves its message through `StringPool::payload`, which
+                // panics rather than interning, so an emitter made reachable
+                // without a row here is a compiler panic on every program that
+                // touches `Temporal.PlainMonthDay.from` or `.prototype.equals`,
+                // not a test failure.
+                "Temporal.PlainMonthDay month-day string with a non-ISO calendar requires a year",
                 "Temporal.PlainMonthDay month must be an integer",
                 "Temporal.PlainMonthDay options must be an object or undefined",
                 "Temporal.PlainMonthDay receiver does not have [[InitializedTemporalMonthDay]]",
@@ -1969,6 +2510,21 @@ impl StringPool {
         // The `Temporal.PlainDateTime` family shares one prototype and is
         // installed wholesale by a realm bootstrap, so its literals are interned
         // unconditionally the same way the PlainTime set above is.
+        //
+        // THIS BLOCK IS ALSO WHAT KEEPS `Temporal.ZonedDateTime.prototype`
+        // INSTALLABLE, which its name does not say. `withCalendar`, `add`,
+        // `subtract`, `until` and `since` below are the property keys
+        // `install_temporal_zoned_date_time_constructor_intrinsics` passes to
+        // `emit_object_define_function_data`, which reaches
+        // `StringPool::payload` — and that PANICS rather than degrading on a
+        // string that was never interned (the failure mode measured this batch
+        // as 24 red `--lib` tests on ``string `...` must exist in pool``, from
+        // the two ZonedDateTime guard messages). Being unconditional is what
+        // makes that safe today. If this block is ever put behind a
+        // PlainDateTime predicate, the ZonedDateTime prototype install goes with
+        // it and every program touching `Temporal.ZonedDateTime` panics at emit;
+        // give those five their own gate keyed on
+        // `names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS` at the same time.
         {
             for value in [
                 "PlainDateTime",
@@ -2249,6 +2805,35 @@ impl StringPool {
                 "Temporal.ZonedDateTime offset does not match its fixed time zone",
             ] {
                 pool.intern_string(value);
+            }
+        }
+        // Every `DifferenceTemporal*` guard message, derived from the domain the
+        // emitters read rather than listed again — the same construction as the
+        // `TemporalCalendarId::ALL -> eras() -> spellings()` walk above, and for
+        // the same reason.
+        //
+        // The message is a pool string read back with `StringPool::payload`,
+        // which *panics* rather than degrading when the string was never
+        // interned. Batch 6 added the two `Temporal.ZonedDateTime` guards
+        // (`builtins/temporal_zoned_date_time_methods.rs`) as bare `&str`
+        // literals with no matching entry here, and
+        // `cargo test -p porffor-aot-wasm --lib` went **24 red** on
+        // ``string `...` must exist in pool`` — every test that emits a full
+        // bootstrap, not only the Temporal ones, because the panic is in the
+        // bootstrap and not in the feature.
+        //
+        // Walking the domain is what stops the fifth family repeating it: a
+        // `TemporalDifferenceGuard` variant cannot compile without a `message()`
+        // and an `emitting_builtins()` arm, and this loop then interns it with
+        // no edit in this file. The per-guard gate is what keeps a program that
+        // touches no `until`/`since` from carrying the text.
+        for guard in TemporalDifferenceGuard::ALL {
+            if guard
+                .emitting_builtins()
+                .iter()
+                .any(|builtin| compiled_standard_builtins.contains(builtin))
+            {
+                pool.intern_string(guard.message());
             }
         }
         if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize)
@@ -2871,7 +3456,9 @@ impl StringPool {
                     }
                 }
             }
-            ExprIr::PropertyWrite { target, key, value } => {
+            ExprIr::PropertyWrite {
+                target, key, value, ..
+            } => {
                 self.uses_heap = true;
                 self.collect_expr(target);
                 self.collect_property_key(key);
@@ -3133,7 +3720,7 @@ impl StringPool {
             }
             ExprIr::RuntimeThrow { name, message } => {
                 self.uses_heap = true;
-                self.intern_string(name);
+                self.intern_string(name.as_str());
                 self.intern_string(message);
             }
             ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {
@@ -3161,17 +3748,59 @@ impl StringPool {
                 static_regexp_compilation,
             } => {
                 self.uses_heap = true;
-                if static_regexp_compilation.is_none()
-                    && (matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
-                        || callee.function_targets.iter().any(|target| {
-                            matches!(
-                                target.as_str(),
-                                BUILTIN_REGEXP_FUNCTION_ID
-                                    | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
-                            )
-                        }))
-                {
+                // Two independent recognisers, and they are deliberately not
+                // the same test.
+                //
+                // `resolved_callee` depends on type inference having resolved
+                // the callee to `RegExp` or `RegExp.prototype.compile`. That is
+                // the only one allowed to force a table into existence, because
+                // forcing one is expensive: with no string-valued declaration
+                // initialiser anywhere, `queue_runtime_regexp_programs` falls
+                // back to *every* script string literal.
+                //
+                // `compile_shaped_callee` is structural — the callee is a
+                // property read whose key is literally `compile`. It cannot
+                // narrow anything: collected literals are only ever *unioned*
+                // into the candidate set (`queue_runtime_regexp_programs`), and
+                // the set they are unioned into is not the one whose emptiness
+                // picks the fallback. So widening collection is free, while
+                // widening the flag is not — hence the split.
+                //
+                // The split matters because the measured gate case
+                // (`annexB/built-ins/RegExp/prototype/compile/duplicate-named-capturing-groups-syntax.js`)
+                // spells its illegal pattern as `() => r.compile("(?<x>a)(?<x>b)")`
+                // over a `let r = /[ab]/`, which lowers to `CallIndirect` with a
+                // `PropertyRead` callee, and whether `function_targets` resolves
+                // through the arrow is exactly the thing this lane could not
+                // measure. `lower_indirect_method_call` (`porffor-ir`) keeps the
+                // method name on the callee in *both* of its shapes, so the
+                // structural test answers without needing inference at all.
+                let resolved_regexp_callee = matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
+                    || callee.function_targets.iter().any(|target| {
+                        matches!(
+                            target.as_str(),
+                            BUILTIN_REGEXP_FUNCTION_ID
+                                | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
+                        )
+                    });
+                if static_regexp_compilation.is_none() && resolved_regexp_callee {
                     self.needs_runtime_regexp_programs = true;
+                }
+                if static_regexp_compilation.is_none()
+                    && (resolved_regexp_callee || callee_names_regexp_compile(callee))
+                {
+                    // The pattern argument is the one string the script is
+                    // demonstrably asking the RegExp compiler about. Offer it
+                    // to the compile-time compiler even when it never appears
+                    // as a declaration initialiser — otherwise an *illegal*
+                    // pattern spelled inline is never compiled, never rejected,
+                    // and therefore has no row to throw from.
+                    if let Some(pattern) = args.first() {
+                        collect_finite_string_choices(
+                            pattern,
+                            &mut self.runtime_regexp_argument_literals,
+                        );
+                    }
                 }
                 if let Some(compilation) = static_regexp_compilation {
                     match compilation {
@@ -3209,6 +3838,15 @@ impl StringPool {
                         || callee.function_targets.contains(BUILTIN_REGEXP_FUNCTION_ID))
                 {
                     self.needs_runtime_regexp_programs = true;
+                    // Same reasoning as the `CallIndirect` arm above: `new
+                    // RegExp("(?<x>a)(?<x>b)")` must reach the compile-time
+                    // compiler so the rejection has somewhere to live.
+                    if let Some(pattern) = args.first() {
+                        collect_finite_string_choices(
+                            pattern,
+                            &mut self.runtime_regexp_argument_literals,
+                        );
+                    }
                 }
                 self.intern_string("prototype");
                 if let Some(compilation) = static_regexp_compilation {
@@ -3247,6 +3885,41 @@ impl StringPool {
                 if matches!(key, PropertyKeyIr::StaticString(name) if name == "reverse") {
                     self.intern_string("Array.prototype.reverse receiver is not array");
                 }
+                // A literal pattern argument to `.compile(…)`, collected for the
+                // same reason as the `CallIndirect` / `Construct` arms: the
+                // compile-time RegExp compiler's verdict on a pattern needs a
+                // row in the runtime table, and a pattern that only ever appears
+                // as a call argument was never offered to it.
+                //
+                // Both arms are needed because the *same source text* lowers
+                // differently depending on where it sits. Measured with
+                // `porf inspect`: `function go() { r.compile("xy"); }` over a
+                // `var r = /[ab]/` reports `method_calls=1`, while the identical
+                // call over a `let r = /[ab]/` reports `method_calls=0,
+                // indirect_calls=5`. Collecting at one node only would close the
+                // hole for one spelling of the same program.
+                //
+                // Deliberately does NOT set `needs_runtime_regexp_programs`: a
+                // `.compile` call on some unrelated object would then force a
+                // runtime table — and, for a script with no string-valued
+                // declaration initialisers, one built from EVERY script string
+                // literal — for nothing. Collecting costs nothing when no table
+                // is built, because `queue_runtime_regexp_programs` is then
+                // never called.
+                //
+                // What *does* set the flag for this shape is the
+                // `RegExpPrototypeCompile` disjunct in `collect`'s initialiser.
+                // Without it this arm was strictly inert for the very program
+                // its comment above cites, because no other setter fires on a
+                // `CallMethod` node: read the two together.
+                if matches!(key, PropertyKeyIr::StaticString(name) if name == "compile") {
+                    if let Some(pattern) = args.first() {
+                        collect_finite_string_choices(
+                            pattern,
+                            &mut self.runtime_regexp_argument_literals,
+                        );
+                    }
+                }
                 for arg in args {
                     self.collect_expr(arg);
                 }
@@ -3272,7 +3945,7 @@ impl StringPool {
                 self.uses_heap = true;
                 self.collect_property_key(key);
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite { key, value, .. } => {
                 self.uses_heap = true;
                 self.collect_property_key(key);
                 self.collect_expr(value);
@@ -3397,7 +4070,7 @@ impl StringPool {
             | DestructuringTargetIr::AssignmentIdentifier { name, .. } => {
                 self.intern_string(name);
             }
-            DestructuringTargetIr::AssignmentProperty { target: _, key } => {
+            DestructuringTargetIr::AssignmentProperty { key, .. } => {
                 self.collect_destructuring_property_key_strings(key);
             }
             // Private elements are addressed by brand token, not by a pooled
@@ -3504,27 +4177,41 @@ impl StringPool {
             &self.runtime_regexp_candidate_literals
         };
         let mut literals = candidate_literals.iter().cloned().collect::<Vec<_>>();
+        // Unioned in, never substituted for `candidate_literals`: the
+        // empty/non-empty test above is the fallback switch, and this set must
+        // not be able to flip it. See the field's doc comment.
+        for literal in &self.runtime_regexp_argument_literals {
+            if !literals.iter().any(|source| source == literal) {
+                literals.push(literal.clone());
+            }
+        }
         if !literals.iter().any(|source| source == "(?:)") {
             literals.push("(?:)".to_string());
         }
         if !literals.iter().any(|source| source == "[object Object]") {
             literals.push("[object Object]".to_string());
         }
+        // The table is `|literals| x |flags|` rows and every row is now written,
+        // including the rejected and unsupported ones, so the flags axis is a
+        // multiplier on static data size and on the *linear* scan the emitted
+        // lookup does at every runtime construction site. Deduplicating it is
+        // therefore not tidiness: the sticky expansion below used to be able to
+        // produce `"iy"` twice for a script containing both `"i"` and `"iy"`,
+        // which doubled a whole column of rows.
         let mut flags = self
             .script_string_literals
             .iter()
             .filter(|value| is_regexp_flags_literal(value))
             .cloned()
-            .collect::<Vec<_>>();
-        if !flags.iter().any(String::is_empty) {
-            flags.push(String::new());
-        }
+            .collect::<BTreeSet<_>>();
+        flags.insert(String::new());
         let sticky_flags = flags
             .iter()
             .filter(|flags| !flags.contains('y'))
             .map(|flags| format!("{flags}y"))
             .collect::<Vec<_>>();
         flags.extend(sticky_flags);
+        let flags = flags.into_iter().collect::<Vec<_>>();
         for literal in &literals {
             self.intern_string(literal);
         }
@@ -3541,24 +4228,54 @@ impl StringPool {
                 normalized_source
             };
             for flags in &flags {
-                let Ok(program) = RegExpProgram::compile(compilation_source, flags) else {
-                    continue;
-                };
-                let key = RegExpProgramStaticKey::from_program(&program);
-                self.queue_regexp_program(&program);
-                candidates.push((normalized_source.to_string(), flags.clone(), key));
+                // Every candidate pair gets a row, including the rejected ones.
+                // The `else { continue }` that used to sit here is the whole
+                // defect: it made "seen and illegal" indistinguishable from
+                // "never seen", and the emitted lookup could then only fall out
+                // of its loop leaving a null program behind.
+                match RegExpProgram::compile(compilation_source, flags) {
+                    Ok(program) => {
+                        let key = RegExpProgramStaticKey::from_program(&program);
+                        self.queue_regexp_program(&program);
+                        candidates.push((
+                            normalized_source.to_string(),
+                            flags.clone(),
+                            CandidateOutcome::Program(key),
+                        ));
+                    }
+                    // Exhaustive on `RegExpCompileErrorKind`. "Illegal pattern"
+                    // and "legal pattern Lila cannot compile" are different
+                    // answers to the program, and only the first is a
+                    // SyntaxError.
+                    Err(error) => candidates.push((
+                        normalized_source.to_string(),
+                        flags.clone(),
+                        match error.kind {
+                            RegExpCompileErrorKind::InvalidSyntax => CandidateOutcome::Rejected,
+                            RegExpCompileErrorKind::UnsupportedFeature => {
+                                CandidateOutcome::Unsupported
+                            }
+                        },
+                    )),
+                }
             }
         }
 
         self.append_regexp_programs();
         self.runtime_regexp_programs = candidates
             .into_iter()
-            .map(|(source, flags, key)| {
-                let program = *self
-                    .regexp_programs
-                    .get(&key)
-                    .expect("queued runtime RegExp program must have static data");
-                (source, flags, program)
+            .map(|(source, flags, outcome)| {
+                let entry = match outcome {
+                    CandidateOutcome::Program(key) => RuntimeRegExpEntry::Program(
+                        *self
+                            .regexp_programs
+                            .get(&key)
+                            .expect("queued runtime RegExp program must have static data"),
+                    ),
+                    CandidateOutcome::Rejected => RuntimeRegExpEntry::Rejected,
+                    CandidateOutcome::Unsupported => RuntimeRegExpEntry::Unsupported,
+                };
+                (source, flags, entry)
             })
             .collect();
         self.append_runtime_regexp_program_table();
@@ -3572,17 +4289,36 @@ impl StringPool {
         self.bytes.resize(self.bytes.len() + padding, 0);
         self.runtime_regexp_program_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
         self.runtime_regexp_program_count = self.runtime_regexp_programs.len() as u32;
-        for (source, flags, program) in &self.runtime_regexp_programs {
-            for value in [
-                self.payload(source) as u64,
-                self.payload(flags) as u64,
-                program.ptr as u64,
-                program.instruction_count as u64,
-                program.capture_count as u64,
-                program.split_count as u64,
-                program.repeatable_split_count as u64,
-                program.named_group_table_ptr as u64,
-            ] {
+        for (source, flags, entry) in &self.runtime_regexp_programs {
+            // Assigned through the shared word indices rather than as a
+            // positional array literal, so the writer's layout and the
+            // emitter's `i64.load` offsets are the same facts rather than two
+            // agreeing transcriptions. A non-`Program` row leaves the six
+            // program words at their zeroed initial value, which is exactly
+            // what a total miss leaves in the object's slots.
+            let mut record = [0u64; RUNTIME_REGEXP_RECORD_WORDS];
+            record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = self.payload(source) as u64;
+            record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = self.payload(flags) as u64;
+            // Exhaustive on purpose. This is the site the `continue` used to
+            // hide behind: a new entry kind must be given a record encoding
+            // here, or this stops compiling.
+            record[RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD] = match entry {
+                RuntimeRegExpEntry::Program(program) => {
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD] = program.ptr as u64;
+                    record[RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD] =
+                        program.instruction_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD] = program.capture_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD] = program.split_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD] =
+                        program.repeatable_split_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD] =
+                        program.named_group_table_ptr as u64;
+                    RuntimeRegExpEntryKind::Program.word()
+                }
+                RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),
+                RuntimeRegExpEntry::Unsupported => RuntimeRegExpEntryKind::Unsupported.word(),
+            };
+            for value in record {
                 self.bytes.extend_from_slice(&value.to_le_bytes());
             }
         }
@@ -3758,6 +4494,69 @@ impl StringPool {
     }
 }
 
+/// Does this `CallIndirect` callee *structurally* name `RegExp.prototype.compile`?
+///
+/// Purely a shape test on the two callee spellings `lower_indirect_method_call`
+/// can produce (`porffor-ir/src/lowering.rs`): an `ExprIr::PropertyRead` with a
+/// static key, and a `GetV` spec operation whose second operand is the key
+/// string. No type inference is consulted, which is the point — the arm that
+/// uses this needs an answer for a call the inference may not have resolved
+/// through an enclosing arrow.
+///
+/// Only ever used to *widen* candidate collection, never to force a table into
+/// existence. A `.compile` on some unrelated object therefore costs at most one
+/// extra literal in a set that is unioned in, and costs nothing at all when no
+/// runtime table is built.
+fn callee_names_regexp_compile(callee: &TypedExpr) -> bool {
+    match &callee.expr {
+        ExprIr::PropertyRead { key, .. } => {
+            matches!(key, PropertyKeyIr::StaticString(name) if name == "compile")
+        }
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::GetV,
+            operands,
+        } => matches!(
+            operands.get(1).map(|key| &key.expr),
+            Some(ExprIr::String(name)) if name == "compile"
+        ),
+        _ => false,
+    }
+}
+
+/// Every string this expression can *statically* evaluate to, when that set is
+/// finite and readable off the IR shape alone.
+///
+/// # The catch-all is deliberate, and it is the safe direction
+///
+/// The trailing `_ => {}` is not an oversight and must not be replaced by an
+/// exhaustive match over [`ExprIr`]. This is a heuristic over an open,
+/// hundreds-of-variants expression domain, and the two directions are not
+/// symmetric:
+///
+/// * a shape this function **does not** recognise contributes no candidate, the
+///   `(source, flags)` pair gets no row, and the runtime lookup falls through to
+///   exactly the behaviour it had before the table existed — the fallback
+///   matcher, and `TypeError: RegExp.prototype.exec unsupported pattern` if it
+///   declines. Missing a shape costs coverage, never correctness;
+/// * a shape it **does** recognise reaches `RegExpProgram::compile`, and an
+///   `InvalidSyntax` verdict there becomes a
+///   [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`] row, which **throws SyntaxError** at
+///   every one of the seven `emit_runtime_regexp_program_slots` call sites for
+///   any runtime pattern whose bytes equal that literal.
+///
+/// So adding an arm here is not "collect a few more literals": it widens the set
+/// of patterns this compiler will refuse at run time, keyed by string value
+/// rather than by syntactic origin. Read
+/// [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`]'s doc — which records that
+/// `porffor-ir/src/regexp.rs`'s ~20 `invalid_syntax(` sites have never been
+/// audited against the grammar — before widening, and measure
+/// `built-ins/RegExp/prototype` as a delta afterwards.
+///
+/// Concatenation is the arm most obviously "missing": `new RegExp(a + b)` where
+/// both halves are literals is a known open case (RE-RT probe 6, no throw
+/// today). It is left out on purpose rather than by oversight, because closing
+/// it is the widening this doc is warning about and it needs its own measured
+/// gate.
 fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String>) {
     match &expr.expr {
         ExprIr::String(value) => {
@@ -3910,6 +4709,105 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
 
     let mut state = vec![0; program.instructions.len()];
     (0..program.instructions.len()).any(|pc| visit(pc, &program.instructions, &mut state))
+}
+
+#[cfg(test)]
+mod runtime_error_message_pool_tests {
+    use super::*;
+    use porffor_front::{parse, ParseOptions};
+    use porffor_ir::lower;
+
+    /// The pool has no silent miss, and this is what makes the standing
+    /// instruction on `emit_runtime_error_object` enforceable rather than
+    /// advisory: a message that was never interned must *panic by name*, not
+    /// quietly resolve to something plausible.
+    ///
+    /// The old behaviour -- defining `message` from the error's `name` -- was
+    /// exactly a silent fallback, and it survived several batches because
+    /// nothing in the tree observed it. Softening `payload` into an
+    /// `Option`-returning lookup with a name fallback would restore that,
+    /// harder to find. So the panic is asserted.
+    #[test]
+    #[should_panic(expected = "must exist in pool")]
+    fn payload_panics_for_a_message_that_was_never_interned() {
+        let pool = StringPool::default();
+        let _ = pool.payload("a message that is deliberately absent from the pool");
+    }
+
+    /// Build the pool the way emission builds it.
+    ///
+    /// The empty script is deliberate and is the strongest available form of
+    /// the assertion: the interning loop in `collect` is documented as
+    /// unconditional, so a pool built from a program that references nothing
+    /// must still resolve every literal. Interning the table by hand and then
+    /// reading it back -- which this test used to do -- proves only that the
+    /// table is *internable*, and stays green with the production loop
+    /// (`collect`'s `for value in RUNTIME_ERROR_MESSAGE_LITERALS`) deleted.
+    /// Deleting it turns `null.x` into a `must exist in pool` panic on every
+    /// program, so that one wire is the one this module most needs under test.
+    fn production_pool_for_an_empty_script() -> StringPool {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        StringPool::collect(&script, &BTreeMap::new(), &[])
+    }
+
+    #[test]
+    fn every_runtime_error_message_literal_resolves_to_a_payload() {
+        let pool = production_pool_for_an_empty_script();
+        for value in RUNTIME_ERROR_MESSAGE_LITERALS {
+            // `payload` panics on a miss, so reaching the assertion is the
+            // check; the assertion pins the encoding as well.
+            let payload = pool.payload(value);
+            let len = (payload as u64 & 0xFFFF_FFFF) as usize;
+            assert_eq!(
+                len,
+                StringPool::runtime_bytes_for_string(value).len(),
+                "`{value}` interned with the wrong byte length"
+            );
+        }
+    }
+
+    /// Sorted and unique. Not cosmetic: this table is maintained by hand, it is
+    /// appended to under time pressure exactly when a `must exist in pool`
+    /// panic has just fired, and a duplicate or an out-of-order insert is how a
+    /// hand-maintained list starts drifting from the audit that produced it.
+    #[test]
+    fn the_runtime_error_message_table_is_sorted_and_unique() {
+        let mut previous: Option<&str> = None;
+        for &value in RUNTIME_ERROR_MESSAGE_LITERALS {
+            assert!(!value.is_empty(), "empty message literal in the table");
+            if let Some(previous) = previous {
+                assert!(
+                    previous < value,
+                    "`{previous}` and `{value}` are out of order or duplicated"
+                );
+            }
+            previous = Some(value);
+        }
+        assert!(
+            RUNTIME_ERROR_MESSAGE_LITERALS.len() >= 125,
+            "the table shrank; a message removed from it is a `must exist in pool` panic waiting \
+             for whichever program still throws it"
+        );
+    }
+
+    /// A spot check against the reason the table exists: the message
+    /// `null.x` throws must be present. It is the single most reachable
+    /// runtime-thrown message in the language and it was one of the strings
+    /// with zero occurrences in this file before this table landed.
+    #[test]
+    fn the_most_reachable_runtime_error_message_is_in_the_table() {
+        for value in [
+            "Cannot read properties of null or undefined",
+            "unbound identifier",
+            "lexical binding accessed before initialization",
+        ] {
+            assert!(
+                RUNTIME_ERROR_MESSAGE_LITERALS.contains(&value),
+                "`{value}` must be interned; it is thrown from the most ordinary programs there are"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

@@ -146,10 +146,40 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    fn emit_bigint_comparison_i32(
+    /// The shared helper's own three-way answer for two BigInts, as an `i64`
+    /// `-1`/`0`/`1` on the stack.
+    ///
+    /// [`Self::emit_bigint_relational_i32`] throws that answer away and keeps
+    /// only its sign test, so recovering three-way ordering from it costs two
+    /// calls into `bigint_arithmetic_helper` for a result the helper already
+    /// computed once. `Temporal.Instant.compare` wants the three-way answer
+    /// directly, and this is the single producer of the `-1`/`0`/`1` domain.
+    pub(crate) fn emit_bigint_compare_i64(
+        &mut self,
+        lhs_payload_local: u32,
+        lhs_tag_local: u32,
+        rhs_payload_local: u32,
+        rhs_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_comparison_payload(
+            BigIntHelperOp::Compare,
+            lhs_payload_local,
+            lhs_tag_local,
+            rhs_payload_local,
+            rhs_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncSatF64S);
+        Ok(())
+    }
+
+    /// Calls the shared helper and leaves its payload — the `-1`/`0`/`1`
+    /// comparison, as f64 bits in an `i64` — on the stack.
+    fn emit_bigint_comparison_payload(
         &mut self,
         helper_op: BigIntHelperOp,
-        op: RelationalBinaryOp,
         lhs_payload_local: u32,
         lhs_tag_local: u32,
         rhs_payload_local: u32,
@@ -174,6 +204,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Drop);
         function.instruction(&Instruction::Drop);
         function.instruction(&Instruction::Drop);
+        Ok(())
+    }
+
+    fn emit_bigint_comparison_i32(
+        &mut self,
+        helper_op: BigIntHelperOp,
+        op: RelationalBinaryOp,
+        lhs_payload_local: u32,
+        lhs_tag_local: u32,
+        rhs_payload_local: u32,
+        rhs_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_comparison_payload(
+            helper_op,
+            lhs_payload_local,
+            lhs_tag_local,
+            rhs_payload_local,
+            rhs_tag_local,
+            function,
+        )?;
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0_f64)));
         match op {
@@ -226,8 +277,7 @@ impl<'a> FunctionBuilder<'a> {
     /// 1=lhs tag, 2=rhs payload, 3=rhs tag, 4=[`BigIntHelperOp`]. Params 5-6
     /// are unused. Results are the standard four-i64 tuple.
     pub(crate) fn compile_bigint_arithmetic_helper(&mut self) -> Result<Function, EmitError> {
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.begin_helper_body(RuntimeHelperId::BigIntArithmetic);
         self.push_scope();
 
         let lhs_sign = self.reserve_temp_local();

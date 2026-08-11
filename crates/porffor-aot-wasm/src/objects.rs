@@ -1,5 +1,44 @@
 use super::*;
 
+use std::marker::PhantomData;
+
+// The Property Descriptor lattice (ECMA-262 6.2.6). Imported here rather than
+// through the crate root's `use porffor_ir::{..}` list because that list is a
+// shared hub this lane does not own. See
+// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
+use porffor_ir::property_descriptor::{
+    classify, DescriptorCarrier, DescriptorClassification, DescriptorField, DescriptorSide,
+    KindTerms, KnownPresence, PartialDescriptor, Presence, PropertyDescriptorKind,
+    ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
+};
+
+/// Wasm blocks opened by the **runtime** strictness guard on an object write.
+///
+/// PutValue 3.d asks whether `V.[[Strict]]` is true. When that answer is only
+/// available at run time — inside the outlined write helper, and inside every
+/// Reference write under `expressions.rs`'s `with_reference_strictness` — the
+/// guard is an `If(BlockType::Empty)` around the throw, which the compile-time
+/// arm does not open.
+///
+/// Only **one** consumer of that fact is left: the sloppy-mode abandon branch
+/// in [`FunctionBuilder::emit_object_write_non_extensible_failure`], which is a
+/// raw `Br` to a frame the *caller* opened and closes. Raw branch immediates
+/// are relative to the position they are written at, so that one still has to
+/// account for the guard's own label by hand — and it is a self-contained
+/// two-line region, which is exactly the case `code_sink.rs` says to leave as
+/// a raw `Br`.
+///
+/// Every `ControlTarget`-relative branch that used to add this constant no
+/// longer does. Those branches now take their immediate from the real label
+/// depth, which already includes the guard's `If`, so adding it was a double
+/// count. That is what closed the disagreement recorded here before: the
+/// non-extensible helper added `+ 1` to its sloppy abandon branch and left its
+/// throw's `extra_depth` at the inline value, while
+/// `emit_object_write_set_failure_else` forwarded the caller's `extra_depth`
+/// unchanged into a guard it had just opened. `"use strict"; try { a.length = 0
+/// } catch (e) {}` with a non-writable `length` branched one label too shallow.
+const RUNTIME_STRICT_GUARD_BLOCK_DEPTH: u32 = 1;
+
 fn static_array_index_name(name: &str) -> Option<u64> {
     if name.is_empty() || !name.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
@@ -15,33 +54,533 @@ fn static_array_index_name(name: &str) -> Option<u64> {
     }
 }
 
+/// 6.2.6.6 for a data property, as a stored heap word.
+///
+/// Returns `u64` rather than [`DescriptorWord`] because one call site lives in
+/// `functions.rs`, which this lane does not own; the body is a delegation, and
+/// the `|=`-into-a-`mut`-accumulator shape a `writable` line could be pasted
+/// into is gone.
 pub(crate) fn object_data_descriptor_kind(
     writable: bool,
     enumerable: bool,
     configurable: bool,
 ) -> u64 {
-    let mut descriptor = OBJECT_DESCRIPTOR_DATA;
-    if writable {
-        descriptor |= OBJECT_DESCRIPTOR_WRITABLE;
-    }
-    if enumerable {
-        descriptor |= OBJECT_DESCRIPTOR_ENUMERABLE;
-    }
-    if configurable {
-        descriptor |= OBJECT_DESCRIPTOR_CONFIGURABLE;
-    }
-    descriptor
+    DescriptorWord::of_data(writable, enumerable, configurable).bits()
 }
 
+/// 6.2.6.6 for an accessor property.
+///
+/// This used to differ from [`object_data_descriptor_kind`] only by *not
+/// having* three lines. It now differs by calling a constructor that has no
+/// `writable` parameter at all.
 pub(crate) fn object_accessor_descriptor_kind(enumerable: bool, configurable: bool) -> u64 {
-    let mut descriptor = OBJECT_DESCRIPTOR_ACCESSOR;
-    if enumerable {
-        descriptor |= OBJECT_DESCRIPTOR_ENUMERABLE;
+    DescriptorWord::of_accessor(enumerable, configurable).bits()
+}
+
+/// A tagged JavaScript value living in two Wasm locals.
+///
+/// Named fields rather than a `(u32, u32)` tuple: the emitter destructured the
+/// same pair as `(payload, tag)` in one place and `(payload_local, tag_local)`
+/// in another, and a transposition was a silent miscompile. It is now `E0560`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TaggedLocals {
+    pub(crate) payload: u32,
+    pub(crate) tag: u32,
+}
+
+impl TaggedLocals {
+    pub(crate) const fn new(payload: u32, tag: u32) -> Self {
+        Self { payload, tag }
     }
-    if configurable {
-        descriptor |= OBJECT_DESCRIPTOR_CONFIGURABLE;
+}
+
+/// The [`DescriptorCarrier`] whose fields are Wasm local indices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WasmLocals;
+
+impl DescriptorCarrier for WasmLocals {
+    /// Exactly the old `Option<(u32, u32)>`'s payload.
+    type Value = TaggedLocals;
+    /// Exactly the old `*_payload_local`.
+    type Flag = u32;
+    /// Exactly the old `*_present_local`.
+    type RuntimeFlag = u32;
+}
+
+/// A [`PartialDescriptor`] over Wasm locals.
+pub(crate) type WasmPartialDescriptor = PartialDescriptor<WasmLocals>;
+
+/// `Option<(payload, tag)>` accessor operands, as a [`Presence`].
+///
+/// The `Option` at this boundary means "the operand locals were materialised",
+/// which for these callers coincides with 6.2.6 presence: an accessor helper
+/// that was handed no getter locals is building a descriptor with no `[[Get]]`
+/// field.
+fn presence_of_accessor_locals(locals: Option<(u32, u32)>) -> Presence<TaggedLocals, u32> {
+    match locals {
+        None => Presence::Absent,
+        Some((payload, tag)) => Presence::Present(TaggedLocals::new(payload, tag)),
     }
-    descriptor
+}
+
+/// The four-case translation from the old positional pair to one [`Presence`].
+///
+/// The pair was two independent encodings of the same question, and the fourth
+/// case below is the one where they disagreed:
+///
+/// * `(Some(value), None)` — the field is there and the compiler knows it.
+///   No run-time flag, so no 10.1.6.3 step-4 validation is emitted; these are
+///   internal defines that discharge step 4 by construction.
+/// * `(Some(value), Some(present))` — presence is decided when the program
+///   runs, and the value carrier is supplied either way.
+/// * `(None, None)` — the field is absent.
+/// * `(None, Some(_))` — **the contradictory pair.** `Object.defineProperty`'s
+///   accessor branch passed no `[[Value]]` operands *and* a `value_present`
+///   flag, so the static classification said "accessor" while the run-time one
+///   said "maybe data". `Presence::Runtime` requires a value carrier, so this
+///   state is unspellable and the caller must choose. The choice is `Absent`,
+///   and it is sound because the emitted 6.2.6.5 step 9 check in
+///   `builtins/standard.rs` has already thrown on that branch if
+///   `value_present || writable_present` — so every instruction that stops
+///   being emitted here is run-time-dead. It is *only* sound because
+///   `emit_descriptor_kind_change_throw` now takes each 10.1.6.3 obligation
+///   from its own side: under the old four-way conjunction, dropping
+///   `value_present` also dropped step 6.a, the check that makes redefining a
+///   non-configurable **data** property as an accessor throw.
+fn presence_from_positional<T>(value: Option<T>, present_local: Option<u32>) -> Presence<T, u32> {
+    match (value, present_local) {
+        (Some(value), None) => Presence::Present(value),
+        (Some(value), Some(present)) => Presence::Runtime { present, value },
+        (None, None) => Presence::Absent,
+        (None, Some(_)) => Presence::Absent,
+    }
+}
+
+/// A [`ValidatedDescriptor`] over Wasm locals.
+pub(crate) type WasmDescriptor = ValidatedDescriptor<WasmLocals>;
+
+/// The kind an entry is **stored** as.
+///
+/// Two inhabitants, and that is the point: 10.1.6.3 step 3 asserts a stored
+/// property is fully populated, and 6.2.6.6 step 3 completes a generic
+/// descriptor to a *data* property, so `Generic` has no heap word. This is the
+/// same two-case split as `porffor_ir`'s `CompleteDescriptor`, at the
+/// Wasm-word level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StoredDescriptorKind {
+    Data,
+    Accessor,
+}
+
+/// The two attributes 10.1.6.3 steps 6.b and 7 say survive a **kind
+/// conversion**: `[[Enumerable]]` and `[[Configurable]]`.
+///
+/// A separate, strictly smaller domain than [`DescriptorBit`], and that is its
+/// entire job. The kind-agnostic word builders below take an `AttributeBit`, so
+/// `[[Writable]]` — which an accessor property does not have at all (6.2.6.6,
+/// and 10.1.6.3 step 6.b's "preserve only `[[Enumerable]]` and
+/// `[[Configurable]]`") — cannot be passed to a builder that runs on an
+/// accessor-seeded word. `DescriptorBit::ArrayOwnProperty` and
+/// `DescriptorBit::ArgumentsMapped` are excluded for the orthogonal reason: they
+/// are the exotic axis, not attributes, and belong to `DescriptorFlags`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttributeBit {
+    Enumerable,
+    Configurable,
+}
+
+impl AttributeBit {
+    const fn bit(self) -> DescriptorBit {
+        match self {
+            Self::Enumerable => DescriptorBit::Enumerable,
+            Self::Configurable => DescriptorBit::Configurable,
+        }
+    }
+}
+
+// The embedding is injective and misses `[[Writable]]` and the two exotic
+// flags. Not a tautology: a copy-pasted arm mapping both inhabitants to the same
+// bit would silently make `enumerable` set `configurable`.
+const _: () = assert!(
+    AttributeBit::Enumerable.bit().word() != AttributeBit::Configurable.bit().word(),
+    "the two AttributeBit inhabitants must name different bits",
+);
+const _: () = assert!(
+    (AttributeBit::Enumerable.bit().word() | AttributeBit::Configurable.bit().word())
+        & DescriptorBit::Writable.word()
+        == 0,
+    "AttributeBit must not reach [[Writable]]: an accessor property has no such attribute",
+);
+
+mod descriptor_kind_marker {
+    pub trait Sealed {}
+    impl Sealed for super::DataKind {}
+    impl Sealed for super::AccessorKind {}
+}
+
+/// The seed a [`DescriptorKindLocal`] starts from.
+pub(crate) trait DescriptorKindMarker: descriptor_kind_marker::Sealed {
+    const SEED: DescriptorWord;
+    const STORED: StoredDescriptorKind;
+}
+
+pub(crate) struct DataKind;
+pub(crate) struct AccessorKind;
+
+impl DescriptorKindMarker for DataKind {
+    const SEED: DescriptorWord = DescriptorWord::of_data(false, false, false);
+    const STORED: StoredDescriptorKind = StoredDescriptorKind::Data;
+}
+
+impl DescriptorKindMarker for AccessorKind {
+    const SEED: DescriptorWord = DescriptorWord::of_accessor(false, false);
+    const STORED: StoredDescriptorKind = StoredDescriptorKind::Accessor;
+}
+
+/// The descriptor-kind word being assembled in a Wasm local.
+///
+/// [`DescriptorWord`] proves every *constant* seed. It proves nothing about a
+/// word that is OR-ed together at run time under `If` guards, which is what
+/// this typestate closes: `set_writable_if_nonzero` and
+/// `carry_writable_from_existing` exist **only** on
+/// `DescriptorKindLocal<DataKind>`. On an accessor entry they are `E0599`, so
+/// the entry cannot acquire the stale `[[Writable]]` bit that a later
+/// accessor-to-data conversion would read back — and the 21 hand-written
+/// repair instructions that used to sit under a five-line comment have nothing
+/// left to repair.
+pub(crate) struct DescriptorKindLocal<K: DescriptorKindMarker> {
+    local: u32,
+    marker: PhantomData<K>,
+}
+
+impl<K: DescriptorKindMarker> DescriptorKindLocal<K> {
+    fn seed(local: u32, function: &mut Function) -> Self {
+        function.instruction(&Instruction::I64Const(K::SEED.as_i64()));
+        function.instruction(&Instruction::LocalSet(local));
+        Self {
+            local,
+            marker: PhantomData,
+        }
+    }
+
+    fn local(&self) -> u32 {
+        self.local
+    }
+
+    /// 10.1.6.3 step 8: OR one attribute bit in when its payload is non-zero.
+    ///
+    /// Available on both kinds, because `[[Enumerable]]` and `[[Configurable]]`
+    /// are legal on every kind — which is 10.1.6.3 steps 6.b and 7's "preserve
+    /// only `[[Enumerable]]` and `[[Configurable]]`", now readable off the API
+    /// surface rather than from a comment.
+    ///
+    /// Takes an [`AttributeBit`], **not** a [`DescriptorBit`]. That is the whole
+    /// difference between a fence and a fence with an open gate beside it: with
+    /// a `DescriptorBit` parameter, `set_bit_if_nonzero(DescriptorBit::Writable,
+    /// …)` on an accessor-seeded word was a one-token edit that compiled and
+    /// stored the illegal word `ACCESSOR | WRITABLE` (= 5) — mistake class M1
+    /// exactly, reached around the `DataKind`-only `set_writable_if_nonzero`.
+    /// `DescriptorBit::Writable` here is now `E0308`.
+    fn set_attribute_if_nonzero(
+        &mut self,
+        attribute: AttributeBit,
+        flag_local: u32,
+        function: &mut Function,
+    ) {
+        let bit = attribute.bit();
+        function.instruction(&Instruction::LocalGet(flag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::of(bit).as_i64()));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(self.local));
+        function.instruction(&Instruction::End);
+    }
+
+    /// 10.1.6.3 step 5 / step 8: an attribute the incoming descriptor does not
+    /// have is left as the existing property had it.
+    ///
+    /// Emitted only when presence is a *run-time* question; a statically absent
+    /// field is the 6.2.6.6 default and a statically present one is already in
+    /// the word.
+    ///
+    /// [`AttributeBit`] for the same reason as
+    /// [`Self::set_attribute_if_nonzero`]. `[[Writable]]`'s carry-over is not
+    /// this shape anyway — it is three levels deep, because 10.1.6.3 step 7.b
+    /// only carries it when the *existing* entry is also a data property.
+    fn carry_attribute_from_existing(
+        &mut self,
+        attribute: AttributeBit,
+        present_local: u32,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) {
+        let bit = attribute.bit();
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::of(bit).as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::of(bit).as_i64()));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(self.local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+
+    /// 10.1.6.3 step 4.c: a *generic* descriptor changes no kind, so if every
+    /// kind-determining field turns out absent at run time, the existing
+    /// entry's kind survives.
+    ///
+    /// Available on both kinds because the word is only ever corrected
+    /// *towards* the existing accessor kind; it never adds `[[Writable]]`.
+    ///
+    /// Takes both sides' [`KindTerms`] rather than a flat list of run-time
+    /// flags. Step 4.c's antecedent is IsGenericDescriptor(Desc) — *neither*
+    /// side is true — and a side that is `statically_true` makes that antecedent
+    /// unconditionally **false**. A flat list of run-time flags cannot see that:
+    /// it would emit the correction for `{get: g, enumerable: <runtime>}` on the
+    /// strength of the `enumerable` flag alone, on a descriptor that is
+    /// statically an accessor descriptor.
+    fn restore_existing_accessor_kind_if_runtime_generic(
+        &mut self,
+        data_terms: &KindTerms<WasmLocals>,
+        accessor_terms: &KindTerms<WasmLocals>,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) {
+        if data_terms.statically_true || accessor_terms.statically_true {
+            return;
+        }
+        let mut presence_locals = data_terms.runtime_flags();
+        presence_locals.extend(accessor_terms.runtime_flags());
+        if presence_locals.is_empty() {
+            return;
+        }
+        for (index, present_local) in presence_locals.iter().enumerate() {
+            function.instruction(&Instruction::LocalGet(*present_local));
+            function.instruction(&Instruction::I64Eqz);
+            if index > 0 {
+                function.instruction(&Instruction::I32And);
+            }
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(self.local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+}
+
+impl DescriptorKindLocal<DataKind> {
+    /// 10.1.6.3 step 8 for `[[Writable]]`. Exists only here, and this is one of
+    /// exactly two places in this file that may name `DescriptorBit::Writable`
+    /// against a kind word — the generic pair above takes an [`AttributeBit`],
+    /// which has no `Writable` inhabitant.
+    ///
+    /// The nine instructions are spelled out rather than delegated to
+    /// [`DescriptorKindLocal::set_attribute_if_nonzero`] on purpose: a shared
+    /// helper taking an arbitrary `DescriptorBit` is the open gate this fence
+    /// exists to close, and re-opening it to save eight lines would restore
+    /// mistake class M1 verbatim.
+    fn set_writable_if_nonzero(&mut self, flag_local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(flag_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(self.local));
+        function.instruction(&Instruction::End);
+    }
+
+    /// 10.1.6.3 step 7.b: `[[Writable]]` carries over from the existing
+    /// property **only** when both the existing and the incoming descriptors
+    /// are data descriptors. Converting an accessor into a data property keeps
+    /// only `[[Configurable]]` and `[[Enumerable]]`, so `[[Writable]]` must
+    /// come out `false`.
+    fn carry_writable_from_existing(
+        &mut self,
+        present_local: u32,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(present_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(self.local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+    }
+}
+
+/// The descriptor-kind word, with its statically-known kind still attached.
+///
+/// A two-case enum rather than a generic parameter threaded through the whole
+/// 840-line emitter: the *only* decisions that need the kind are the four
+/// `[[Writable]]` ones, and each of them is a `match` here whose accessor arm
+/// physically cannot name writability.
+pub(crate) enum DescriptorKindWord {
+    Data(DescriptorKindLocal<DataKind>),
+    Accessor(DescriptorKindLocal<AccessorKind>),
+}
+
+impl DescriptorKindWord {
+    fn seed(kind: StoredDescriptorKind, local: u32, function: &mut Function) -> Self {
+        match kind {
+            StoredDescriptorKind::Data => {
+                Self::Data(DescriptorKindLocal::<DataKind>::seed(local, function))
+            }
+            StoredDescriptorKind::Accessor => {
+                Self::Accessor(DescriptorKindLocal::<AccessorKind>::seed(local, function))
+            }
+        }
+    }
+
+    fn stored_kind(&self) -> StoredDescriptorKind {
+        match self {
+            Self::Data(_) => DataKind::STORED,
+            Self::Accessor(_) => AccessorKind::STORED,
+        }
+    }
+
+    fn local(&self) -> u32 {
+        match self {
+            Self::Data(word) => word.local(),
+            Self::Accessor(word) => word.local(),
+        }
+    }
+
+    fn set_attribute_if_nonzero(
+        &mut self,
+        attribute: AttributeBit,
+        flag_local: u32,
+        function: &mut Function,
+    ) {
+        match self {
+            Self::Data(word) => word.set_attribute_if_nonzero(attribute, flag_local, function),
+            Self::Accessor(word) => word.set_attribute_if_nonzero(attribute, flag_local, function),
+        }
+    }
+
+    fn carry_attribute_from_existing(
+        &mut self,
+        attribute: AttributeBit,
+        present_local: u32,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) {
+        match self {
+            Self::Data(word) => word.carry_attribute_from_existing(
+                attribute,
+                present_local,
+                existing_descriptor_kind_local,
+                function,
+            ),
+            Self::Accessor(word) => word.carry_attribute_from_existing(
+                attribute,
+                present_local,
+                existing_descriptor_kind_local,
+                function,
+            ),
+        }
+    }
+
+    fn restore_existing_accessor_kind_if_runtime_generic(
+        &mut self,
+        data_terms: &KindTerms<WasmLocals>,
+        accessor_terms: &KindTerms<WasmLocals>,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) {
+        match self {
+            Self::Data(word) => word.restore_existing_accessor_kind_if_runtime_generic(
+                data_terms,
+                accessor_terms,
+                existing_descriptor_kind_local,
+                function,
+            ),
+            Self::Accessor(word) => word.restore_existing_accessor_kind_if_runtime_generic(
+                data_terms,
+                accessor_terms,
+                existing_descriptor_kind_local,
+                function,
+            ),
+        }
+    }
+
+    /// 10.1.6.3 step 8 for `[[Writable]]`, dispatched on the stored kind.
+    ///
+    /// The accessor arm cannot call `set_writable_if_nonzero`: the method does
+    /// not exist on `DescriptorKindLocal<AccessorKind>`. That is mistake class
+    /// M1, as a compile error.
+    fn apply_writable(&mut self, writable: Presence<u32, u32>, function: &mut Function) {
+        match self {
+            Self::Data(word) => match writable {
+                // 6.2.6.6: an absent `[[Writable]]` defaults to `false`, which
+                // is the bit already clear in the seed.
+                Presence::Absent => {}
+                Presence::Present(flag_local)
+                | Presence::Runtime {
+                    value: flag_local, ..
+                } => word.set_writable_if_nonzero(flag_local, function),
+            },
+            // 6.2.6.6 gives an accessor property no `[[Writable]]` field at
+            // all, so there is nothing to apply and no method to apply it with.
+            Self::Accessor(_) => {}
+        }
+    }
+
+    /// 10.1.6.3 step 7.b, dispatched on the stored kind.
+    fn carry_writable(
+        &mut self,
+        writable: Presence<u32, u32>,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) {
+        match self {
+            Self::Data(word) => match writable {
+                Presence::Absent | Presence::Present(_) => {}
+                Presence::Runtime { present, .. } => word.carry_writable_from_existing(
+                    present,
+                    existing_descriptor_kind_local,
+                    function,
+                ),
+            },
+            Self::Accessor(_) => {}
+        }
+    }
 }
 
 fn object_helper_store_i64_local_at_offset(
@@ -1498,7 +2037,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
@@ -1513,7 +2052,7 @@ impl<'a> FunctionBuilder<'a> {
         if requested_data_descriptor {
             if let Some((writable_payload_local, Some(writable_present_local))) = writable {
                 function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
+                function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::LocalGet(writable_present_local));
@@ -1530,9 +2069,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
             if let Some((value_payload_local, value_tag_local, Some(value_present_local))) = value {
+                // "The existing entry is a data descriptor **and** is not
+                // writable", in one `I64And`. This is a legal *mask* spelling
+                // the bit pattern 5 — the pattern that is illegal as a stored
+                // *word*, which is why `DescriptorMask` and `DescriptorWord`
+                // are two types with no conversion between them.
                 function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
                 function.instruction(&Instruction::I64Const(
-                    (OBJECT_DESCRIPTOR_ACCESSOR | OBJECT_DESCRIPTOR_WRITABLE) as i64,
+                    DescriptorMask::ACCESSOR_OR_WRITABLE.as_i64(),
                 ));
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::I64Eqz);
@@ -2380,8 +2924,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 self.compile_nullish_tagged_i32(source_tag_local, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 function.instruction(&Instruction::Else);
                 self.emit_value_to_object_locals(
                     source_payload_local,
@@ -2687,12 +3230,7 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                1,
-                function,
-            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
             function.instruction(&Instruction::End);
 
             if target.kind != ValueKind::Dynamic
@@ -4018,14 +4556,40 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::I32Or);
-                    function.instruction(&Instruction::If(BlockType::Empty));
+                    // Not an array index: an ordinary named lookup on the Array
+                    // exotic object, walking its prototype chain.
+                    //
+                    // There is deliberately no tag test here. This arm used to be
+                    // guarded by `target_tag == Object || target_tag == Function`
+                    // with an `Else` that called this same function with the same
+                    // nine arguments, so the condition selected nothing and the
+                    // read was emitted twice at every site (measured: 73,606 code
+                    // bytes per `a[stringExpr]` site, see the b3 lane note). The
+                    // arm is also statically unreachable as written — `target.kind`
+                    // is `ValueKind::Array` in this match arm, so `target_tag_local`
+                    // is never the `Object` or `Function` tag.
+                    //
+                    // CLOSED DEFECT, recorded here because this is where it was
+                    // first written down. The `If` opened above is a raw
+                    // `Instruction::If`, so it was not on `control_stack` and
+                    // `depth_to` could not see it. Every `Br` emitted underneath
+                    // it — including the one this call reaches through
+                    // `emit_propagate_throw_from_locals_if_needed` — was off by
+                    // the number of such frames in between. Observable on the
+                    // named-property path too (`a.zzz` behaved identically), so
+                    // it was common upstream code: a property read that throws
+                    // inside a `for` landed on the loop back edge instead of the
+                    // handler and the loop spun until it trapped, and inside a
+                    // `switch` the throw was discarded silently. A flat
+                    // `try { ... } catch` worked, which is why every probe passed.
+                    //
+                    // Branch immediates are now taken from the real Wasm label
+                    // depth, which counts this `If` like any other, so there is
+                    // nothing here to declare and nothing to get wrong. Neither
+                    // rung G (a `Br` immediate is the same width either way) nor
+                    // wasm validation (both indices are in range) could tell the
+                    // two apart, so the evidence is a run:
+                    // `crates/porffor-cli/tests/cli/throw_propagation.rs`.
                     self.emit_object_read_with_key_tag(
                         target_local,
                         target_tag_local,
@@ -4037,19 +4601,6 @@ impl<'a> FunctionBuilder<'a> {
                         tag_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_object_read_with_key_tag(
-                        target_local,
-                        target_tag_local,
-                        target_local,
-                        target_tag_local,
-                        key_local,
-                        Some(key_tag_local),
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     self.release_temp_local(array_index_local);
                     self.release_temp_local(key_tag_local);
@@ -4833,10 +5384,9 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
                     tag_local,
-                    1,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -4955,8 +5505,7 @@ impl<'a> FunctionBuilder<'a> {
         // Dispatch before compiling the key. A computed key therefore appears
         // in each runtime arm but executes in exactly one selected arm, after
         // the optional-chain nullish check performed by the caller.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::Block, function);
         for kind in [
             ValueKind::Object,
             ValueKind::Function,
@@ -4971,8 +5520,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(target_tag_local));
             function.instruction(&Instruction::I64Const(kind.tag() as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             let runtime_target = TypedExpr::from_info(ValueInfo::new(kind), ExprIr::Undefined);
             self.compile_property_read_from_locals(
                 &runtime_target,
@@ -5268,7 +5816,133 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Reads `target[index]` for an integer index, dispatching over the target's
+    /// runtime kind.
+    ///
+    /// This is the seam. The composite it guards measures 72,635 bytes per
+    /// inline copy and has 51 call sites, so by default it emits a `call` into
+    /// the `IndexedElementRead` runtime helper and only falls back to the inline
+    /// body when the helper is unavailable (no heap) or when the helper's own
+    /// body is what is being compiled.
+    ///
+    /// The public name is deliberately unchanged: all 51 call sites keep
+    /// calling it and see only the seam (counted:
+    /// `grep -rn 'self\.emit_typed_array_or_object_index_read_from_locals('`
+    /// over `crates/` — 7 in this file, 11 in `builtins/standard.rs`, 32 in
+    /// `builtins/array.rs`, 1 in `builtins/iterators.rs`).
+    ///
+    /// **The constraint this used to carry is retired.** The throw propagation
+    /// below used to be computed at `extra_depth = 0`, i.e. it assumed the
+    /// tracked control stack was the whole story at the point of call. That
+    /// held for every call site only because they are all inside hand-emitted
+    /// builtin bodies, where `active_throw_target()` is always `None` —
+    /// `throw_handler_stack` and `finally_stack` are pushed only from user
+    /// `try` lowering — so `emit_propagate_throw_from_locals_if_needed`
+    /// degraded to `emit_return_current_completion` and the depth was never
+    /// used. Several of those sites sit inside raw `If`/`Block` frames the
+    /// control stack did not track, and compensated for it in their *own*
+    /// follow-up propagation with numbers that disagreed (`builtins/array.rs`
+    /// passed 0 and 3 for two arms of one `if`/`else` chain). A user-code call
+    /// site added inside untracked frames within a `try` would have branched
+    /// several frames too shallow and still validated, because every frame is
+    /// `BlockType::Empty`.
+    ///
+    /// Branch immediates now come from the real Wasm label depth
+    /// (`code_sink.rs`), so an untracked frame is not a thing that exists and a
+    /// new call site needs no depth argument, here or anywhere.
     pub(crate) fn emit_typed_array_or_object_index_read_from_locals(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if self.outline_indexed_element_read {
+            if let Some(helper) = self.indexed_element_read_helper_function_index() {
+                function.instruction(&Instruction::LocalGet(target_local));
+                function.instruction(&Instruction::LocalGet(target_tag_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::Call(helper));
+                // Same discipline as `emit_object_read_ordinary_via_helper`: the
+                // value (or, on a throw, the thrown value) lands in the caller's
+                // value locals and the completion tuple is adopted; `result_local`
+                // is only touched on a throw, so nothing the caller is holding
+                // across the read is clobbered.
+                self.store_call_results(payload_local, tag_local, function);
+                // Inside the helper a getter/proxy throw has no active handler and
+                // came back as a throw completion. The inline body would have
+                // propagated it from within its own nesting, so propagate here to
+                // keep the seam's contract identical for callers that do not
+                // separately check the read's completion.
+                return self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                );
+            }
+        }
+        self.emit_typed_array_or_object_index_read_from_locals_inner(
+            target_local,
+            target_tag_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    /// Compiles the shared `expr[index]` read composite. The Arguments / Array
+    /// (with prototype walk) / TypedArray-element / ordinary-object dispatch is
+    /// emitted once here and reached with a plain `call`.
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
+    /// 1=target tag, 2=integer index. Params 3-6 are unused. Results are the
+    /// standard `(result, result_tag, completion, completion_aux)` tuple: on a
+    /// normal completion the read value is in the first two slots, and a getter
+    /// or proxy-trap throw is surfaced through the completion slots for the
+    /// seam to re-raise.
+    ///
+    /// No realm-environment parameter, matching
+    /// [`FunctionBuilder::compile_object_read_helper`]: the ordinary read this
+    /// delegates to already passes zero for the object-read helper's params
+    /// 5/6, so a read has no realm-dependent behavior to thread.
+    ///
+    /// This lives here rather than in `emit.rs` with the other 22 helper
+    /// compilers so that
+    /// [`Self::emit_typed_array_or_object_index_read_from_locals_inner`] — the
+    /// 72,635-byte body — can stay private to this module. Its two callers are
+    /// the seam's fallback arm and this function; both are in this file, so
+    /// "there is no third caller" is a fact the compiler checks rather than a
+    /// comment asking readers not to add one.
+    pub(crate) fn compile_indexed_element_read_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_typed_array_or_object_index_read_from_locals_inner(
+            0,
+            1,
+            2,
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
+        self.pop_scope();
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    fn emit_typed_array_or_object_index_read_from_locals_inner(
         &mut self,
         target_local: u32,
         target_tag_local: u32,
@@ -5919,7 +6593,232 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Writes `target[index] = value`, dispatching between a TypedArray element
+    /// store and an ordinary `[[Set]]`.
+    ///
+    /// This is the seam; the composite it guards measures 174,558 bytes per
+    /// inline copy, across 5 call sites, all in this file. Contract on both
+    /// arms matches [`Self::emit_object_write`]: on a throw the thrown value is
+    /// left in the result locals with `completion == Throw` for the caller's
+    /// own check, and on success the caller's result locals are preserved.
+    ///
+    /// Both arms *additionally* co-home the thrown value in the caller's value
+    /// locals — see [`Self::emit_cohome_thrown_value_into_locals`] for why that
+    /// is required rather than tidy, and note that the co-homing is emitted
+    /// here, after the dispatch, so it is structurally impossible for one arm
+    /// to have it and the other not.
     pub(crate) fn emit_typed_array_or_object_index_write_from_locals(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        key_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_indexed_element_write_dispatch(
+            target_local,
+            target_tag_local,
+            index_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+        self.emit_cohome_thrown_value_into_locals(value_payload_local, value_tag_local, function);
+        Ok(())
+    }
+
+    /// On an adopted throw completion, copies the thrown value out of the
+    /// result locals into the caller's value locals.
+    ///
+    /// Both `[[Set]]` arms of the write composite report a throw the same way a
+    /// helper call does: the thrown value lands in `result_local`/
+    /// `result_tag_local` with `completion == Throw`, and control keeps going.
+    /// The caller's value locals then still hold the *assigned value*, which is
+    /// a problem because that is what the enclosing expression propagates from.
+    /// `compile_property_write_to_locals` leaves the assignment's value in those
+    /// locals by contract, and `compile_expr_to_locals`'s `ExprIr::PropertyWrite`
+    /// arm hands them straight to the consumer's
+    /// [`Self::emit_propagate_throw_from_locals_if_needed`] — so without this,
+    /// `var x = (ta[0] = { valueOf() { throw new TypeError(); } });` rethrows
+    /// the *object literal* instead of the `TypeError`. (At statement position
+    /// the throw is propagated from `result_local` instead and was always
+    /// correct; only nested assignment positions relabel.)
+    ///
+    /// Clobbering the value locals on the throw path is safe: a throw completion
+    /// means the assignment produced no value, and every caller either
+    /// propagates or returns immediately after.
+    fn emit_cohome_thrown_value_into_locals(
+        &self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::End);
+    }
+
+    /// The outlined-versus-inline choice itself. Private, and deliberately not
+    /// the function the 5 call sites see: everything a caller is promised that
+    /// is *not* arm-specific belongs in
+    /// [`Self::emit_typed_array_or_object_index_write_from_locals`] around this.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_indexed_element_write_dispatch(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        key_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // The helper body is compiled with `function_id: None`, so the nested
+        // object-write call inside it passes zero for the object-write helper's
+        // realm-environment parameter (param 6). That is exactly what the inline
+        // expansion does for a non-builtin caller — see
+        // `emit_object_write_via_helper` — but *not* what it does for a standard
+        // builtin, which forwards its self-backed realm environment so that e.g.
+        // ArraySetLength raises its RangeError in the right Realm.
+        //
+        // No standard builtin can reach this composite: all 5 call sites are in
+        // `compile_property_write_to_locals`, which runs only from IR lowering
+        // (`FunctionBuilder::compile`, used for `script.functions`), while
+        // standard builtin bodies are hand-emitted by `compile_standard_builtin`
+        // under `compile_builtin`. An earlier revision silently declined to
+        // outline for such a caller. That branch was unreachable, and worse, if
+        // it ever had fired it would have chosen between two arms rather than
+        // preserved one behaviour. So the unreachable case is now loud: a
+        // builtin that reaches here needs the helper to grow a
+        // realm-environment parameter, which is a change to make deliberately
+        // and not to discover from a RangeError raised in the wrong Realm.
+        if self.outline_indexed_element_write {
+            if let Some(helper) = self.indexed_element_write_helper_function_index() {
+                if let Some(builtin) = self
+                    .function_id
+                    .as_ref()
+                    .and_then(|function_id| StandardBuiltinId::from_function_id(function_id))
+                {
+                    return Err(EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: standard builtin `{}` reached the indexed-element write composite, which has no realm-environment parameter",
+                        builtin.debug_name()
+                    )));
+                }
+                let saved_result_local = self.reserve_temp_local();
+                let saved_result_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(self.result_local));
+                function.instruction(&Instruction::LocalSet(saved_result_local));
+                function.instruction(&Instruction::LocalGet(self.result_tag_local));
+                function.instruction(&Instruction::LocalSet(saved_result_tag_local));
+
+                function.instruction(&Instruction::LocalGet(target_local));
+                function.instruction(&Instruction::LocalGet(target_tag_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::LocalGet(key_local));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                // Parameter 6: the calling function's strictness, selected the
+                // same way `emit_object_write_via_helper` selects its parameter 5,
+                // because the helper body is mode-less and the sloppy/strict
+                // `[[Set]]`-failure split has to be decided at run time.
+                match self.object_write_strict_flag_local {
+                    Some(strict_override) => {
+                        function.instruction(&Instruction::LocalGet(strict_override));
+                    }
+                    None => {
+                        function.instruction(&Instruction::I64Const(i64::from(
+                            self.is_current_function_strict(),
+                        )));
+                    }
+                }
+                function.instruction(&Instruction::Call(helper));
+                self.store_call_results_to(
+                    self.result_local,
+                    self.result_tag_local,
+                    self.completion_local,
+                    self.completion_aux_local,
+                    function,
+                );
+
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(saved_result_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(saved_result_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+
+                self.release_temp_local(saved_result_tag_local);
+                self.release_temp_local(saved_result_local);
+                return Ok(());
+            }
+        }
+        self.emit_typed_array_or_object_index_write_from_locals_inner(
+            target_local,
+            target_tag_local,
+            index_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )
+    }
+
+    /// Compiles the shared `expr[index] = value` write composite (TypedArray
+    /// element store versus ordinary `[[Set]]`).
+    ///
+    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
+    /// 1=target tag, 2=integer index, 3=key payload (the string form of the
+    /// index, used by the ordinary-object arm), 4=value payload, 5=value tag,
+    /// 6=calling function's strictness (0 sloppy, nonzero strict).
+    ///
+    /// Param 6 exists for the same reason as the object-write helper's param 5:
+    /// this is a single mode-less body, so the sloppy/strict `[[Set]]` failure
+    /// split — silent no-op versus `TypeError` on a non-writable property or a
+    /// non-extensible target — has to be decided from a runtime flag rather
+    /// than from the compile-time strictness of the helper itself. Dropping it
+    /// would turn every strict-mode `a[i] = v` failure into a silent no-op.
+    ///
+    /// Counterpart of [`Self::compile_indexed_element_read_helper`], including
+    /// the reason it lives in this file: the 174,558-byte body it emits stays
+    /// module-private with exactly two callers.
+    pub(crate) fn compile_indexed_element_write_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementWrite);
+        self.object_write_strict_flag_local = Some(6);
+        self.push_scope();
+        self.set_completion_kind(CompletionKind::Normal, &mut function);
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
+        self.emit_typed_array_or_object_index_write_from_locals_inner(
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            &mut function,
+        )?;
+        self.pop_scope();
+        self.object_write_strict_flag_local = None;
+        function.instruction(&Instruction::LocalGet(self.result_local));
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    fn emit_typed_array_or_object_index_write_from_locals_inner(
         &mut self,
         target_local: u32,
         target_tag_local: u32,
@@ -6135,7 +7034,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write_set_failure_else(
                         "Cannot assign to array length",
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -6228,7 +7126,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write_set_failure_else(
                         "Cannot assign to array length",
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -6556,7 +7453,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write_set_failure_else(
                         "Cannot assign to array length",
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -7285,11 +8181,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
+    /// `delete target[key]`, 13.5.1.2. `strictness` is the Reference's carried
+    /// `[[Strict]]`, which step 5.e consumes; it is not a `bool`, so
+    /// `self.is_current_function_strict()` cannot be passed here by mistake.
     pub(crate) fn compile_delete_property_i32(
         &mut self,
         target: &TypedExpr,
         key: &PropertyKeyIr,
-        strict: bool,
+        strictness: Strictness,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let target_local = self.reserve_temp_local();
@@ -7619,7 +8518,7 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
 
-        if strict {
+        if strictness.throws_on_failed_set() {
             function.instruction(&Instruction::LocalGet(result_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -7628,7 +8527,6 @@ impl<'a> FunctionBuilder<'a> {
                 "Cannot delete property",
                 self.result_local,
                 self.result_tag_local,
-                0,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -7794,7 +8692,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -7809,7 +8707,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 0, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -7887,7 +8785,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 3, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -8033,7 +8931,6 @@ impl<'a> FunctionBuilder<'a> {
                 "private element cannot be installed on non-extensible object",
                 self.result_local,
                 self.result_tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -8055,7 +8952,6 @@ impl<'a> FunctionBuilder<'a> {
                 "private element already installed on object",
                 self.result_local,
                 self.result_tag_local,
-                1,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -8392,7 +9288,6 @@ impl<'a> FunctionBuilder<'a> {
             "private accessor has no getter",
             self.result_local,
             self.result_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8432,14 +9327,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PRIVATE_ELEMENT_KIND_GETTER as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_with_throw_extra_depth(
+        self.emit_function_handle_call_with_throw_propagation(
             getter_payload_local,
             getter_tag_local,
             Some((target_payload_local, Some(target_tag_local))),
             &[],
             payload_local,
             tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8558,7 +9452,6 @@ impl<'a> FunctionBuilder<'a> {
             "private element has no setter",
             self.result_local,
             self.result_tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -8574,14 +9467,13 @@ impl<'a> FunctionBuilder<'a> {
             setter_tag_local,
             function,
         );
-        self.emit_function_handle_call_with_throw_extra_depth(
+        self.emit_function_handle_call_with_throw_propagation(
             setter_payload_local,
             setter_tag_local,
             Some((target_payload_local, Some(target_tag_local))),
             &[(value_payload_local, value_tag_local)],
             setter_result_payload_local,
             setter_result_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8629,7 +9521,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 2, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -8643,7 +9535,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 1, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -10581,7 +11473,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -10589,7 +11481,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            2,
             function,
         )?;
         function.instruction(&Instruction::I64Const(1));
@@ -11583,46 +12474,46 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        // ToPropertyDescriptor observes the fields in this order, and reads
-        // each present field exactly once after its HasProperty check.
-        for (key, present_local, payload_local, tag_local) in [
-            (
-                "enumerable",
+        // 6.2.6.5 ToPropertyDescriptor steps 3-8 observe the six fields in this
+        // order, and read each present field exactly once after its HasProperty
+        // check. Both facts are observable through side-effecting accessors on
+        // the descriptor object, so the order is behaviour, not style.
+        //
+        // The order is [`TO_PROPERTY_DESCRIPTOR_ORDER`] and the keys are
+        // [`DescriptorField::key`] — this loop is that table's consumer. Before
+        // it, the table and its `const _` permutation assertion pinned a list
+        // nobody read while the real order sat here as six `&'static str`
+        // literals: dropping `writable`, reordering the pair, or misspelling a
+        // key was invisible, because 6.2.6.5 ignores stray keys and 6.2.6.6
+        // supplies a default for the field that then goes missing.
+        //
+        // The `match` is exhaustive over `DescriptorField`, so a seventh field
+        // is `E0004` here rather than a silently unread one.
+        // `move`, so the closure copies the eighteen `u32` local indices in
+        // rather than borrowing them for the rest of the function.
+        let field_locals = move |field: DescriptorField| match field {
+            DescriptorField::Enumerable => (
                 enumerable_present_local,
                 enumerable_payload_local,
                 enumerable_tag_local,
             ),
-            (
-                "configurable",
+            DescriptorField::Configurable => (
                 configurable_present_local,
                 configurable_payload_local,
                 configurable_tag_local,
             ),
-            (
-                "value",
-                value_present_local,
-                value_payload_local,
-                value_tag_local,
-            ),
-            (
-                "writable",
+            DescriptorField::Value => (value_present_local, value_payload_local, value_tag_local),
+            DescriptorField::Writable => (
                 writable_present_local,
                 writable_payload_local,
                 writable_tag_local,
             ),
-            (
-                "get",
-                getter_present_local,
-                getter_payload_local,
-                getter_tag_local,
-            ),
-            (
-                "set",
-                setter_present_local,
-                setter_payload_local,
-                setter_tag_local,
-            ),
-        ] {
+            DescriptorField::Get => (getter_present_local, getter_payload_local, getter_tag_local),
+            DescriptorField::Set => (setter_present_local, setter_payload_local, setter_tag_local),
+        };
+        for field in TO_PROPERTY_DESCRIPTOR_ORDER {
+            let key = field.key();
+            let (present_local, payload_local, tag_local) = field_locals(field);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -11655,7 +12546,12 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
             self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
 
-            if matches!(key, "enumerable" | "configurable" | "writable") {
+            if matches!(
+                field,
+                DescriptorField::Enumerable
+                    | DescriptorField::Configurable
+                    | DescriptorField::Writable
+            ) {
                 // These fields are stored as the result of ToBoolean, so the
                 // normalized object never carries the original tagged value.
                 function.instruction(&Instruction::LocalGet(present_local));
@@ -11673,7 +12569,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
 
-            if matches!(key, "get" | "set") {
+            if matches!(field, DescriptorField::Get | DescriptorField::Set) {
                 function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::LocalGet(tag_local));
@@ -11726,44 +12622,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(result_tag_local));
-        for (key, present_local, payload_local, tag_local) in [
-            (
-                "value",
-                value_present_local,
-                value_payload_local,
-                value_tag_local,
-            ),
-            (
-                "writable",
-                writable_present_local,
-                writable_payload_local,
-                writable_tag_local,
-            ),
-            (
-                "get",
-                getter_present_local,
-                getter_payload_local,
-                getter_tag_local,
-            ),
-            (
-                "set",
-                setter_present_local,
-                setter_payload_local,
-                setter_tag_local,
-            ),
-            (
-                "enumerable",
-                enumerable_present_local,
-                enumerable_payload_local,
-                enumerable_tag_local,
-            ),
-            (
-                "configurable",
-                configurable_present_local,
-                configurable_payload_local,
-                configurable_tag_local,
-            ),
-        ] {
+        // 6.2.6.4 FromPropertyDescriptor's steps 4-9 run in
+        // [`DescriptorField::ALL`] order, which is a *different* permutation
+        // from 6.2.6.5's: this one is value, writable, get, set, enumerable,
+        // configurable. Both orders now come from the one table each belongs
+        // to, so the two can no longer be conflated or silently swapped — which
+        // is a real hazard, since the six keys and the same six locals appear
+        // in both loops.
+        //
+        // Every step here is conditional on presence, so any subset of the six
+        // is a legal result; the four-key form is the codomain only when the
+        // input is complete, which it is not on this path.
+        for field in DescriptorField::ALL {
+            let key = field.key();
+            let (present_local, payload_local, tag_local) = field_locals(field);
             function.instruction(&Instruction::LocalGet(present_local));
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64Ne);
@@ -12162,7 +13034,7 @@ impl<'a> FunctionBuilder<'a> {
             key_local,
             payload_local,
             tag_local,
-            Some(8),
+            AccessorThrowRouting::BreakToOrdinaryReadExit,
             function,
         )
     }
@@ -12199,7 +13071,7 @@ impl<'a> FunctionBuilder<'a> {
             key_local,
             payload_local,
             tag_local,
-            None,
+            AccessorThrowRouting::LeaveInCompletion,
             function,
         )
     }
@@ -12214,7 +13086,7 @@ impl<'a> FunctionBuilder<'a> {
         key_local: u32,
         payload_local: u32,
         tag_local: u32,
-        accessor_throw_extra_depth: Option<u32>,
+        accessor_throw: AccessorThrowRouting,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let current_local = self.reserve_temp_local();
@@ -12593,29 +13465,24 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_is_callable_i32(getter_tag_local, getter_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(extra_depth) = accessor_throw_extra_depth {
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                getter_payload_local,
-                getter_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                &[],
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.emit_break_current_completion_if_throw(extra_depth.saturating_sub(1), function);
-        } else {
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                getter_payload_local,
-                getter_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                &[],
-                payload_local,
-                tag_local,
-                function,
-            )?;
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            getter_payload_local,
+            getter_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            &[],
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        match accessor_throw {
+            AccessorThrowRouting::BreakToOrdinaryReadExit => {
+                self.emit_break_current_completion_if_throw(
+                    AccessorThrowRouting::ORDINARY_READ_EXIT_BREAK_DEPTH,
+                    function,
+                );
+            }
+            AccessorThrowRouting::LeaveInCompletion => {}
         }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -13050,24 +13917,21 @@ impl<'a> FunctionBuilder<'a> {
                 return Ok(());
             }
         }
-        self.emit_object_define_entry(
-            object_local,
-            None,
-            key_local,
-            Some((payload_local, tag_local)),
-            None,
-            None,
-            writable_payload_local,
-            enumerable_payload_local,
-            configurable_payload_local,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            function,
-        )
+        // A complete data descriptor, known when the compiler runs. No field is
+        // `Runtime`, so this call emits none of 10.1.6.3 step 4's validation —
+        // which is correct, and is now stated by the descriptor rather than by
+        // six `None`s in six positional slots.
+        let descriptor = WasmPartialDescriptor {
+            value: Presence::Present(TaggedLocals::new(payload_local, tag_local)),
+            writable: Presence::Present(writable_payload_local),
+            get: Presence::Absent,
+            set: Presence::Absent,
+            enumerable: Presence::Present(enumerable_payload_local),
+            configurable: Presence::Present(configurable_payload_local),
+        }
+        .validate()
+        .expect("a data-only descriptor cannot fail 6.2.6.5 step 9");
+        self.emit_object_define_entry_validated(object_local, None, key_local, descriptor, function)
     }
 
     pub(crate) fn emit_object_define_accessor(
@@ -13136,31 +14000,39 @@ impl<'a> FunctionBuilder<'a> {
         configurable_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let writable_payload_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(writable_payload_local));
-        self.emit_object_define_entry(
-            object_local,
-            None,
-            key_local,
-            None,
-            getter,
-            setter,
-            writable_payload_local,
-            enumerable_payload_local,
-            configurable_payload_local,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            function,
-        )?;
-        self.release_temp_local(writable_payload_local);
-        Ok(())
+        // `writable: Presence::Absent`, and that is what deletes code here.
+        // This helper used to reserve a temp local, store `0` into it and pass
+        // it as `writable_payload_local` purely so the positional slot had
+        // something in it — a `[[Writable]]` operand supplied to a descriptor
+        // that has no `[[Writable]]` field. Under `Presence` the slot does not
+        // need filling.
+        let descriptor = WasmPartialDescriptor {
+            value: Presence::Absent,
+            writable: Presence::Absent,
+            get: presence_of_accessor_locals(getter),
+            set: presence_of_accessor_locals(setter),
+            enumerable: Presence::Present(enumerable_payload_local),
+            configurable: Presence::Present(configurable_payload_local),
+        }
+        .validate()
+        .expect("an accessor-only descriptor cannot fail 6.2.6.5 step 9");
+        self.emit_object_define_entry_validated(object_local, None, key_local, descriptor, function)
     }
 
+    /// Positional adapter for the two `Object.defineProperty` call sites in
+    /// `builtins/standard.rs`, which this lane does not own.
+    ///
+    /// Ledger row **LN3**. 6.2.6.5 step 9 is discharged for both of them by an
+    /// *emitted* Wasm check in that file: the accessor branch is entered when
+    /// `getter_present || setter_present` and immediately throws a TypeError if
+    /// `value_present || writable_present`. So the descriptor built here goes
+    /// through `from_runtime_checked` rather than through `validate`, and
+    /// `rg from_runtime_checked` enumerates the obligation — one construction,
+    /// two callers, both named above.
+    ///
+    /// The lane note carries the instruction to delete this adapter and build
+    /// the two `PartialDescriptor` literals at the call sites instead.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_object_define_entry(
         &mut self,
         object_local: u32,
@@ -13180,6 +14052,67 @@ impl<'a> FunctionBuilder<'a> {
         configurable_present_local: Option<u32>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let descriptor = WasmPartialDescriptor {
+            value: presence_from_positional(
+                data.map(|(payload, tag)| TaggedLocals::new(payload, tag)),
+                data_present_local,
+            ),
+            writable: presence_from_positional(
+                Some(writable_payload_local),
+                writable_present_local,
+            ),
+            get: presence_from_positional(
+                getter.map(|(payload, tag)| TaggedLocals::new(payload, tag)),
+                getter_present_local,
+            ),
+            set: presence_from_positional(
+                setter.map(|(payload, tag)| TaggedLocals::new(payload, tag)),
+                setter_present_local,
+            ),
+            enumerable: presence_from_positional(
+                Some(enumerable_payload_local),
+                enumerable_present_local,
+            ),
+            configurable: presence_from_positional(
+                Some(configurable_payload_local),
+                configurable_present_local,
+            ),
+        }
+        .from_runtime_checked();
+        self.emit_object_define_entry_validated(
+            object_local,
+            object_tag_local,
+            key_local,
+            descriptor,
+            function,
+        )
+    }
+
+    /// 10.1.6.3 ValidateAndApplyPropertyDescriptor, for an ordinary object.
+    ///
+    /// Five parameters where there used to be sixteen, fifteen of which carried
+    /// descriptor data. The two independent encodings of "does this record have
+    /// this field" — an `Option` value carrier and an `Option` presence local,
+    /// which could and did disagree — are one [`Presence`] per field, and the
+    /// 6.2.6.1–3 partition is derived exactly once, by `classify`, before any
+    /// instruction is emitted.
+    pub(crate) fn emit_object_define_entry_validated(
+        &mut self,
+        object_local: u32,
+        object_tag_local: Option<u32>,
+        key_local: u32,
+        descriptor: WasmDescriptor,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // The one derivation of 6.2.6.1/6.2.6.2/6.2.6.3 on this path. Both
+        // sides' terms are named here so that the two *independent* 10.1.6.3
+        // step-4 kind-change obligations below can each be emitted from its own
+        // side, instead of from one conjunction over all four fields.
+        let classification = classify(&descriptor);
+        let data_terms = classification.terms(DescriptorSide::Data);
+        let accessor_terms = classification.terms(DescriptorSide::Accessor);
+        let descriptor = descriptor.into_partial();
+
         let buffer_local = self.reserve_temp_local();
         let len_local = self.reserve_temp_local();
         let cap_local = self.reserve_temp_local();
@@ -13200,79 +14133,125 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
 
-        let has_data = data.is_some();
-        let has_getter = getter.is_some();
-        let has_setter = setter.is_some();
-        let descriptor_kind = if has_data {
-            OBJECT_DESCRIPTOR_DATA
-        } else {
-            OBJECT_DESCRIPTOR_ACCESSOR
+        // The kind the entry is *seeded* with. 10.1.6.3 has no such notion —
+        // it is an artefact of assembling the word in one Wasm local — so it is
+        // decided here, once, from the classification, and every later decision
+        // that depends on the kind takes it from the typestate rather than
+        // re-deriving it.
+        let seed = match classification {
+            DescriptorClassification::Static(PropertyDescriptorKind::Data) => {
+                StoredDescriptorKind::Data
+            }
+            DescriptorClassification::Static(PropertyDescriptorKind::Accessor) => {
+                StoredDescriptorKind::Accessor
+            }
+            // 6.2.6.6 step 3: a generic descriptor completes to a **data**
+            // property. The two-way `if data.is_some() { DATA } else {
+            // ACCESSOR }` this replaces made it an accessor, silently, and had
+            // no third arm to notice.
+            DescriptorClassification::Static(PropertyDescriptorKind::Generic) => {
+                StoredDescriptorKind::Data
+            }
+            // The kind is a run-time value. The seed is derived from the **two
+            // sides' terms**, not from `[[Value]]`.
+            //
+            // Deriving it from `[[Value]]` alone was a second, independent
+            // derivation of the 6.2.6.1/6.2.6.2 partition — spelling 5 restated
+            // — and it was wrong in the same direction 6.2.6.2 warns about:
+            // IsDataDescriptor is false only if the descriptor has *neither*
+            // `[[Value]]` *nor* `[[Writable]]`, so
+            // `{writable: <runtime>, enumerable: e, configurable: c}` is a data
+            // descriptor with no `[[Value]]`, and testing `[[Value]]` seeded it
+            // **Accessor** — writing an accessor entry with undefined get/set
+            // where 6.2.6.2 and 6.2.6.6 step 3 require a data property.
+            DescriptorClassification::Dynamic { .. } => {
+                match (data_terms.is_possible(), accessor_terms.is_possible()) {
+                    // 6.2.6.1 cannot hold, so 6.2.6.2 or 6.2.6.3 does, and
+                    // 6.2.6.6 step 3 sends both to a data property.
+                    (_, false) => StoredDescriptorKind::Data,
+                    // 6.2.6.2 cannot hold and 6.2.6.1 can.
+                    (false, true) => StoredDescriptorKind::Accessor,
+                    // Both sides are possible when the program runs, so no
+                    // *static* seed is correct in general and the stored kind
+                    // is really a run-time value this emitter has no
+                    // representation for. Reachable only through
+                    // `PartialDescriptor::from_runtime_checked` — `validate()`
+                    // returns `NeedsRuntimeCheck` for exactly this shape — whose
+                    // emitted 6.2.6.5 step-9 throw dominates both of today's
+                    // callers and leaves exactly one side live on each branch:
+                    // the accessor branch supplies `[[Get]]`/`[[Set]]` operands
+                    // and no `[[Value]]` operand, the data branch the reverse.
+                    // So the operand the caller materialised is the seed.
+                    // Ledger row **LN9**: a caller that materialises operands on
+                    // both sides needs a run-time seed, which is a larger change
+                    // than this one and is not reachable today.
+                    (true, true) => match descriptor.value.known() {
+                        KnownPresence::No => StoredDescriptorKind::Accessor,
+                        KnownPresence::Yes | KnownPresence::AtRuntime => StoredDescriptorKind::Data,
+                    },
+                }
+            }
         };
-        function.instruction(&Instruction::I64Const(descriptor_kind as i64));
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-        if has_data {
-            function.instruction(&Instruction::LocalGet(writable_payload_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
+        let mut kind_word = DescriptorKindWord::seed(seed, descriptor_kind_local, function);
+        kind_word.apply_writable(descriptor.writable, function);
+        match descriptor.enumerable {
+            // 6.2.6.6: an absent attribute defaults to `false`.
+            Presence::Absent => {}
+            Presence::Present(flag_local)
+            | Presence::Runtime {
+                value: flag_local, ..
+            } => kind_word.set_attribute_if_nonzero(AttributeBit::Enumerable, flag_local, function),
         }
-        function.instruction(&Instruction::LocalGet(enumerable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ENUMERABLE as i64));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(configurable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-        function.instruction(&Instruction::End);
-        if let Some((data_payload_local, data_tag_local)) = data {
-            function.instruction(&Instruction::LocalGet(data_tag_local));
-            function.instruction(&Instruction::LocalSet(stored_data_tag_local));
-            function.instruction(&Instruction::LocalGet(data_payload_local));
-            function.instruction(&Instruction::LocalSet(stored_data_payload_local));
-        } else {
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(stored_data_tag_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(stored_data_payload_local));
+        match descriptor.configurable {
+            Presence::Absent => {}
+            Presence::Present(flag_local)
+            | Presence::Runtime {
+                value: flag_local, ..
+            } => {
+                kind_word.set_attribute_if_nonzero(AttributeBit::Configurable, flag_local, function)
+            }
         }
-        if let Some((getter_payload, getter_tag)) = getter {
-            function.instruction(&Instruction::LocalGet(getter_tag));
-            function.instruction(&Instruction::LocalSet(getter_tag_local));
-            function.instruction(&Instruction::LocalGet(getter_payload));
-            function.instruction(&Instruction::LocalSet(getter_payload_local));
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(getter_tag_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(getter_payload_local));
+        match descriptor.value {
+            Presence::Absent => {
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(stored_data_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(stored_data_payload_local));
+            }
+            Presence::Present(value) | Presence::Runtime { value, .. } => {
+                function.instruction(&Instruction::LocalGet(value.tag));
+                function.instruction(&Instruction::LocalSet(stored_data_tag_local));
+                function.instruction(&Instruction::LocalGet(value.payload));
+                function.instruction(&Instruction::LocalSet(stored_data_payload_local));
+            }
         }
-        if let Some((setter_payload, setter_tag)) = setter {
-            function.instruction(&Instruction::LocalGet(setter_tag));
-            function.instruction(&Instruction::LocalSet(setter_tag_local));
-            function.instruction(&Instruction::LocalGet(setter_payload));
-            function.instruction(&Instruction::LocalSet(setter_payload_local));
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(setter_tag_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(setter_payload_local));
+        match descriptor.get {
+            Presence::Absent => {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(getter_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(getter_payload_local));
+            }
+            Presence::Present(value) | Presence::Runtime { value, .. } => {
+                function.instruction(&Instruction::LocalGet(value.tag));
+                function.instruction(&Instruction::LocalSet(getter_tag_local));
+                function.instruction(&Instruction::LocalGet(value.payload));
+                function.instruction(&Instruction::LocalSet(getter_payload_local));
+            }
+        }
+        match descriptor.set {
+            Presence::Absent => {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(setter_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(setter_payload_local));
+            }
+            Presence::Present(value) | Presence::Runtime { value, .. } => {
+                function.instruction(&Instruction::LocalGet(value.tag));
+                function.instruction(&Instruction::LocalSet(setter_tag_local));
+                function.instruction(&Instruction::LocalGet(value.payload));
+                function.instruction(&Instruction::LocalSet(setter_payload_local));
+            }
         }
 
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -13304,398 +14283,464 @@ impl<'a> FunctionBuilder<'a> {
             existing_descriptor_kind_local,
             function,
         );
+        // 10.1.6.3 step 4: everything inside this `If` is conditional on the
+        // existing property being non-configurable.
         function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
         function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
+            DescriptorMask::CONFIGURABLE.as_i64(),
         ));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(present_local) = configurable_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(configurable_payload_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
-        if let Some(present_local) = enumerable_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ENUMERABLE as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::LocalGet(enumerable_payload_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        if data_present_local.is_some()
-            && writable_present_local.is_some()
-            && getter_present_local.is_some()
-            && setter_present_local.is_some()
-        {
-            function.instruction(&Instruction::LocalGet(getter_present_local.unwrap()));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(setter_present_local.unwrap()));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-
-            function.instruction(&Instruction::LocalGet(data_present_local.unwrap()));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(writable_present_local.unwrap()));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
-        if let Some(present_local) = writable_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(writable_payload_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-        }
-        if let Some(present_local) = data_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_TAG_OFFSET,
-                getter_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-                getter_payload_local,
-                function,
-            );
-            // ValidateAndApplyPropertyDescriptor step 4.a.ii compares the
-            // existing and incoming [[Value]] with SameValue, not strict
-            // equality: redefining a non-writable property with NaN (or with
-            // the same signed zero) must be an accepted no-op, and redefining
-            // +0 as -0 must be rejected.
-            self.emit_tagged_payload_same_value_i32(
-                getter_tag_local,
-                getter_payload_local,
-                stored_data_tag_local,
-                stored_data_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        if let Some(present_local) = getter_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_TAG_OFFSET,
-                stored_data_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-                stored_data_payload_local,
-                function,
-            );
-            self.emit_tagged_payload_equality_i32(
-                stored_data_tag_local,
-                stored_data_payload_local,
-                getter_tag_local,
-                getter_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        if let Some(present_local) = setter_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_TAG_OFFSET,
-                stored_data_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-                stored_data_payload_local,
-                function,
-            );
-            self.emit_tagged_payload_equality_i32(
-                stored_data_tag_local,
-                stored_data_payload_local,
-                setter_tag_local,
-                setter_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                TYPE_ERROR_NAME,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-        if let Some(present_local) = data_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_TAG_OFFSET,
-                stored_data_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-                stored_data_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        // ValidateAndApplyPropertyDescriptor only carries [[Writable]] over
-        // from the existing property when both the existing and the incoming
-        // descriptors are data descriptors (step 7.b).  Converting an accessor
-        // property into a data property keeps only [[Configurable]] and
-        // [[Enumerable]] and resets everything else to its default (step
-        // 7.c.i), so writable must come out false; and an accessor entry must
-        // never pick up a writable bit of its own, because that stale bit is
-        // what a later accessor-to-data conversion would read back.
-        if has_data {
-            if let Some(present_local) = writable_present_local {
+        // Step 4.a. Emitted only when presence is a run-time question.
+        //
+        // `Presence::Present` is **not** "the field is absent"; it is "the field
+        // is there and the compiler chose it". Steps 4.a/4.b/4.d/4.e all fire on
+        // *Desc has the field*, so a `Present` field is exempt only because the
+        // compiler chose the value too, which is true of exactly two callers —
+        // `emit_object_define_accessor_with_flag_local` and
+        // `emit_object_define_data_with_flag_locals`, both of which store the
+        // attribute payloads themselves immediately above the call. It is not
+        // true of anything a program supplies: `emit_object_define_entry`'s
+        // positional adapter yields `Runtime` for every field at both of its
+        // `builtins/standard.rs` callers, which is why the step-4 checks below
+        // are emitted there and nowhere else.
+        //
+        // That exemption is recorded here and in each arm, and **not** in a
+        // type: open ledger row **LN10**. Under the pre-`Presence` code the same
+        // situation was spelled `presence: None`, which at least claimed
+        // nothing; `Present` claims the field is there and then behaves like
+        // `Absent`.
+        match descriptor.configurable {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                value: configurable_payload_local,
+            } => {
                 function.instruction(&Instruction::LocalGet(present_local));
-                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(configurable_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-                function.instruction(&Instruction::I64And);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    TYPE_ERROR_NAME,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
+        }
+        // Step 4.b.
+        match descriptor.enumerable {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                value: enumerable_payload_local,
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-                function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-                function.instruction(&Instruction::I64Or);
-                function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::ENUMERABLE.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::LocalGet(enumerable_payload_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    TYPE_ERROR_NAME,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
             }
         }
-        if let Some(present_local) = enumerable_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ENUMERABLE as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ENUMERABLE as i64));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        // Steps 6.a and 7.a are **two independent obligations**, and this is
+        // where they stop being one four-way `is_some()` conjunction. Step 6.a
+        // reads only the accessor side's presence; step 7.a only the data
+        // side's. Coupling them meant a caller that statically knew one field
+        // was absent silently deleted *both* checks — including step 6.a, which
+        // is what makes redefining a non-configurable data property as an
+        // accessor throw.
+        self.emit_descriptor_kind_change_throw(
+            DescriptorSide::Accessor,
+            &accessor_terms,
+            existing_descriptor_kind_local,
+            function,
+        )?;
+        self.emit_descriptor_kind_change_throw(
+            DescriptorSide::Data,
+            &data_terms,
+            existing_descriptor_kind_local,
+            function,
+        )?;
+        // Step 4.e, first bullet.
+        match descriptor.writable {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                value: writable_payload_local,
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(writable_payload_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    TYPE_ERROR_NAME,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
-        if let Some(present_local) = configurable_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(
-                OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-            ));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(
-                OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-            ));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        // Step 4.e, second bullet.
+        match descriptor.value {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_DATA_TAG_OFFSET,
+                    getter_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+                    getter_payload_local,
+                    function,
+                );
+                // Step 4.e compares the existing and incoming `[[Value]]` with
+                // **SameValue**, not strict equality: redefining a non-writable
+                // property with `NaN` (or with the same signed zero) must be an
+                // accepted no-op, and redefining `+0` as `-0` must be rejected.
+                // Ledger row LN1: no descriptor type distinguishes this call
+                // from `emit_tagged_payload_equality_i32`, which is *correct*
+                // twelve lines below for step 4.d's object operands.
+                self.emit_tagged_payload_same_value_i32(
+                    getter_tag_local,
+                    getter_payload_local,
+                    stored_data_tag_local,
+                    stored_data_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    TYPE_ERROR_NAME,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
         }
-        if data_present_local.is_some()
-            && writable_present_local.is_some()
-            && getter_present_local.is_some()
-            && setter_present_local.is_some()
-        {
-            function.instruction(&Instruction::LocalGet(data_present_local.unwrap()));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::LocalGet(writable_present_local.unwrap()));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(getter_present_local.unwrap()));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::LocalGet(setter_present_local.unwrap()));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(descriptor_kind_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        // Step 4.d, `[[Get]]`.
+        match descriptor.get {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_GETTER_TAG_OFFSET,
+                    stored_data_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                    stored_data_payload_local,
+                    function,
+                );
+                self.emit_tagged_payload_equality_i32(
+                    stored_data_tag_local,
+                    stored_data_payload_local,
+                    getter_tag_local,
+                    getter_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    TYPE_ERROR_NAME,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
         }
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        // Step 4.d, `[[Set]]`.
+        match descriptor.set {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_TAG_OFFSET,
+                    stored_data_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                    stored_data_payload_local,
+                    function,
+                );
+                self.emit_tagged_payload_equality_i32(
+                    stored_data_tag_local,
+                    stored_data_payload_local,
+                    setter_tag_local,
+                    setter_payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    TYPE_ERROR_NAME,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::End);
+        // Step 5 / step 8: a field the incoming descriptor does not have leaves
+        // the existing property's `[[Value]]` alone.
+        match descriptor.value {
+            // 6.2.6: the record does not have this field, so this step's
+            // antecedent ("if Desc has ...") is false and nothing is emitted.
+            Presence::Absent => {}
+            // The record *has* this field and the compiler knows it. This
+            // step's antecedent is therefore TRUE — 10.1.6.3 step 4 fires on
+            // "Desc has the field", not on "the program discovered that it
+            // does" — and the check is discharged **by construction** at the
+            // callers named at this function's head, not by the absence of a
+            // run-time flag. A caller for which that is not true must not
+            // spell the field `Present`. Open ledger row **LN10**: no type
+            // enforces that yet.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+                function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_DATA_TAG_OFFSET,
+                    stored_data_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+                    stored_data_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+        }
+        // Step 7.b, and the whole of mistake class M1. The accessor arm of
+        // `carry_writable` cannot mention writability, because
+        // `carry_writable_from_existing` does not exist on
+        // `DescriptorKindLocal<AccessorKind>`.
+        kind_word.carry_writable(
+            descriptor.writable,
+            existing_descriptor_kind_local,
+            function,
+        );
+        match descriptor.enumerable {
+            // 6.2.6: the record does not have `[[Enumerable]]`, so there is
+            // nothing to carry over from the seed's `false` default.
+            Presence::Absent => {}
+            // The record *has* it and the compiler knows it, so the bit is
+            // already in the word: `set_attribute_if_nonzero` ran above with no
+            // presence flag to gate it.
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => kind_word.carry_attribute_from_existing(
+                AttributeBit::Enumerable,
+                present_local,
+                existing_descriptor_kind_local,
+                function,
+            ),
+        }
+        match descriptor.configurable {
+            Presence::Absent => {}
+            Presence::Present(_) => {}
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => kind_word.carry_attribute_from_existing(
+                AttributeBit::Configurable,
+                present_local,
+                existing_descriptor_kind_local,
+                function,
+            ),
+        }
+        // Step 4.c: a *generic* descriptor changes no kind. The antecedent is
+        // IsGenericDescriptor(Desc) — neither 6.2.6.1 nor 6.2.6.2 holds — so
+        // both sides' terms go in, and a side that is statically true disables
+        // the correction outright rather than contributing nothing to a flat
+        // list of run-time flags.
+        kind_word.restore_existing_accessor_kind_if_runtime_generic(
+            &data_terms,
+            &accessor_terms,
+            existing_descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(kind_word.local()));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -13723,72 +14768,90 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(entry_local, HEAP_OBJECT_SETTER_PAYLOAD_OFFSET, 0, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if let Some(present_local) = getter_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_TAG_OFFSET,
-                getter_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-                getter_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        } else if !has_getter {
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_TAG_OFFSET,
-                getter_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-                getter_payload_local,
-                function,
-            );
+        match descriptor.get {
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_GETTER_TAG_OFFSET,
+                    getter_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                    getter_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+            }
+            // The descriptor has no `[[Get]]`, so 10.1.6.3 step 8 leaves the
+            // existing one in place unconditionally.
+            Presence::Absent => {
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_GETTER_TAG_OFFSET,
+                    getter_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                    getter_payload_local,
+                    function,
+                );
+            }
+            // The descriptor has `[[Get]]` and the compiler knows it: the
+            // operand locals already hold it.
+            Presence::Present(_) => {}
         }
-        if let Some(present_local) = setter_present_local {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_TAG_OFFSET,
-                setter_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-                setter_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        } else if !has_setter {
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_TAG_OFFSET,
-                setter_tag_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-                setter_payload_local,
-                function,
-            );
+        match descriptor.set {
+            Presence::Runtime {
+                present: present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::LocalGet(present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_TAG_OFFSET,
+                    setter_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                    setter_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+            }
+            Presence::Absent => {
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_TAG_OFFSET,
+                    setter_tag_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                    setter_payload_local,
+                    function,
+                );
+            }
+            Presence::Present(_) => {}
         }
         function.instruction(&Instruction::End);
         self.store_i64_local_at_offset(
@@ -13856,12 +14919,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(TYPE_ERROR_NAME),
-        ));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
+        // This site builds its error object inline rather than through
+        // `emit_throw_runtime_error`, so it publishes the diagnostics itself.
+        // `None` is the message: this throw genuinely carries none, and saying
+        // so is what stops it from reporting a previous, unrelated throw's.
+        self.emit_set_thrown_error_text(TYPE_ERROR_NAME, None, function);
         self.set_completion_kind_with_aux(
             CompletionKind::Throw,
             self.strings.payload(TYPE_ERROR_NAME) as i64,
@@ -13890,55 +14952,25 @@ impl<'a> FunctionBuilder<'a> {
             descriptor_kind_local,
             function,
         );
-        if has_data {
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_TAG_OFFSET,
-                stored_data_tag_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-                stored_data_payload_local,
-                function,
-            );
-            self.store_i64_const_at_offset(entry_local, HEAP_OBJECT_GETTER_TAG_OFFSET, 0, function);
-            self.store_i64_const_at_offset(
-                entry_local,
-                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-                0,
-                function,
-            );
-            self.store_i64_const_at_offset(entry_local, HEAP_OBJECT_SETTER_TAG_OFFSET, 0, function);
-            self.store_i64_const_at_offset(
-                entry_local,
-                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-                0,
-                function,
-            );
-        } else {
-            self.store_i64_const_at_offset(entry_local, HEAP_OBJECT_DATA_TAG_OFFSET, 0, function);
-            self.store_i64_const_at_offset(
-                entry_local,
-                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-                0,
-                function,
-            );
-            if has_getter {
+        // 10.1.6.3 step 2.d, the create-a-new-entry path, and the only place
+        // 6.2.6.6's defaults are observable on this path. Two arms, because a
+        // stored property is a data property or an accessor property and
+        // nothing else: 6.2.6.6 step 3 has already turned a generic descriptor
+        // into the `Data` seed above.
+        match kind_word.stored_kind() {
+            StoredDescriptorKind::Data => {
                 self.store_i64_local_at_offset(
                     entry_local,
-                    HEAP_OBJECT_GETTER_TAG_OFFSET,
-                    getter_tag_local,
+                    HEAP_OBJECT_DATA_TAG_OFFSET,
+                    stored_data_tag_local,
                     function,
                 );
                 self.store_i64_local_at_offset(
                     entry_local,
-                    HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-                    getter_payload_local,
+                    HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+                    stored_data_payload_local,
                     function,
                 );
-            } else {
                 self.store_i64_const_at_offset(
                     entry_local,
                     HEAP_OBJECT_GETTER_TAG_OFFSET,
@@ -13948,36 +14980,95 @@ impl<'a> FunctionBuilder<'a> {
                 self.store_i64_const_at_offset(
                     entry_local,
                     HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                    0,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_TAG_OFFSET,
+                    0,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    entry_local,
+                    HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
                     0,
                     function,
                 );
             }
-            if has_setter {
-                self.store_i64_local_at_offset(
-                    entry_local,
-                    HEAP_OBJECT_SETTER_TAG_OFFSET,
-                    setter_tag_local,
-                    function,
-                );
-                self.store_i64_local_at_offset(
-                    entry_local,
-                    HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-                    setter_payload_local,
-                    function,
-                );
-            } else {
+            StoredDescriptorKind::Accessor => {
                 self.store_i64_const_at_offset(
                     entry_local,
-                    HEAP_OBJECT_SETTER_TAG_OFFSET,
+                    HEAP_OBJECT_DATA_TAG_OFFSET,
                     0,
                     function,
                 );
                 self.store_i64_const_at_offset(
                     entry_local,
-                    HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                    HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
                     0,
                     function,
                 );
+                match descriptor.get {
+                    Presence::Absent => {
+                        self.store_i64_const_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_GETTER_TAG_OFFSET,
+                            0,
+                            function,
+                        );
+                        self.store_i64_const_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                            0,
+                            function,
+                        );
+                    }
+                    Presence::Present(_) | Presence::Runtime { .. } => {
+                        self.store_i64_local_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_GETTER_TAG_OFFSET,
+                            getter_tag_local,
+                            function,
+                        );
+                        self.store_i64_local_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                            getter_payload_local,
+                            function,
+                        );
+                    }
+                }
+                match descriptor.set {
+                    Presence::Absent => {
+                        self.store_i64_const_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_SETTER_TAG_OFFSET,
+                            0,
+                            function,
+                        );
+                        self.store_i64_const_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                            0,
+                            function,
+                        );
+                    }
+                    Presence::Present(_) | Presence::Runtime { .. } => {
+                        self.store_i64_local_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_SETTER_TAG_OFFSET,
+                            setter_tag_local,
+                            function,
+                        );
+                        self.store_i64_local_at_offset(
+                            entry_local,
+                            HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                            setter_payload_local,
+                            function,
+                        );
+                    }
+                }
             }
         }
         function.instruction(&Instruction::LocalGet(len_local));
@@ -14000,6 +15091,92 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(cap_local);
         self.release_temp_local(len_local);
         self.release_temp_local(buffer_local);
+        Ok(())
+    }
+
+    /// 10.1.6.3 step 6.a (`side == Accessor`) or step 7.a (`side == Data`): a
+    /// non-configurable property cannot change kind.
+    ///
+    /// One obligation, from one side's [`KindTerms`]. The predicate is the
+    /// spec's own disjunction — 6.2.6.1 IsAccessorDescriptor for the accessor
+    /// side, 6.2.6.2 IsDataDescriptor for the data side.
+    ///
+    /// That disjunction is `statically_true OR (the run-time terms)`, and the
+    /// old body read only the run-time half — returning early on
+    /// `runtime_flags().is_empty()`, which conflated three different situations.
+    /// They are now four exhaustive cases:
+    fn emit_descriptor_kind_change_throw(
+        &mut self,
+        side: DescriptorSide,
+        terms: &KindTerms<WasmLocals>,
+        existing_descriptor_kind_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match (terms.statically_true, terms.is_dynamic()) {
+            // The side is **impossible**: 6.2.6.1/6.2.6.2 is false whatever the
+            // program does, so step 6.a/7.a's antecedent is false and no check
+            // is owed. This is the only case in which emitting nothing is
+            // unconditionally right.
+            (false, false) => return Ok(()),
+            // The side is **statically and only statically true**: every one of
+            // its fields is `Presence::Present`, so this is one of the internal
+            // defines whose whole descriptor the compiler chose. Step 4's
+            // antecedent is `true` here and the obligation is discharged by
+            // construction at the caller, exactly as it is for the
+            // `Presence::Present` arms of steps 4.a/4.b/4.d/4.e above — the same
+            // unproven caller property, recorded once as open ledger row
+            // **LN10**. Reading `runtime_flags()` reached this outcome by
+            // accident; this reaches it by decision.
+            (true, false) => return Ok(()),
+            // **Mixed**: one field is `Present` and another is `Runtime`, so the
+            // spec's antecedent is unconditionally true and the run-time
+            // disjunct alone is *not* it. Emitting `value_present != 0` here
+            // would under-fire on precisely the descriptor the static field
+            // already makes a data (or accessor) descriptor. No caller has this
+            // shape today, so this arm costs nothing and is the one that keeps
+            // the next one honest.
+            (true, true) => {
+                function.instruction(&Instruction::I32Const(1));
+            }
+            // Purely run-time: the OR-fold *is* 6.2.6.1/6.2.6.2.
+            (false, true) => {
+                let runtime_flags = terms.runtime_flags();
+                for (index, present_local) in runtime_flags.iter().enumerate() {
+                    function.instruction(&Instruction::LocalGet(*present_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    if index > 0 {
+                        function.instruction(&Instruction::I32Or);
+                    }
+                }
+            }
+        }
+        function.instruction(&Instruction::LocalGet(existing_descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        match side {
+            // Step 6.a: the incoming descriptor is an accessor descriptor and
+            // the existing entry is a **data** property.
+            DescriptorSide::Accessor => {
+                function.instruction(&Instruction::I64Eqz);
+            }
+            // Step 7.a: the mirror.
+            DescriptorSide::Data => {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+            }
+        }
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            TYPE_ERROR_NAME,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -14326,17 +15503,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalGet(tag_local));
-        // Parameter 5: the calling function's strictness. The shared write helper
-        // is emitted once with a fixed (mode-less) body, so sloppy vs. strict
-        // `[[Set]]` failure behavior must be selected at runtime from this flag.
+        // Parameter 5: the strictness that PutValue 3.d consults. The shared
+        // write helper is emitted once with a fixed (mode-less) body, so sloppy
+        // vs. strict `[[Set]]` failure behavior is selected at run time from
+        // this flag.
         match self.object_write_strict_flag_local {
             Some(strict_override) => {
                 function.instruction(&Instruction::LocalGet(strict_override));
             }
             None => {
-                function.instruction(&Instruction::I64Const(i64::from(
-                    self.is_current_function_strict(),
-                )));
+                function.instruction(&Instruction::I64Const(
+                    self.ambient_object_write_strict_flag_word(),
+                ));
             }
         }
         // Only created-realm standard builtins use a self-backed environment
@@ -14377,18 +15555,38 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The strictness flag word for an object write that is **not** a
+    /// Reference consumption.
+    ///
+    /// Deliberately named for what it is. This is the *ambient* mode of the
+    /// function being emitted — the quantity PutValue 3.d does **not** ask
+    /// about — and it is correct only for writes the spec does not route
+    /// through a Reference Record: property installation, class field
+    /// definition, internal helper writes. Every genuine PutValue site takes
+    /// its flag from `object_write_strict_flag_local`, installed from the
+    /// Reference's carried `[[Strict]]` by
+    /// `expressions.rs`'s `with_reference_strictness`.
+    ///
+    /// The old spelling here was `i64::from(self.is_current_function_strict())`
+    /// — indistinguishable at a glance from
+    /// [`Strictness::helper_flag_word`], which is the *Reference* conversion.
+    /// b361b4815 was exactly that confusion.
+    fn ambient_object_write_strict_flag_word(&self) -> i64 {
+        i64::from(self.is_current_function_strict())
+    }
+
     /// Emits the `Else` branch of an ordinary `[[Set]]` on an existing
     /// non-writable data property / accessor-without-setter. Spec: the write is
     /// a silent no-op in sloppy mode and a `TypeError` only in strict mode.
     ///
     /// When emitted inline the enclosing function's compile-time strictness is
     /// authoritative. When emitted as the shared outlined write helper (a
-    /// fixed, mode-less body) the decision is deferred to the runtime strict
-    /// flag threaded through helper parameter 5.
+    /// fixed, mode-less body) — or under a Reference's carried `[[Strict]]`,
+    /// see `expressions.rs`'s `with_reference_strictness` — the decision is
+    /// deferred to the runtime strict flag.
     pub(crate) fn emit_object_write_set_failure_else(
         &mut self,
         message: &str,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match self.object_write_strict_flag_local {
@@ -14403,7 +15601,6 @@ impl<'a> FunctionBuilder<'a> {
                     message,
                     self.result_local,
                     self.result_tag_local,
-                    extra_depth,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -14416,7 +15613,6 @@ impl<'a> FunctionBuilder<'a> {
                         message,
                         self.result_local,
                         self.result_tag_local,
-                        extra_depth,
                         function,
                     )?;
                 }
@@ -14468,9 +15664,9 @@ impl<'a> FunctionBuilder<'a> {
     /// Emits the sloppy/strict-guarded outcome for adding a new property to a
     /// non-extensible object. Spec: strict mode throws a `TypeError`; sloppy
     /// mode silently abandons the write. `sloppy_br_depth` is the branch depth
-    /// used to abandon the write in the inline (compile-time) case; when emitted
-    /// as the outlined helper the runtime guard nests one extra block, so the
-    /// sloppy branch targets `sloppy_br_depth + 1`.
+    /// used to abandon the write in the inline (compile-time) case; the runtime
+    /// guard nests one extra block, so every branch inside it adds
+    /// [`RUNTIME_STRICT_GUARD_BLOCK_DEPTH`].
     fn emit_object_write_non_extensible_failure(
         &mut self,
         sloppy_br_depth: u32,
@@ -14487,11 +15683,12 @@ impl<'a> FunctionBuilder<'a> {
                     "Cannot add property to non-extensible object",
                     self.result_local,
                     self.result_tag_local,
-                    5,
                     function,
                 )?;
                 function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::Br(sloppy_br_depth + 1));
+                function.instruction(&Instruction::Br(
+                    sloppy_br_depth + RUNTIME_STRICT_GUARD_BLOCK_DEPTH,
+                ));
                 function.instruction(&Instruction::End);
             }
             None => {
@@ -14501,7 +15698,6 @@ impl<'a> FunctionBuilder<'a> {
                         "Cannot add property to non-extensible object",
                         self.result_local,
                         self.result_tag_local,
-                        5,
                         function,
                     )?;
                 } else {
@@ -14896,7 +16092,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to array length", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to array length", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(array_index_write_handled_local));
@@ -14941,7 +16137,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to array property", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to array property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(array_index_write_handled_local));
@@ -15036,11 +16232,7 @@ impl<'a> FunctionBuilder<'a> {
             payload_local,
             function,
         );
-        self.emit_object_write_set_failure_else(
-            "Cannot assign to read only property",
-            9,
-            function,
-        )?;
+        self.emit_object_write_set_failure_else("Cannot assign to read only property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.load_i64_to_local_from_offset(
@@ -15077,11 +16269,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         function.instruction(&Instruction::End);
         self.emit_break_current_completion_if_throw(0, function);
-        self.emit_object_write_set_failure_else(
-            "Cannot assign to read only property",
-            9,
-            function,
-        )?;
+        self.emit_object_write_set_failure_else("Cannot assign to read only property", function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(3));
@@ -15361,7 +16549,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_object_write_set_failure_else(
             "Cannot assign to inherited read only property",
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -15398,7 +16585,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_break_current_completion_if_throw(0, function);
         self.emit_object_write_set_failure_else(
             "Cannot assign to inherited accessor without setter",
-            2,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -17874,20 +19060,16 @@ impl<'a> FunctionBuilder<'a> {
     /// Routes a pending throw completion (left in `result_local`/`result_tag_local`
     /// by a shared-helper call) to the active handler, or returns it, mirroring
     /// [`Self::emit_throw_runtime_error_to_active_handler`] but for a completion
-    /// that already exists. Uses `BrIf` so no extra wasm frame is introduced and
-    /// `extra_throw_depth` keeps the same meaning callers already pass (the count
-    /// of untracked wasm frames wrapping the call site).
-    fn emit_route_pending_throw_to_active_handler(
-        &mut self,
-        extra_throw_depth: u32,
-        function: &mut Function,
-    ) {
+    /// that already exists. Uses `BrIf` so no extra wasm frame is introduced;
+    /// the branch immediate comes from the target's recorded label, so callers
+    /// declare nothing about the frames they have open.
+    fn emit_route_pending_throw_to_active_handler(&mut self, function: &mut Function) {
         if self.is_main() {
             if let Some(target) = self.active_throw_target() {
                 function.instruction(&Instruction::LocalGet(self.completion_local));
                 function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
                 function.instruction(&Instruction::I64Eq);
-                self.emit_branch_if_to_target(target, extra_throw_depth, function);
+                self.emit_branch_if_to_target(target, function);
                 return;
             }
         }
@@ -17909,7 +19091,6 @@ impl<'a> FunctionBuilder<'a> {
         object_tag_local: u32,
         result_payload_local: u32,
         result_tag_local: u32,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let helper = self
@@ -17926,7 +19107,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalSet(result_tag_local));
-        self.emit_route_pending_throw_to_active_handler(extra_throw_depth, function);
+        self.emit_route_pending_throw_to_active_handler(function);
         Ok(())
     }
 
@@ -17938,7 +19119,6 @@ impl<'a> FunctionBuilder<'a> {
         object_payload_local: u32,
         object_tag_local: u32,
         result_local: u32,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let helper_payload_local = self.reserve_temp_local();
@@ -17965,28 +19145,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(helper_payload_local));
         function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::End);
-        self.emit_route_pending_throw_to_active_handler(extra_throw_depth, function);
+        self.emit_route_pending_throw_to_active_handler(function);
         self.release_temp_local(helper_tag_local);
         self.release_temp_local(helper_payload_local);
         Ok(())
-    }
-
-    pub(crate) fn emit_object_get_prototype_of(
-        &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        result_payload_local: u32,
-        result_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_object_get_prototype_of_with_depth(
-            object_payload_local,
-            object_tag_local,
-            result_payload_local,
-            result_tag_local,
-            0,
-            function,
-        )
     }
 
     pub(crate) fn emit_object_get_prototype_of_without_proxy(
@@ -18064,13 +19226,12 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_object_get_prototype_of_with_depth(
+    pub(crate) fn emit_object_get_prototype_of(
         &mut self,
         object_payload_local: u32,
         object_tag_local: u32,
         result_payload_local: u32,
         result_tag_local: u32,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if self.outline_object_get_prototype_of {
@@ -18083,7 +19244,6 @@ impl<'a> FunctionBuilder<'a> {
                     object_tag_local,
                     result_payload_local,
                     result_tag_local,
-                    extra_throw_depth,
                     function,
                 );
             }
@@ -18128,7 +19288,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18163,18 +19322,16 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        // This call site sits 3 untracked `If`s deep (object-tag check, proxy-handler
-        // check, trap-is-callable check above), matching the nesting the sibling
-        // `emit_throw_runtime_error_to_active_handler(..., extra_throw_depth + 3, ...)`
-        // calls in this function account for. `emit_function_handle_call` bakes in a
-        // fixed extra depth of 1 (matched to being called from untracked-nesting depth
-        // 0), which under-counts here and misroutes an abrupt completion from the trap
-        // itself (e.g. the trap throwing directly) to the wrong wasm block instead of
-        // the active catch/return path — silently swallowing the throw when this is
-        // reached from inside a non-top-level function. `throw_extra_depth` must be
-        // `extra_throw_depth + 2` (not `+ 3`) because the underlying propagate helper
-        // already adds its own `+ 1` for its internal `if` wrapper.
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        // This call site sits 3 `If`s deep (object-tag check, proxy-handler check,
+        // trap-is-callable check above). That used to matter: those frames were
+        // untracked, every branch out of here had to declare them by hand, and
+        // the sibling calls in this function each carried a different
+        // hand-counted number for the same nesting. The sink counts them, so
+        // the propagation below needs nothing declared — which is also what
+        // stopped an abrupt completion from the trap itself (the trap throwing
+        // directly) from being misrouted to the wrong wasm block and silently
+        // swallowed when this is reached from inside a non-top-level function.
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -18182,7 +19339,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 2,
             function,
         )?;
 
@@ -18198,7 +19354,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy getPrototypeOf trap result must be object or null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18207,7 +19362,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             target_extensible_local,
-            extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(target_extensible_local));
@@ -18218,7 +19372,6 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             target_proto_payload_local,
             target_proto_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         self.emit_tagged_payload_same_value_i32(
@@ -18235,7 +19388,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy getPrototypeOf trap result does not match target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18265,7 +19417,6 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             result_payload_local,
             result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -18274,7 +19425,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy getPrototypeOf trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18397,27 +19547,6 @@ impl<'a> FunctionBuilder<'a> {
         result_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_object_set_prototype_of_i32_with_depth(
-            object_payload_local,
-            object_tag_local,
-            proto_payload_local,
-            proto_tag_local,
-            result_local,
-            0,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_object_set_prototype_of_i32_with_depth(
-        &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        proto_payload_local: u32,
-        proto_tag_local: u32,
-        result_local: u32,
-        extra_throw_depth: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
         let handled_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
         let handler_tag_local = self.reserve_temp_local();
@@ -18463,7 +19592,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18499,7 +19627,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -18510,7 +19638,6 @@ impl<'a> FunctionBuilder<'a> {
             ],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 2,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -18526,7 +19653,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             target_extensible_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(target_extensible_local));
@@ -18537,7 +19663,6 @@ impl<'a> FunctionBuilder<'a> {
             target_tag_local,
             target_proto_payload_local,
             target_proto_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         self.emit_tagged_payload_same_value_i32(
@@ -18554,7 +19679,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy setPrototypeOf trap result incompatible with non-extensible target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 6,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -18582,7 +19706,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy setPrototypeOf trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19089,7 +20212,6 @@ impl<'a> FunctionBuilder<'a> {
             object_tag_local,
             result_local,
             4,
-            0,
             function,
         )
     }
@@ -19100,7 +20222,6 @@ impl<'a> FunctionBuilder<'a> {
         object_tag_local: u32,
         result_local: u32,
         proxy_depth: u8,
-        extra_throw_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let handled_local = self.reserve_temp_local();
@@ -19146,7 +20267,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19181,7 +20301,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -19189,7 +20309,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -19209,11 +20328,10 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         } else {
-            self.emit_object_is_extensible_i32_with_depth(
+            self.emit_object_is_extensible_i32(
                 target_payload_local,
                 target_tag_local,
                 target_extensible_local,
-                extra_throw_depth + 5,
                 function,
             )?;
         }
@@ -19226,7 +20344,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy preventExtensions trap returned true for extensible target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 6,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19259,7 +20376,6 @@ impl<'a> FunctionBuilder<'a> {
                 target_tag_local,
                 result_local,
                 proxy_depth - 1,
-                extra_throw_depth + 5,
                 function,
             )?;
         }
@@ -19280,7 +20396,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy preventExtensions trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19324,30 +20439,12 @@ impl<'a> FunctionBuilder<'a> {
         result_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_object_is_extensible_i32_with_depth(
-            object_payload_local,
-            object_tag_local,
-            result_local,
-            0,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_object_is_extensible_i32_with_depth(
-        &mut self,
-        object_payload_local: u32,
-        object_tag_local: u32,
-        result_local: u32,
-        extra_throw_depth: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
         if self.outline_object_is_extensible {
             if self.object_is_extensible_helper_function_index().is_some() {
                 return self.emit_call_object_is_extensible_helper(
                     object_payload_local,
                     object_tag_local,
                     result_local,
-                    extra_throw_depth,
                     function,
                 );
             }
@@ -19395,7 +20492,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy handler is null",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19428,7 +20524,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_with_throw_extra_depth(
+        self.emit_function_or_proxy_call_with_throw_propagation(
             trap_payload_local,
             trap_tag_local,
             handler_payload_local,
@@ -19436,7 +20532,6 @@ impl<'a> FunctionBuilder<'a> {
             &[(target_payload_local, target_tag_local)],
             trap_result_payload_local,
             trap_result_tag_local,
-            extra_throw_depth + 3,
             function,
         )?;
         self.compile_truthy_tagged_i32(trap_result_tag_local, trap_result_payload_local, function)?;
@@ -19448,7 +20543,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             target_result_local,
-            extra_throw_depth + 4,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(result_local));
@@ -19460,7 +20554,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy isExtensible trap result does not match target",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -19477,7 +20570,6 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             result_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -19486,7 +20578,6 @@ impl<'a> FunctionBuilder<'a> {
             "Proxy isExtensible trap is not callable",
             self.result_local,
             self.result_tag_local,
-            extra_throw_depth + 5,
             function,
         )?;
         function.instruction(&Instruction::End);

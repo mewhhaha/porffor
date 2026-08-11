@@ -207,6 +207,178 @@ mod tests {
         }
     }
 
+    /// The rooting walk must terminate on a cyclic dependency, and must still
+    /// root both ends of the cycle.
+    ///
+    /// `Temporal.PlainDateTime`'s arm requires `TemporalZonedDateTimeConstructor`
+    /// (its `toZonedDateTime` returns one) and `Temporal.ZonedDateTime`'s arm
+    /// requires `TemporalPlainDateTimeConstructor` (its `toPlainDateTime`
+    /// returns one). Before the `walked` guard this pair recursed until the
+    /// engine's 64 MiB worker stack was gone and the process died with SIGABRT
+    /// — from `print(typeof Temporal.ZonedDateTime)`, from
+    /// `print(typeof globalThis)`, and from any test262 case containing
+    /// `var global = this;`, which is how it took down a full-suite sweep and
+    /// aborted the whole `--test cli` process ten tests in.
+    ///
+    /// A stack overflow aborts the test binary rather than failing one test, so
+    /// a regression here is loud: the whole `porffor-aot-wasm` lib target dies.
+    /// That is the intended behaviour of this test, not a flaw in it — there is
+    /// no way to catch a blown guard page in-process.
+    ///
+    /// Batch 6 added five more entry points, and it is worth being exact about
+    /// what they buy, because the comment here first claimed more. All 28
+    /// ZonedDateTime members share ONE or-pattern arm (`:2225`) whose body does
+    /// not branch per member, so entering at
+    /// `...PrototypeAdd` executes byte-identical code to entering at
+    /// `...PrototypeEraGetter` — the only difference is which id
+    /// `standard_roots.insert` receives first. **These are shape assertions
+    /// that the arithmetic members really are in that arm, not a longer walk.**
+    /// A member left out of the arm is already a compile error, since the
+    /// `match` over `StandardBuiltinId` is exhaustive; what these entries pin is
+    /// that nobody moves them into an arm that does not root both ends.
+    ///
+    /// The entry point that would give genuinely new cycle coverage is a
+    /// `Temporal.Duration.prototype.round`/`total` member, on the day that arm
+    /// grows the `relativeTo` edge — see the note at the Duration root in the
+    /// ZonedDateTime arm. Non-termination shows up as a SIGABRT in a
+    /// whole-suite sweep, never as a red unit test.
+    ///
+    /// `TemporalDurationConstructor` is deliberately **not** an entry point
+    /// here: its own arm is a leaf (it inserts its family directly into
+    /// `standard_roots` and requires nothing), so entering there roots neither
+    /// end of the cycle and the two assertions below would be false. That is
+    /// the current shape of the Duration arm, not an invariant — if it ever
+    /// grows a `require_standard_builtin(TemporalZonedDateTimeConstructor)` for
+    /// `relativeTo`, add it to this list at the same time.
+    #[test]
+    fn a_cyclic_rooting_dependency_terminates_and_roots_both_ends() {
+        for entry in [
+            StandardBuiltinId::TemporalZonedDateTimeConstructor,
+            StandardBuiltinId::TemporalPlainDateTimeConstructor,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry);
+
+            assert!(
+                plan.standard_roots.contains(&entry),
+                "the entry point itself must be rooted: {entry:?}"
+            );
+            // Both ends of the cycle, whichever end we entered from. This is
+            // the half that a naive `if !standard_roots.insert(..) { return }`
+            // guard would have been free to drop.
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::TemporalZonedDateTimeConstructor),
+                "entering at {entry:?} must still root the ZonedDateTime constructor"
+            );
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::TemporalPlainDateTimeConstructor),
+                "entering at {entry:?} must still root the PlainDateTime constructor"
+            );
+            assert!(
+                plan.temporal_object,
+                "entering at {entry:?} must set the Temporal namespace flag"
+            );
+        }
+    }
+
+    /// What `zdt.add`/`subtract`/`until`/`since` must find already emitted.
+    ///
+    /// **The Duration assertion is pre-satisfied and is deliberately not the
+    /// point of this test.** An earlier version of this doc claimed
+    /// `a_cyclic_rooting_dependency_terminates_and_roots_both_ends` "would still
+    /// pass with the Duration line removed — hence a second test". That is
+    /// false, and so is the implied "the Duration root has no other witness":
+    /// the ZonedDateTime arm's first statement requires
+    /// `TemporalPlainDateTimeConstructor`, whose arm's first statement requires
+    /// `TemporalDurationConstructor`, so Duration is rooted transitively for
+    /// every ZonedDateTime member with or without that line — and was before
+    /// batch 6. It is kept below as a statement of what these four bodies need,
+    /// not as coverage of a line that could regress.
+    ///
+    /// The real coverage here is the delegation list: these bodies are
+    /// composition, they look their delegates up through `emit_direct_js_call`
+    /// on `self.functions`, and a delegate that is not rooted is an
+    /// `EmitError::unsupported` at emit time rather than a compile error. That
+    /// half is a genuine contract statement for a shape the type system does
+    /// not cover.
+    #[test]
+    fn zoned_date_time_arithmetic_roots_the_duration_family_it_allocates() {
+        for entry in [
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry);
+
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::TemporalDurationConstructor),
+                "{entry:?} allocates or reads a Temporal.Duration and must root its constructor \
+                 (pre-satisfied transitively via TemporalPlainDateTimeConstructor; see this \
+                 test's doc comment before treating a failure here as a Duration-line regression)"
+            );
+            // The bodies delegate to the PlainDateTime namesakes rather than
+            // re-deriving the arithmetic, so those four have to be emitted, not
+            // merely their constructor.
+            for delegate in [
+                StandardBuiltinId::TemporalPlainDateTimePrototypeAdd,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSubtract,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+                StandardBuiltinId::TemporalZonedDateTimeFrom,
+            ] {
+                assert!(
+                    plan.standard_roots.contains(&delegate),
+                    "{entry:?} delegates to {delegate:?}, which must be rooted"
+                );
+            }
+        }
+
+        // `withCalendar` does *not* delegate — it rewrites the record in place
+        // — so it is deliberately not in the loop above. It still needs the
+        // ZonedDateTime prototype global, which its own arm roots.
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+        );
+        assert!(plan
+            .standard_roots
+            .contains(&StandardBuiltinId::TemporalZonedDateTimeConstructor));
+    }
+
+    /// Requiring the same builtin twice must be a no-op the second time, and
+    /// must not shrink the answer.
+    ///
+    /// `walked` makes the second call return early, so this pins the claim that
+    /// the arms are idempotent: walking once yields the same `standard_roots`
+    /// as walking repeatedly.
+    #[test]
+    fn requiring_a_builtin_twice_is_idempotent() {
+        let mut once = RuntimeBootstrapPlan::default();
+        once.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+
+        let mut twice = RuntimeBootstrapPlan::default();
+        twice.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+        twice.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+
+        assert_eq!(once.standard_roots, twice.standard_roots);
+        assert_eq!(once.temporal_object, twice.temporal_object);
+    }
+
     #[test]
     fn string_call_result_chain_keeps_bootstrap_and_both_methods_live() {
         let mut plan = RuntimeBootstrapPlan::default();
@@ -704,6 +876,347 @@ mod tests {
         assert_eq!(script.top_level_this_uses, 1);
         assert!(RuntimeBootstrapPlan::from_script(&script, &[]).full_standard_globals);
     }
+
+    #[test]
+    fn every_installed_intl_namespace_member_is_rooted_by_the_namespace_plan() {
+        // Kept only for its message. The containment itself is now a `const _`
+        // block beside `INTL_NAMESPACE_ROOTS`, so the drift this used to catch
+        // at `cargo test` no longer compiles; do not read this test's presence
+        // as meaning the check lives at test time.
+        for (name, builtin) in INTL_NAMESPACE_CONSTRUCTORS {
+            assert!(
+                INTL_NAMESPACE_ROOTS.contains(builtin),
+                "`Intl.{name}` is installed from `INTL_NAMESPACE_CONSTRUCTORS` but \
+                 `INTL_NAMESPACE_ROOTS` never roots `{}`",
+                builtin.debug_name()
+            );
+        }
+    }
+
+    #[test]
+    fn rooting_any_intl_builtin_installs_the_whole_namespace() {
+        // Reaching one member of the family — say `Intl.DateTimeFormat` through
+        // a folded member expression, with no bare `Intl` anywhere — must still
+        // produce an `Intl` object carrying everything the shape declares.
+        for entry_point in INTL_NAMESPACE_ROOTS {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry_point);
+
+            assert!(
+                plan.intl_namespace_members().is_some(),
+                "rooting `{}` must install the `Intl` namespace object",
+                entry_point.debug_name()
+            );
+            for builtin in INTL_NAMESPACE_ROOTS {
+                assert!(
+                    plan.should_initialize_standard_builtin(builtin),
+                    "rooting `{}` must also root `{}`",
+                    entry_point.debug_name(),
+                    builtin.debug_name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_bare_intl_reference_roots_every_intl_namespace_member() {
+        // `intl402/DateTimeFormat/prop-desc.js` reaches `DateTimeFormat` only
+        // through `verifyProperty(Intl, "DateTimeFormat", ...)`, so it never
+        // appears as a member expression and never reaches
+        // `compiled_standard_builtins`. The namespace binding is the only thing
+        // that can root it.
+        let script = lower_script(r#"verifyProperty(Intl, "DateTimeFormat", {});"#);
+        let plan = RuntimeBootstrapPlan::from_script(&script, &[]);
+
+        assert!(
+            !plan.full_standard_globals,
+            "this script must exercise the namespace-binding path, not the full bootstrap"
+        );
+        assert!(plan.should_install_script_global_binding(ScriptGlobalBindingKind::IntlObject));
+        assert!(plan.intl_namespace_members().is_some());
+        for builtin in INTL_NAMESPACE_ROOTS {
+            assert!(
+                plan.should_initialize_standard_builtin(builtin),
+                "a bare `Intl` reference must root `{}`",
+                builtin.debug_name()
+            );
+        }
+    }
+
+    /// The `Temporal` namespace object must carry every constructor its
+    /// declared shape carries — the same invariant
+    /// [`Self::a_bare_intl_reference_roots_every_intl_namespace_member`] pins
+    /// for `Intl`.
+    ///
+    /// KNOWN GAP, and `#[ignore]`d for it.
+    /// `ScriptLowerer::temporal_object_value_info` declares eight
+    /// constructor-valued members on the `Temporal` shape unconditionally, but
+    /// a bare `Temporal` reference roots only the `Instant` family and
+    /// `Temporal.Now.timeZoneId`, so `init_temporal_object` skips the other
+    /// seven and the emitted object disagrees with the shape the same program
+    /// was compiled against. That is the identical defect this lane removed for
+    /// `Intl`, and it is not fixed here: rooting seven more Temporal families
+    /// from every bare `Temporal` mention is an emit-size and compile-time
+    /// change nobody has measured. See
+    /// `target/lane-notes/intl-namespace-rooting-b2-integration.md` §3.
+    ///
+    /// Written in the direction the fix moves, on purpose. The first version of
+    /// this test asserted the seven are *not* rooted, which made the correct
+    /// repair turn `cargo test -p porffor-aot-wasm planning::` red and told
+    /// whoever made it to delete an assertion. Here, fixing Temporal makes this
+    /// pass and the `#[ignore]` comes off; nothing about the gap is silent
+    /// meanwhile, because `cargo test -- --ignored` still names it.
+    #[test]
+    #[ignore = "known gap: a bare `Temporal` reference roots only the Instant family and \
+                Temporal.Now.timeZoneId, not the seven other constructors its shape declares; \
+                see target/lane-notes/intl-namespace-rooting-b2-integration.md §3"]
+    fn a_bare_temporal_reference_roots_its_declared_namespace_shape() {
+        let script = lower_script("var namespace = Temporal;");
+        let plan = RuntimeBootstrapPlan::from_script(&script, &[]);
+
+        assert!(!plan.full_standard_globals);
+        assert!(plan.should_install_script_global_binding(ScriptGlobalBindingKind::TemporalObject));
+        for declared in [
+            StandardBuiltinId::TemporalInstantConstructor,
+            StandardBuiltinId::TemporalPlainDateConstructor,
+            StandardBuiltinId::TemporalPlainTimeConstructor,
+            StandardBuiltinId::TemporalPlainDateTimeConstructor,
+            StandardBuiltinId::TemporalPlainYearMonthConstructor,
+            StandardBuiltinId::TemporalPlainMonthDayConstructor,
+            StandardBuiltinId::TemporalZonedDateTimeConstructor,
+            StandardBuiltinId::TemporalDurationConstructor,
+        ] {
+            assert!(
+                plan.should_initialize_standard_builtin(declared),
+                "a bare `Temporal` reference must root `{}`, which its declared namespace \
+                 shape carries unconditionally",
+                declared.debug_name()
+            );
+        }
+    }
+
+    /// No `Intl` builtin may exist outside the two namespace lists.
+    ///
+    /// The three checks around this one partition as CONSTRUCTORS ⊆ ROOTS,
+    /// ROOTS ⊆ the `require_standard_builtin` match arm, and (at debug runtime
+    /// only) match arm ⊆ ROOTS. None of them can see the drift that actually
+    /// happens next: a *new* `Intl` builtin — `Intl.NumberFormat` is the
+    /// obvious follow-on — added to neither list. Its symptom is precisely what
+    /// this lane exists to prevent: a builtin reachable as a member expression
+    /// but never rooted from a bare `Intl`, so `intl402/**/prop-desc.js`-shaped
+    /// reflective reads find it missing.
+    ///
+    /// `debug_name()` spells every `Intl` id with an `Intl.` prefix, which is
+    /// what makes the total direction checkable at all without a fourth list.
+    #[test]
+    fn every_intl_standard_builtin_is_in_the_namespace_root_list() {
+        for builtin in StandardBuiltinId::all_functions() {
+            if !builtin.debug_name().contains("Intl.") {
+                continue;
+            }
+            assert!(
+                INTL_NAMESPACE_ROOTS.contains(builtin),
+                "`{}` is an `Intl` builtin but appears in no namespace list, so a bare \
+                 `Intl` reference will not root it",
+                builtin.debug_name()
+            );
+        }
+    }
+}
+
+/// Every builtin the `Intl` namespace object depends on, declared exactly once.
+///
+/// Two independent obligations force a single list:
+///
+/// - `ScriptLowerer::intl_object_value_info` puts every
+///   `INTL_NAMESPACE_CONSTRUCTORS` member on the `Intl` shape
+///   *unconditionally*. An `Intl` object missing one of them contradicts the
+///   shape the same program was compiled against, which is invisible to any
+///   test that only reaches the member through a folded member expression and
+///   visible to every test that reads it reflectively — that is
+///   `intl402/DateTimeFormat/prop-desc.js`.
+/// - `Intl.DateTimeFormat` is not a usable constructor without
+///   `supportedLocalesOf`, its prototype accessors and its bound-format body,
+///   and the five `Temporal.Plain*.prototype.toLocaleString` emitters look the
+///   constructor and the format getter up by function id and return
+///   `EmitError::unsupported` when either is missing.
+///
+/// `require_standard_builtin` does not recurse through its own match, so a
+/// caller that needs the formatter must seed every id itself rather than
+/// relying on one id dragging in the rest.
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [
+    StandardBuiltinId::IntlGetCanonicalLocales,
+    StandardBuiltinId::IntlLocaleConstructor,
+    StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
+    StandardBuiltinId::IntlLocalePrototypeScriptGetter,
+    StandardBuiltinId::IntlLocalePrototypeRegionGetter,
+    StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
+    StandardBuiltinId::IntlLocalePrototypeToString,
+    StandardBuiltinId::IntlDateTimeFormatConstructor,
+    StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
+    StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
+    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter,
+    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
+    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
+    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
+    StandardBuiltinId::IntlDateTimeFormatBoundFormat,
+];
+
+/// `INTL_NAMESPACE_CONSTRUCTORS` ⊆ [`INTL_NAMESPACE_ROOTS`], checked by the
+/// compiler rather than by a test.
+///
+/// This is the one link the two types cannot carry. [`IntlNamespacePlan::rooted`]
+/// seeds `INTL_NAMESPACE_ROOTS` and [`IntlNamespacePlan::members`] hands out
+/// `INTL_NAMESPACE_CONSTRUCTORS`, which lives in `porffor-ir`; nothing relates
+/// them, so [`IntlNamespaceMembers`]'s "every member is rooted" claim rests on
+/// this containment alone. Adding `Intl.NumberFormat` to the shape list and
+/// forgetting the root list is the plausible mistake, and it is not a missing
+/// property: `init_intl_object` walks the member list with no per-member guard,
+/// so an unseeded member becomes a `GlobalGet` on a global that is never
+/// `GlobalSet`, paired with an unconditional `Function` tag — a callable with a
+/// zero payload.
+///
+/// `StandardBuiltinId` is fieldless, so `as u32` is a total, `const`-evaluable
+/// identity for it and the whole check runs at compile time.
+const _: () = {
+    let mut member = 0;
+    while member < INTL_NAMESPACE_CONSTRUCTORS.len() {
+        let needle = INTL_NAMESPACE_CONSTRUCTORS[member].1 as u32;
+        let mut root = 0;
+        let mut found = false;
+        while root < INTL_NAMESPACE_ROOTS.len() {
+            if INTL_NAMESPACE_ROOTS[root] as u32 == needle {
+                found = true;
+            }
+            root += 1;
+        }
+        assert!(
+            found,
+            "an `Intl` namespace member declared on the IR shape is missing from \
+             `INTL_NAMESPACE_ROOTS`, so a bare `Intl` reference would install it as a \
+             `Function`-tagged value with a never-written payload"
+        );
+        member += 1;
+    }
+};
+
+pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};
+
+/// The `Intl` namespace plan and its member-list witness, in a module of their
+/// own.
+///
+/// The module boundary is the enforcement. Both types were previously declared
+/// beside [`RuntimeBootstrapPlan`], where their doc comments claimed the
+/// installed variant could only come from the seeding constructor — true for
+/// every module *except* the 6,000-line one where the next namespace-rooting
+/// arm actually gets written, and in which
+/// `self.intl = IntlNamespacePlan::RootedWithDateTimeFormatFamily;` compiled
+/// fine. Here the installed variant carries a payload whose field is private to
+/// this module and [`IntlNamespaceMembers`] has no constructor at all, so
+/// neither can be built anywhere else in the crate, `planning` included.
+///
+/// The failure that shape prevents is not a missing property. `init_intl_object`
+/// walks the member list with no per-member guard (deliberately — the guard it
+/// used to have silently `continue`d past unrooted members), emitting
+/// `GlobalGet` for each constructor's global paired with an unconditional
+/// `Function` tag. A global that is never `GlobalSet` still resolves, so an
+/// unseeded member becomes a `Function`-tagged value with a never-written
+/// payload: a bogus callable, which is worse than the absent property the old
+/// guard produced.
+mod intl_namespace {
+    use super::*;
+
+    /// Evidence that [`INTL_NAMESPACE_ROOTS`] has been seeded into a plan's root
+    /// set, or that the plan initialises every builtin anyway.
+    ///
+    /// The unit field is private to this module and there is no constructor, so
+    /// this cannot be built outside [`IntlNamespacePlan::rooted`].
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct IntlRootsSeeded(());
+
+    /// Whether this plan installs the `Intl` namespace object.
+    ///
+    /// The non-`Absent` variant is produced **only** by
+    /// [`IntlNamespacePlan::rooted`], which takes the root set by `&mut` and
+    /// seeds [`INTL_NAMESPACE_ROOTS`] into it before it can return. "Marked as
+    /// installed but missing a member the IR shape declares" is therefore
+    /// unrepresentable, rather than merely untested — which is what the previous
+    /// `intl_object: bool` was, and what `init_intl_object`'s per-member
+    /// `should_initialize_standard_builtin` guard existed to paper over.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub(crate) enum IntlNamespacePlan {
+        /// This program never names `Intl` and never reaches an `Intl` builtin,
+        /// so no namespace object is emitted at all.
+        #[default]
+        Absent,
+        /// The namespace object is emitted, and every [`INTL_NAMESPACE_ROOTS`]
+        /// id is in `standard_roots`.
+        RootedWithDateTimeFormatFamily(IntlRootsSeeded),
+    }
+
+    impl IntlNamespacePlan {
+        /// The only constructor of
+        /// [`IntlNamespacePlan::RootedWithDateTimeFormatFamily`].
+        pub(crate) fn rooted(standard_roots: &mut BTreeSet<StandardBuiltinId>) -> Self {
+            standard_roots.extend(INTL_NAMESPACE_ROOTS);
+            Self::RootedWithDateTimeFormatFamily(IntlRootsSeeded(()))
+        }
+
+        /// The member list, or `None` when no `Intl` object is emitted.
+        ///
+        /// `full_standard_globals` is a parameter rather than a second variant
+        /// because it discharges the same obligation by a different route:
+        /// `should_initialize_standard_builtin` is unconditionally true under
+        /// it, so every member is rooted by definition. Keeping the check here
+        /// is what leaves [`IntlNamespaceMembers`] with no reachable
+        /// constructor.
+        pub(crate) fn members(self, full_standard_globals: bool) -> Option<IntlNamespaceMembers> {
+            if full_standard_globals || matches!(self, Self::RootedWithDateTimeFormatFamily(_)) {
+                Some(IntlNamespaceMembers {
+                    members: INTL_NAMESPACE_CONSTRUCTORS,
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Proof that every member of the `Intl` namespace object is rooted in the
+    /// plan that produced it.
+    ///
+    /// The proof has two halves, and only one of them is this type: minting one
+    /// requires a plan that has seeded [`INTL_NAMESPACE_ROOTS`], and the `const`
+    /// block beside that list is what makes "seeded the roots" imply "rooted
+    /// every member of `INTL_NAMESPACE_CONSTRUCTORS`". The second half is
+    /// cross-crate — the member list lives in `porffor-ir` — so it cannot be a
+    /// property of this type, only of the build.
+    ///
+    /// Only [`IntlNamespacePlan::members`] can mint one — reached through
+    /// [`RuntimeBootstrapPlan::intl_namespace_members`] — and it is the only way
+    /// to reach the installation list, so `init_intl_object` cannot install a
+    /// partial `Intl`. The emitter used to re-check
+    /// `should_initialize_standard_builtin` per member and `continue` past the
+    /// ones that failed; the omission compiled, formatted cleanly, and produced
+    /// an `Intl` object whose contents disagreed with the shape the same program
+    /// was compiled against.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct IntlNamespaceMembers {
+        /// Private to this module — not merely to `planning` — so nothing else
+        /// can name `INTL_NAMESPACE_CONSTRUCTORS` into an
+        /// [`IntlNamespaceMembers`] and fabricate the proof. A unit struct would
+        /// have been forgeable.
+        members: &'static [(&'static str, StandardBuiltinId)],
+    }
+
+    impl IntlNamespaceMembers {
+        /// Installation order, which is `Object.getOwnPropertyNames(Intl)` order
+        /// and therefore observable. Do not sort it here.
+        pub(crate) fn in_installation_order(
+            self,
+        ) -> impl Iterator<Item = (&'static str, StandardBuiltinId)> {
+            self.members.iter().copied()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -715,7 +1228,37 @@ pub(crate) struct RuntimeBootstrapPlan {
     pub(crate) json_object: bool,
     pub(crate) atomics_object: bool,
     pub(crate) temporal_object: bool,
-    pub(crate) intl_object: bool,
+    /// Deliberately **private**, unlike its five `pub(crate)` siblings: it is
+    /// the one namespace flag that carries a rooting obligation, and `planning`
+    /// is the only module allowed to discharge it. Read it through
+    /// [`RuntimeBootstrapPlan::intl_namespace_members`].
+    intl: IntlNamespacePlan,
+    /// Which builtins [`RuntimeBootstrapPlan::require_standard_builtin`] has
+    /// already *walked*, as opposed to which ones are rooted.
+    ///
+    /// The dependency graph these arms describe has cycles in it, and one of
+    /// them is reachable from a one-line program. `Temporal.PlainDateTime`'s
+    /// arm requires `TemporalZonedDateTimeConstructor` (for `toZonedDateTime`)
+    /// and `Temporal.ZonedDateTime`'s arm requires
+    /// `TemporalPlainDateTimeConstructor` (for `toPlainDateTime`), so
+    /// `print(typeof Temporal.ZonedDateTime)` recursed until it exhausted the
+    /// engine's 64 MiB worker stack and aborted the process with SIGABRT. Top
+    /// level `this` and `globalThis` reach it too, because they root every
+    /// global; that is how a `var global = this;` case in
+    /// `built-ins/Array/prototype/map` came to kill a full-suite sweep.
+    ///
+    /// This must NOT be replaced by guarding on `standard_roots` itself, however
+    /// tempting the one-liner is. Several arms below add their dependencies with
+    /// a bare `standard_roots.insert(dep)` rather than a recursive `require`, so
+    /// a builtin can already be *rooted* without ever having been *walked*.
+    /// Guarding on `standard_roots` would then skip that builtin's arm the first
+    /// time anything genuinely required it, silently dropping every root the arm
+    /// would have added — trading an abort for a wrong answer.
+    ///
+    /// Walking each builtin exactly once reaches the same fixpoint as walking it
+    /// repeatedly: every effect in these arms is a set insertion or a `= true`
+    /// flag, so they are idempotent and order-independent.
+    walked: BTreeSet<StandardBuiltinId>,
 }
 
 impl RuntimeBootstrapPlan {
@@ -779,11 +1322,23 @@ impl RuntimeBootstrapPlan {
             ScriptGlobalBindingKind::TemporalObject => {
                 self.full_standard_globals || self.temporal_object
             }
-            ScriptGlobalBindingKind::IntlObject => self.full_standard_globals || self.intl_object,
+            ScriptGlobalBindingKind::IntlObject => self.intl_namespace_members().is_some(),
             ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                 self.should_initialize_standard_builtin(builtin)
             }
         }
+    }
+
+    /// The `Intl` namespace members to install, or `None` when this program
+    /// never gets an `Intl` object.
+    ///
+    /// This is the single gate `builtins::bootstrap` consults: it calls
+    /// `init_intl_object` only while holding the returned witness, and the
+    /// witness is the only source of the member list. There is deliberately no
+    /// bool accessor beside it — a caller that can ask "is `Intl` installed?"
+    /// without receiving the proof is a caller that can install a partial one.
+    pub(crate) fn intl_namespace_members(&self) -> Option<IntlNamespaceMembers> {
+        self.intl.members(self.full_standard_globals)
     }
 
     pub(crate) fn needs_typed_array_intrinsic(&self) -> bool {
@@ -811,9 +1366,23 @@ impl RuntimeBootstrapPlan {
                 self.require_standard_builtin(StandardBuiltinId::TemporalNowTimeZoneId);
             }
             ScriptGlobalBindingKind::IntlObject => {
-                self.intl_object = true;
-                self.require_standard_builtin(StandardBuiltinId::IntlLocaleConstructor);
-                self.require_standard_builtin(StandardBuiltinId::IntlGetCanonicalLocales);
+                // A bare `Intl` reference gets the namespace object
+                // `ScriptLowerer::intl_object_value_info` describes, and that
+                // shape declares every `INTL_NAMESPACE_CONSTRUCTORS` member
+                // unconditionally — including `DateTimeFormat`, which
+                // `intl402/DateTimeFormat/prop-desc.js` only ever reaches
+                // through `verifyProperty(Intl, "DateTimeFormat", ...)`, never
+                // as a member expression, so it never lands in
+                // `compiled_standard_builtins`. Rooting the family here is what
+                // makes the emitted object and the compiled-against shape agree.
+                //
+                // This arm used to say
+                // `require_standard_builtin(IntlLocaleConstructor)` plus
+                // `require_standard_builtin(IntlGetCanonicalLocales)`, which
+                // reaches the identical root set — but only by way of the Intl
+                // arm four hundred lines down inside `require_standard_builtin`.
+                // Same set, stated locally.
+                self.require_intl_date_time_format_family();
             }
             ScriptGlobalBindingKind::BuiltinFunction(builtin) => {
                 self.require_standard_builtin(builtin);
@@ -846,39 +1415,25 @@ impl RuntimeBootstrapPlan {
         }
     }
 
-    /// Root the whole `Intl.DateTimeFormat` family.
+    /// Root the whole `Intl.DateTimeFormat` family and mark the namespace object
+    /// as installed.
     ///
-    /// `require_standard_builtin` does not recurse through its own match, so a
-    /// caller that needs the formatter must seed every id itself. The five
-    /// `Temporal.Plain*.prototype.toLocaleString` emitters look up the
-    /// `Intl.DateTimeFormat` constructor and format getter by function id and
-    /// return `EmitError::unsupported` when either is missing, so any family
-    /// that installs a `toLocaleString` has to pull this in.
+    /// Both effects come from one assignment because [`IntlNamespacePlan`] has
+    /// no other way to reach its installed state: the seeding happens inside the
+    /// only constructor of that variant. See [`INTL_NAMESPACE_ROOTS`] for why
+    /// the family is all-or-nothing.
     fn require_intl_date_time_format_family(&mut self) {
-        self.intl_object = true;
-        for dependency in [
-            StandardBuiltinId::IntlGetCanonicalLocales,
-            StandardBuiltinId::IntlLocaleConstructor,
-            StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
-            StandardBuiltinId::IntlLocalePrototypeScriptGetter,
-            StandardBuiltinId::IntlLocalePrototypeRegionGetter,
-            StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
-            StandardBuiltinId::IntlLocalePrototypeToString,
-            StandardBuiltinId::IntlDateTimeFormatConstructor,
-            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
-            StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
-            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter,
-            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
-            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
-            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
-            StandardBuiltinId::IntlDateTimeFormatBoundFormat,
-        ] {
-            self.standard_roots.insert(dependency);
-        }
+        self.intl = IntlNamespacePlan::rooted(&mut self.standard_roots);
     }
 
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
         self.standard_roots.insert(builtin);
+        // Rooting is unconditional above; *walking* happens at most once. See
+        // the `walked` field's documentation for why the guard cannot live on
+        // `standard_roots`, and for the cycle that makes it necessary at all.
+        if !self.walked.insert(builtin) {
+            return;
+        }
         if builtin == StandardBuiltinId::ArrayFromAsync {
             self.standard_roots
                 .insert(StandardBuiltinId::ArrayConstructor);
@@ -1237,26 +1792,23 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
             | StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
-                self.intl_object = true;
-                for dependency in [
-                    StandardBuiltinId::IntlGetCanonicalLocales,
-                    StandardBuiltinId::IntlLocaleConstructor,
-                    StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
-                    StandardBuiltinId::IntlLocalePrototypeScriptGetter,
-                    StandardBuiltinId::IntlLocalePrototypeRegionGetter,
-                    StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
-                    StandardBuiltinId::IntlLocalePrototypeToString,
-                    StandardBuiltinId::IntlDateTimeFormatConstructor,
-                    StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
-                    StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
-                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter,
-                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
-                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
-                    StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
-                    StandardBuiltinId::IntlDateTimeFormatBoundFormat,
-                ] {
-                    self.standard_roots.insert(dependency);
-                }
+                // This or-pattern and `INTL_NAMESPACE_ROOTS` are two spellings
+                // of the same set, and only one of them can be a `match`
+                // pattern. The assertion pins the direction the types cannot:
+                // an id matched here but absent from the const would be rooted
+                // without its namespace being installable.
+                //
+                // It is a backstop, not the primary check, and it is compiled
+                // out of release builds: `every_intl_standard_builtin_is_in_the_
+                // namespace_root_list` covers the same drift at rung 1 by
+                // walking `all_functions()`, which no arm can hide from.
+                debug_assert!(
+                    INTL_NAMESPACE_ROOTS.contains(&builtin),
+                    "`{}` is matched as an `Intl` namespace builtin but is not in \
+                     `INTL_NAMESPACE_ROOTS`",
+                    builtin.debug_name()
+                );
+                self.require_intl_date_time_format_family();
             }
             // `Temporal.Now` members are rooted individually: each one drags in
             // only the Temporal type it hands back, so a script that reads the
@@ -1660,25 +2212,36 @@ impl RuntimeBootstrapPlan {
                     self.standard_roots.insert(dependency);
                 }
             }
+            // The whole `Temporal.Instant` family installs together: the
+            // prototype is built once, so rooting one member without the rest
+            // would leave the object half-populated.
             StandardBuiltinId::TemporalInstantConstructor
             | StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantCompare
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEquals
-            | StandardBuiltinId::TemporalInstantPrototypeToString => {
+            | StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson
+            | StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 self.temporal_object = true;
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantConstructor);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantFrom);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeEquals);
-                self.standard_roots
-                    .insert(StandardBuiltinId::TemporalInstantPrototypeToString);
+                for dependency in [
+                    StandardBuiltinId::TemporalInstantConstructor,
+                    StandardBuiltinId::TemporalInstantFrom,
+                    StandardBuiltinId::TemporalInstantCompare,
+                    StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
+                    StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
+                    StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
+                    StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
+                    StandardBuiltinId::TemporalInstantPrototypeEquals,
+                    StandardBuiltinId::TemporalInstantPrototypeToString,
+                    StandardBuiltinId::TemporalInstantPrototypeToJson,
+                    StandardBuiltinId::TemporalInstantPrototypeValueOf,
+                ] {
+                    self.standard_roots.insert(dependency);
+                }
             }
             StandardBuiltinId::TemporalZonedDateTimeConstructor
             | StandardBuiltinId::TemporalZonedDateTimeFrom
@@ -1688,6 +2251,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1700,8 +2265,87 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
                 self.temporal_object = true;
+                // `toPlainDateTime` hands back a `Temporal.PlainDateTime`, the
+                // mirror of the `TemporalZonedDateTimeConstructor` requirement
+                // the PlainDateTime arm above carries for `toZonedDateTime`.
+                // Without it `emit_alloc_temporal_plain_date_time` reads a
+                // prototype global nothing has bootstrapped.
+                //
+                // SIZE CONSEQUENCE, recorded deliberately. This arm is shared
+                // by all 24 ZonedDateTime members, so a program that touches
+                // *any* of them — `zdt.hour`, say — now roots the whole
+                // PlainDateTime constructor family. It cannot be narrowed in
+                // place: the same arm unconditionally inserts
+                // `...PrototypeToPlainDateTime` into `standard_roots` below,
+                // and that emitter reads
+                // `TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX`
+                // (`intrinsics/temporal_plain_date_time.rs`). So the growth is
+                // inherent to the existing root-them-all shape rather than a
+                // placement mistake, and it is unmeasured against batch 3's
+                // emit-size budget. The real fix, if it ever matters, is to
+                // split this arm so the accessors do not drag in
+                // `toPlainDateTime`.
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor);
+                // `until`/`since` hand back a `Temporal.Duration` and
+                // `add`/`subtract` read one, so this arm states that edge
+                // directly — the same sentence the PlainTime (`:1923`) and
+                // PlainDateTime (`:1999`) arms already carry.
+                //
+                // IT IS REDUNDANT TODAY, and batch 6 first shipped it with a
+                // comment claiming the opposite ("THE LINE THIS ARM WAS MISSING
+                // WHEN IT ONLY HELD 22 MEMBERS"). Traced instead of assumed:
+                // `require_standard_builtin` roots unconditionally and walks
+                // once (`:1408`), the line directly above enters the
+                // PlainDateTime arm, and that arm's FIRST statement (`:2079`)
+                // is `require_standard_builtin(TemporalDurationConstructor)`.
+                // So `standard_roots` contains the whole Duration family with
+                // this line deleted — for `zdt.add`, and equally for `zdt.hour`,
+                // before batch 6 as well as after. The emitter-reads-an-
+                // unbootstrapped-global failure mode was never reachable
+                // through this path, and no test can witness this line.
+                //
+                // Keep it anyway, but for the honest reason: it says what this
+                // arm depends on rather than what the arm above happens to drag
+                // in, and it becomes load-bearing the moment the arm is split
+                // as the comment above proposes.
+                //
+                // TERMINATION, checked against the Duration arm rather than
+                // assumed. This is a new edge out of an arm that already sits
+                // on the PlainDateTime <-> ZonedDateTime cycle contained by
+                // `RuntimeBootstrapPlan::walked` (`:1161`, `:1334`). It does
+                // *not* widen that cycle today: the `Temporal.Duration` arm
+                // below inserts its whole family straight into `standard_roots`
+                // and calls `require_standard_builtin` for nothing, so it is a
+                // leaf in the walk. The edge that would close a second cycle is
+                // `Duration.prototype.round`/`total` taking a `relativeTo` that
+                // may be a ZonedDateTime — the day that arm starts requiring
+                // `TemporalZonedDateTimeConstructor`, this line is what turns it
+                // into a real cycle, and `walked` is what keeps it terminating.
+                //
+                // SIZE, corrected. The unmeasured growth batch 6 added to this
+                // arm is NOT the Duration root (which changed nothing, above):
+                // it is the five new members in the unconditional
+                // `standard_roots` list below, so every program touching any
+                // ZonedDateTime member — `zdt.hour` included — now emits
+                // `withCalendar`, `add`, `subtract`, `until` and `since` as
+                // well. `add`/`subtract` and `until`/`since` each inline the
+                // whole `emit_temporal_zoned_date_time_to_plain_date_time` body
+                // on top of two or three `emit_direct_js_call` sequences, so
+                // this is five function bodies, two of them large. No budget
+                // test reddens on it (`PORFFOR_EMIT_SIZE_REPORT[_PATH]` is
+                // opt-in); it shows up as slower cold compiles in a family b5
+                // already measured at ~300 s/case. Recorded as owned debt in
+                // `target/lane-notes/zdt-arithmetic-surface-b6-integration.md`;
+                // the fix is the arm split the comment above names.
+                self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalZonedDateTimeConstructor,
@@ -1712,6 +2356,8 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
@@ -1724,7 +2370,13 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
                 ] {
                     self.standard_roots.insert(dependency);
                 }
@@ -1791,7 +2443,10 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::AsyncGeneratorPrototypeNext
             | StandardBuiltinId::AsyncGeneratorPrototypeReturn
             | StandardBuiltinId::AsyncGeneratorPrototypeThrow
-            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose => {
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
                 self.standard_roots
                     .insert(StandardBuiltinId::PromiseConstructor);
                 self.standard_roots
@@ -1817,9 +2472,31 @@ impl RuntimeBootstrapPlan {
                         | StandardBuiltinId::AsyncGeneratorPrototypeReturn
                         | StandardBuiltinId::AsyncGeneratorPrototypeThrow
                         | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+                        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected
                 ) {
                     self.standard_roots
                         .insert(StandardBuiltinId::PromiseCapabilityExecutor);
+                }
+                // `disposeAsync` reaches its two settlement callbacks only as
+                // function *values* parked in a promise reaction, never by a
+                // direct call, and all three need the constructor's intrinsic
+                // installer to have run for the prototype to exist at all.
+                if matches!(
+                    builtin,
+                    StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected
+                ) {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AsyncDisposableStackConstructor);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::SuppressedErrorConstructor);
                 }
                 if builtin == StandardBuiltinId::PromiseAll {
                     self.standard_roots
@@ -1914,6 +2591,19 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 self.standard_roots
                     .insert(StandardBuiltinId::FinalizationRegistryConstructor);
+            }
+            // Every prototype member roots the constructor, because the
+            // constructor's intrinsic installer is what puts the member on
+            // `AsyncDisposableStack.prototype` in the first place. `disposeAsync`
+            // and its two settlement callbacks are matched by the Promise arm
+            // above -- one arm per id, so they root the constructor there.
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::AsyncDisposableStackConstructor);
             }
             StandardBuiltinId::SetSpeciesGetter
             | StandardBuiltinId::SetPrototypeAdd
@@ -2472,7 +3162,9 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                     }
                 })
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             property_access_exposes_global_object(target, key)
                 || property_key_exposes_global_object(key)
                 || expr_exposes_global_object(value)
@@ -2541,7 +3233,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
                 || args.iter().any(expr_exposes_global_object)
         }
         ExprIr::SuperPropertyRead { key } => property_key_exposes_global_object(key),
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             property_key_exposes_global_object(key) || expr_exposes_global_object(value)
         }
         ExprIr::PrivateRead { target, .. } => expr_exposes_global_object(target),
@@ -2927,7 +3619,9 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 }
             }
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             collect_expr_global_property_names(target, names);
             collect_property_key_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
@@ -3104,7 +3798,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             }
         }
         ExprIr::SuperPropertyRead { key } => collect_property_key_global_property_names(key, names),
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             collect_property_key_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
         }
@@ -4389,6 +5083,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             target: object,
             key,
             value,
+            ..
         } => {
             expr_references_function(object, target)
                 || property_key_references_function(key, target)
@@ -4484,7 +5179,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                 || args.iter().any(|arg| expr_references_function(arg, target))
         }
         ExprIr::SuperPropertyRead { key } => property_key_references_function(key, target),
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             property_key_references_function(key, target) || expr_references_function(value, target)
         }
         ExprIr::PrivateRead { target: object, .. } => expr_references_function(object, target),
@@ -5394,6 +6089,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::BooleanConstructor
         | StandardBuiltinId::TemporalInstantConstructor
         | StandardBuiltinId::TemporalInstantFrom
+        | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+        | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
@@ -5414,6 +6111,15 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainTimePrototypeRound
         | StandardBuiltinId::TemporalPlainTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+        // Each takes one required argument and an optional options bag, so
+        // `length` is 1 — the same value the PlainDateTime namesakes two rows
+        // below already carry, and what
+        // `built-ins/Temporal/ZonedDateTime/prototype/*/length.js` asserts.
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
         | StandardBuiltinId::TemporalPlainDateTimeFrom
         | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
         | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
@@ -5461,6 +6167,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
         | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf => 0,
         StandardBuiltinId::TemporalZonedDateTimeConstructor => 2,
+        StandardBuiltinId::TemporalInstantCompare => 2,
         StandardBuiltinId::TemporalPlainDateCompare => 2,
         StandardBuiltinId::TemporalPlainTimeCompare => 2,
         StandardBuiltinId::TemporalPlainDateTimeCompare => 2,
@@ -5599,13 +6306,17 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
-        | StandardBuiltinId::TemporalInstantPrototypeToString => 0,
+        | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToJson
+        | StandardBuiltinId::TemporalInstantPrototypeValueOf => 0,
         StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -5616,13 +6327,26 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
-        | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => 0,
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
         | StandardBuiltinId::EncodeUri
         | StandardBuiltinId::EncodeUriComponent
         | StandardBuiltinId::DecodeUri
         | StandardBuiltinId::DecodeUriComponent => 1,
+        // Pinned by `built-ins/AsyncDisposableStack/**/length.js`, one file per
+        // row. The settlement callbacks are anonymous reaction handlers and take
+        // the settled value, like the `AsyncIterator` `@@asyncDispose` pair.
+        StandardBuiltinId::AsyncDisposableStackConstructor
+        | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => 0,
+        StandardBuiltinId::AsyncDisposableStackPrototypeUse
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => 1,
+        StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => 2,
     }
 }
 
@@ -6245,7 +6969,9 @@ pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             matches!(target.kind, ValueKind::Object)
                 || expr_uses_function_table(target)
                 || expr_uses_function_table(value)
@@ -6445,7 +7171,9 @@ pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
                     }
                 }
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             expr_uses_calls(target)
                 || expr_uses_calls(value)
                 || match key {
@@ -7018,6 +7746,16 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
         .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)))
 }
 
+/// Temp locals a Reference write holds for its carried `[[Strict]]`.
+///
+/// One, and the same one, at every site that calls
+/// `FunctionBuilder::with_reference_strictness`. Named rather than spelled `1`
+/// so the emitter side and the budget side move together: `reserve_temp_local`
+/// asserts against the budget this function computes, so an emitter that grows
+/// a second flag local and a planner that still says one is a panic in the
+/// middle of code generation, not a compile error.
+pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
+
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => 2,
@@ -7030,12 +7768,29 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         }
         ExprIr::GlobalPropertyRead { .. } => 12,
         ExprIr::GlobalIdentifierRead { .. } => 24,
-        ExprIr::GlobalPropertyWrite { value, .. } => count_expr_temp_locals(value).max(12),
-        ExprIr::GlobalPropertyUpdate { return_mode, .. } => match return_mode {
-            UpdateReturnMode::Prefix => 12,
-            UpdateReturnMode::Postfix => 13,
-        },
-        ExprIr::GlobalPropertyCompoundAssign { value, .. } => count_expr_temp_locals(value).max(13),
+        // The three global-write arms each hold the Reference's carried
+        // `[[Strict]]` in one extra temp local for the duration of the write
+        // (`FunctionBuilder::emit_reference_global_property_write` ->
+        // `with_reference_strictness`), so PutValue 3.d's guard can read it at
+        // run time as well as 2.a's presence test reading it at compile time.
+        ExprIr::GlobalPropertyWrite { value, .. } => {
+            count_expr_temp_locals(value).max(12) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
+        // These two additionally moved their write-back from the *unchecked*
+        // `emit_global_property_write` (3 temps) to
+        // `emit_global_property_write_checked` (4: it also holds
+        // `has_property_local` for PutValue 2.a's presence test), so their base
+        // is one higher than it was as well.
+        ExprIr::GlobalPropertyUpdate { return_mode, .. } => {
+            let base = match return_mode {
+                UpdateReturnMode::Prefix => 13,
+                UpdateReturnMode::Postfix => 14,
+            };
+            base + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
+        ExprIr::GlobalPropertyCompoundAssign { value, .. } => {
+            count_expr_temp_locals(value).max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        }
         ExprIr::ObjectLiteral(properties) => {
             let child = properties
                 .iter()
@@ -7109,7 +7864,9 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             });
             child.max(12)
         }
-        ExprIr::PropertyWrite { target, key, value } => {
+        ExprIr::PropertyWrite {
+            target, key, value, ..
+        } => {
             let child = count_expr_temp_locals(target)
                 .max(count_expr_temp_locals(value))
                 .max(match key {
@@ -7119,7 +7876,12 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         count_expr_temp_locals(expr)
                     }
                 });
-            child.max(96)
+            // +1 for the Reference's carried `[[Strict]]` flag local, held
+            // across the whole write by
+            // `FunctionBuilder::with_reference_strictness`. `reserve_temp_local`
+            // asserts against this budget, so the extra live local has to be
+            // counted here and not discovered as a panic.
+            child.max(96) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::DeleteProperty { target, key, .. } => {
             let child = count_expr_temp_locals(target).max(match key {
@@ -7138,7 +7900,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     count_expr_temp_locals(expr)
                 }
             });
-            child.max(14)
+            child.max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::PropertyCompoundAssign {
             target, key, value, ..
@@ -7151,7 +7913,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         count_expr_temp_locals(expr)
                     }
                 });
-            child.max(96)
+            child.max(96) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,
@@ -7478,13 +8240,23 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                             ArrayDestructuringElementIr::Rest { target } => (target, None, true),
                         };
                         let target_locals = match target {
-                            DestructuringTargetIr::AssignmentProperty { target, key } => {
-                                4 + count_expr_temp_locals(target).max(match key {
-                                    DestructuringPropertyKeyIr::Static(_) => 0,
-                                    DestructuringPropertyKeyIr::Computed(key) => {
-                                        count_expr_temp_locals(key)
-                                    }
-                                })
+                            // The write-back runs under
+                            // `with_reference_strictness`, which reserves the
+                            // carried-`[[Strict]]` flag local, so this budget
+                            // carries the same `REFERENCE_STRICTNESS_FLAG_LOCALS`
+                            // the reference-write expression arms do.
+                            DestructuringTargetIr::AssignmentProperty {
+                                target,
+                                key,
+                                strictness: _,
+                            } => {
+                                4 + REFERENCE_STRICTNESS_FLAG_LOCALS
+                                    + count_expr_temp_locals(target).max(match key {
+                                        DestructuringPropertyKeyIr::Static(_) => 0,
+                                        DestructuringPropertyKeyIr::Computed(key) => {
+                                            count_expr_temp_locals(key)
+                                        }
+                                    })
                             }
                             DestructuringTargetIr::AssignmentPrivate { target, .. } => {
                                 11 + count_expr_temp_locals(target)
@@ -7607,14 +8379,14 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 count_expr_temp_locals(expr).max(8)
             }
         },
-        ExprIr::SuperPropertyWrite { key, value } => {
+        ExprIr::SuperPropertyWrite { key, value, .. } => {
             let key_child = match key {
                 PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
                 PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
                     count_expr_temp_locals(expr)
                 }
             };
-            count_expr_temp_locals(value).max(key_child).max(10)
+            count_expr_temp_locals(value).max(key_child).max(10) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
         ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
         ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)

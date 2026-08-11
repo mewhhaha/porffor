@@ -10,6 +10,91 @@ fn expression_is_heap_bigint_literal(expr: &TypedExpr) -> bool {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Runs `body` with the object-write failure guards reading *this
+    /// Reference's* `[[Strict]]` instead of the ambient strictness of the
+    /// function being emitted.
+    ///
+    /// PutValue 3.d asks whether `V.[[Strict]]` is true, where `V` is the
+    /// Reference the assignment evaluated — not whether the code currently
+    /// being emitted is strict. The two agree only while Reference creation
+    /// and Reference consumption sit in the same function body, which is
+    /// exactly the assumption that fails for an outlined write helper shared
+    /// by callers of both modes. `object_write_strict_flag_local` already
+    /// exists for that helper; this makes every ordinary write use the same
+    /// mechanism, sourced from the IR node rather than from
+    /// `is_current_function_strict()`.
+    ///
+    /// The flag word comes from [`Strictness::helper_flag_word`], the only
+    /// conversion from the type to a machine word, so no other boolean can
+    /// reach this `I64Const`.
+    ///
+    /// The locals this reserves are held in an array whose **length is**
+    /// `planning::REFERENCE_STRICTNESS_FLAG_LOCALS`, the same constant
+    /// `count_expr_temp_locals` adds to every Reference-write arm's budget.
+    /// That is the tie between the two: growing this guard to a second local
+    /// is `error[E0308]` on the array type *and* on the destructuring below,
+    /// rather than `reserve_temp_local`'s `assert!` firing in the middle of
+    /// code generation. A `const _: () = assert!(CONST == 1)` would not have
+    /// noticed — it compares the constant to a literal, not to what this
+    /// function actually reserves.
+    pub(crate) fn with_reference_strictness(
+        &mut self,
+        strictness: Strictness,
+        function: &mut Function,
+        body: impl FnOnce(&mut Self, &mut Function) -> Result<(), EmitError>,
+    ) -> Result<(), EmitError> {
+        let reserved: [u32; crate::planning::REFERENCE_STRICTNESS_FLAG_LOCALS] =
+            [self.reserve_temp_local()];
+        let [strict_local] = reserved;
+        function.instruction(&Instruction::I64Const(strictness.helper_flag_word()));
+        function.instruction(&Instruction::LocalSet(strict_local));
+        let previous_strict_local = self.object_write_strict_flag_local;
+        self.object_write_strict_flag_local = Some(strict_local);
+        let result = body(self, function);
+        self.object_write_strict_flag_local = previous_strict_local;
+        self.release_temp_local(strict_local);
+        result
+    }
+
+    /// PutValue (6.2.5.6) for a Reference whose `[[Base]]` is the global object
+    /// or unresolvable — [`porffor_ir::ExprIr::GlobalPropertyWrite`] and the
+    /// write-back halves of `GlobalPropertyUpdate` / `GlobalPropertyCompoundAssign`.
+    ///
+    /// Consumes the carried `[[Strict]]` for **both** of PutValue's strict
+    /// throws, which is why it exists rather than the two halves being spelled
+    /// separately at each arm:
+    ///
+    /// * step 2.a — unresolvable base, ReferenceError — via
+    ///   `emit_global_property_write_checked`'s presence test;
+    /// * step 3.d — `[[Set]]` answered `false`, TypeError — via the runtime
+    ///   strictness guard `with_reference_strictness` installs, which the
+    ///   `emit_object_write` inside the checked write then reads.
+    ///
+    /// `GlobalPropertyUpdate` and `GlobalPropertyCompoundAssign` used to bind
+    /// `strictness: _` and call the *unchecked* `emit_global_property_write`,
+    /// so `"use strict"; delete globalThis.g; g++;` silently created a property
+    /// and `"use strict"; g -= 1;` on a non-writable global silently no-opped.
+    /// A field constructed at three sites and read at none is what invariant I9
+    /// was written to prohibit.
+    fn emit_reference_global_property_write(
+        &mut self,
+        name: &str,
+        payload_local: u32,
+        tag_local: u32,
+        strictness: Strictness,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.with_reference_strictness(strictness, function, |emitter, function| {
+            emitter.emit_global_property_write_checked(
+                name,
+                payload_local,
+                tag_local,
+                strictness,
+                function,
+            )
+        })
+    }
+
     /// Evaluate a super property's key expression without applying
     /// ToPropertyKey yet. SuperProperty evaluation needs this raw value before
     /// GetSuperBase/null checking; coercion is deliberately emitted by the
@@ -323,26 +408,33 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::GlobalPropertyWrite {
                 name,
                 value,
-                strict,
+                strictness,
                 ..
             } => {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.compile_expr_to_locals(value, value_local, tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(value_local, tag_local, function)?;
-                self.emit_global_property_write_checked(
+                self.emit_reference_global_property_write(
                     name,
                     value_local,
                     tag_local,
-                    *strict,
+                    *strictness,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(value_local));
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }
-            ExprIr::PropertyWrite { target, key, value } => {
-                self.compile_property_write_payload(target, key, value, function)?;
+            ExprIr::PropertyWrite {
+                target,
+                key,
+                value,
+                strictness,
+            } => {
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_write_payload(target, key, value, function)
+                })?;
             }
             ExprIr::PropertyUpdate {
                 target,
@@ -350,17 +442,22 @@ impl<'a> FunctionBuilder<'a> {
                 op,
                 return_mode,
                 value_kind,
+                strictness,
             } => {
-                self.compile_property_update_to_locals(
-                    target,
-                    key,
-                    *op,
-                    *return_mode,
-                    *value_kind,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_update_to_locals(
+                        target,
+                        key,
+                        *op,
+                        *return_mode,
+                        *value_kind,
+                        scratch_local,
+                        result_tag_local,
+                        function,
+                    )
+                })?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::PropertyCompoundAssign {
@@ -368,16 +465,21 @@ impl<'a> FunctionBuilder<'a> {
                 key,
                 op,
                 value,
+                strictness,
             } => {
-                self.compile_property_compound_assign_to_locals(
-                    target,
-                    key,
-                    *op,
-                    value,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_compound_assign_to_locals(
+                        target,
+                        key,
+                        *op,
+                        value,
+                        scratch_local,
+                        result_tag_local,
+                        function,
+                    )
+                })?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::UpdateIdentifier {
@@ -567,6 +669,7 @@ impl<'a> FunctionBuilder<'a> {
                 op,
                 return_mode,
                 value_kind,
+                strictness,
             } => {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
@@ -596,10 +699,11 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
                         }
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                        self.emit_global_property_write(
+                        self.emit_reference_global_property_write(
                             name,
                             self.scratch_local,
                             self.result_tag_local,
+                            *strictness,
                             function,
                         )?;
                         function.instruction(&Instruction::LocalGet(self.scratch_local));
@@ -620,7 +724,13 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
                             function.instruction(&Instruction::LocalSet(tag_local));
                         }
-                        self.emit_global_property_write(name, value_local, tag_local, function)?;
+                        self.emit_reference_global_property_write(
+                            name,
+                            value_local,
+                            tag_local,
+                            *strictness,
+                            function,
+                        )?;
                         function.instruction(&Instruction::LocalGet(tag_local));
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         function.instruction(&Instruction::LocalGet(old_value_local));
@@ -630,7 +740,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }
-            ExprIr::GlobalPropertyCompoundAssign { name, op, value } => {
+            ExprIr::GlobalPropertyCompoundAssign {
+                name,
+                op,
+                value,
+                strictness,
+            } => {
                 let temp_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 let rhs_tag_local = self.reserve_temp_local();
@@ -720,7 +835,13 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
-                self.emit_global_property_write(name, self.scratch_local, rhs_tag_local, function)?;
+                self.emit_reference_global_property_write(
+                    name,
+                    self.scratch_local,
+                    rhs_tag_local,
+                    *strictness,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
                 self.release_temp_local(rhs_tag_local);
                 self.release_temp_local(tag_local);
@@ -763,18 +884,18 @@ impl<'a> FunctionBuilder<'a> {
                 };
                 function.instruction(&Instruction::I64Const(value));
             }
-            ExprIr::DeleteGlobalProperty { name, strict } => {
+            ExprIr::DeleteGlobalProperty { name, strictness } => {
                 let result_local = self.reserve_temp_local();
-                self.emit_global_property_delete(name, result_local, *strict, function)?;
+                self.emit_global_property_delete(name, result_local, *strictness, function)?;
                 function.instruction(&Instruction::LocalGet(result_local));
                 self.release_temp_local(result_local);
             }
             ExprIr::DeleteProperty {
                 target,
                 key,
-                strict,
+                strictness,
             } => {
-                self.compile_delete_property_i32(target, key, *strict, function)?;
+                self.compile_delete_property_i32(target, key, *strictness, function)?;
                 function.instruction(&Instruction::I64ExtendI32U);
             }
             ExprIr::TypeOf { expr } => {
@@ -904,8 +1025,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_is_bigint_tag_i32(lhs_tag, function);
                     self.emit_is_bigint_tag_i32(rhs_tag, function);
                     function.instruction(&Instruction::I32And);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.push_control(ControlFrameKind::If);
+                    self.open_frame(ControlFrameKind::If, function);
                     self.emit_bigint_binary_op_to_locals(
                         BigIntHelperOp::from_arithmetic(*op),
                         lhs_payload,
@@ -1253,7 +1373,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             ExprIr::RuntimeThrow { name, message } => {
                 self.emit_throw_runtime_error(
-                    name,
+                    name.as_str(),
                     message,
                     self.scratch_local,
                     self.result_tag_local,
@@ -1442,7 +1562,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(super_base_local);
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                value,
+                strictness,
+            } => {
                 let super_base_local = self.reserve_temp_local();
                 let super_base_tag_local = self.reserve_temp_local();
                 self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
@@ -1458,14 +1582,18 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                self.emit_object_write(
-                    super_base_local,
-                    super_base_tag_local,
-                    key_local,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                let scratch_local = self.scratch_local;
+                let result_tag_local = self.result_tag_local;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.emit_object_write(
+                        super_base_local,
+                        super_base_tag_local,
+                        key_local,
+                        scratch_local,
+                        result_tag_local,
+                        function,
+                    )
+                })?;
                 self.release_temp_local(key_local);
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
@@ -1534,7 +1662,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 1, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1949,15 +2077,13 @@ impl<'a> FunctionBuilder<'a> {
         // of its later operations. Optional computed keys are emitted after
         // their short-circuit test; ordinary computed keys retain the usual
         // key-evaluation-before-RequireObjectCoercible order.
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::Block, function);
         for operation in chain {
             match operation {
                 OptionalChainOperationIr::Property { key, shorted } => {
                     if *shorted {
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         function.instruction(&Instruction::I64Const(0));
                         function.instruction(&Instruction::LocalSet(payload_local));
                         function
@@ -1978,8 +2104,7 @@ impl<'a> FunctionBuilder<'a> {
                         // Only `?.` short-circuits. A later ordinary property
                         // access still performs RequireObjectCoercible.
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         self.emit_throw_runtime_error(
                             TYPE_ERROR_NAME,
                             "Cannot read properties of null or undefined",
@@ -2032,8 +2157,7 @@ impl<'a> FunctionBuilder<'a> {
                 } => {
                     if *shorted {
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         function.instruction(&Instruction::I64Const(0));
                         function.instruction(&Instruction::LocalSet(payload_local));
                         function
@@ -2103,16 +2227,14 @@ impl<'a> FunctionBuilder<'a> {
                     if *boundary_before {
                         self.pop_control(ControlFrameKind::Block);
                         function.instruction(&Instruction::End);
-                        function.instruction(&Instruction::Block(BlockType::Empty));
-                        self.push_control(ControlFrameKind::Block);
+                        self.open_frame(ControlFrameKind::Block, function);
                     }
 
                     if *shorted {
                         // Optional call tests the callee before evaluating any
                         // arguments and exits the active contiguous segment.
                         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.push_control(ControlFrameKind::If);
+                        self.open_frame(ControlFrameKind::If, function);
                         function.instruction(&Instruction::I64Const(0));
                         function.instruction(&Instruction::LocalSet(payload_local));
                         function
@@ -2145,8 +2267,7 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::LocalGet(has_reference_local));
                             function.instruction(&Instruction::I64Const(0));
                             function.instruction(&Instruction::I64Ne);
-                            function.instruction(&Instruction::If(BlockType::Empty));
-                            self.push_control(ControlFrameKind::If);
+                            self.open_frame(ControlFrameKind::If, function);
                             function.instruction(&Instruction::LocalGet(reference_receiver_local));
                             function.instruction(&Instruction::LocalSet(call_this_local));
                             function
@@ -2270,22 +2391,81 @@ impl<'a> FunctionBuilder<'a> {
         );
     }
 
+    /// Installs the compiled RegExp program for a `(source, flags)` pair that is
+    /// only known at run time, by looking the pair up **by string value** in the
+    /// AOT-built runtime program table.
+    ///
+    /// # The lookup is total, and that is the point
+    ///
+    /// Four outcomes, and every one of them is now reachable code:
+    ///
+    /// * **`Program` row** — install the six program slots. Unchanged.
+    /// * **`Rejected` row** — the compile-time RegExp compiler saw this exact
+    ///   pattern and answered `InvalidSyntax`, so this is a spec SyntaxError
+    ///   (`RegExpInitialize` step 3.b). Before batch 7 the row did not exist at
+    ///   all (`data.rs` `continue`d past every compile failure), the loop below
+    ///   had no else arm, and the caller went on to publish a live RegExp whose
+    ///   `instruction_count` is 0 — `assert.throws(SyntaxError, () =>
+    ///   r.compile("(?<x>a)(?<x>b)"))` therefore measured *no throw at all*.
+    ///   That is the one Bug-outcome failure in the batch-7 sweep.
+    /// * **`Unsupported` row** — the pattern is legal ECMAScript and Lila's
+    ///   RegExp compiler cannot build a program for it yet. Behaves exactly like
+    ///   a total miss; throwing here would invent a SyntaxError for a pattern
+    ///   the spec accepts.
+    /// * **total miss** — the pair is genuinely not in the table, i.e. the
+    ///   pattern or the flags string was computed at run time and never named as
+    ///   a literal anywhere. The slots stay zeroed and the caller proceeds.
+    ///
+    /// # Why a total miss deliberately does *not* throw
+    ///
+    /// The obvious symmetry ("no row, no program, so throw") is wrong here, and
+    /// the reason is measured rather than argued. A zeroed program does not mean
+    /// `exec` silently answers `null`: `emit_regexp_prototype_exec_from_locals`
+    /// tries the compiled program first, then falls through to
+    /// `emit_regexp_exec_simple_from_locals` — a real fallback matcher covering
+    /// `.`, escapes, two-alternative patterns and the `g`/`i`/`y`/`u` flags —
+    /// and only if *that* declines does it throw
+    /// `TypeError: RegExp.prototype.exec unsupported pattern`. Measured on this
+    /// head: `new RegExp("(?<" + "y>c)")` builds an object with the right
+    /// `source` and its `test` call throws that TypeError; it does not answer
+    /// `false`. So throwing SyntaxError on every miss would convert answers the
+    /// fallback matcher gets *right* into spurious SyntaxErrors, including for
+    /// the common `new RegExp("a", computedFlags)` shape whose flags string is
+    /// simply not a script literal. That trade is a regression, not a fix.
+    ///
+    /// The half this closes is therefore stated exactly: **a pattern the
+    /// compiler has seen and rejected now throws**; a valid pattern the compiler
+    /// has never seen keeps today's behaviour. Widening the first half is a
+    /// candidate-collection problem (see `runtime_regexp_argument_literals`),
+    /// not an emitter problem, and that is where it was widened.
     pub(crate) fn emit_runtime_regexp_program_slots(
         &mut self,
         object_local: u32,
         source_payload_local: u32,
         flags_payload_local: u32,
         function: &mut Function,
-    ) {
+    ) -> Result<(), EmitError> {
         self.emit_regexp_program_slots(object_local, None, function);
         if self.strings.runtime_regexp_program_count == 0 {
-            return;
+            return Ok(());
         }
-        const REGEXP_PROGRAM_TABLE_RECORD_SIZE: u64 = 64;
+        // The stride and every offset below come from the word indices
+        // `StringPool::append_runtime_regexp_program_table` assigns through, so
+        // this reader cannot fall out of step with that writer. They used to be
+        // literal `72`/`64`/`16`…`56` here, agreeing with the writer's array
+        // order only by inspection.
         let index_local = self.reserve_temp_local();
         let record_ptr_local = self.reserve_temp_local();
         let candidate_payload_local = self.reserve_temp_local();
+        let entry_kind_local = self.reserve_temp_local();
 
+        // `RUNTIME_REGEXP_ENTRY_KIND_PROGRAM` is 0 and is also what a total miss
+        // leaves behind, so the post-loop test asks only about `Rejected`. The
+        // two are deliberately not merged: see the doc comment.
+        function.instruction(&Instruction::I64Const(
+            RuntimeRegExpEntryKind::Program.word() as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(entry_kind_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -2300,15 +2480,15 @@ impl<'a> FunctionBuilder<'a> {
             self.strings.runtime_regexp_program_table_ptr as i64,
         ));
         function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(
-            REGEXP_PROGRAM_TABLE_RECORD_SIZE as i64,
-        ));
+        function.instruction(&Instruction::I64Const(RUNTIME_REGEXP_RECORD_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(record_ptr_local));
         function.instruction(&Instruction::LocalGet(record_ptr_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_SOURCE_WORD),
+        )));
         function.instruction(&Instruction::LocalSet(candidate_payload_local));
         self.emit_string_payload_equality_i32(
             source_payload_local,
@@ -2318,7 +2498,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(record_ptr_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(8)));
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_FLAGS_WORD),
+        )));
         function.instruction(&Instruction::LocalSet(candidate_payload_local));
         self.emit_string_payload_equality_i32(
             flags_payload_local,
@@ -2326,17 +2508,51 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::If(BlockType::Empty));
-        for (record_offset, heap_offset) in [
-            (16, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
-            (24, HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET),
-            (32, HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET),
-            (40, HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET),
-            (48, HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET),
-            (56, HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET),
+        // The row matched. Read its discriminant BEFORE deciding what to do
+        // with it — this is the else arm the loop never had.
+        function.instruction(&Instruction::LocalGet(record_ptr_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD),
+        )));
+        function.instruction(&Instruction::LocalSet(entry_kind_local));
+        function.instruction(&Instruction::LocalGet(entry_kind_local));
+        function.instruction(&Instruction::I64Const(
+            RuntimeRegExpEntryKind::Program.word() as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        for (record_word, heap_offset) in [
+            (
+                RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD,
+                HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD,
+                HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
+            ),
         ] {
             function.instruction(&Instruction::LocalGet(record_ptr_local));
             function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(record_offset)));
+            function.instruction(&Instruction::I64Load(Self::memarg8(
+                runtime_regexp_record_offset(record_word),
+            )));
             function.instruction(&Instruction::LocalSet(candidate_payload_local));
             self.store_i64_local_at_offset(
                 object_local,
@@ -2345,6 +2561,11 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        function.instruction(&Instruction::End);
+        // Leaves the search with `entry_kind_local` holding this row's kind.
+        // Branch depth is unchanged from before the discriminant existed: at
+        // this point the enclosing labels are flags-If (0), source-If (1),
+        // Loop (2), Block (3).
         function.instruction(&Instruction::Br(3));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2356,9 +2577,59 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        // A `Rejected` row is the compile-time compiler's `InvalidSyntax`
+        // verdict on this exact pattern, reaching run time. `Unsupported` rows
+        // and total misses both fall through without throwing — the first
+        // because the pattern is legal, the second because the runtime fallback
+        // matcher may still answer it correctly. The doc comment says why at
+        // length; do not "simplify" this into `!= PROGRAM`.
+        //
+        // Which kinds throw is decided ONCE, by an exhaustive match over the
+        // closed domain (`RuntimeRegExpEntryKind::throws_syntax_error`), and the
+        // comparison chain is derived from `ALL` rather than transcribed here.
+        // Before that, this reader tested a raw `u64` against two of the three
+        // constants, so a fourth kind would have compiled cleanly and fallen
+        // through as a silent miss — the very class the closed writer type was
+        // introduced to remove. Today exactly one kind throws, so this emits the
+        // same four instructions it always did.
+        let throwing_kind_words = RuntimeRegExpEntryKind::ALL
+            .iter()
+            .copied()
+            .filter(|kind| kind.throws_syntax_error())
+            .map(RuntimeRegExpEntryKind::word)
+            .collect::<Vec<_>>();
+        // Bound rather than `?`-ed. The four `release_temp_local` calls below
+        // are the temp-local stack's only unwind, and returning past them makes
+        // the *next* release trip `release_temp_local`'s `assert_eq!`, replacing
+        // a readable `EmitError` with an unrelated compiler panic. The `End`
+        // must be emitted on the error path too, or `code_sink`'s depth
+        // accounting is left unbalanced as well.
+        let mut thrown = Ok(());
+        if !throwing_kind_words.is_empty() {
+            for (position, word) in throwing_kind_words.iter().enumerate() {
+                function.instruction(&Instruction::LocalGet(entry_kind_local));
+                function.instruction(&Instruction::I64Const(*word as i64));
+                function.instruction(&Instruction::I64Eq);
+                if position > 0 {
+                    function.instruction(&Instruction::I32Or);
+                }
+            }
+            function.instruction(&Instruction::If(BlockType::Empty));
+            thrown = self.emit_throw_runtime_error_to_active_handler(
+                SYNTAX_ERROR_NAME,
+                "Invalid regular expression pattern",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            );
+            function.instruction(&Instruction::End);
+        }
+
+        self.release_temp_local(entry_kind_local);
         self.release_temp_local(candidate_payload_local);
         self.release_temp_local(record_ptr_local);
         self.release_temp_local(index_local);
+        thrown
     }
 
     fn compile_regexp_literal_payload(
@@ -2679,7 +2950,7 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::GlobalPropertyWrite {
                 name,
                 value,
-                strict,
+                strictness,
                 ..
             } => {
                 self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
@@ -2688,11 +2959,11 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
-                self.emit_global_property_write_checked(
+                self.emit_reference_global_property_write(
                     name,
                     payload_local,
                     tag_local,
-                    *strict,
+                    *strictness,
                     function,
                 )?;
             }
@@ -2714,15 +2985,22 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            ExprIr::PropertyWrite { target, key, value } => {
-                self.compile_property_write_to_locals(
-                    target,
-                    key,
-                    value,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+            ExprIr::PropertyWrite {
+                target,
+                key,
+                value,
+                strictness,
+            } => {
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_write_to_locals(
+                        target,
+                        key,
+                        value,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
             }
             ExprIr::PropertyUpdate {
                 target,
@@ -2730,33 +3008,39 @@ impl<'a> FunctionBuilder<'a> {
                 op,
                 return_mode,
                 value_kind,
+                strictness,
             } => {
-                self.compile_property_update_to_locals(
-                    target,
-                    key,
-                    *op,
-                    *return_mode,
-                    *value_kind,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_update_to_locals(
+                        target,
+                        key,
+                        *op,
+                        *return_mode,
+                        *value_kind,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
             }
             ExprIr::PropertyCompoundAssign {
                 target,
                 key,
                 op,
                 value,
+                strictness,
             } => {
-                self.compile_property_compound_assign_to_locals(
-                    target,
-                    key,
-                    *op,
-                    value,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.compile_property_compound_assign_to_locals(
+                        target,
+                        key,
+                        *op,
+                        value,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
             }
             ExprIr::SuperConstruct { args } => {
                 let ctor_payload_local = self.reserve_temp_local();
@@ -2859,7 +3143,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
             }
-            ExprIr::SuperPropertyWrite { key, value } => {
+            ExprIr::SuperPropertyWrite {
+                key,
+                value,
+                strictness,
+            } => {
                 let super_base_local = self.reserve_temp_local();
                 let super_base_tag_local = self.reserve_temp_local();
                 self.emit_load_super_base(super_base_local, super_base_tag_local, function)?;
@@ -2870,14 +3158,16 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 let key_local = self.compile_object_key_to_local(key, function)?;
                 self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
-                self.emit_object_write(
-                    super_base_local,
-                    super_base_tag_local,
-                    key_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                self.with_reference_strictness(*strictness, function, |emitter, function| {
+                    emitter.emit_object_write(
+                        super_base_local,
+                        super_base_tag_local,
+                        key_local,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )
+                })?;
                 self.release_temp_local(key_local);
                 self.release_temp_local(super_base_tag_local);
                 self.release_temp_local(super_base_local);
@@ -3022,7 +3312,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(tag_local));
             }
             ExprIr::RuntimeThrow { name, message } => {
-                self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
+                self.emit_throw_runtime_error(
+                    name.as_str(),
+                    message,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
             }
             ExprIr::JsonParseStaticReviver { value, reviver } => {
                 self.compile_json_static_reviver_to_locals(

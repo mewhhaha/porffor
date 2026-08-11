@@ -415,10 +415,39 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// Allocate the error object for a runtime-thrown error.
+    ///
+    /// `message` is defined from the message, not from the name. That reads as
+    /// a tautology; it is the repair. This function used to define `message`
+    /// from `self.strings.payload(name)` and spell its message parameter
+    /// `_message`, so not even an unused-parameter warning mentioned it, and
+    /// every error the runtime threw reported `e.message === e.name`:
+    ///
+    /// ```text
+    /// try { null.x } catch (e) { print(e.name); print(e.message); }
+    /// // TypeError / TypeError     (before)
+    /// // TypeError / Cannot read properties of null or undefined   (after)
+    /// ```
+    ///
+    /// The repair is one token here and could not land alone.
+    /// `StringPool::payload` takes `&self`, cannot extend the pool during
+    /// emission, and panics with ``string `..` must exist in pool``; because
+    /// this function never asked the pool for a message, the messages reaching
+    /// only it were never required to be interned. `data.rs`'s
+    /// `RUNTIME_ERROR_MESSAGE_LITERALS` is the other half, and the two are one
+    /// patch: either alone is compile-time clean and run-time fatal.
+    ///
+    /// STANDING INSTRUCTION, unchanged in force: do **not** make the message
+    /// fall back to the name when the pool lookup misses. That fallback is
+    /// precisely the defect above, only harder to find — the program would run,
+    /// report a plausible-looking `message`, and no test would notice. A miss
+    /// must stay a named panic naming the missing string, which is what turns
+    /// "someone added a message and forgot to intern it" into a one-line fix
+    /// instead of an archaeology exercise.
     pub(crate) fn emit_runtime_error_object(
         &mut self,
         name: &str,
-        _message: &str,
+        message: &str,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -434,6 +463,17 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(object_local));
+        // [[ErrorData]]. Without it a runtime-thrown error is not an error to
+        // anything that reads the internal brand: `Object.prototype.toString`
+        // answered "[object Object]" and `Error.isError` answered `false`, while
+        // the same class constructed by user code answered "[object Error]" and
+        // `true`. Same store as `emit_alloc_error_instance_from_locals`.
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_ERROR,
+            function,
+        );
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
@@ -449,7 +489,9 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("message")));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+        // The message, not the name. See the doc comment: the `payload(name)`
+        // that used to sit here is the T24 defect.
+        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
@@ -473,6 +515,38 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Publishes the two throw-diagnostic globals **together**.
+    ///
+    /// The name global existed alone, and an uncaught throw therefore reached
+    /// the host as `TypeError: wasm-aot completion: object(handle@5397552)` — a
+    /// raw linear-memory address that is not stable across builds and maps to
+    /// no allocation site, so ~2,488 measured cases across ~1,743 addresses
+    /// carried one bit of information between them.
+    ///
+    /// It is one function because the pairing is the invariant: a site that
+    /// sets the name and forgets the message reports a *previous*, unrelated
+    /// throw's message. `None` is the explicit "this throw carries no message"
+    /// answer and clears the global; it is not the same as not calling this.
+    /// The only site that may set either global without coming through here is
+    /// `emit_capture_throw_error_name`, which reads both off a user-thrown
+    /// value and zeroes the message on entry for the same reason.
+    pub(crate) fn emit_set_thrown_error_text(
+        &mut self,
+        name: &str,
+        message: Option<&str>,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        let message_payload = message.map_or(0, |message| self.strings.payload(message));
+        function.instruction(&Instruction::I64Const(message_payload));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
+    }
+
     pub(crate) fn emit_throw_runtime_error(
         &mut self,
         name: &str,
@@ -482,10 +556,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_runtime_error_object(name, message, payload_local, tag_local, function)?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
+        self.emit_set_thrown_error_text(name, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -609,6 +680,15 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
+        // [[ErrorData]], as in `emit_runtime_error_object`: this is the same
+        // error object reached through the realm-carrying prototype instead of
+        // the global one, and it was missing the brand for the same reason.
+        self.store_i64_const_at_offset(
+            object_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_ERROR,
+            function,
+        );
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
@@ -640,10 +720,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
-            self.uses_heap,
-        )));
+        self.emit_set_thrown_error_text(name, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -667,20 +744,37 @@ impl<'a> FunctionBuilder<'a> {
         message: &str,
         payload_local: u32,
         tag_local: u32,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_throw_runtime_error(name, message, payload_local, tag_local, function)?;
         if !self.is_main() {
             self.emit_return_current_completion(function);
         } else if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
         Ok(())
     }
 
+    /// Capture, for the host, what a `throw` of an arbitrary value was.
+    ///
+    /// Two globals, read together by `render_wasmtime_completion`: the error's
+    /// `name` (falling back to `constructor.name`, because a `Test262Error`
+    /// carries no own `name`) and its `message`. The message half is what stops
+    /// an uncaught user throw from reaching the host as nothing but
+    /// `object(handle@5397552)`.
+    ///
+    /// **Both** globals are zeroed here, not by the caller. Zeroing the name
+    /// used to be the caller's job — `control_flow.rs`'s `StatementIr::Throw`
+    /// and `promise.rs`'s rejection path each emitted their own
+    /// `I64Const(0); GlobalSet(name)` first — and that convention is exactly
+    /// how a stale value from a previous throw reaches the host at whichever
+    /// call site forgets. Both globals are module-lifetime, so a forgotten
+    /// clear is not a missing diagnostic but a *wrong* one, attributed to the
+    /// throw being captured now. Zeroing on entry makes it impossible to
+    /// forget from outside this function; the emitted instruction sequence is
+    /// unchanged, because the zero moved to exactly where the callers put it.
     pub(crate) fn emit_capture_throw_error_name(
         &mut self,
         payload_local: u32,
@@ -691,7 +785,18 @@ impl<'a> FunctionBuilder<'a> {
         let constructor_tag_local = self.reserve_temp_local();
         let name_payload_local = self.reserve_temp_local();
         let name_tag_local = self.reserve_temp_local();
+        let message_payload_local = self.reserve_temp_local();
+        let message_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
+            self.uses_heap,
+        )));
 
         self.emit_is_heap_object_like_tag_i32(tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -711,6 +816,32 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(name_payload_local));
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
+            self.uses_heap,
+        )));
+        function.instruction(&Instruction::End);
+        // `.message`, read with the same non-calling data-property read as
+        // `.name` so capturing a diagnostic can never run user code and change
+        // the very completion it is describing. There is deliberately no
+        // `constructor.message` fallback: `.name` has one because the error
+        // classes put `name` on the prototype, whereas a missing `message` means
+        // the thrown value simply has none, and inventing one would put the host
+        // back to guessing.
+        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_data_property_read_no_call(
+            payload_local,
+            tag_local,
+            key_local,
+            message_payload_local,
+            message_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(message_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(message_payload_local));
+        function.instruction(&Instruction::GlobalSet(throw_error_message_global_index(
             self.uses_heap,
         )));
         function.instruction(&Instruction::End);
@@ -757,6 +888,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(key_local);
+        self.release_temp_local(message_tag_local);
+        self.release_temp_local(message_payload_local);
         self.release_temp_local(name_tag_local);
         self.release_temp_local(name_payload_local);
         self.release_temp_local(constructor_tag_local);

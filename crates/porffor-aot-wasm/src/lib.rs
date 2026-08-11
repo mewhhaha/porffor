@@ -15,13 +15,13 @@ use porffor_ir::{
     GeneratorTryPlanIr, HeapShape, HostBuiltinId, JsonStaticValueIr, KindSet, LexicalEnvironmentIr,
     LogicalBinaryOp, NumericUpdateOp, ObjectPropertyIr, ObjectShapeProperty, OwnedEnvBindingIr,
     PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptGlobalBindingIr,
-    ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr,
+    ScriptGlobalBindingKind, ScriptIr, SpecOperationIr, StandardBuiltinId, StatementIr, Strictness,
     SwitchCaseIr, ToPrimitiveHint, TypedExpr, UnaryNumericOp, UpdateReturnMode, ValueInfo,
     ValueKind, VarDeclaratorIr, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME,
     BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
     DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME,
     FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME,
-    INT32_ARRAY_NAME, INT8_ARRAY_NAME, IS_CONSTRUCTOR_NAME, JSON_NAME,
+    INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME,
     JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME,
     LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME,
     PORFFOR_GENERATOR_THROW_SLOT, PORFFOR_STATIC_GENERATOR_ITERATOR_SLOT,
@@ -30,17 +30,27 @@ use porffor_ir::{
     STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME, TEMPORAL_DURATION_NAME,
     TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME, TEMPORAL_PLAIN_DATE_TIME_NAME,
     TEMPORAL_PLAIN_MONTH_DAY_NAME, TEMPORAL_PLAIN_TIME_NAME, TEMPORAL_PLAIN_YEAR_MONTH_NAME,
-    TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
-    UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
+    TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME, UINT16_ARRAY_NAME,
+    UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, URI_ERROR_NAME,
 };
-use wasm_encoder::{BlockType, Function, Ieee64, Instruction, MemArg, ValType};
+// `Function` is deliberately absent from this list. The name is bound below to
+// `code_sink::Function`, the wrapper that counts real Wasm label depth, and
+// every submodule of this crate reaches `Function` through this one binding
+// (`use super::*` / `use super::super::*`). That is what lets ~600 `&mut
+// Function` signatures and ~77,000 `function.instruction(..)` calls keep their
+// exact text while the branch arithmetic underneath them becomes correct.
+// See `code_sink.rs`.
+use wasm_encoder::{BlockType, Ieee64, Instruction, MemArg, ValType};
 
 mod abi;
 mod bigint;
 mod builtins;
+mod code_sink;
 mod control_flow;
 mod data;
+mod emission_sites;
 mod emit;
+mod emitted_function;
 mod environments;
 mod expressions;
 mod functions;
@@ -53,21 +63,35 @@ mod objects;
 mod operations;
 mod planning;
 mod runtime_abi;
+mod runtime_helpers;
 use abi::*;
 use bigint::BigIntHelperOp;
 use builtins::*;
+use code_sink::{Function, LabelDepth};
 use data::*;
 pub use emit::emit;
 pub(crate) use emit::{
-    BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder, IteratorCloseOnThrowLocals,
-    LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission, ReturnAbi,
+    AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder,
+    IteratorCloseOnThrowLocals, LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission,
+    PropagateCallThrow, ReturnAbi,
 };
+// `FunctionBodySize` and `FunctionLocalCount` are part of the public face
+// because `EmittedFunctionSummary` carries them: a `pub` struct whose fields
+// name crate-private types is a `private_interfaces` warning, and flattening
+// them back to `u32` at the boundary would give the two figures the same type
+// again — which is exactly what this module's newtypes exist to prevent.
+pub(crate) use emitted_function::{
+    emit_size_report_requested, write_size_report_file_if_requested, EmittedFunction,
+    FunctionBodyBudget, FunctionIdentity, ModuleCode,
+};
+pub use emitted_function::{EmittedFunctionSummary, FunctionBodySize, FunctionLocalCount};
 use heap::*;
 use intrinsics::*;
 use module::*;
 use modules::module_unit_guard_count;
 use planning::*;
 pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
+pub(crate) use runtime_helpers::{RuntimeHelperEmission, RuntimeHelperFact, RuntimeHelperId};
 
 fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
     match shape {
@@ -136,6 +160,462 @@ mod tests {
         let artifact = emit_script("this;").expect("full bootstrap script should emit");
 
         expect_valid_module(&artifact, 0);
+    }
+
+    /// Reads the Wasm `name` section back out of an emitted module.
+    ///
+    /// Wasmtime builds its per-function symbol as
+    /// `wasm[0]::function[N]::<clean_symbol(name)>` from exactly this section,
+    /// so a module that emits it turns an anonymous native-compilation failure
+    /// into a named one.
+    fn function_names(artifact: &WasmArtifact) -> BTreeMap<u32, String> {
+        let mut names = BTreeMap::new();
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::CustomSection(section) = payload.expect("module should parse") else {
+                continue;
+            };
+            let wasmparser::KnownCustom::Name(subsections) = section.as_known() else {
+                continue;
+            };
+            for subsection in subsections {
+                if let wasmparser::Name::Function(map) =
+                    subsection.expect("name subsection should parse")
+                {
+                    for naming in map {
+                        let naming = naming.expect("function naming should parse");
+                        names.insert(naming.index, naming.name.to_string());
+                    }
+                }
+            }
+        }
+        names
+    }
+
+    /// Number of *function* imports, which is the index the first code-section
+    /// body occupies. Read back from the encoded module rather than from the
+    /// emitter's own variable, so it is an independent witness of the base the
+    /// name section indices must start from.
+    fn imported_function_count(artifact: &WasmArtifact) -> u32 {
+        let mut count = 0u32;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::ImportSection(reader) = payload.expect("module should parse") else {
+                continue;
+            };
+            for import in reader.into_imports() {
+                let import = import.expect("import should parse");
+                if matches!(
+                    import.ty,
+                    wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                ) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn emitted_modules_name_every_function() {
+        let artifact = emit_script("function outer() { return 1; } outer();")
+            .expect("named function script should emit");
+        expect_valid_module(&artifact, 1);
+
+        let names = function_names(&artifact);
+        // The index *base* is the load-bearing half. `names.len() == code_entries`
+        // and every prefix check below stay green if `ModuleCode::new` were given
+        // `0` instead of the imported function count — every name would then be
+        // off by that count and wasmtime's `wasm[0]::function[N]` label, the
+        // entire point of the section, would point at the wrong function. `main`
+        // is the first body pushed, so it must sit at exactly the first
+        // non-imported index.
+        let first_body_index = imported_function_count(&artifact);
+        assert!(first_body_index > 0, "the module must import functions");
+        assert_eq!(
+            names.keys().next(),
+            Some(&first_body_index),
+            "name section must start at the first non-imported function index: {names:?}"
+        );
+        assert_eq!(
+            names.get(&first_body_index).map(String::as_str),
+            Some("porffor::main"),
+            "main is pushed first, so it must own the first non-imported index: {names:?}"
+        );
+        assert!(
+            names.values().any(|name| name.starts_with("js::outer")),
+            "user functions must be named: {names:?}"
+        );
+        assert!(
+            names.values().any(|name| name == "helper::heap_alloc"),
+            "runtime helpers must be named: {names:?}"
+        );
+        assert!(
+            names.values().any(|name| name.starts_with("builtin::")),
+            "compiled builtins must be named: {names:?}"
+        );
+
+        // Every code-section entry is named, because every entry goes through
+        // `ModuleCode::push(EmittedFunction)` and an `EmittedFunction` cannot be
+        // built without an identity.
+        let mut code_entries = 0usize;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            if let Payload::CodeSectionEntry(_) = payload.expect("module should parse") {
+                code_entries += 1;
+            }
+        }
+        assert_eq!(names.len(), code_entries);
+    }
+
+    #[test]
+    fn debug_dump_attributes_the_largest_emitted_function() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+        let largest = artifact
+            .debug_dump
+            .lines()
+            .find(|line| line.starts_with("largest emitted function: "))
+            .expect("debug_dump should attribute the largest emitted body");
+        // The `none` fallback line carries no keys, so the presence of the
+        // measured `key=value` shape is what proves a body was attributed. These
+        // are exactly the keys `tests/emit_golden.rs::largest_function` parses.
+        for key in ["index=", "bytes=", "locals=", "kind=", "name="] {
+            assert!(largest.contains(key), "{largest}");
+        }
+        let most_locals = artifact
+            .debug_dump
+            .lines()
+            .find(|line| line.starts_with("most locals in an emitted function: "))
+            .expect("debug_dump should report the most-locals body separately");
+        for key in ["index=", "bytes=", "locals=", "kind=", "name="] {
+            assert!(most_locals.contains(key), "{most_locals}");
+        }
+        assert!(
+            artifact
+                .debug_dump
+                .lines()
+                .any(|line| line.starts_with("emitted code bytes: ")),
+            "{}",
+            artifact.debug_dump
+        );
+    }
+
+    /// The typed per-function report has exactly one row per code-section
+    /// entry in the encoded module.
+    ///
+    /// **What in here can actually fail, and what cannot.** The `largest` vs
+    /// `debug_dump` comparison below is near-tautological by construction:
+    /// `emit()` builds `function_sizes` and renders the `largest emitted
+    /// function:` line from the *same* slice in adjacent statements, so the two
+    /// cannot disagree without an edit that deliberately splits them. It is kept
+    /// as a guard against exactly that re-split — two independently-maintained
+    /// size reports are how `runtime helper functions: 27` came to disagree with
+    /// a counted 32 + 1 — but it is not evidence.
+    ///
+    /// The falsifiable assertion is `function_sizes.len() == code_entries`,
+    /// counted by an independent `wasmparser` walk of the encoded bytes. That is
+    /// what the name promises and it is the only part that can catch a real
+    /// defect.
+    ///
+    /// This test also does **not** cover every emit path: it calls the
+    /// in-process `emit_script` helper only. `Engine::emit_wasm_on_current_thread`
+    /// and `run_with_wasm_aot_inner` — the two paths where the dump was actually
+    /// being dropped — are covered in `porffor-engine`, not here, because this
+    /// crate cannot reach them.
+    #[test]
+    fn typed_report_row_count_matches_the_code_section() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+        assert!(
+            !artifact.function_sizes.is_empty(),
+            "every emitted module has at least `porffor::main`"
+        );
+
+        // Independent witness: the number of typed rows must equal the number
+        // of code-section entries actually in the encoded module.
+        let mut code_entries = 0usize;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            if let Payload::CodeSectionEntry(_) = payload.expect("module should parse") {
+                code_entries += 1;
+            }
+        }
+        assert_eq!(artifact.function_sizes.len(), code_entries);
+
+        let largest = artifact
+            .function_sizes
+            .iter()
+            .max_by_key(|summary| summary.body_bytes)
+            .expect("a non-empty report has a largest entry");
+        let line = artifact
+            .debug_dump
+            .lines()
+            .find(|line| line.starts_with("largest emitted function: "))
+            .expect("debug_dump should attribute the largest emitted body");
+        assert!(
+            line.ends_with(&format!(" name={}", largest.name)),
+            "typed report says {} but debug_dump says {line}",
+            largest.name
+        );
+        assert!(
+            line.contains(&format!(" bytes={} ", largest.body_bytes.bytes())),
+            "typed report says {} bytes but debug_dump says {line}",
+            largest.body_bytes.bytes()
+        );
+        assert!(
+            line.contains(&format!(" index={} ", largest.wasm_index)),
+            "typed report says index {} but debug_dump says {line}",
+            largest.wasm_index
+        );
+
+        // The category comes from `FunctionIdentity::category`, an exhaustive
+        // match, so this also pins that a bootstrap module's biggest body is
+        // still classified rather than falling into some unnamed bucket.
+        assert!(
+            [
+                "main",
+                "script",
+                "builtin",
+                "builtin-stub",
+                "host-builtin",
+                "runtime-helper"
+            ]
+            .contains(&largest.category),
+            "unclassified category {}",
+            largest.category
+        );
+    }
+
+    /// A user function that does one dynamic-key property read must not carry a
+    /// six-figure body.
+    ///
+    /// The probe is the exact text measured on this tree on 2026-08-09 with
+    /// `PORFFOR_WASM_DUMP=... porf build wasm` plus a code-section/`name`-section
+    /// read-back. Ablation of that same probe, one line at a time:
+    ///
+    /// | probe body | `js::probe#f0` |
+    /// |---|---|
+    /// | `return 0;` | 2,215 |
+    /// | `var A = k.split('-'); return A.length;` | 14,754 |
+    /// | ... plus `x = A[0];` (static index) | 14,911 |
+    /// | ... plus `x = A[i];` (**this probe**) | **87,101** |
+    /// | ... plus a second `y = A[j];` | 159,811 |
+    ///
+    /// So one dynamic key costs `(159,811 - 14,754) / 2 = 72,528` bytes and the
+    /// floor for this probe once ToPropertyKey/ToPrimitive are outlined is the
+    /// 14,754-byte row plus a call. The budget is set at 30,000: comfortably
+    /// above that floor, less than half of the pre-split 87,101, so it is RED
+    /// before the split and GREEN after without being a tripwire on ordinary
+    /// drift.
+    ///
+    /// **The absolute budget alone is not enough**, and that is why the static
+    /// control below exists. The post-split floor is ~14,900 (the static-index
+    /// row) plus a call, so *anything* from ~15,000 to 30,000 satisfies the
+    /// budget — including a half-landed split in which the ToPropertyKey seam
+    /// fires and the ToPrimitive one does not, or the reverse. The budget
+    /// asserts a constant; it cannot express the relationship it means.
+    ///
+    /// So the test emits a second probe that is the same text with a **static**
+    /// index (`x = A[0];`) and asserts that the dynamic body costs the static
+    /// body plus at most [`DYNAMIC_KEY_MARGIN_BYTES`]. That is the real claim:
+    /// *a dynamic key costs about what a static key costs, plus a call.* The
+    /// margin is 10,000 rather than the few hundred bytes a seam plus a call
+    /// should really cost, because the post-split delta has not been measured —
+    /// but 10,000 is one seventh of the 72,528 bytes a single inline copy of
+    /// either composite occupies, so no partially-fired seam can hide inside it.
+    /// Tighten it towards ~1,000 once the delta is counted.
+    ///
+    /// It asserts on a **named** function. Asserting on the largest body in the
+    /// module would be vacuous: in any bootstrap-heavy module that is a builtin
+    /// (`builtin::Object.defineProperty`, 375,534 bytes in this very probe),
+    /// which stays green while the user function regresses by an order of
+    /// magnitude.
+    ///
+    /// Note the module contains *two* bodies for this function —
+    /// `js::probe#f0` and `js::probe#f0$exact_helper_context$0` — so the check
+    /// is over every body whose name starts with the function's name, and it
+    /// requires at least one to exist rather than passing on an empty set.
+    #[test]
+    fn emitted_function_bodies_stay_under_budget() {
+        const PROBE: &str = "function probe(k, i, j) {\n  \
+             var A = k.split('-');\n  \
+             var x = '';\n  \
+             x = A[i];\n  \
+             return x;\n\
+             }\n\
+             print(probe('a-b-c', 0, 1));\n";
+        /// The same text with a static index. Every other line is identical, so
+        /// the difference between the two largest `js::probe#` bodies is the
+        /// cost of the dynamic key and nothing else.
+        const STATIC_CONTROL: &str = "function probe(k, i, j) {\n  \
+             var A = k.split('-');\n  \
+             var x = '';\n  \
+             x = A[0];\n  \
+             return x;\n\
+             }\n\
+             print(probe('a-b-c', 0, 1));\n";
+        const BUDGET_BYTES: u32 = 30_000;
+        /// See the doc comment: one inline copy of either composite is 72,528
+        /// bytes, so a margin this size cannot conceal a half-fired seam.
+        const DYNAMIC_KEY_MARGIN_BYTES: u32 = 10_000;
+
+        /// Largest emitted body whose name starts with `js::probe#`. There are
+        /// two (`js::probe#f0` and `js::probe#f0$exact_helper_context$0`), and
+        /// an empty set must fail rather than pass vacuously.
+        fn largest_probe_body(artifact: &WasmArtifact) -> (String, u32) {
+            let probe_bodies = artifact
+                .function_sizes
+                .iter()
+                .filter(|summary| summary.name.starts_with("js::probe#"))
+                .collect::<Vec<_>>();
+            assert!(
+                !probe_bodies.is_empty(),
+                "the probe function must be emitted, or this budget is vacuous: {:?}",
+                artifact
+                    .function_sizes
+                    .iter()
+                    .map(|summary| summary.name.as_str())
+                    .collect::<Vec<_>>()
+            );
+            let largest = probe_bodies
+                .iter()
+                .max_by_key(|summary| summary.body_bytes.bytes())
+                .expect("non-empty");
+            (largest.name.clone(), largest.body_bytes.bytes())
+        }
+
+        let artifact = emit_script(PROBE).expect("probe script should emit");
+        let probe_bodies = artifact
+            .function_sizes
+            .iter()
+            .filter(|summary| summary.name.starts_with("js::probe#"))
+            .collect::<Vec<_>>();
+        assert!(
+            !probe_bodies.is_empty(),
+            "the probe function must be emitted, or this budget is vacuous: {:?}",
+            artifact
+                .function_sizes
+                .iter()
+                .map(|summary| summary.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        for body in probe_bodies {
+            assert!(
+                body.body_bytes.bytes() <= BUDGET_BYTES,
+                "{} is {} bytes against a budget of {BUDGET_BYTES}; \
+                 one dynamic-key property read should not cost a six-figure body",
+                body.name,
+                body.body_bytes.bytes()
+            );
+        }
+
+        // The relational half. `BUDGET_BYTES` above is a constant and cannot
+        // distinguish "both composites outlined" from "one of the two".
+        let (dynamic_name, dynamic_bytes) = largest_probe_body(&artifact);
+        let control = emit_script(STATIC_CONTROL).expect("static control script should emit");
+        let (static_name, static_bytes) = largest_probe_body(&control);
+        assert!(
+            dynamic_bytes >= static_bytes,
+            "a dynamic key cannot be cheaper than a static one: \
+             {dynamic_name} is {dynamic_bytes} bytes, {static_name} is {static_bytes}"
+        );
+        let delta = dynamic_bytes - static_bytes;
+        assert!(
+            delta <= DYNAMIC_KEY_MARGIN_BYTES,
+            "a dynamic key costs {delta} bytes over the static control \
+             ({dynamic_name} {dynamic_bytes} vs {static_name} {static_bytes}), \
+             against a margin of {DYNAMIC_KEY_MARGIN_BYTES}. One inline copy of the \
+             ToPrimitive/ToPropertyKey composite is 72,528 bytes, so a delta this \
+             large means at least one of the two seams did not fire — read the two \
+             numbers rather than only raising the margin"
+        );
+    }
+
+    /// The `PORFFOR_EMIT_SIZE_REPORT_PATH` sink writes one line per emitted
+    /// function, from the same traversal as the typed report, with the largest
+    /// body first.
+    ///
+    /// This exists because the sink was the one mechanism the size-report work
+    /// added specifically so that "I set the variable and saw nothing" could not
+    /// be read as "there are no large functions" — and it was itself protected
+    /// only by review. The env read is deliberately *not* exercised here (it
+    /// would be visible to every other test in the process); this drives
+    /// `write_size_report_file`, which is everything the env wrapper does after
+    /// reading the variable.
+    #[test]
+    fn the_size_report_file_is_the_same_traversal_as_the_typed_report() {
+        let artifact = emit_script("this;").expect("full bootstrap script should emit");
+        let path = std::env::temp_dir().join(format!(
+            "porffor-emit-size-report-{}.txt",
+            std::process::id()
+        ));
+        crate::emitted_function::write_size_report_file(&path, &artifact.function_sizes);
+
+        let written = std::fs::read_to_string(&path).expect("the sink must write the report file");
+        let _ = std::fs::remove_file(&path);
+
+        let lines = written.lines().collect::<Vec<_>>();
+        assert_eq!(
+            lines.len(),
+            artifact.function_sizes.len(),
+            "the report file must hold one row per typed summary"
+        );
+
+        let largest_bytes = artifact
+            .function_sizes
+            .iter()
+            .map(|summary| summary.body_bytes.bytes())
+            .max()
+            .expect("a non-empty report has a largest entry");
+        assert!(
+            lines[0].contains(&format!(" bytes={largest_bytes} ")),
+            "the first report row must be a largest body ({largest_bytes} bytes), got {:?}",
+            lines[0]
+        );
+        // `report_lines` breaks size ties by ascending wasm index while
+        // `EmittedFunctionSummary::largest` keeps the last maximum, so assert on
+        // the row's own identity rather than assuming the two pick the same tie.
+        let reported_name = lines[0]
+            .rsplit_once(" name=")
+            .map(|(_, name)| name)
+            .expect("every report row ends with name=");
+        assert!(
+            artifact.function_sizes.iter().any(|summary| {
+                summary.name == reported_name && summary.body_bytes.bytes() == largest_bytes
+            }),
+            "the first report row names {reported_name}, which is not a largest typed summary"
+        );
+    }
+
+    #[test]
+    fn runtime_helper_count_is_derived_not_asserted() {
+        // The point of this test is that the reported figure is *derived from
+        // the registry*, not hand-written: the literal `27` it replaces had
+        // drifted from the truth by five. So the expectation is spelled from
+        // `RuntimeHelperId::ALL` and a new helper moves both sides together.
+        //
+        // Exactly one helper is conditional (`JSON.stringify`'s value helper).
+        // That does NOT make the emitted count vary by script: `emit` gates it
+        // on `compiled_standard_builtins.contains(JsonStringify)`, and the
+        // default bootstrap installs the full global object, so
+        // `JSON.stringify` has a compiled body for every script — including one
+        // that never mentions `JSON`. Asserting a lower count for `this;` would
+        // be asserting a demand-driven bootstrap this backend does not have
+        // yet, which is why that assertion failed the first time it was run.
+        let conditional = RuntimeHelperId::ALL
+            .iter()
+            .filter(|helper| helper.is_conditional())
+            .count();
+        assert_eq!(
+            conditional, 1,
+            "only JSON.stringify's value helper is conditional; \
+             a second conditional helper needs this test to distinguish them"
+        );
+
+        let expected = format!("runtime helper functions: {}", RuntimeHelperId::ALL.len());
+        for source in ["this;", "JSON.stringify({});"] {
+            let artifact = emit_script(source).expect("script should emit");
+            assert!(
+                artifact.debug_dump.lines().any(|line| line == expected),
+                "expected `{expected}` for `{source}`\n{}",
+                artifact.debug_dump
+            );
+        }
     }
 
     #[test]

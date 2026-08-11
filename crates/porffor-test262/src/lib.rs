@@ -2,6 +2,7 @@ use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroUsize;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -14,8 +15,14 @@ use porffor_engine::{
     compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
     ExecutionBackend, HostHooks, RealmBuilder, RunOptions,
 };
-use porffor_ir::{IrDiagnosticKind, IrDiagnosticPhase};
+use porffor_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind};
 use serde::{Deserialize, Serialize};
+
+mod attempt_journal;
+
+use attempt_journal::{
+    plan_run_phases, AdmittedCase, AttemptJournal, CaseAdmission, CaseStrikes, CrashStrikeLimit,
+};
 
 const TOP_LEVEL_FILTERS: [&str; 6] = [
     "annexB",
@@ -513,6 +520,14 @@ pub struct MatrixTriageEntry {
     pub bug: usize,
 }
 
+/// One failure family: the unit a fix lane owns.
+///
+/// `detail_hash` is the family's identity, computed by `hash_detail` from the
+/// detail with build-local heap addresses erased (`FailureDetailIdentity`), and
+/// recomputed here rather than read from the snapshot so an already-recorded
+/// corpus groups correctly too. `detail` is the *verbatim* text of the first
+/// representative test, address and all: the address is removed from the
+/// identity, never from the report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureDetailGroup {
     pub outcome: OutcomeKind,
@@ -1022,6 +1037,31 @@ pub fn materialize_test(
     let mut used_preludes = Vec::new();
 
     if !case.flags.contains("raw") {
+        // ONE materialization per case, and for the un-flagged majority that is
+        // half of what the suite specifies.
+        //
+        // INTERPRETING.md requires a case carrying none of
+        // `onlyStrict | noStrict | raw | module` to be run TWICE: once in sloppy
+        // mode and once with `"use strict";` prepended. This function prepends
+        // the prologue only for `onlyStrict` and never produces a second
+        // variant, so every such case is executed sloppy-mode only, and every
+        // total this harness reports for it is one of the two executions the
+        // suite asks for.
+        //
+        // That is not a rounding error. Measured over the batch-7 frontier
+        // nodes: 48 of 48 `language/computed-property-names` files, 102 of 102
+        // `language/asi`, 60 of 63 `language/expressions/yield`, 18 of 19
+        // `language/destructuring` and 33 of 42 `language/global-code` carry
+        // none of the four flags, and each node's reported `total` equals its
+        // plain file count exactly. So "yield 63/63" is 63 of 120.
+        //
+        // Do not read this as a skip list — nothing is silently excluded, and
+        // every case that runs is reported honestly. It is an unmeasured HALF,
+        // and it is unmeasured everywhere, not only in that lane. Closing it
+        // means materializing both variants and reporting them as two cases,
+        // which moves every denominator in the project; that is a lane of its
+        // own, and this comment exists so the next count is not quoted as
+        // conformance coverage before it lands.
         if case.flags.contains("onlyStrict") {
             source.push_str("\"use strict\";\n");
         }
@@ -20631,6 +20671,28 @@ fn execute_cases(
         }
     }
 
+    // The attempt journal is opened before anything is selected to run, and
+    // charged before anything is scheduled, so that a case which killed the
+    // previous process is accounted for even on a run that turns out to have
+    // nothing left to do.
+    let journal = AttemptJournal::open(
+        attempt_journal_path(config, &run_config.snapshot_name, manifest.manifest_hash),
+        run_config.resume,
+        CrashStrikeLimit::DEFAULT,
+    );
+    let suspects = journal.charge_strikes_for_survivors()?;
+    for suspect in &suspects {
+        // Named on the same stream as `test262 checkpoint: N/M cases`. The
+        // sweep log that motivated this module named no case at all, which is
+        // why identifying the batch-4 poison case needed a snapshot diff.
+        eprintln!(
+            "test262 attempt journal: {} was in flight when a previous process died (strike {} of {})",
+            suspect.path,
+            suspect.strikes,
+            journal.limit()
+        );
+    }
+
     let remaining = cases
         .iter()
         .filter(|case| !completed.contains_key(&case.path))
@@ -20645,6 +20707,11 @@ fn execute_cases(
     };
 
     if remaining.is_empty() {
+        // Nothing to attempt is a clean exit, so the journal goes with it —
+        // otherwise a completed node keeps its `.attempts` file (and every
+        // strike charged during it) for the next run at the same
+        // `(snapshot_name, manifest_hash)` pair to inherit.
+        journal.discard()?;
         let mut existing = completed.into_values().collect::<Vec<_>>();
         existing.sort_by(|left, right| left.test_path.cmp(&right.test_path));
         return Ok(existing);
@@ -20656,97 +20723,198 @@ fn execute_cases(
     // non-resume path; `resume` only controls which cases were skipped above.
     let previously_completed: Vec<TestResult> = completed.into_values().collect();
 
-    let queue = Arc::new(Mutex::new(remaining));
     let results = Arc::new(Mutex::new(Vec::new()));
-    let worker_count = config.worker_count.max(1).min(cases.len().max(1));
+    // `NonZeroUsize`, not `usize`, and the reason is the failure this batch is
+    // about: a phase whose worker count is zero spawns no workers, its queue is
+    // never drained, and every case in it disappears from `results` without a
+    // record. That is a silent skip, which AGENTS.md bans outright. The `max(1)`
+    // below already guaranteed it at run time; carrying the guarantee in the
+    // type means `plan_run_phases` cannot hand a phase back with no way to run
+    // it, and the literal `1` it uses for the serial suspect phase has to say so.
+    let worker_count = NonZeroUsize::new(config.worker_count.max(1).min(cases.len().max(1)))
+        .expect("worker count is clamped to at least 1 on the line above");
     // Guarded by the same mutex as `results` so the "did we cross a
     // checkpoint boundary" decision is race-safe: the length check happens
     // while still holding the lock that guards pushes into `results`.
     let checkpoint_error: Mutex<Option<String>> = Mutex::new(None);
+    // An `admit` write that fails means a case would be attempted with no
+    // durable record, so it fails the run rather than degrading it silently. A
+    // failed `retire` is deliberately NOT fatal — see the retire arm below.
+    let journal_error: Mutex<Option<String>> = Mutex::new(None);
     // Workers can finish later checkpoints before earlier workers finish
     // serializing theirs. Serialize checkpoint writes and retain the largest
     // completed count so an older snapshot can never clobber newer progress.
     let last_checkpoint_count = Mutex::new(0usize);
 
-    thread::scope(|scope| {
-        for _ in 0..worker_count {
-            let queue = Arc::clone(&queue);
-            let results = Arc::clone(&results);
-            let preludes = preludes.clone();
-            let worker_config = config.clone();
-            let worker_run_config = RunConfig {
-                filter: run_config.filter.clone(),
-                shard_index: 0,
-                shard_count: 1,
-                resume: false,
-                snapshot_name: String::new(),
-                execution_backend: run_config.execution_backend,
-                max_matrix_nodes: None,
-            };
-            let previously_completed = &previously_completed;
-            let checkpoint_error = &checkpoint_error;
-            let last_checkpoint_count = &last_checkpoint_count;
-            thread::Builder::new()
-                .stack_size(TEST262_WORKER_STACK_SIZE)
-                .spawn_scoped(scope, move || loop {
-                    let maybe_case = {
-                        let mut guard = queue.lock().expect("queue mutex poisoned");
-                        guard.pop()
-                    };
-                    let Some(case) = maybe_case else {
-                        break;
-                    };
-                    let result =
-                        run_case_entry(&worker_config, &preludes, &case, &worker_run_config);
+    // Usually one phase over everything. Two only when a previous death left
+    // more than one case in flight, in which case the suspects run serially
+    // first so the next death names exactly one of them.
+    for phase in plan_run_phases(&suspects, remaining, worker_count) {
+        let phase_worker_count = phase.worker_count().get();
+        let queue = Arc::new(Mutex::new(phase.into_queue()));
+        thread::scope(|scope| {
+            for worker_slot in 0..phase_worker_count {
+                let queue = Arc::clone(&queue);
+                let results = Arc::clone(&results);
+                let preludes = preludes.clone();
+                let worker_config = config.clone();
+                let worker_run_config = RunConfig {
+                    filter: run_config.filter.clone(),
+                    shard_index: 0,
+                    shard_count: 1,
+                    resume: false,
+                    snapshot_name: String::new(),
+                    execution_backend: run_config.execution_backend,
+                    max_matrix_nodes: None,
+                };
+                let previously_completed = &previously_completed;
+                let checkpoint_error = &checkpoint_error;
+                let journal_error = &journal_error;
+                let last_checkpoint_count = &last_checkpoint_count;
+                let journal = &journal;
+                thread::Builder::new()
+                    .stack_size(TEST262_WORKER_STACK_SIZE)
+                    .spawn_scoped(scope, move || loop {
+                        let maybe_case = {
+                            let mut guard = queue.lock().expect("queue mutex poisoned");
+                            guard.pop()
+                        };
+                        let Some(queued) = maybe_case else {
+                            break;
+                        };
 
-                    let checkpoint_snapshot = {
-                        let mut guard = results.lock().expect("results mutex poisoned");
-                        guard.push(result);
-                        if guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
-                            let mut snapshot_results = previously_completed.clone();
-                            snapshot_results.extend(guard.iter().cloned());
-                            Some((snapshot_results.len(), snapshot_results))
-                        } else {
-                            None
-                        }
-                    };
-
-                    if let Some((completed_count, mut snapshot_results)) = checkpoint_snapshot {
-                        snapshot_results
-                            .sort_by(|left, right| left.test_path.cmp(&right.test_path));
-                        let mut last_written = last_checkpoint_count
-                            .lock()
-                            .expect("checkpoint count mutex poisoned");
-                        if completed_count <= *last_written {
-                            continue;
-                        }
-                        match write_resume_case_checkpoint(
-                            &worker_config,
-                            manifest,
-                            &snapshot_results,
-                            run_config,
-                        ) {
-                            Ok(()) => {
-                                *last_written = completed_count;
-                                eprintln!(
-                                    "test262 checkpoint: {completed_count}/{} cases",
-                                    cases.len()
-                                );
-                            }
+                        // The only way to turn a queue pop into a runnable
+                        // `TestCase`. It writes the durable in-flight record
+                        // first, so a process death from here on is
+                        // attributable to exactly this case.
+                        let admission = match journal.admit(worker_slot, queued) {
+                            Ok(admission) => admission,
                             Err(err) => {
-                                let mut error_guard = checkpoint_error
-                                    .lock()
-                                    .expect("checkpoint error mutex poisoned");
+                                let mut error_guard =
+                                    journal_error.lock().expect("journal error mutex poisoned");
                                 if error_guard.is_none() {
                                     *error_guard = Some(err);
                                 }
+                                break;
+                            }
+                        };
+
+                        let result = match admission {
+                            CaseAdmission::Run(admitted) => {
+                                let result = run_case_entry(
+                                    &worker_config,
+                                    &preludes,
+                                    &admitted,
+                                    &worker_run_config,
+                                );
+                                // `run_case_entry` returns `TestResult`, not
+                                // `Result<TestResult, _>`: it catches unwinding
+                                // panics itself and turns them into a failure
+                                // record. There is therefore no path from the
+                                // line above to the line below that skips the
+                                // retire, which is what makes a surviving
+                                // journal entry mean "the process died" — a
+                                // fact about the signature rather than about a
+                                // test.
+                                if let Err(err) = journal.retire(worker_slot) {
+                                    // Loud, but NOT fatal, and the asymmetry
+                                    // with `admit` above is deliberate. A
+                                    // stale in-flight entry self-heals: the
+                                    // next `admit` for this slot drops it, and
+                                    // at worst it costs one bogus strike,
+                                    // which a later completion now forgives.
+                                    // Failing the run instead would let a full
+                                    // `--snapshot-dir` produce a deterministic
+                                    // non-zero exit on every supervisor
+                                    // attempt — burning the whole retry budget
+                                    // on a diagnostic subsystem, which is the
+                                    // exact failure shape this module exists
+                                    // to end.
+                                    eprintln!(
+                                        "test262 attempt journal: could not retire the entry for {} ({err}); attribution for this node is degraded but the run continues. If this repeats, delete the node's `.attempts` file in the snapshot directory and check for a full disk.",
+                                        admitted.case().path
+                                    );
+                                }
+                                result
+                            }
+                            CaseAdmission::Quarantined { path, strikes } => {
+                                eprintln!(
+                                    "test262 quarantine: {path} was in flight for {strikes} process death(s); recorded as outcome Crash and not run"
+                                );
+                                TestResult {
+                                    test_path: path.clone(),
+                                    status: TestStatus::Failed(quarantined_case_failure(
+                                        &path, strikes,
+                                    )),
+                                    duration_ms: 0,
+                                }
+                            }
+                        };
+
+                        let checkpoint_snapshot = {
+                            let mut guard = results.lock().expect("results mutex poisoned");
+                            guard.push(result);
+                            if guard.len() % RESUME_CASE_CHECKPOINT_INTERVAL == 0 {
+                                let mut snapshot_results = previously_completed.clone();
+                                snapshot_results.extend(guard.iter().cloned());
+                                Some((snapshot_results.len(), snapshot_results))
+                            } else {
+                                None
+                            }
+                        };
+
+                        if let Some((completed_count, mut snapshot_results)) = checkpoint_snapshot {
+                            snapshot_results
+                                .sort_by(|left, right| left.test_path.cmp(&right.test_path));
+                            let mut last_written = last_checkpoint_count
+                                .lock()
+                                .expect("checkpoint count mutex poisoned");
+                            if completed_count <= *last_written {
+                                continue;
+                            }
+                            match write_resume_case_checkpoint(
+                                &worker_config,
+                                manifest,
+                                &snapshot_results,
+                                run_config,
+                            ) {
+                                Ok(()) => {
+                                    *last_written = completed_count;
+                                    eprintln!(
+                                        "test262 checkpoint: {completed_count}/{} cases",
+                                        cases.len()
+                                    );
+                                }
+                                Err(err) => {
+                                    let mut error_guard = checkpoint_error
+                                        .lock()
+                                        .expect("checkpoint error mutex poisoned");
+                                    if error_guard.is_none() {
+                                        *error_guard = Some(err);
+                                    }
+                                }
                             }
                         }
-                    }
-                })
-                .expect("worker thread should spawn");
+                    })
+                    .expect("worker thread should spawn");
+            }
+        });
+
+        if journal_error
+            .lock()
+            .expect("journal error mutex poisoned")
+            .is_some()
+        {
+            break;
         }
-    });
+    }
+
+    if let Some(err) = journal_error
+        .into_inner()
+        .expect("journal error mutex poisoned")
+    {
+        return Err(err);
+    }
 
     if let Some(err) = checkpoint_error
         .into_inner()
@@ -20766,6 +20934,11 @@ fn execute_cases(
     if run_config.resume {
         write_resume_case_checkpoint(config, manifest, &all_results, run_config)?;
     }
+
+    // Last, and only on the success path: this run exited cleanly, so nothing
+    // in the journal describes a death and nothing in it should survive into a
+    // later run at the same `(snapshot_name, manifest_hash)` pair.
+    journal.discard()?;
 
     Ok(all_results)
 }
@@ -20797,10 +20970,72 @@ fn wasm_aot_case_should_run_before_cache_misses(case: &TestCase, preludes: &Prel
     }
 }
 
+/// The closed `negative.phase` domain of test262's frontmatter
+/// (INTERPRETING.md: `parse`, `early`, `resolution`, `runtime`).
+///
+/// The field itself stays a `String` because it is parsed out of YAML-ish
+/// frontmatter and a malformed file may say anything; this is the one place
+/// that free text is turned into a decision, and every consumer matches it
+/// exhaustively. Before this existed, the three consumers each spelled their
+/// own `eq_ignore_ascii_case` chain, and they disagreed: `resolution` was a
+/// compile-time rejection to `classify_negative_phase` and a runtime one to
+/// `case_has_compile_only_negative`, so a module link failure never entered the
+/// compile-only path at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NegativePhase {
+    Parse,
+    Early,
+    Resolution,
+    Runtime,
+}
+
+impl NegativePhase {
+    /// The only classifier. Anything outside the three compile-time phases is a
+    /// runtime negative, which is the frontmatter's own default.
+    fn of(negative: &NegativeExpectation) -> Self {
+        if negative.phase.eq_ignore_ascii_case("parse") {
+            Self::Parse
+        } else if negative.phase.eq_ignore_ascii_case("early") {
+            Self::Early
+        } else if negative.phase.eq_ignore_ascii_case("resolution") {
+            Self::Resolution
+        } else {
+            Self::Runtime
+        }
+    }
+
+    /// Is this a rejection the compiler must produce **without executing user
+    /// code**?
+    ///
+    /// `resolution` belongs here: 16.2.1.5 `InnerModuleLinking` /
+    /// 16.2.1.6.4 `ResolveExport` fail before any module body evaluates, and an
+    /// AOT compiler decides them at compile time. Reporting it as a runtime
+    /// negative sent the case down the `detail.contains(&negative.error_type)`
+    /// fallback against a message like `module ./dep.js does not export nope`,
+    /// which contains no error name at all.
+    const fn is_compile_only(self) -> bool {
+        match self {
+            Self::Parse | Self::Early | Self::Resolution => true,
+            Self::Runtime => false,
+        }
+    }
+
+    /// The failure family a mismatch is filed under.
+    const fn failure_kind(self) -> FailureKind {
+        match self {
+            Self::Parse => FailureKind::Parser,
+            // `resolution` negatives are module link failures, which this
+            // compiler reports at compile time alongside early errors.
+            Self::Early | Self::Resolution => FailureKind::EarlyError,
+            Self::Runtime => FailureKind::Runtime,
+        }
+    }
+}
+
 fn case_has_compile_only_negative(case: &TestCase) -> bool {
-    case.negative.as_ref().is_some_and(|negative| {
-        negative.phase.eq_ignore_ascii_case("parse") || negative.phase.eq_ignore_ascii_case("early")
-    })
+    case.negative
+        .as_ref()
+        .is_some_and(|negative| NegativePhase::of(negative).is_compile_only())
 }
 
 fn compile_options_for_case(case: &TestCase) -> CompileOptions {
@@ -20837,6 +21072,60 @@ fn snapshot_paths_for_name(
         txt_path: config
             .snapshot_dir
             .join(format!("{snapshot_name}-{manifest_hash}.txt")),
+    }
+}
+
+/// Where the attempt journal for one `(snapshot_name, manifest_hash)` pair
+/// lives.
+///
+/// Derived from the snapshot's own JSON path rather than formatted
+/// independently, so a journal can never key on a different pair than the
+/// snapshot whose resume state it corrects. `execute_matrix_node` forms that
+/// pair once, as `{snapshot_name}-{sanitized node_id}` plus the node manifest
+/// hash, and both files follow it.
+///
+/// The extension is deliberately **not** `.json`, and that is not cosmetic:
+/// `load_resume_aggregate_snapshot` collects every `*.json` file in the
+/// snapshot directory whose name starts with `{snapshot_name}-` as a fallback
+/// aggregate candidate and then reads it with `read_snapshot_file(&path)?` —
+/// where a parse failure is propagated, not skipped. A journal named `.json`
+/// would therefore turn every `report-all --resume` that has not yet written an
+/// aggregate into a hard error, which is the opposite of this module's purpose.
+fn attempt_journal_path(config: &SuiteConfig, snapshot_name: &str, manifest_hash: u64) -> PathBuf {
+    snapshot_paths_for_name(config, snapshot_name, manifest_hash)
+        .json_path
+        .with_extension("attempts")
+}
+
+/// The failure record for a quarantined case.
+///
+/// `OutcomeKind::Crash` is constructed **explicitly** here, never inferred.
+/// `classify_failure_outcome` decides `Crash` by lowercase substring match over
+/// the detail (`"crash"`, `"panic"`, `"trapped"`, `"timeout exceeded"`, ...), so
+/// routing a quarantine through `classify_failure` would make the outcome
+/// depend on a particular word surviving a future edit of this message. It
+/// would also be the wrong reason: this process never observed the case crash.
+/// It read that fact out of the attempt journal.
+///
+/// `FailureKind::WasmBackend` because the deaths this mechanism exists for
+/// happen inside compilation or execution of the emitted module, and
+/// `FailureOrigin::LocalHarness` because the *decision* not to run it is the
+/// harness's own.
+fn quarantined_case_failure(test_path: &str, strikes: CaseStrikes) -> FailureRecord {
+    let origin = FailureOrigin::LocalHarness;
+    let detail = format!(
+        "[origin:{}] process death while compiling or running this case ({} attempts); quarantined by report-all --resume",
+        origin.as_str(),
+        strikes.get()
+    );
+    FailureRecord {
+        test_path: test_path.to_string(),
+        kind: FailureKind::WasmBackend,
+        outcome: OutcomeKind::Crash,
+        origin,
+        detail_hash: hash_detail(&detail),
+        detail,
+        duration_ms: None,
     }
 }
 
@@ -20926,7 +21215,7 @@ fn run_one_case_in_child_process(
     let child_snapshot_name = format!(
         "{}-case-{}",
         run_config.snapshot_name,
-        hash_detail(&case.path)
+        hash_case_path(&case.path)
     );
     let child_config = SuiteConfig {
         snapshot_dir: child_snapshot_dir.clone(),
@@ -21040,12 +21329,21 @@ fn run_one_case_in_child_process(
     child_result
 }
 
+/// Runs one case that the attempt journal has admitted.
+///
+/// Takes [`AdmittedCase`] rather than `&TestCase` on purpose: the worker
+/// closure in `execute_cases` has the whole `&[TestCase]` in scope, so with a
+/// bare `&TestCase` parameter `run_case_entry(.., &cases[0], ..)` compiled and
+/// bypassed the quarantine check entirely. `AdmittedCase`'s field is private
+/// and `AttemptJournal::admit` is its only non-test constructor, so that line
+/// is now an E0603.
 fn run_case_entry(
     config: &SuiteConfig,
     preludes: &PreludeStore,
-    case: &TestCase,
+    admitted: &AdmittedCase,
     run_config: &RunConfig,
 ) -> TestResult {
+    let case = admitted.case();
     // In-process execution is the default (`config.case_runner_bin` is only
     // `Some` when the CLI is invoked with `PORFFOR_TEST262_FORCE_CASE_RUNNER`
     // set, e.g. for crash repro). This used to be unsafe for a
@@ -21196,7 +21494,7 @@ fn run_one_case_with_wasm_aot_execution(
             && !compile_only_negative;
         if compile_only_negative || spec_exec_negative_preflight {
             let negative = case.negative.as_ref().expect("negative preflight exists");
-            let negative_kind = classify_negative_phase(&negative.phase);
+            let negative_kind = classify_negative_phase(negative);
             let compile_result = if materialized.is_module {
                 engine.compile_module(&materialized.source, compile_options.clone())
             } else {
@@ -21339,7 +21637,7 @@ fn run_one_case_with_wasm_aot_execution(
         };
 
         if let Some(negative) = &case.negative {
-            let negative_kind = classify_negative_phase(&negative.phase);
+            let negative_kind = classify_negative_phase(negative);
             return match run_result {
                 Ok(_) => Err(classify_failure(
                     &case.path,
@@ -21474,69 +21772,128 @@ fn compile_negative_error_matches(
     err: &porffor_engine::EngineError,
     negative: &NegativeExpectation,
 ) -> bool {
+    let expected = NegativePhase::of(negative);
     if let Some(diagnostic) = err.parse_diagnostic() {
-        let phase_matches = match diagnostic.phase {
-            porffor_front::ParseDiagnosticPhase::Parse => {
-                negative.phase.eq_ignore_ascii_case("parse")
-            }
-            porffor_front::ParseDiagnosticPhase::Early => {
-                negative.phase.eq_ignore_ascii_case("parse")
-                    || negative.phase.eq_ignore_ascii_case("early")
-            }
+        // Both sides are now closed domains, so the cross-product is spelled
+        // out: a new `ParseDiagnosticPhase` or a new `NegativePhase` is E0004
+        // here rather than a silently-false comparison.
+        let phase_matches = match (diagnostic.phase(), expected) {
+            (porffor_front::ParseDiagnosticPhase::Parse, NegativePhase::Parse) => true,
+            (
+                porffor_front::ParseDiagnosticPhase::Early,
+                NegativePhase::Parse | NegativePhase::Early,
+            ) => true,
+            (porffor_front::ParseDiagnosticPhase::Parse, NegativePhase::Early)
+            | (
+                porffor_front::ParseDiagnosticPhase::Parse
+                | porffor_front::ParseDiagnosticPhase::Early,
+                NegativePhase::Resolution | NegativePhase::Runtime,
+            ) => false,
         };
+        // `error_type()` is `None` for `ParseCode::UnsupportedParserFeature`,
+        // the caught-panic case — a compiler gap, not a program ECMAScript
+        // rejects. Requiring `Some` here (rather than only comparing when the
+        // expectation names a type) is what stops a source that merely crashed
+        // boa's parser from being scored as a pass for every `parse`/
+        // `SyntaxError` negative: its phase is already `Parse`, so the phase
+        // test alone admits it. Clause 17: an implementation must not treat
+        // other kinds of error as early errors.
         return phase_matches
-            && (negative.error_type.is_empty() || diagnostic.error_type == negative.error_type);
+            && diagnostic
+                .error_type()
+                .is_some_and(|kind| negative.error_type.is_empty() || kind == negative.error_type);
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
-        let phase_matches = match diagnostic.phase {
-            IrDiagnosticPhase::Early => {
-                negative.phase.eq_ignore_ascii_case("parse")
-                    || negative.phase.eq_ignore_ascii_case("early")
-            }
+        let phase_matches = match (diagnostic.phase(), expected) {
+            (IrDiagnosticPhase::Early, NegativePhase::Parse | NegativePhase::Early) => true,
             // A module link failure is what test262 spells `phase: resolution`.
             // An AOT compiler catches it at compile time instead of throwing
             // at runtime, which is honest about what this compiler is.
-            IrDiagnosticPhase::Resolution => negative.phase.eq_ignore_ascii_case("resolution"),
-            IrDiagnosticPhase::Lowering => !negative.phase.eq_ignore_ascii_case("parse"),
-        };
-        return phase_matches
-            && matches!(
-                diagnostic.kind,
-                IrDiagnosticKind::EarlyError | IrDiagnosticKind::LinkError
+            (IrDiagnosticPhase::Resolution, NegativePhase::Resolution) => true,
+            (
+                IrDiagnosticPhase::Lowering,
+                NegativePhase::Early | NegativePhase::Resolution | NegativePhase::Runtime,
+            ) => true,
+            (IrDiagnosticPhase::Early, NegativePhase::Resolution | NegativePhase::Runtime)
+            | (
+                IrDiagnosticPhase::Resolution,
+                NegativePhase::Parse | NegativePhase::Early | NegativePhase::Runtime,
             )
+            | (IrDiagnosticPhase::Lowering, NegativePhase::Parse) => false,
+        };
+        // `code().is_some()` is exactly "this is a spec rejection, not a
+        // compiler gap" — the same predicate the old two-variant `matches!`
+        // stated, said once and in terms of the thing that decides it.
+        //
+        // The error-type comparison must not go the other way round.
+        // `NativeErrorKind::from_str(&negative.error_type)` returns `None` for a
+        // `negative.error_type` outside the nine-name domain (`Test262Error`,
+        // say), and `None == diagnostic.error_type()` would then turn an
+        // unmatched expectation into a match.
+        return phase_matches
+            && diagnostic.code().is_some()
             && (negative.error_type.is_empty()
-                || diagnostic.error_type == Some(negative.error_type.as_str()));
+                || diagnostic
+                    .error_type()
+                    .is_some_and(|kind| kind.as_str() == negative.error_type));
     }
 
+    // FALLBACK ARM, and the weakest thing in this function. A substring match on
+    // the raw engine message, plus an unconditional pass when the expectation
+    // names no type — i.e. exactly the shape that turns a backend error into a
+    // green negative. It is unreachable on the corpus measured in batch 7 (all
+    // 388 negatives across the 14 frontier `language/` nodes carry a `type:`),
+    // which is why no banked number depends on it, but "unreachable today" is
+    // not "cannot pass wrongly".
+    //
+    // Note also what the guarded arms above do NOT distinguish: for
+    // `phase: parse` the comparison is phase + error type only, so any
+    // parse-phase SyntaxError scores a pass whether or not it is the early error
+    // the case is about, and a pass records nothing in the snapshot to tell the
+    // two apart afterwards. The nodes where that matters most are the ones with
+    // the most parse negatives — `language/block-scope` 102 of 145,
+    // `language/statements/switch` 75 of 111, `language/statements/for-in` 62 of
+    // 115.
     let detail = err.message();
     negative.error_type.is_empty() || detail.contains(&negative.error_type)
 }
 
 fn compile_negative_error_detail(err: &porffor_engine::EngineError) -> String {
+    // `NO_SPEC_ERROR_TYPE` names the *absence* of a spec error type: a compiler
+    // gap (`Unsupported`, `Lowering`, or a caught parser abort), which by clause
+    // 17 must not claim to be an early error.
+    const NO_SPEC_ERROR_TYPE: &str = "-";
     if let Some(diagnostic) = err.parse_diagnostic() {
         return format!(
             "{} {} {}: {}",
-            diagnostic.code, diagnostic.error_type, diagnostic.message, err
+            diagnostic.code.wire_name(),
+            diagnostic.error_type().unwrap_or(NO_SPEC_ERROR_TYPE),
+            diagnostic.message,
+            err
         );
     }
     if let Some(diagnostic) = err.ir_diagnostic() {
-        let code = diagnostic.code.unwrap_or("E_IR_DIAGNOSTIC");
-        let error_type = diagnostic.error_type.unwrap_or("Error");
+        // `NO_EARLY_ERROR_CODE` names the *absence* of a code — an `Unsupported`
+        // or `Lowering` diagnostic. It is spelled once, in
+        // `porffor_front::early_error_code`, beside the eighteen codes it must
+        // never collide with; assertion P5' proves no `wire_name()` equals it.
+        // It must stay a distinct token rather than an `EarlyErrorCode`
+        // variant: a code that named the absence of a code would let `Some(_)`
+        // mean "none".
+        let code = diagnostic.code().map_or(
+            porffor_front::NO_EARLY_ERROR_CODE,
+            EarlyErrorCode::wire_name,
+        );
+        let error_type = diagnostic
+            .error_type()
+            .map_or(NO_SPEC_ERROR_TYPE, NativeErrorKind::as_str);
         return format!("{code} {error_type} {}: {err}", diagnostic.message);
     }
     err.message().to_string()
 }
 
-fn classify_negative_phase(phase: &str) -> FailureKind {
-    if phase.eq_ignore_ascii_case("parse") {
-        FailureKind::Parser
-    } else if phase.eq_ignore_ascii_case("early") || phase.eq_ignore_ascii_case("resolution") {
-        // `resolution` negatives are module link failures, which this compiler
-        // reports at compile time alongside early errors.
-        FailureKind::EarlyError
-    } else {
-        FailureKind::Runtime
-    }
+fn classify_negative_phase(negative: &NegativeExpectation) -> FailureKind {
+    NegativePhase::of(negative).failure_kind()
 }
 
 fn summarize_results(results: &[TestResult]) -> RunSummary {
@@ -23466,26 +23823,70 @@ pub fn load_matrix_failure_details(
     let snapshot = snapshot_from_file(file)
         .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
 
-    let mut grouped =
-        BTreeMap::<(u64, OutcomeKind, FailureKind, FailureOrigin, String), Vec<String>>::new();
-    for failure in &snapshot.failures {
+    let groups = group_failures_by_detail_identity(&snapshot.failures);
+
+    Ok(MatrixFailureDetails {
+        node_id: node.node_id.clone(),
+        filter: node.filter.clone(),
+        matrix_path: node.matrix_path.clone(),
+        total: snapshot.total,
+        passed: snapshot.passed,
+        failed: snapshot.total.saturating_sub(snapshot.passed),
+        groups,
+    })
+}
+
+/// Group failures by *identity*, not by the stored `detail_hash` and not by the
+/// raw detail text.
+///
+/// Two reasons, and neither is cosmetic. The raw detail embeds a heap address,
+/// so keying on it splits one defect into one group per case — the exact
+/// failure this grouping exists to prevent. And the stored `detail_hash` was
+/// computed by whichever binary wrote the snapshot, so a snapshot recorded
+/// before this normalization landed still carries a per-address hash;
+/// recomputing here is what lets the same `failure-details` invocation collapse
+/// an *existing* corpus instead of only future runs.
+///
+/// The raw detail survives into the report, taken verbatim from the first
+/// representative test, so the reader still sees a real address.
+///
+/// This is a free function rather than a closure inside
+/// `load_matrix_failure_details` for one reason: that function needs a suite
+/// config, a run matrix, an aggregate snapshot and a node snapshot on disk
+/// before it reaches the grouping, so the grouping could not be tested at all
+/// while it lived inline — and it was not. See
+/// `failure_detail_grouping_tests`.
+fn group_failures_by_detail_identity(failures: &[FailureRecord]) -> Vec<FailureDetailGroup> {
+    let mut grouped = BTreeMap::<
+        (u64, OutcomeKind, FailureKind, FailureOrigin, String),
+        Vec<(String, String)>,
+    >::new();
+    for failure in failures {
         grouped
             .entry((
-                failure.detail_hash,
+                hash_detail(&failure.detail),
                 failure.outcome,
                 failure.kind,
                 failure.origin,
-                failure.detail.clone(),
+                FailureDetailIdentity::of(&failure.detail).into_string(),
             ))
             .or_default()
-            .push(failure.test_path.clone());
+            .push((failure.test_path.clone(), failure.detail.clone()));
     }
     let mut groups = grouped
         .into_iter()
         .map(
-            |((detail_hash, outcome, kind, origin, detail), mut tests)| {
+            |((detail_hash, outcome, kind, origin, _identity), mut tests)| {
                 tests.sort();
                 let count = tests.len();
+                let (_, detail) = tests
+                    .first()
+                    .cloned()
+                    .expect("a grouping entry exists only because a failure was pushed into it");
+                let mut tests = tests
+                    .into_iter()
+                    .map(|(test_path, _)| test_path)
+                    .collect::<Vec<_>>();
                 tests.truncate(5);
                 FailureDetailGroup {
                     outcome,
@@ -23506,16 +23907,7 @@ pub fn load_matrix_failure_details(
             .then_with(|| outcome_rank(left.outcome).cmp(&outcome_rank(right.outcome)))
             .then_with(|| left.detail.cmp(&right.detail))
     });
-
-    Ok(MatrixFailureDetails {
-        node_id: node.node_id.clone(),
-        filter: node.filter.clone(),
-        matrix_path: node.matrix_path.clone(),
-        total: snapshot.total,
-        passed: snapshot.passed,
-        failed: snapshot.total.saturating_sub(snapshot.passed),
-        groups,
-    })
+    groups
 }
 
 pub fn generate_backlog(
@@ -24224,6 +24616,12 @@ fn sorted_set_values(values: Option<&BTreeSet<String>>) -> Vec<String> {
 /// otherwise make identical failure modes hash differently across machines or
 /// runs.
 fn normalize_backlog_detail(detail: &str) -> String {
+    // Heap handles belong in the same class as absolute paths and timestamps,
+    // and for a stronger reason: they are unstable between two builds *on the
+    // same machine*. This is not a token-level rule because the address arrives
+    // embedded in `object(handle@5397552)`, which `normalize_detail_token` sees
+    // as one opaque core.
+    let detail = erase_volatile_handles(detail);
     detail
         .replace('\\', "/")
         .split_whitespace()
@@ -24950,9 +25348,105 @@ fn hash_manifest_case_paths(
     hasher.finish()
 }
 
+/// The identity of a failure detail: the detail text with every value that is
+/// an artefact of *this build* erased, and nothing else changed.
+///
+/// This type exists because `detail_hash` is supposed to name a *defect*, and a
+/// failure family is the unit a fix lane owns. A hash that carries a nonce does
+/// not name anything: it mints one singleton group per case, so a list of
+/// failure families reads as a list of cases and every triage pass re-derives
+/// the same shared cause by hand.
+///
+/// The nonce is the heap handle. The Wasm-AOT engine renders a thrown heap
+/// object as `handle@<raw linear-memory address>`, and that address is:
+///
+/// - **not stable across builds** — batch 3 measured every `Temporal.
+///   ZonedDateTime` handle in a fixed set of cases shifting by exactly `+136`
+///   bytes between two builds of the same source, from a bootstrap layout
+///   change alone; and
+/// - **not resolvable to anything** — no handle-to-allocation-site mapping
+///   exists anywhere in this tree, and none of the `PORFFOR_*` knobs
+///   (`WASM_DUMP`, `WASM_TRACE`, `WASM_TRACE_DUMP`, `LOWER_TRACE`,
+///   `EMIT_SIZE_REPORT[_PATH]`) touch the heap.
+///
+/// Measured basis: ~2,488 Wasm-AOT cases carry
+/// `uncaught throw: <Name>: wasm-aot completion: <kind>(handle@N)` across
+/// ~1,743 distinct addresses.
+///
+/// The raw detail is **not** modified for display — see
+/// `FailureDetailGroup::detail`, which keeps a representative case's verbatim
+/// text. The address is deleted from the identity, never from the report.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct FailureDetailIdentity(String);
+
+impl FailureDetailIdentity {
+    /// The only constructor. Taking one is the whole point: a caller cannot
+    /// hash a raw detail by accident, because the hashing entry point below
+    /// builds this first.
+    fn of(detail: &str) -> Self {
+        Self(erase_volatile_handles(detail))
+    }
+
+    fn into_string(self) -> String {
+        self.0
+    }
+}
+
+/// Renderings whose numeric tail is a raw address, produced by
+/// `render_wasmtime_completion` in `porffor-engine`.
+///
+/// Closed list, and deliberately spelled with the `@` so it cannot match a
+/// spec message that happens to contain the word "handle".
+const VOLATILE_ADDRESS_PREFIXES: &[&str] = &["handle@", "symbol@"];
+
+/// What replaces the digits. Kept in the string rather than dropped so a reader
+/// of a normalized detail can see that an address *was* there.
+const VOLATILE_ADDRESS_PLACEHOLDER: &str = "<addr>";
+
+fn erase_volatile_handles(detail: &str) -> String {
+    let mut out = String::with_capacity(detail.len());
+    let mut rest = detail;
+    'scan: while !rest.is_empty() {
+        for &prefix in VOLATILE_ADDRESS_PREFIXES {
+            let Some(after) = rest.strip_prefix(prefix) else {
+                continue;
+            };
+            let tail = after.trim_start_matches(|character: char| character.is_ascii_digit());
+            let digits = after.len() - tail.len();
+            if digits == 0 {
+                continue;
+            }
+            out.push_str(prefix);
+            out.push_str(VOLATILE_ADDRESS_PLACEHOLDER);
+            rest = &after[digits..];
+            continue 'scan;
+        }
+        let character = rest
+            .chars()
+            .next()
+            .expect("loop guard proved the remainder is non-empty");
+        out.push(character);
+        rest = &rest[character.len_utf8()..];
+    }
+    out
+}
+
+/// Hash a failure detail *by identity*, so two cases that fail the same way
+/// land in the same group whatever addresses their handles happened to get.
 fn hash_detail(detail: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
-    detail.hash(&mut hasher);
+    let identity = FailureDetailIdentity::of(detail);
+    identity.into_string().hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Hash a case path. Separate from `hash_detail` on purpose: this one feeds
+/// child-snapshot *file names*, it is not a defect identity, and normalizing it
+/// would be meaningless. Keeping the two apart is what stops a later change to
+/// detail normalization from quietly renaming every child snapshot.
+fn hash_case_path(case_path: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    case_path.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -24991,6 +25485,199 @@ mod tests {
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_test262")
+    }
+
+    /// Two Wasm-AOT failures that differ only in the heap address must be one
+    /// failure family.
+    ///
+    /// These two strings are real: they are the recorded details of
+    /// `intl402/DateTimeFormat/this-value-ignored.js` and
+    /// `intl402/DateTimeFormat/prototype/resolvedOptions/basic.js` at batch 3's
+    /// commit. Before this normalization they hashed differently and
+    /// `failure-details` reported them as two families of one case each, which
+    /// is why the batch-4 brief could describe ~2,488 cases over ~1,743
+    /// addresses as if the signature grouped anything.
+    #[test]
+    fn detail_hash_ignores_the_heap_address_in_a_wasm_aot_throw() {
+        let left = "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+                    object(handle@5265496)";
+        let right = "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+                     object(handle@5397552)";
+        assert_ne!(left, right, "the fixture strings must actually differ");
+        assert_eq!(
+            hash_detail(left),
+            hash_detail(right),
+            "two cases failing the same way must share one detail_hash"
+        );
+
+        // ...and the erasure is not a blanket "digits do not count": a detail
+        // that differs in something real still hashes differently.
+        let other = "[origin:wasm-aot] uncaught throw: RangeError: wasm-aot completion: \
+                     object(handle@5265496)";
+        assert_ne!(
+            hash_detail(left),
+            hash_detail(other),
+            "a different error name is a different defect"
+        );
+    }
+
+    /// The address is deleted from the identity and from nothing else.
+    #[test]
+    fn detail_hash_identity_erases_the_address_but_the_raw_detail_is_preserved() {
+        let detail = "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+                      object(handle@5265496)";
+        let identity = FailureDetailIdentity::of(detail).into_string();
+        assert_eq!(
+            identity,
+            "[origin:wasm-aot] uncaught throw: TypeError: wasm-aot completion: \
+             object(handle@<addr>)"
+        );
+        assert!(
+            detail.contains("handle@5265496"),
+            "`of` must not mutate its input; the caller keeps the raw text for display"
+        );
+        assert!(
+            !identity.contains("5265496"),
+            "the identity must not carry the address"
+        );
+    }
+
+    #[test]
+    fn detail_hash_erasure_leaves_ordinary_text_alone() {
+        for unchanged in [
+            "",
+            "TypeError: RegExp.prototype.exec unsupported pattern",
+            // No digits after the `@`, so nothing to erase.
+            "handle@",
+            // A number that is not an address must survive: it is data.
+            "expected 5265496 to equal 3",
+            // The word alone must not trigger; the marker is `handle@`.
+            "iterator handle 5265496",
+        ] {
+            assert_eq!(
+                erase_volatile_handles(unchanged),
+                unchanged,
+                "unexpectedly rewrote {unchanged:?}"
+            );
+        }
+        assert_eq!(
+            erase_volatile_handles("symbol@42 and handle@7 and handle@8"),
+            "symbol@<addr> and handle@<addr> and handle@<addr>"
+        );
+        // Multi-byte input must not be sliced mid-character.
+        assert_eq!(
+            erase_volatile_handles("héllo handle@12 wörld"),
+            "héllo handle@<addr> wörld"
+        );
+    }
+
+    fn failure(test_path: &str, detail: &str, stored_detail_hash: u64) -> FailureRecord {
+        FailureRecord {
+            test_path: test_path.to_string(),
+            kind: FailureKind::Runtime,
+            outcome: OutcomeKind::Bug,
+            origin: FailureOrigin::LocalHarness,
+            detail: detail.to_string(),
+            detail_hash: stored_detail_hash,
+            duration_ms: None,
+        }
+    }
+
+    /// The product behaviour, not the helpers underneath it.
+    ///
+    /// Everything else in this module tests `hash_detail`,
+    /// `FailureDetailIdentity::of` and `erase_volatile_handles` on string
+    /// literals. All of those stay green under a full revert of the grouping
+    /// key to `(failure.detail_hash, .., failure.detail.clone())`, which is the
+    /// pre-repair key and the one that splits a single defect into one group
+    /// per case. This test is the one that reddens.
+    ///
+    /// The `detail_hash` values handed in are deliberately *wrong and
+    /// distinct*: they stand for a snapshot recorded by a binary from before
+    /// the normalization landed. The grouping must recompute rather than trust
+    /// them, or an existing corpus never collapses.
+    #[test]
+    fn failures_differing_only_in_a_heap_address_are_one_group() {
+        let groups = group_failures_by_detail_identity(&[
+            failure(
+                "intl402/Collator/this-value-ignored.js",
+                "TypeError: wasm-aot completion: object(handle@5265392)",
+                11,
+            ),
+            failure(
+                "intl402/DateTimeFormat/this-value-ignored.js",
+                "TypeError: wasm-aot completion: object(handle@5265496)",
+                22,
+            ),
+        ]);
+
+        assert_eq!(groups.len(), 1, "one defect must be one group");
+        assert_eq!(groups[0].count, 2, "`count` counts every member");
+        assert_eq!(
+            groups[0].representative_tests,
+            vec![
+                "intl402/Collator/this-value-ignored.js".to_string(),
+                "intl402/DateTimeFormat/this-value-ignored.js".to_string(),
+            ]
+        );
+        assert!(
+            groups[0].detail.contains("handle@5265392"),
+            "the report must still show a real address, not the `<addr>` placeholder: {}",
+            groups[0].detail
+        );
+        assert_ne!(
+            groups[0].detail_hash, 11,
+            "the stored hash must not be trusted; it was written by an older binary"
+        );
+        assert_eq!(
+            groups[0].detail_hash,
+            hash_detail("TypeError: wasm-aot completion: object(handle@9)"),
+            "the group hash must be the recomputed identity hash"
+        );
+    }
+
+    /// The other half of the same key: genuinely different messages must not
+    /// merge, and `representative_tests` truncates where `count` does not.
+    #[test]
+    fn distinct_details_stay_distinct_and_representatives_truncate_at_five() {
+        let mut failures = (0..7)
+            .map(|index| {
+                failure(
+                    &format!("built-ins/Foo/case-{index}.js"),
+                    &format!("TypeError: wasm-aot completion: object(handle@{index})"),
+                    0,
+                )
+            })
+            .collect::<Vec<_>>();
+        failures.push(failure(
+            "built-ins/Bar/other.js",
+            "RangeError: something else entirely",
+            0,
+        ));
+
+        let groups = group_failures_by_detail_identity(&failures);
+
+        assert_eq!(groups.len(), 2, "two messages, two families");
+        assert_eq!(groups[0].count, 7, "the larger family sorts first");
+        assert_eq!(
+            groups[0].representative_tests.len(),
+            5,
+            "`representative_tests` truncates to 5 while `count` does not"
+        );
+        assert_eq!(groups[1].count, 1);
+    }
+
+    /// A case path is not a defect identity, so it must not go through the
+    /// erasure. This pins the split rather than leaving it to a comment.
+    #[test]
+    fn detail_hash_and_case_path_hash_are_separate_domains() {
+        let path = "built-ins/Temporal/ZonedDateTime/prototype/era/prop-desc.js";
+        assert_eq!(hash_case_path(path), hash_case_path(path));
+        assert_ne!(
+            hash_case_path("handle@1"),
+            hash_case_path("handle@2"),
+            "two distinct paths must keep distinct child-snapshot names"
+        );
     }
 
     fn repo_root() -> PathBuf {
@@ -35430,6 +36117,643 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn the_attempt_journal_sits_beside_its_snapshot_and_is_not_a_json_file() {
+        let config = fixture_config();
+        let paths = snapshot_paths_for_name(&config, "node-name", 42);
+        let journal = attempt_journal_path(&config, "node-name", 42);
+
+        // Derived from the snapshot path, so the journal cannot key on a
+        // different (snapshot_name, manifest_hash) pair than the snapshot whose
+        // resume state it corrects.
+        assert_eq!(journal.parent(), paths.json_path.parent());
+        assert_eq!(
+            journal.file_name().and_then(|name| name.to_str()),
+            Some("node-name-42.attempts")
+        );
+
+        // And deliberately not `.json`: `load_resume_aggregate_snapshot`
+        // collects every `{snapshot_name}-*.json` in the snapshot directory as
+        // a fallback aggregate candidate and then reads it with
+        // `read_snapshot_file(&path)?`, where a parse failure is *propagated*.
+        // A journal named `.json` would therefore turn every resume that has
+        // not yet written an aggregate into a hard error.
+        assert_ne!(
+            journal.extension().and_then(|value| value.to_str()),
+            Some("json")
+        );
+    }
+
+    fn attempt_journal_manifest(
+        config: &SuiteConfig,
+        node: &str,
+        cases: &[TestCase],
+    ) -> SuiteManifest {
+        let pinned = pinned_revisions(config);
+        SuiteManifest {
+            manifest_hash: hash_manifest(&pinned, cases, Some(node)),
+            pinned_revisions: pinned,
+            filter: Some(node.to_string()),
+            cases: cases.to_vec(),
+        }
+    }
+
+    /// A `case_runner_bin` that records every case it is invoked for.
+    ///
+    /// This is the sentinel these tests use to answer "did this case reach
+    /// dispatch at all?" — a question no assertion about the returned
+    /// `TestResult` can answer, because a quarantine result and a real failure
+    /// are both `TestStatus::Failed`.
+    ///
+    /// The script writes no child snapshot, so every case it *does* run comes
+    /// back as a `HostHarness` failure. That is deliberate: these tests are
+    /// about dispatch, not about verdicts, and a runner that always fails the
+    /// same way keeps the two apart.
+    #[cfg(unix)]
+    fn recording_case_runner(label: &str) -> (PathBuf, PathBuf) {
+        let runner_path = unique_temp_path(&format!("{label}-runner"));
+        let sentinel_path = unique_temp_path(&format!("{label}-sentinel"));
+        // `run_one_case_in_child_process` spawns
+        // `<bin> --jobs <n> test262 run <case path> ...`, so `$5` is the case.
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$5\" >> '{}'\n",
+                sentinel_path.display()
+            ),
+        )
+        .expect("recording runner script should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("recording runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("recording runner permissions should update");
+        (runner_path, sentinel_path)
+    }
+
+    #[cfg(unix)]
+    fn recorded_case_paths(sentinel_path: &Path) -> Vec<String> {
+        let mut recorded = fs::read_to_string(sentinel_path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        recorded.sort();
+        recorded
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_case_left_in_the_attempt_journal_is_charged_a_strike_and_forgiven_when_it_completes() {
+        let (runner_path, sentinel_path) = recording_case_runner("journal-one-strike");
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![
+            synthetic_case("quarantine/suspect.js"),
+            synthetic_case("quarantine/bystander.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "quarantine-one-strike", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "quarantine-one-strike".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+
+        // One case was in flight when the previous process died.
+        attempt_journal::simulate_process_death_with_cases_in_flight(
+            journal_path.clone(),
+            std::slice::from_ref(&cases[0]),
+        )
+        .expect("seeded death should write the journal");
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+
+        assert!(
+            !CrashStrikeLimit::DEFAULT
+                .is_reached_by(CaseStrikes::from_count(1).expect("one strike is non-zero")),
+            "one strike is not yet a quarantine"
+        );
+        // The strike WAS charged on entry -- the seeded death is the real
+        // journal state and `charge_strikes_for_survivors` is exercised by
+        // `attempt_journal::tests::attempt_journal_charges_one_strike_per_death_and_quarantines_at_the_limit`.
+        // What this test adds is the product-level consequence: one strike is
+        // not a quarantine, the case runs, and the run exits cleanly.
+        //
+        // Deliberately NOT asserting `strikes_for(..) == None` here. A clean
+        // exit removes the journal file, so re-opening it yields a fresh one
+        // and any strike assertion at this point passes for that reason alone.
+        // Strike forgiveness is asserted where it can be observed, on the
+        // journal itself:
+        // `attempt_journal::tests::attempt_journal_retire_forgives_the_strike_of_a_case_that_then_completed`.
+        assert!(
+            !journal_path.exists(),
+            "a clean exit must leave no journal behind: {}",
+            journal_path.display()
+        );
+
+        // ... and one strike is not a quarantine, so the case still ran.
+        assert_eq!(
+            recorded_case_paths(&sentinel_path),
+            vec![
+                "quarantine/bystander.js".to_string(),
+                "quarantine/suspect.js".to_string()
+            ]
+        );
+        assert_eq!(results.len(), 2);
+        for result in &results {
+            let TestStatus::Failed(failure) = &result.status else {
+                panic!("the recording runner writes no child snapshot, so every case fails");
+            };
+            assert!(
+                !failure
+                    .detail
+                    .contains("quarantined by report-all --resume"),
+                "nothing may be quarantined at one strike: {failure:?}"
+            );
+        }
+    }
+
+    /// Drives one case to the strike limit through the product paths, then runs
+    /// the resume that must quarantine it.
+    ///
+    /// The two deaths are seeded by calling the real `admit` and never
+    /// retiring — exactly the state an aborted process leaves — and charged by
+    /// the real `charge_strikes_for_survivors`, so no test writes the journal
+    /// format by hand.
+    #[cfg(unix)]
+    fn run_resume_with_a_quarantined_case(
+        label: &str,
+    ) -> (
+        SuiteConfig,
+        SuiteManifest,
+        RunConfig,
+        Vec<TestCase>,
+        Vec<TestResult>,
+        PathBuf,
+    ) {
+        let (runner_path, sentinel_path) = recording_case_runner(label);
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![
+            synthetic_case("quarantine/poison.js"),
+            synthetic_case("quarantine/healthy.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, label, &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: label.to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+
+        for _ in 0..CrashStrikeLimit::DEFAULT.get() {
+            attempt_journal::simulate_process_death_with_cases_in_flight(
+                journal_path.clone(),
+                std::slice::from_ref(&cases[0]),
+            )
+            .expect("seeded death should write the journal");
+            AttemptJournal::open(journal_path.clone(), true, CrashStrikeLimit::DEFAULT)
+                .charge_strikes_for_survivors()
+                .expect("charging should work");
+        }
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+        (config, manifest, run_config, cases, results, sentinel_path)
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_case_at_the_strike_limit_is_recorded_as_crash_and_not_run() {
+        let (_config, _manifest, _run_config, cases, results, sentinel_path) =
+            run_resume_with_a_quarantined_case("quarantine-limit");
+
+        assert_eq!(results.len(), 2);
+        let quarantined = results
+            .iter()
+            .find(|result| result.test_path == cases[0].path)
+            .expect("the quarantined case must still produce a result");
+        let TestStatus::Failed(failure) = &quarantined.status else {
+            panic!("a quarantined case is a failure, never a pass");
+        };
+        assert_eq!(failure.outcome, OutcomeKind::Crash);
+        assert_eq!(failure.kind, FailureKind::WasmBackend);
+        assert_eq!(failure.origin, FailureOrigin::LocalHarness);
+        assert!(
+            failure
+                .detail
+                .contains("quarantined by report-all --resume"),
+            "detail: {}",
+            failure.detail
+        );
+        assert!(
+            failure.detail.contains("(2 attempts)"),
+            "the strike count must be in the detail: {}",
+            failure.detail
+        );
+
+        let summary = summarize_results(&results);
+        assert!(
+            summary.completed_paths.contains(&cases[0].path),
+            "a quarantine is never a silent skip"
+        );
+        assert_eq!(
+            summary.counts_per_outcome.get(&OutcomeKind::Crash).copied(),
+            Some(1)
+        );
+
+        // The sentinel is the proof that dispatch never happened: the healthy
+        // case reached the runner and the quarantined one did not.
+        assert_eq!(
+            recorded_case_paths(&sentinel_path),
+            vec!["quarantine/healthy.js".to_string()]
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_quarantined_case_keeps_the_node_snapshot_resumable() {
+        let (config, manifest, run_config, cases, results, _sentinel_path) =
+            run_resume_with_a_quarantined_case("quarantine-resumable");
+
+        let summary = summarize_results(&results);
+        assert_eq!(summary.total, cases.len());
+        assert_eq!(summary.completed_paths.len(), summary.total);
+
+        // The final checkpoint the resume path wrote must still validate as a
+        // complete node snapshot. This is what catches the tempting wrong fix
+        // of dropping the quarantined case from `total`: `entry.total` is the
+        // node's declared case count, and a `resume-case-checkpoint` whose own
+        // total no longer equals it is refused.
+        let paths =
+            snapshot_paths_for_name(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        let file = read_snapshot_file(&paths.json_path).expect("resume checkpoint should parse");
+        assert_eq!(file.run_kind, "resume-case-checkpoint");
+        assert_eq!(file.total, cases.len());
+        assert_eq!(file.completed_paths.len(), cases.len());
+
+        let entry = TopLevelRunSummary {
+            node_id: "quarantine-node".to_string(),
+            node_kind: MatrixNodeKind::ChunkLeaf,
+            filter: "quarantine".to_string(),
+            matrix_path: Vec::new(),
+            total: cases.len(),
+            passed: summary.passed,
+            failed: summary.total.saturating_sub(summary.passed),
+            counts_per_kind: summary.counts_per_kind.clone(),
+            counts_per_outcome: summary.counts_per_outcome.clone(),
+            counts_per_origin: counts_per_origin(&summary.failures),
+            manifest_hash: manifest.manifest_hash,
+        };
+        validate_resume_node_snapshot(
+            &config,
+            &file,
+            &paths.json_path,
+            &entry,
+            ExecutionBackend::SpecExec,
+            &pinned_revisions(&config),
+            false,
+        )
+        .expect("a node snapshot containing a quarantined case must stay resumable");
+    }
+
+    #[test]
+    fn two_suspects_narrow_to_one_by_running_them_serially() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = vec![
+            synthetic_case("narrow/first.js"),
+            synthetic_case("narrow/second.js"),
+            synthetic_case("narrow/third.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "narrow-two-suspects", &cases);
+        let journal_path =
+            attempt_journal_path(&config, "narrow-two-suspects", manifest.manifest_hash);
+
+        // A `--threads 2` process died with two cases in flight, so the journal
+        // names two suspects and neither is yet distinguishable.
+        attempt_journal::simulate_process_death_with_cases_in_flight(
+            journal_path.clone(),
+            &[cases[0].clone(), cases[2].clone()],
+        )
+        .expect("seeded death should write the journal");
+
+        let journal = AttemptJournal::open(journal_path, true, CrashStrikeLimit::DEFAULT);
+        let suspects = journal
+            .charge_strikes_for_survivors()
+            .expect("charging should work");
+        assert_eq!(suspects.len(), 2);
+
+        let phases = plan_run_phases(
+            &suspects,
+            cases.clone(),
+            NonZeroUsize::new(8).expect("test phase width is non-zero"),
+        );
+        assert_eq!(phases.len(), 2);
+        assert_eq!(
+            phases[0].worker_count().get(),
+            1,
+            "the suspects must run serially, or the next death names two cases again"
+        );
+        let mut serial_paths = phases[0].case_paths();
+        serial_paths.sort();
+        assert_eq!(
+            serial_paths,
+            vec!["narrow/first.js".to_string(), "narrow/third.js".to_string()]
+        );
+        assert_eq!(phases[1].worker_count().get(), 8);
+        assert_eq!(phases[1].case_paths(), vec!["narrow/second.js".to_string()]);
+    }
+
+    /// The plan above is inert unless `execute_cases` actually runs each phase
+    /// at the phase's own width, and that wiring is one line
+    /// (`for worker_slot in 0..phase.worker_count()`). Checked here through the
+    /// product entry point, because an edit that spawned the *config's* worker
+    /// count regardless of the phase would leave the plan test green while
+    /// reintroducing the two-cases-in-flight blame-spreading the plan exists to
+    /// stop.
+    #[test]
+    #[cfg(unix)]
+    fn execute_cases_runs_the_suspect_phase_serially_and_first() {
+        let sentinel_path = unique_temp_path("narrow-serial-sentinel");
+        let busy_path = unique_temp_path("narrow-serial-busy");
+        let runner_path = unique_temp_path("narrow-serial-runner");
+        // Records dispatch ORDER, and detects OVERLAP: a second case entering
+        // while the marker file exists can only happen with more than one
+        // worker. The marker never outlives an invocation, so this cannot fire
+        // on a correctly serial phase.
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\nif [ -e '{busy}' ]; then printf 'overlap %s\\n' \"$5\" >> '{sentinel}'; fi\n: > '{busy}'\nprintf '%s\\n' \"$5\" >> '{sentinel}'\nsleep 0.2\nrm -f '{busy}'\n",
+                busy = busy_path.display(),
+                sentinel = sentinel_path.display(),
+            ),
+        )
+        .expect("serial-phase runner script should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("serial-phase runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("serial-phase runner permissions should update");
+
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        // Two workers, exactly the sweep's `--threads 2`, so a phase that
+        // ignored its own width would run both suspects at once.
+        config.worker_count = 2;
+        config.timeout_ms = 5_000;
+        config.case_runner_bin = Some(runner_path);
+
+        let cases = vec![
+            synthetic_case("narrow-run/first.js"),
+            synthetic_case("narrow-run/second.js"),
+            synthetic_case("narrow-run/third.js"),
+        ];
+        let manifest = attempt_journal_manifest(&config, "narrow-run", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "narrow-run".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        attempt_journal::simulate_process_death_with_cases_in_flight(
+            journal_path,
+            &[cases[0].clone(), cases[2].clone()],
+        )
+        .expect("seeded death should write the journal");
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+        assert_eq!(results.len(), 3);
+
+        let dispatched = fs::read_to_string(&sentinel_path)
+            .expect("the serial-phase sentinel should exist")
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(
+            !dispatched.iter().any(|line| line.starts_with("overlap ")),
+            "the suspect phase ran more than one case at a time, so the next death would again \
+             name two cases: {dispatched:?}"
+        );
+        assert_eq!(dispatched.len(), 3, "{dispatched:?}");
+        let mut suspects_dispatched = dispatched[..2].to_vec();
+        suspects_dispatched.sort();
+        assert_eq!(
+            suspects_dispatched,
+            vec![
+                "narrow-run/first.js".to_string(),
+                "narrow-run/third.js".to_string()
+            ],
+            "the suspects must be dispatched before anything else: {dispatched:?}"
+        );
+        assert_eq!(dispatched[2], "narrow-run/second.js", "{dispatched:?}");
+    }
+
+    /// # What this does and does not cover
+    ///
+    /// It covers the in-process path (`case_runner_bin` is `None`) reaching a
+    /// clean exit with nothing left in the journal, and the journal file being
+    /// removed rather than left holding strikes for the next run at the same
+    /// `(snapshot_name, manifest_hash)` pair.
+    ///
+    /// It does **not** cover the `panic::catch_unwind` arm in `run_case_entry`:
+    /// none of these three cases panics, so that arm is never taken here. That
+    /// arm needs no test — `run_case_entry` returns `TestResult`, not
+    /// `Result<TestResult, _>`, and the `journal.retire` call sits
+    /// unconditionally on the line after it, so "retire runs on every path this
+    /// process survives" is a property of the signature. Do not re-add a
+    /// panic-path claim to this test's name or doc without a case that actually
+    /// panics.
+    #[test]
+    fn an_empty_journal_is_the_normal_exit_state() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases = (0..3)
+            .map(|index| synthetic_case(&format!("clean-exit/case-{index}.js")))
+            .collect::<Vec<_>>();
+        let manifest = attempt_journal_manifest(&config, "clean-exit", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "clean-exit".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("run should complete");
+        assert_eq!(results.len(), 3);
+
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+        // Stronger than "exists and is empty", which was the previous
+        // assertion: a journal that survives a clean exit carries every strike
+        // charged during it into the next run at the same
+        // `(snapshot_name, manifest_hash)` pair, and one file per node
+        // accumulates in a snapshot directory that is already 423 MB. Removing
+        // it also upgrades the startup signal to "the journal exists ⇒ the
+        // previous process died".
+        //
+        // One assertion, and it is the whole invariant: **the journal exists
+        // if and only if the previous process died**. The pair this used to end
+        // on (`in_flight_paths().is_empty()` and `charge_strikes_for_survivors()`
+        // empty) is implied by the file's absence -- `read_journal` answers
+        // `fresh()` for a missing file -- so they would read as two more checks
+        // while checking nothing.
+        assert!(
+            !journal_path.exists(),
+            "a clean exit must remove the journal, not leave it behind: {}",
+            journal_path.display()
+        );
+    }
+
+    /// # Why the runner reads the journal instead of just exiting 134
+    ///
+    /// The post-run assertions alone (nothing in flight, no strike, nothing to
+    /// charge) are all satisfied by an `admit`/`retire` pair that writes
+    /// *nothing at all*: a missing journal file makes `read_journal` answer
+    /// `AttemptJournalFile::fresh()`, which is empty in-flight and empty
+    /// strikes — exactly what those three assertions demand. They therefore
+    /// separate "once" from neither "twice" nor "never".
+    ///
+    /// So the crashing child dumps the journal into a sentinel *while it is the
+    /// case in flight*. That makes this the one place where the record-before-
+    /// attempt ordering is observed end to end rather than inferred from
+    /// `admit` calling `persist` before it returns.
+    #[test]
+    #[cfg(unix)]
+    fn the_child_runner_path_journals_exactly_once() {
+        // A crashing *child* is already an ordinary `TestResult`. Only a death
+        // of *this* process may charge a strike, so this path must journal
+        // once, retire once, and accrue nothing.
+        let mut config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        config.worker_count = 1;
+        config.timeout_ms = 5_000;
+
+        let cases = vec![synthetic_case("child-crash/case.js")];
+        let manifest = attempt_journal_manifest(&config, "child-crash", &cases);
+        let run_config = RunConfig {
+            resume: true,
+            snapshot_name: "child-crash".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        // Computable before the run, which is what lets the child observe it.
+        let journal_path =
+            attempt_journal_path(&config, &run_config.snapshot_name, manifest.manifest_hash);
+
+        let sentinel_path = unique_temp_path("child-crash-journal-sentinel");
+        let runner_path = unique_temp_path("child-crash-runner");
+        fs::write(
+            &runner_path,
+            format!(
+                "#!/bin/sh\ncat '{journal}' >> '{sentinel}' 2>/dev/null\nprintf '\\n' >> '{sentinel}'\nexit 134\n",
+                journal = journal_path.display(),
+                sentinel = sentinel_path.display(),
+            ),
+        )
+        .expect("crashing runner should write");
+        let mut permissions = fs::metadata(&runner_path)
+            .expect("crashing runner metadata should read")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runner_path, permissions)
+            .expect("crashing runner permissions should update");
+        config.case_runner_bin = Some(runner_path);
+
+        let results = execute_cases(
+            &config,
+            &manifest,
+            &PreludeStore::default(),
+            &cases,
+            &run_config,
+        )
+        .expect("resume run should complete");
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].status, TestStatus::Failed(_)));
+
+        // What the journal said while the child was running. A journal that
+        // recorded nothing fails here; a journal that recorded the case twice,
+        // or that charged a strike at dispatch, fails on the counts.
+        let observed = fs::read_to_string(&sentinel_path)
+            .expect("the child must have been able to read the journal it was dispatched under");
+        assert_eq!(
+            observed.matches(&cases[0].path).count(),
+            1,
+            "the journal must name the in-flight case exactly once while its child runs: \
+             {observed}"
+        );
+        assert!(
+            observed.contains("\"in_flight\""),
+            "the child read something that is not an attempt journal: {observed}"
+        );
+        assert!(
+            !observed.contains("\"strikes\":{\""),
+            "dispatching a case must not charge it a strike; only a process death does: {observed}"
+        );
+
+        // And after the run, the file itself is gone, because a clean exit is
+        // not a death and a crashing *child* is an ordinary `TestResult`.
+        //
+        // This one assertion carries the post-run half. The three the test used
+        // to end on -- nothing in flight, no strike, nothing to charge -- are
+        // now satisfied by the file's absence alone (`read_journal` answers
+        // `fresh()` for a missing file), so keeping them would read as
+        // corroboration while corroborating nothing. Retirement is observed
+        // above instead, against the journal the child actually saw.
+        assert!(
+            !journal_path.exists(),
+            "a clean exit must remove the journal, and a crashing child is not a death: {}",
+            journal_path.display()
+        );
+    }
+
+    #[test]
     #[cfg(unix)]
     fn forced_child_runner_isolates_scratch_snapshot_from_existing_artifacts() {
         let snapshot_dir = unique_temp_path("child-runner-cleanup-snapshots");
@@ -35452,7 +36776,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let child_snapshot_name = format!(
             "{}-case-{}",
             run_config.snapshot_name,
-            hash_detail(&case.path)
+            hash_case_path(&case.path)
         );
         let existing_snapshot_paths =
             snapshot_paths_for_name(&config, &child_snapshot_name, child_manifest.manifest_hash);
@@ -35506,7 +36830,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ..config
         };
 
-        let result = run_case_entry(&config, &PreludeStore::default(), &case, &run_config);
+        let result = run_case_entry(
+            &config,
+            &PreludeStore::default(),
+            // Test-only bypass of the journal: this test is about the child
+            // runner's snapshot handling, not about admission.
+            &AdmittedCase::admitted_by_test(case.clone()),
+            &run_config,
+        );
 
         let TestStatus::Failed(imported_failure) = result.status else {
             panic!("child failure should be imported");
@@ -35545,7 +36876,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             ..RunConfig::default()
         };
 
-        let result = run_case_entry(&config, &PreludeStore::default(), &case, &run_config);
+        let result = run_case_entry(
+            &config,
+            &PreludeStore::default(),
+            // Test-only bypass of the journal: this test is about the child
+            // runner's snapshot handling, not about admission.
+            &AdmittedCase::admitted_by_test(case.clone()),
+            &run_config,
+        );
 
         let TestStatus::Failed(failure) = result.status else {
             panic!("preclassified exclusion should fail as unsupported");
@@ -36458,6 +37796,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(
             normalize_backlog_detail("boom   at\t/home/alice/porffor/case.js line 3"),
             "boom at <abs-path> line 3"
+        );
+        // A heap address is unstable between two builds on the *same* machine,
+        // so it belongs in this scrub even more clearly than an absolute path.
+        assert_eq!(
+            normalize_backlog_detail(
+                "uncaught throw: TypeError: wasm-aot completion: object(handle@5397552)"
+            ),
+            "uncaught throw: TypeError: wasm-aot completion: object(handle@<addr>)"
         );
         assert_eq!(
             normalize_backlog_detail(r"failed C:\-less path (/var/ci/x.js)"),

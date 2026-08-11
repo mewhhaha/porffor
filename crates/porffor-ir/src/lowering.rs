@@ -1,5 +1,15 @@
 use super::*;
 
+/// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
+/// through the crate-root glob above; the rest of the module is `pub(crate)`
+/// and is named explicitly so every use of the Reference typestate in this
+/// file is traceable to one import. See
+/// `docs/rust-rewrite/contracts/reference-records.md`.
+use crate::ir::reference::{
+    reference_base_of_lowered_read, Composition, ReferenceBase, ReferenceOperand, ReferencePins,
+    ReferenceRecord,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BindingInfo {
     pub(crate) mode: BindingMode,
@@ -8,6 +18,9 @@ pub(crate) struct BindingInfo {
     pub(crate) possible_kinds: KindSet,
     pub(crate) heap_shape: Option<Box<HeapShape>>,
     pub(crate) function_targets: BTreeSet<FunctionId>,
+    /// ECMA-262 9.1.1.1: whether InitializeBinding (9.1.1.1.4) has run for this
+    /// binding. Mandatory and undefaulted — see `binding_lifecycle::Initialization`.
+    pub(crate) initialization: Initialization,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +56,19 @@ pub(crate) enum LabelTargetKind {
     Loop,
 }
 
+/// One entry of the 7.1.1 ToPrimitive lookup order.
+///
+/// OrdinaryToPrimitive genuinely mixes a symbol key with two ordinary string
+/// method names, so the list cannot be all-`WellKnownSymbol`. It must not be
+/// all-`&str` either: the two kinds resolve against different shape-map
+/// namespaces, and collapsing them is how a bare description ends up being
+/// looked up as if it were a string key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToPrimitiveLookupKey {
+    Symbol(WellKnownSymbol),
+    Method(&'static str),
+}
+
 /// The operator a compound or logical assignment applies to a property
 /// Reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,46 +76,6 @@ enum PropertyUpdateOp {
     Arithmetic(ArithmeticOp),
     Bitwise(BitwiseOp),
     Logical(LogicalBinaryOp),
-}
-
-/// A property Reference split into the parts a compound assignment has to read
-/// from and then write back through, without re-evaluating either part.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PropertyReference {
-    Property {
-        target: TypedExpr,
-        key: PropertyKeyIr,
-    },
-    Private {
-        target: TypedExpr,
-        private_name_id: PrivateNameId,
-    },
-    Super {
-        key: PropertyKeyIr,
-    },
-    Global {
-        name: String,
-    },
-}
-
-impl PropertyReference {
-    fn read_ir(&self) -> ExprIr {
-        match self {
-            Self::Property { target, key } => ExprIr::PropertyRead {
-                target: Box::new(target.clone()),
-                key: key.clone(),
-            },
-            Self::Private {
-                target,
-                private_name_id,
-            } => ExprIr::PrivateRead {
-                target: Box::new(target.clone()),
-                private_name_id: *private_name_id,
-            },
-            Self::Super { key } => ExprIr::SuperPropertyRead { key: key.clone() },
-            Self::Global { name } => ExprIr::GlobalPropertyRead { name: name.clone() },
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -492,7 +478,6 @@ pub(crate) struct ScriptLowerer<'a> {
     current_owner_id: String,
     scopes: Vec<BTreeMap<String, BindingInfo>>,
     direct_lexical_scopes: Vec<bool>,
-    tdz_scopes: Vec<BTreeSet<String>>,
     var_bindings: BTreeMap<String, VarBindingInfo>,
     function_signatures: BTreeMap<FunctionId, FunctionSignature>,
     visible_function_names: BTreeMap<String, FunctionId>,
@@ -516,7 +501,14 @@ pub(crate) struct ScriptLowerer<'a> {
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
-    well_known_symbol_prototype_properties: BTreeMap<(String, String), ValueInfo>,
+    /// Per-intrinsic overrides of a well-known-symbol method on a builtin
+    /// prototype, keyed by `(constructor name, symbol)`.
+    ///
+    /// The second component was a description `String` joined to its producer
+    /// ~6,300 lines away by string equality alone. It is the closed domain, so
+    /// it is the enum: a lookup naming a symbol no producer writes is now a
+    /// compile error rather than a permanent miss.
+    well_known_symbol_prototype_properties: BTreeMap<(String, WellKnownSymbol), ValueInfo>,
     /// Facts written by this lowerer (or one of its nested lowerers).
     nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
     /// Script-global facts learned before this lowerer was entered.
@@ -734,7 +726,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("ArrayBuffer")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -799,7 +791,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("SharedArrayBuffer")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1019,7 +1011,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("DataView")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1103,7 +1095,6 @@ impl<'a> ScriptLowerer<'a> {
             ("set", StandardBuiltinId::MapPrototypeSet),
             ("values", StandardBuiltinId::MapPrototypeValues),
             ("entries", StandardBuiltinId::MapPrototypeEntries),
-            ("Symbol.iterator", StandardBuiltinId::MapPrototypeEntries),
         ] {
             properties.insert(
                 name.to_string(),
@@ -1113,6 +1104,16 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             );
         }
+        // 24.1.3.12: `%Map.prototype%[@@iterator]` is the same function object
+        // as `%Map.prototype%.entries`. Lifted out of the string-keyed loop
+        // above because its key is a symbol, not a string.
+        properties.insert(
+            WellKnownSymbol::Iterator.description().to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::MapPrototypeEntries.function_id(),
+                false,
+            )),
+        );
         properties.insert(
             "size".to_string(),
             ObjectShapeProperty::Accessor {
@@ -1203,7 +1204,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("WeakSet")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1240,7 +1241,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("WeakRef")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1288,7 +1289,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("FinalizationRegistry")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1347,7 +1348,6 @@ impl<'a> ScriptLowerer<'a> {
             ("union", StandardBuiltinId::SetPrototypeUnion),
             ("values", StandardBuiltinId::SetPrototypeValues),
             ("keys", StandardBuiltinId::SetPrototypeValues),
-            ("Symbol.iterator", StandardBuiltinId::SetPrototypeValues),
             ("entries", StandardBuiltinId::SetPrototypeEntries),
         ] {
             properties.insert(
@@ -1358,6 +1358,16 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             );
         }
+        // 24.2.4.11: `%Set.prototype%[@@iterator]` is the same function object
+        // as `%Set.prototype%.values`. Lifted out of the string-keyed loop
+        // above because its key is a symbol, not a string.
+        properties.insert(
+            WellKnownSymbol::Iterator.description().to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::SetPrototypeValues.function_id(),
+                false,
+            )),
+        );
         properties.insert(
             "size".to_string(),
             ObjectShapeProperty::Accessor {
@@ -1556,13 +1566,31 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Instant")),
         );
         properties.insert(
             "toString".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::TemporalInstantPrototypeToString.function_id(),
+                false,
+            )),
+        );
+        // `toJSON` shares `toString`'s emitter but never its function object:
+        // `Object.getOwnPropertyDescriptor(Temporal.Instant.prototype, "toJSON")
+        // .value === Temporal.Instant.prototype.toString` must be false, and
+        // `toJSON.name` must be `"toJSON"`.
+        properties.insert(
+            "toJSON".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalInstantPrototypeToJson.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "valueOf".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalInstantPrototypeValueOf.function_id(),
                 false,
             )),
         );
@@ -1615,7 +1643,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Intl.Locale")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1661,6 +1689,26 @@ impl<'a> ScriptLowerer<'a> {
             (
                 "calendarId",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
+            ),
+            // `era`/`eraYear` are written between `calendarId` and `year` to
+            // match the spec's order and the order
+            // `temporal_plain_date_time_prototype_shape` already uses, but the
+            // order in *this* list is not observable: `properties` is a
+            // `BTreeMap<String, _>`, so it is re-keyed lexicographically the
+            // moment it is inserted. Observable property order is decided by
+            // the define-property sequence in
+            // `install_temporal_zoned_date_time_constructor_intrinsics`
+            // (`intrinsics/temporal.rs`), and that is where the ordering
+            // requirement is recorded. What this list must agree with that
+            // loop on is *membership*: a shape entry with no accessor is a
+            // property the shape promises and the prototype does not have.
+            (
+                "era",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
             ),
             (
                 "year",
@@ -1713,29 +1761,29 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        // Every data-property method of this prototype, read out of the one
+        // table both crates iterate
+        // (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`). Batch 6 shipped
+        // its five new members literally here AND in
+        // `install_temporal_zoned_date_time_constructor_intrinsics`, with a
+        // comment in each saying they must agree; that agreement is now
+        // structural rather than remembered. `equals`, `toInstant`,
+        // `withTimeZone` and `toPlainDateTime` were still spelled out here as
+        // four separate `properties.insert` calls identical to this loop body,
+        // duplicating four more members against the installer — they are in the
+        // table now, at the head of it, in the order the installer used. See the
+        // const's doc for what a divergence costs.
+        for (name, builtin) in TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS {
+            properties.insert(
+                (*name).to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
         properties.insert(
-            "equals".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeEquals.function_id(),
-                false,
-            )),
-        );
-        properties.insert(
-            "toInstant".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant.function_id(),
-                false,
-            )),
-        );
-        properties.insert(
-            "withTimeZone".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone.function_id(),
-                false,
-            )),
-        );
-        properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.ZonedDateTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1935,7 +1983,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDate")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2064,7 +2112,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainYearMonth")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2150,7 +2198,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainMonthDay")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2251,7 +2299,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2448,7 +2496,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDateTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2611,7 +2659,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Duration")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2704,35 +2752,35 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.match".to_string(),
+            WellKnownSymbol::Match.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatch.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.matchAll".to_string(),
+            WellKnownSymbol::MatchAll.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.replace".to_string(),
+            WellKnownSymbol::Replace.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolReplace.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.search".to_string(),
+            WellKnownSymbol::Search.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id(),
                 false,
             )),
         );
         properties.insert(
-            "Symbol.split".to_string(),
+            WellKnownSymbol::Split.description().to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSplit.function_id(),
                 false,
@@ -2814,7 +2862,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
                     function_id: StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
@@ -2884,7 +2932,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::TypedArrayPrototypeValues,
             )),
@@ -2901,7 +2949,7 @@ impl<'a> ScriptLowerer<'a> {
         let mut shape = Self::function_heap_shape(false);
         if let HeapShape::Object(object) = shape.as_mut() {
             object.properties.insert(
-                "Symbol.species".to_string(),
+                WellKnownSymbol::Species.description().to_string(),
                 ObjectShapeProperty::Accessor {
                     getter: Some(ObjectAccessorShape {
                         function_id: StandardBuiltinId::TypedArraySpeciesGetter.function_id(),
@@ -2986,7 +3034,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayPrototypeValues,
             )),
@@ -3198,7 +3246,7 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
             properties.insert(
-                "Symbol.iterator".to_string(),
+                WellKnownSymbol::Iterator.description().to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::ArrayPrototypeValues,
                 )),
@@ -3249,7 +3297,7 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
             properties.insert(
-                "Symbol.toPrimitive".to_string(),
+                WellKnownSymbol::ToPrimitive.description().to_string(),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::SymbolPrototypeToPrimitive,
                 )),
@@ -3462,7 +3510,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::PromiseSpeciesGetter.function_id(),
@@ -3486,7 +3534,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::MapSpeciesGetter.function_id(),
@@ -3535,7 +3583,7 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::SetSpeciesGetter.function_id(),
@@ -3925,7 +3973,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::ArraySpeciesGetter.function_id(),
@@ -3953,7 +4001,7 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                         );
                         object.properties.insert(
-                            "Symbol.species".to_string(),
+                            WellKnownSymbol::Species.description().to_string(),
                             ObjectShapeProperty::Accessor {
                                 getter: Some(ObjectAccessorShape {
                                     function_id: StandardBuiltinId::ArrayBufferSpeciesGetter
@@ -4018,6 +4066,27 @@ impl<'a> ScriptLowerer<'a> {
                         "from".to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             StandardBuiltinId::TemporalInstantFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalInstantCompare.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "fromEpochMilliseconds".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalInstantFromEpochMilliseconds.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "fromEpochNanoseconds".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalInstantFromEpochNanoseconds.function_id(),
                             false,
                         )),
                     );
@@ -4170,7 +4239,7 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                     object.properties.insert(
-                        "Symbol.species".to_string(),
+                        WellKnownSymbol::Species.description().to_string(),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::RegExpSpeciesGetter.function_id(),
@@ -4348,19 +4417,19 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayIteratorIdentity,
             )),
         );
         properties.insert(
-            "Symbol.dispose".to_string(),
+            WellKnownSymbol::Dispose.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::IteratorPrototypeSymbolDispose,
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
                     function_id: StandardBuiltinId::IteratorPrototypeToStringTagGetter
@@ -4461,7 +4530,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(ValueInfo::new(ValueKind::String)),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -4560,7 +4629,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            "Symbol.iterator".to_string(),
+            WellKnownSymbol::Iterator.description().to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayIteratorIdentity,
             )),
@@ -4789,7 +4858,7 @@ impl<'a> ScriptLowerer<'a> {
     fn json_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info(JSON_NAME)),
         );
         for (name, builtin) in [
@@ -4819,7 +4888,7 @@ impl<'a> ScriptLowerer<'a> {
     fn temporal_now_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Now")),
         );
         for (name, builtin) in [
@@ -4901,7 +4970,7 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
-                "Symbol.toStringTag".to_string(),
+                WellKnownSymbol::ToStringTag.description().to_string(),
                 ObjectShapeProperty::Data(Self::string_value_info(TEMPORAL_NAME)),
             ),
         ]);
@@ -4913,8 +4982,14 @@ impl<'a> ScriptLowerer<'a> {
         }))))
     }
 
+    /// The `Intl` namespace shape.
+    ///
+    /// The constructor-valued members come from `INTL_NAMESPACE_CONSTRUCTORS`,
+    /// which `FunctionBuilder::init_intl_object` also walks, so the shape and
+    /// the installer cannot disagree about what `Intl` has. They used to be two
+    /// hand-maintained lists and they drifted — see the slice's own comment.
     fn intl_object_value_info() -> ValueInfo {
-        let properties = BTreeMap::from([
+        let mut properties = BTreeMap::from([
             (
                 "getCanonicalLocales".to_string(),
                 ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
@@ -4923,22 +4998,16 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
-                INTL_LOCALE_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::IntlLocaleConstructor,
-                )),
-            ),
-            (
-                INTL_DATE_TIME_FORMAT_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::IntlDateTimeFormatConstructor,
-                )),
-            ),
-            (
-                "Symbol.toStringTag".to_string(),
+                WellKnownSymbol::ToStringTag.description().to_string(),
                 ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
             ),
         ]);
+        for (name, builtin) in INTL_NAMESPACE_CONSTRUCTORS {
+            properties.insert(
+                (*name).to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(*builtin)),
+            );
+        }
         Self::value_info_from_shape(Some(Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -4950,7 +5019,7 @@ impl<'a> ScriptLowerer<'a> {
     fn atomics_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            "Symbol.toStringTag".to_string(),
+            WellKnownSymbol::ToStringTag.description().to_string(),
             ObjectShapeProperty::Data(Self::string_value_info(ATOMICS_NAME)),
         );
         properties.insert(
@@ -5771,13 +5840,40 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::array_iterator_instance_shape()),
                 ValueInfo::undefined(),
             ),
+            // The fourth member is the `constructor_instance`: the static type
+            // of `new S()` when `S` is a class whose heritage reaches this
+            // builtin and which declares no explicit constructor. A synthetic
+            // derived constructor inherits it verbatim (see the
+            // `inherited_instance` binding in `lower_class`), so spelling it
+            // `ValueInfo::undefined()` here typed every instance of
+            // `class S extends Iterator { ... }` as `undefined`.
+            //
+            // That was the root cause of the whole batch-5 `iterator_helpers`
+            // failure set, measured rather than argued (b6 lane note
+            // `iterator-helper-static-key-call-on-a-class-receiver`): with the
+            // receiver typed nullish, `emit_method_call`'s statically-nullish
+            // shortcut emitted *no call at all* for `find`/`reduce`/`take`/
+            // `map`/`every`/`some`/`filter`, while the runtime value was an
+            // ordinary object, so the emitted nullish test never fired and the
+            // caller read stale scratch. `porf inspect` on
+            // `class D extends Iterator {} new D();` printed
+            // `result=undefined`, against `result=object` for every other
+            // superclass — including a user-defined one.
+            //
+            // The prototype layered here is only what a *direct* construction
+            // would see; the class path immediately overwrites it with the
+            // subclass prototype, which already chains to `Iterator.prototype`
+            // through `heritage_prototype`.
             StandardBuiltinId::IteratorConstructor => (
                 ValueKind::Function,
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorConstructor,
                 )),
-                ValueInfo::undefined(),
+                Self::with_instance_prototype(
+                    Self::fresh_constructed_instance_info(),
+                    Some(Self::iterator_prototype_shape()),
+                ),
             ),
             StandardBuiltinId::IteratorPrototypeToArray => (
                 ValueKind::Function,
@@ -6290,11 +6386,19 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_instant_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalInstantFrom => (
+            StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_instant_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalInstantCompare => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => (
                 ValueKind::Number,
@@ -6314,9 +6418,20 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TemporalInstantPrototypeToString => (
+            StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `valueOf` always throws, so the only completion that reaches a
+            // caller is a throw; the normal-completion kind is unreachable and
+            // is spelled `Undefined` the same way
+            // `TemporalDurationPrototypeValueOf` spells it.
+            StandardBuiltinId::TemporalInstantPrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -6348,8 +6463,82 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::IntlDateTimeFormatConstructor
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => (
+            // Split out of the `resolvedOptions` or-pattern deliberately: only
+            // one of the two is constructable (`builtins.rs`'s
+            // `constructable()` lists the constructor and not the accessor), so
+            // only one of them can ever reach the `constructor_instance`
+            // consumer. Giving `resolvedOptions` a constructor instance would
+            // be meaningless and would hide the arm that matters.
+            //
+            // `class S extends Intl.DateTimeFormat {}` with no explicit
+            // constructor takes its static instance type from this fourth tuple
+            // member. Spelling it `ValueInfo::undefined()` typed every such
+            // instance as nullish, which is the batch-5 `IteratorConstructor`
+            // defect verbatim; batch 6 fixed that arm and left this one, which
+            // the b6 lane note filed after intersecting all 332
+            // `standard_builtin_signature` arms with the 53 `constructable()`
+            // ids. Four carried `ValueInfo::undefined()`; this is the only
+            // reachable one (`Proxy.prototype` is `undefined` so the `extends`
+            // itself throws, and `new Symbol()` / `new BigInt()` throw before an
+            // instance exists).
+            //
+            // MEASURED before the change, not deduced:
+            //
+            //   porf inspect `class D extends Intl.DateTimeFormat {} new D();`
+            //     -> result=undefined
+            //   porf inspect `class D extends Intl.Locale {} new D("en");`
+            //     -> result=object
+            //
+            // and the consequence, `porf run --execution-backend wasm` over
+            // three classes differing only in heritage, each declaring its own
+            // `reduceRight(a) { return a + 1; }`:
+            //
+            //   dtf.reduceRight=undefined   loc.reduceRight=2   plain.reduceRight=2
+            //
+            // A plain user method was not called at all. `reduceRight` is the
+            // one of the ten names `lowering.rs` builds an `ExprIr::CallMethod`
+            // for on a non-array receiver that has no `IteratorHelper` variant,
+            // so it is the only one still reaching `emit_method_call`'s
+            // statically-nullish shortcut after batch 6 widened
+            // `receiver_needs_dynamic_helper_dispatch`. Fixture:
+            // `crates/porffor-cli/tests/fixtures/wasm_intl_date_time_format_subclass.js`.
+            //
+            // THE SECOND CONSUMER, which the lane spec and its note both missed
+            // by calling `inherited_instance` in `lower_class` the only one.
+            // `lower_new_expression` also reads `signature.constructor_instance`
+            // — the `else` arm of `null_heritage_return_path` — and
+            // `standard_builtin_signature` hard-codes `class_heritage_kind:
+            // ClassHeritageKind::None`, so that flag is false here and the arm
+            // IS taken for a *direct* `new Intl.DateTimeFormat("en")`, not only
+            // for a subclass. That path changes from `{Undefined, Object}` to
+            // `{Object}`, and the pre-merge value (Object plus
+            // `empty_object_shape()`) is what `merge_function_this_info`
+            // receives.
+            //
+            // Traced, and benign: `merge_value_infos` takes its equal-kind
+            // branch and `merge_heap_shapes` answers `None` when only one side
+            // carries a shape, so the empty shape never escapes and the
+            // narrowing is a strict improvement. The `merge_function_this_info`
+            // argument is the one edge that was not separately measured. The
+            // fixture covers this path directly as well as through the
+            // subclass, so the `date::` chunk exercises both.
+            //
+            // `fresh_constructed_instance_info()` rather than a layered
+            // prototype: there is no `intl_date_time_format_*_shape` in this
+            // file, DTF's own `return_shape` is `None`, and the
+            // `IteratorConstructor` comment above records that `lower_class`
+            // immediately overwrites any layered prototype with the subclass
+            // prototype. The `Intl.Locale` precedent
+            // (`value_info_from_shape(Some(intl_locale_instance_shape()))`) is
+            // unavailable because `Locale` HAS an instance shape and this does
+            // not.
+            StandardBuiltinId::IntlDateTimeFormatConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                Self::fresh_constructed_instance_info(),
+            ),
+            StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
@@ -6799,6 +6988,41 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            // Declared exactly as the PlainDate / PlainDateTime / PlainYearMonth
+            // era pair already is, so the four cannot disagree. `era` is filed
+            // under `Undefined` and `eraYear` under `Dynamic`; that asymmetry
+            // is inherited, not invented here.
+            //
+            // `Undefined` is a *wrong* declaration for a two-calendar backend
+            // — a gregory receiver answers the string `"ce"` — and it is
+            // harmless only because nothing consults it on this path. Every
+            // singleton-`possible_kinds` shortcut in the backend is gated on
+            // `planning::expr_result_tag_is_runtime_dynamic`, whose or-pattern
+            // returns `true` for `PropertyRead`, `CallNamed` and `CallMethod`;
+            // those are the only syntactic forms that can reach an era getter,
+            // so the declared kind never decides the emitted tag. (Do not cite
+            // the `intl402/Temporal/PlainDate` 488/488 node for this, as an
+            // earlier version of this comment did: that snapshot is
+            // `spec-exec`, and these tables are read by wasm-aot lowering
+            // only.)
+            //
+            // The correct fix is to widen all four `era` getters to
+            // `ValueKind::Dynamic` with `String|Undefined`, mirroring what the
+            // four `eraYear` getters already do with `Number|Undefined`, in
+            // one edit so they cannot disagree.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
@@ -6811,11 +7035,31 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_instant_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => (
+            // `withTimeZone`, `withCalendar`, `add` and `subtract` are all
+            // ZonedDateTime-in / ZonedDateTime-out; `until`/`since` hand back a
+            // `Temporal.Duration`, exactly as the PlainDateTime arms above
+            // already declare for their namesakes.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_duration_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
             ),
             StandardBuiltinId::RegExpConstructor => (
                 ValueKind::Object,
@@ -7365,6 +7609,61 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). The return shapes
+            // are deliberately `None`: the lane added no
+            // `async_disposable_stack_instance_shape()`, so the lowerer learns
+            // the kind and nothing else and every member access stays dynamic.
+            //
+            // The fourth member is `fresh_constructed_instance_info()`, NOT the
+            // `ValueInfo::undefined()` the lane note proposed. This builtin is
+            // in `constructable()` (`builtins.rs`), so both consumers of
+            // `constructor_instance` are reachable — `lower_class`'s
+            // `inherited_instance` for `class D extends AsyncDisposableStack {}`
+            // and `lower_new_expression`'s `null_heritage_return_path` else-arm
+            // for a direct `new AsyncDisposableStack()`. Spelling it
+            // `undefined` types the instance as nullish and makes
+            // `emit_method_call`'s statically-nullish shortcut emit no call at
+            // all; that is the measured batch-5 `IteratorConstructor` defect and
+            // the batch-7 `IntlDateTimeFormatConstructor` defect verbatim, whose
+            // arm 20 lines below is the precedent this copies (`Object`,
+            // `{Object}`, no return shape, fresh constructed instance).
+            StandardBuiltinId::AsyncDisposableStackConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                Self::fresh_constructed_instance_info(),
+            ),
+            // `use` and `adopt` both return their first argument unchanged.
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `move` returns a fresh stack; `disposeAsync` always returns a
+            // promise, including on every failure path.
+            StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::SetConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -7557,9 +7856,45 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: value_info.possible_kinds,
                 heap_shape: value_info.heap_shape,
                 function_targets: value_info.function_targets,
+                initialization: Initialization::Initialized,
             },
         );
         name
+    }
+
+    /// Allocates the `[[Iterator]]` slot of a `for await` Iterator Record.
+    ///
+    /// The three slot allocators exist so that a slot can only be obtained from
+    /// the allocation that names it. Wrapping three interchangeable `String`s
+    /// at the construction site would have left the original defect intact —
+    /// `IteratorSlot::new(next_binding), NextMethodSlot::new(iterator_binding)`
+    /// type-checks and miscompiles every `for await`. With these there is no
+    /// `String` left in the expression to transpose, and swapping two of the
+    /// three results is `E0308`.
+    ///
+    /// The hint strings are fixed here rather than passed in, so the emitted
+    /// binding names cannot drift either.
+    fn alloc_iterator_slot(&mut self) -> IteratorSlot {
+        IteratorSlot::new(self.alloc_suspension_owned_binding(
+            "async.forof.iterator.",
+            ValueInfo::new(ValueKind::Object),
+        ))
+    }
+
+    /// Allocates the `[[NextMethod]]` slot. See [`Self::alloc_iterator_slot`].
+    fn alloc_next_method_slot(&mut self) -> NextMethodSlot {
+        NextMethodSlot::new(self.alloc_suspension_owned_binding(
+            "async.forof.next.",
+            ValueInfo::new(ValueKind::Dynamic),
+        ))
+    }
+
+    /// Allocates the `[[Done]]` slot. See [`Self::alloc_iterator_slot`].
+    fn alloc_done_slot(&mut self) -> DoneSlot {
+        DoneSlot::new(self.alloc_suspension_owned_binding(
+            "async.forof.done.",
+            ValueInfo::new(ValueKind::Boolean),
+        ))
     }
 
     fn add_suspension_owned_binding(&mut self, name: String) {
@@ -7587,9 +7922,20 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lexical_storage_name(&mut self, source_name: &str) -> String {
         let shadows_scope_binding = self.scopes.iter().rev().any(|scope| {
-            scope
-                .get(source_name)
-                .is_some_and(|binding| !Self::is_tdz_binding_storage_name(&binding.storage_name))
+            scope.get(source_name).is_some_and(|binding| {
+                // A *placeholder* entry (14.7.5.5 head binding, 10.2.11 step 21
+                // parameter) backs no slot in its scope, so it is not a claim on
+                // the name; an entry the sweep created (`Allocated`) and an
+                // initialized entry both are. The match is exhaustive on
+                // purpose: a third storage disposition must be decided here
+                // rather than default to "does not shadow", which is the silent
+                // slot-sharing bug this replaces.
+                match binding.initialization {
+                    Initialization::Uninitialized(UninitializedStorage::Placeholder) => false,
+                    Initialization::Uninitialized(UninitializedStorage::Allocated)
+                    | Initialization::Initialized => true,
+                }
+            })
         });
         let shadows_var_binding = self
             .var_bindings
@@ -7602,11 +7948,101 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// The storage name an InitializeBinding (9.1.1.1.4) must write.
+    ///
+    /// If BlockDeclarationInstantiation already created this binding in the
+    /// current scope, that creation allocated the slot and this returns it.
+    /// Recomputing instead is the M2b trap: the script top level and every
+    /// function body are not direct-lexical scopes, so `lexical_storage_name`
+    /// answers `$lexN` once the created entry is in scope, and the declarator
+    /// would write a slot that nothing — neither an earlier read nor the
+    /// capture analysis' `EnvironmentPlan` — resolves to. The token
+    /// `PendingInitialization` carries the same name for the paths that take
+    /// one; this covers the destructuring paths of ledger entry L2, which do
+    /// not.
     fn direct_lexical_storage_name(&mut self, source_name: &str, span: boa_ast::Span) -> String {
+        let created = self
+            .scopes
+            .last()
+            .and_then(|scope| scope.get(source_name))
+            .and_then(|binding| {
+                // Exhaustive, not `== Uninitialized(Allocated)`: this is the
+                // *second* consumer of `UninitializedStorage`, and an equality
+                // test would let a third storage disposition compile here while
+                // `lexical_storage_name` (above) reported `E0004` — silently
+                // dropping the reuse rule and reopening M2b for the new
+                // variant.
+                match binding.initialization {
+                    Initialization::Uninitialized(UninitializedStorage::Allocated) => {
+                        Some(binding.storage_name.clone())
+                    }
+                    Initialization::Uninitialized(UninitializedStorage::Placeholder)
+                    | Initialization::Initialized => None,
+                }
+            });
+        if let Some(created) = created {
+            return created;
+        }
         if self.direct_lexical_scopes.last().copied().unwrap_or(false) {
             return scoped_lexical_binding_storage_name(source_name, span);
         }
         self.lexical_storage_name(source_name)
+    }
+
+    /// CreateMutableBinding (9.1.1.1.2) / CreateImmutableBinding (9.1.1.1.3) for
+    /// one lexically scoped name, as `LexicalScopeInstantiation` performs them.
+    ///
+    /// `pub(crate)` only so the sweep — whose exhaustive `boa_ast::Declaration`
+    /// match lives in `binding_lifecycle` — can reach it; it is not a general
+    /// declaration entry point.
+    pub(crate) fn create_lexical_binding(
+        &mut self,
+        source_name: &str,
+        mode: BindingMode,
+        span: boa_ast::Span,
+    ) -> String {
+        let storage_name = self.direct_lexical_storage_name(source_name, span);
+        self.declare_binding(
+            source_name.to_string(),
+            BindingInfo {
+                mode,
+                storage_name: storage_name.clone(),
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+                initialization: Initialization::Uninitialized(UninitializedStorage::Allocated),
+            },
+        );
+        storage_name
+    }
+
+    /// The declarative Environment Record push of 14.3.1.2 step 1, performed by
+    /// `LexicalScopeInstantiation`'s block-shaped constructors.
+    ///
+    /// `pub(crate)` only so the sweep can own the frame it populates; the
+    /// matching pop is [`Self::pop_instantiation_scope`], reachable only through
+    /// `LexicalScopeInstantiation::finish`, which consumes the token.
+    pub(crate) fn push_instantiation_scope(&mut self) {
+        self.push_direct_lexical_scope();
+    }
+
+    /// The matching pop. See [`Self::push_instantiation_scope`].
+    pub(crate) fn pop_instantiation_scope(&mut self) {
+        self.pop_scope();
+    }
+
+    /// InitializeBinding (9.1.1.1.4)'s scope-record write, for
+    /// `InitializedBinding::declare`. `pub(crate)` for the same reason as
+    /// [`Self::create_lexical_binding`]: the typed half of the transition lives
+    /// in `binding_lifecycle`, and its fields stay private there so the storage
+    /// name the creation allocated cannot be swapped for a recomputed one.
+    pub(crate) fn declare_initialized_binding(&mut self, source_name: String, info: BindingInfo) {
+        self.declare_binding(source_name, info);
+    }
+
+    pub(crate) fn interner(&self) -> &'a Interner {
+        self.interner
     }
 
     fn new(
@@ -7626,7 +8062,6 @@ impl<'a> ScriptLowerer<'a> {
             current_owner_id,
             scopes: vec![BTreeMap::new()],
             direct_lexical_scopes: vec![false],
-            tdz_scopes: vec![BTreeSet::new()],
             var_bindings: BTreeMap::new(),
             function_signatures: BTreeMap::new(),
             visible_function_names: BTreeMap::new(),
@@ -8264,9 +8699,17 @@ impl<'a> ScriptLowerer<'a> {
         prepass.function_signatures = self.function_signatures.clone();
         prepass.is_prepass = true;
         prepass.hoist_root_statement_items(script.statements().statements());
+        // 16.1.7 step 17 on the global lexical Environment Record, which
+        // `ScriptLowerer::new` already established — hence
+        // `instantiate_in_current_scope`, not `instantiate`.
+        let prepass_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut prepass,
+            script.statements().statements(),
+        );
         let _ = prepass.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
+            prepass_scope,
         );
         if let Some(root_scope) = prepass.scopes.first() {
             for (name, binding) in root_scope {
@@ -8362,9 +8805,17 @@ impl<'a> ScriptLowerer<'a> {
             eprintln!("porffor lower trace: final-functions: {:?}", tp.elapsed());
         }
         let tp = std::time::Instant::now();
+        // 16.1.7 step 17: the script's `lexDeclarations` are created on the
+        // global lexical Environment Record — the frame this lowerer was built
+        // with — before the body evaluates.
+        let scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut self,
+            script.statements().statements(),
+        );
         let body = self.lower_root_statement_items(
             script.statements().statements(),
             self.analysis.script_root_functions.as_slice(),
+            scope,
         );
         if lower_trace {
             eprintln!("porffor lower trace: final-body: {:?}", tp.elapsed());
@@ -9346,19 +9797,34 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         items: &[StatementListItem],
         root_functions: &[PendingFunction<'a>],
+        scope: LexicalScopeInstantiation,
     ) -> BlockIr {
         let root_function_bindings = root_functions
             .iter()
             .map(|function| (function.name.clone(), function.id.clone()))
             .collect::<Vec<_>>();
-        self.lower_root_statement_items_with_function_bindings(items, &root_function_bindings)
+        self.lower_root_statement_items_with_function_bindings(
+            items,
+            &root_function_bindings,
+            scope,
+        )
     }
 
+    /// The statement-list entry for the script top level (16.1.7
+    /// GlobalDeclarationInstantiation step 17) **and every function body**
+    /// (10.2.11 FunctionDeclarationInstantiation step 30).
+    ///
+    /// Both moments create the whole `lexDeclarations` list uninitialized before
+    /// the body evaluates, and neither used to do so here — which is why
+    /// `x; let x;` read slot `x` at the top level while the same program inside
+    /// a block already threw. `scope` is the witness that the sweep ran.
     fn lower_root_statement_items_with_function_bindings(
         &mut self,
         items: &[StatementListItem],
         root_functions: &[(String, FunctionId)],
+        scope: LexicalScopeInstantiation,
     ) -> BlockIr {
+        let mut scope = scope;
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
 
@@ -9387,12 +9853,18 @@ impl<'a> ScriptLowerer<'a> {
                 StatementListItem::Declaration(declaration)
                     if self.is_static_generator_declaration(declaration) => {}
                 _ => {
-                    let (statement, kind) = self.lower_statement_list_item(item);
+                    let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
                     statements.push(statement);
                     result_kind = kind;
                 }
             }
         }
+
+        // Ends the Environment Record the sweep created its bindings in. A root
+        // statement list joins the frame its caller established, so this pops
+        // nothing here; it is written because the token — not the caller — is
+        // what decides that.
+        scope.finish(self);
 
         self.finish_using_frame(BlockIr {
             statements,
@@ -9401,7 +9873,17 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
-    fn lower_statement_items(&mut self, items: &[StatementListItem]) -> BlockIr {
+    /// Lowers one statement list against the BlockDeclarationInstantiation that
+    /// created its lexical bindings.
+    ///
+    /// `scope` is taken by value and its only constructors perform the sweep, so
+    /// a statement-list entry cannot be written that forgets to predeclare.
+    fn lower_statement_items(
+        &mut self,
+        items: &[StatementListItem],
+        scope: LexicalScopeInstantiation,
+    ) -> BlockIr {
+        let mut scope = scope;
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
 
@@ -9428,10 +9910,16 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item);
+            let (statement, kind) = self.lower_statement_list_item(item, &mut scope);
             statements.push(statement);
             result_kind = kind;
         }
+
+        // 14.3.1.2's `env` ends with the statement list. The token pushed it and
+        // the token pops it, so the sweep's scope and the lowering's scope are
+        // the same frame by construction rather than by the caller remembering
+        // to push before constructing.
+        scope.finish(self);
 
         self.finish_using_frame(BlockIr {
             statements,
@@ -9528,6 +10016,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: dynamic_info.possible_kinds,
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     name
@@ -9692,17 +10181,29 @@ impl<'a> ScriptLowerer<'a> {
     /// Read off the global `Symbol` object rather than a scope lookup so a
     /// local binding named `Symbol` cannot redirect it.
     fn symbol_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value("dispose")
+        self.symbol_well_known_value(WellKnownSymbol::Dispose)
     }
 
     /// `%Symbol%.asyncDispose`, the `@@asyncDispose` key an `await using`
     /// declaration looks up first (ECMA-262 27.3.1.4 `GetDisposeMethod` with
     /// hint `async-dispose`).
     fn symbol_async_dispose_value(&mut self) -> TypedExpr {
-        self.symbol_well_known_value("asyncDispose")
+        self.symbol_well_known_value(WellKnownSymbol::AsyncDispose)
     }
 
-    fn symbol_well_known_value(&mut self, property: &str) -> TypedExpr {
+    /// Reads `%Symbol%.<member>` for a well-known symbol.
+    ///
+    /// Takes the symbol, not its member name. The member name is load-bearing
+    /// twice here — it is the shape lookup key *and* the emitted
+    /// `PropertyKeyIr::StaticString` — and this used to be a `&str` parameter
+    /// called with the literals `"dispose"` and `"asyncDispose"`. Misspelling
+    /// one compiled, emitted a read of a property that does not exist, resolved
+    /// to `undefined`, and made `await using` silently never dispose. The shape
+    /// half of that was masked (the modelled `Symbol` constructor shape carries
+    /// only `prototype`, `for` and `keyFor`, so the lookup always missed and
+    /// fell back to `ValueKind::Symbol`); the emitted-key half was not.
+    fn symbol_well_known_value(&mut self, symbol: WellKnownSymbol) -> TypedExpr {
+        let property = symbol.member_name();
         let symbol_info = self
             .lookup_global_property(SYMBOL_NAME)
             .unwrap_or_else(|| ValueInfo::new(ValueKind::Object));
@@ -9742,9 +10243,13 @@ impl<'a> ScriptLowerer<'a> {
             .collect()
     }
 
+    /// A switch case body. It shares the CaseBlock's single instantiation with
+    /// every other case (14.12.4), so the token map is borrowed rather than
+    /// owned.
     fn lower_statement_items_without_function_initialization(
         &mut self,
         items: &[StatementListItem],
+        scope: &mut LexicalScopeInstantiation,
     ) -> BlockIr {
         let mut statements = Vec::new();
         let mut result_kind = ValueKind::Undefined;
@@ -9769,7 +10274,7 @@ impl<'a> ScriptLowerer<'a> {
             ) {
                 continue;
             }
-            let (statement, kind) = self.lower_statement_list_item(item);
+            let (statement, kind) = self.lower_statement_list_item(item, scope);
             statements.push(statement);
             result_kind = kind;
         }
@@ -9829,6 +10334,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: KindSet::from_kind(ValueKind::Function),
                     heap_shape: function_info.heap_shape,
                     function_targets: BTreeSet::from([function_id.clone()]),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -9892,14 +10398,18 @@ impl<'a> ScriptLowerer<'a> {
             .contains_key(&async_generator_declaration_key(function))
     }
 
-    fn lower_statement_list_item(&mut self, item: &StatementListItem) -> (StatementIr, ValueKind) {
+    fn lower_statement_list_item(
+        &mut self,
+        item: &StatementListItem,
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         match item {
             StatementListItem::Statement(statement) => self.lower_statement(statement),
             StatementListItem::Declaration(declaration) => {
                 if self.is_static_generator_declaration(declaration.as_ref()) {
                     (StatementIr::Empty, ValueKind::Undefined)
                 } else {
-                    self.lower_declaration(declaration)
+                    self.lower_declaration(declaration, scope)
                 }
             }
         }
@@ -10087,9 +10597,12 @@ impl<'a> ScriptLowerer<'a> {
             }
             Statement::Empty => (StatementIr::Empty, ValueKind::Undefined),
             Statement::Block(block) => {
-                self.push_direct_lexical_scope();
+                // The Block's declarative Environment Record (14.3.1.2 step 1)
+                // is pushed and popped by `lower_block`'s
+                // `LexicalScopeInstantiation`; pushing a second, empty frame
+                // here would only give the sweep somewhere else it could have
+                // landed.
                 let block_ir = self.lower_block(block);
-                self.pop_scope();
                 let kind = block_ir.result_kind;
                 (StatementIr::Block(block_ir), kind)
             }
@@ -10177,6 +10690,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: object.possible_kinds,
                     heap_shape: object.heap_shape.clone(),
                     function_targets: object.function_targets.clone(),
+                    initialization: Initialization::Initialized,
                 },
             );
             name
@@ -10199,8 +10713,16 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_block(&mut self, block: &Block) -> BlockIr {
-        self.predeclare_block_lexical_bindings(block.statement_list().statements());
-        let mut lowered = self.lower_statement_items(block.statement_list().statements());
+        // 14.3.1.2 BlockDeclarationInstantiation: the constructor pushes the
+        // Block's declarative Environment Record and creates the whole
+        // statement list's lexically scoped declarations in it, before any
+        // statement of the block is evaluated. `lower_statement_items` ends the
+        // frame by consuming the token, so every caller of `lower_block` is
+        // relieved of the push/pop it used to perform — and can no longer
+        // perform it against a different frame than the sweep populated.
+        let scope =
+            LexicalScopeInstantiation::instantiate(self, block.statement_list().statements());
+        let mut lowered = self.lower_statement_items(block.statement_list().statements(), scope);
         lowered.lexical_environment = self.lower_materialized_lexical_environment(
             self.analysis
                 .block_environment_ids
@@ -10434,7 +10956,10 @@ impl<'a> ScriptLowerer<'a> {
                 for bound in bound_names {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, *pattern_mode),
+                        BindingInfo::tdz_placeholder(
+                            *pattern_mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
                 let target = self.lower_expression(for_in.target());
@@ -10457,8 +10982,70 @@ impl<'a> ScriptLowerer<'a> {
             || Self::value_info_is_boxed_string(&target.value_info());
         let is_object_target = target.possible_kinds.contains(ValueKind::Object)
             || target.possible_kinds.contains(ValueKind::Function);
+        // 14.7.5.6 ForIn/OfHeadEvaluation step 3.a: when `exprValue` is
+        // `undefined` or `null`, return a **break completion**. The head is
+        // evaluated, the loop body runs zero times, and nothing throws — a
+        // well-formed statement, not a compiler gap. `for (key in undefined)`
+        // and `for (var x in null) ;` depend on exactly this, and refusing them
+        // was the opposite of the spec rather than an unimplemented corner.
+        //
+        // Only a *statically* nullish head moves here. A `Dynamic` target that
+        // happens to be nullish at run time already takes the ForInObject path,
+        // which performs the same test there — which is why this is a handful
+        // of cases and not a broad class.
+        //
+        // Steps 1-2 still evaluate the head for its effects, so this returns the
+        // lowered target rather than `StatementIr::Empty`; the `Comma` restores
+        // the `undefined` completion the break completion carries through
+        // UpdateEmpty, which a bare expression statement would replace with the
+        // head's own value.
+        //
+        // The `matches!` is not redundant with the subset test: an empty
+        // `possible_kinds` is a subset of everything, and a vacuous hit here
+        // would silently turn a loop that must iterate into one that cannot.
+        //
+        // The tradeoff to know about: this returns **before the body is lowered
+        // at all**, so an unsupported construct inside the body of a statically
+        // nullish `for-in` is now accepted rather than refused. That is
+        // spec-correct — the body never runs — but it means a test262 case can
+        // move to green because its body was skipped rather than because the
+        // body compiles. `language/statements/for-in/let-block-with-newline.js`
+        // and `let-identifier-with-newline.js` are exactly that: both bodies
+        // read the undeclared identifier `let`, and neither is evidence that
+        // `let`-as-identifier lowering works. `S12.6.4_A1/A2` are *not* — they
+        // depend on `var` hoisting out of the skipped body, which survives,
+        // because `hoist_statement`'s `ForInLoop` arm recurses into
+        // `for_in.body()` in a pass that runs before this one.
+        let is_nullish_target = matches!(target.kind, ValueKind::Undefined | ValueKind::Null)
+            && target.possible_kinds.is_subset_of(
+                KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null)),
+            );
+        if !is_dynamic_target && is_nullish_target {
+            let head_effects_only = TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::Comma {
+                    lhs: Box::new(target),
+                    rhs: Box::new(TypedExpr::undefined()),
+                },
+            );
+            // Annex B `for (var x = 1 in null)` still runs its initializer, so
+            // this takes the same `prepend_statement` exit the ordinary lowering
+            // does rather than dropping the prefix the way the refusal below
+            // can afford to.
+            return Self::prepend_statement(
+                initializer_prefix,
+                StatementIr::Expression(head_effects_only),
+                ValueKind::Undefined,
+            );
+        }
         if !is_dynamic_target && !is_array_target && !is_string_target && !is_object_target {
-            self.unsupported("for-in non-enumerable target");
+            // What is left is Number/Boolean/Symbol/BigInt: 14.7.5.6 step 3.b
+            // sends those through ToObject (7.1.18) and enumerates the wrapper's
+            // own enumerable properties, which is a separate and currently
+            // uncounted family. Named in the message so the next lane inherits
+            // an accurate diagnostic instead of "non-enumerable target", which
+            // was never true of any of them.
+            self.unsupported("for-in target requiring ToObject (number, boolean, symbol, bigint)");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
 
@@ -10486,6 +11073,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: key_info.possible_kinds,
                     heap_shape: key_info.heap_shape.clone(),
                     function_targets: key_info.function_targets.clone(),
+                    initialization: Initialization::Initialized,
                 },
             );
         } else {
@@ -10498,6 +11086,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: key_info.possible_kinds,
                     heap_shape: key_info.heap_shape.clone(),
                     function_targets: key_info.function_targets.clone(),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -10613,26 +11202,21 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         self.push_scope();
-        self.declare_binding(name.to_string(), Self::tdz_binding_info(name, mode));
+        self.declare_binding(
+            name.to_string(),
+            BindingInfo::tdz_placeholder(mode, TdzPlaceholderName::for_source_name(name)),
+        );
         let lowered = self.lower_expression(expression);
         self.pop_scope();
         lowered
     }
 
-    fn tdz_binding_info(name: &str, mode: BindingMode) -> BindingInfo {
-        BindingInfo {
-            mode,
-            storage_name: tdz_binding_storage_name(name),
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: BTreeSet::new(),
-        }
-    }
-
-    fn is_tdz_binding_storage_name(storage_name: &str) -> bool {
-        storage_name.starts_with(TDZ_BINDING_STORAGE_PREFIX)
-    }
+    // `tdz_binding_info` is now `BindingInfo::tdz_placeholder`, which takes a
+    // `TdzPlaceholderName` so the reserved spelling and the `Placeholder` state
+    // are minted together. `is_tdz_binding_storage_name` is gone: a storage-name
+    // prefix is a name domain, not a lifecycle state, and no site decides
+    // whether to throw by testing it any more. The name-domain question that
+    // does survive is `TdzPlaceholderName::names_a_placeholder`.
 
     fn lower_for_in_initializer_prefix(
         &mut self,
@@ -10695,18 +11279,7 @@ impl<'a> ScriptLowerer<'a> {
             return false;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        matches!(
-            name.as_str(),
-            ERROR_NAME
-                | EVAL_ERROR_NAME
-                | AGGREGATE_ERROR_NAME
-                | SUPPRESSED_ERROR_NAME
-                | RANGE_ERROR_NAME
-                | REFERENCE_ERROR_NAME
-                | SYNTAX_ERROR_NAME
-                | TYPE_ERROR_NAME
-                | URI_ERROR_NAME
-        )
+        self.identifier_is_builtin_native_error(&name).is_some()
     }
 
     fn for_in_global_non_enumerable_guard_only(
@@ -11303,7 +11876,7 @@ impl<'a> ScriptLowerer<'a> {
                             ValueInfo::new(ValueKind::Boolean),
                             ExprIr::DeleteGlobalProperty {
                                 name: name.clone(),
-                                strict: self.is_current_owner_strict(),
+                                strictness: self.reference_strictness(),
                             },
                         );
                     }
@@ -11314,7 +11887,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::DeleteProperty {
                         target: Box::new(target),
                         key,
-                        strict: self.is_current_owner_strict(),
+                        strictness: self.reference_strictness(),
                     },
                 )
             }
@@ -11351,7 +11924,7 @@ impl<'a> ScriptLowerer<'a> {
                             // configurable property, so [[Delete]] cannot fail.
                             ExprIr::DeleteGlobalProperty {
                                 name,
-                                strict: false,
+                                strictness: Strictness::Sloppy,
                             },
                         );
                     }
@@ -11462,9 +12035,9 @@ impl<'a> ScriptLowerer<'a> {
         let generator_entry_state = self.current_generator_resume_state;
         let async_entry_state = self.current_async_resume_state;
         let uses_preplanned_resumable_states = self.current_resumable_plan.is_some();
-        self.push_direct_lexical_scope();
+        // 14.15.2: the try Block's Environment Record is the Block's own, and
+        // `lower_block` owns it (see `LexicalScopeInstantiation`).
         let try_block = self.lower_block(try_statement.block());
-        self.pop_scope();
         if !uses_preplanned_resumable_states {
             if let Some(state) = self.current_generator_resume_state.as_mut() {
                 *state += 1;
@@ -11479,6 +12052,9 @@ impl<'a> ScriptLowerer<'a> {
         let catch_parts = if let Some(catch) = try_statement.catch() {
             let generator_catch_entry_state = self.current_generator_resume_state;
             let async_catch_entry_state = self.current_async_resume_state;
+            // 14.15.3 step 2's `catchEnv` — the record that holds the catch
+            // *parameter*, and a different Environment Record from the catch
+            // Block's, which `lower_block` pushes for itself. This push stays.
             self.push_direct_lexical_scope();
             let catch_parameter_environment = self.lower_materialized_lexical_environment(
                 catch
@@ -11562,9 +12138,8 @@ impl<'a> ScriptLowerer<'a> {
         let finally_block = if let Some(finally_block) = try_statement.finally() {
             let generator_finally_entry_state = self.current_generator_resume_state;
             let async_finally_entry_state = self.current_async_resume_state;
-            self.push_direct_lexical_scope();
+            // As for the try Block: `lower_block` owns the frame.
             let lowered = self.lower_block(finally_block.block());
-            self.pop_scope();
             if !uses_preplanned_resumable_states {
                 if let Some(state) = self.current_generator_resume_state.as_mut() {
                     *state += 1;
@@ -11700,6 +12275,7 @@ impl<'a> ScriptLowerer<'a> {
             possible_kinds: info.possible_kinds,
             heap_shape: info.heap_shape,
             function_targets: info.function_targets,
+            initialization: Initialization::Initialized,
         }
     }
 
@@ -12015,7 +12591,53 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// What an expression can throw, if anything.
+    ///
+    /// A Reference write throws for two independent reasons: something in its
+    /// operands throws, and — PutValue 3.d, `delete` 5.e — the write itself
+    /// reports failure while the Reference's `[[Strict]]` is `Strict`. The
+    /// second reason is a property of the Reference rather than of any
+    /// operand, so it is merged in here, where the carried `[[Strict]]` is
+    /// read as a total function of the node.
+    ///
+    /// This is also the product call site that keeps `carried_put_value_failure`
+    /// honest: the exhaustive match inside it only earns its `E0004` if
+    /// something outside the tests calls it.
+    ///
+    /// The error *type* matters as much as the fact of throwing. PutValue 2.a
+    /// raises a **ReferenceError** and 3.d a **TypeError**, and this info feeds
+    /// `infer_catch_binding_info`, so attributing only a TypeError to
+    /// `"use strict"; try { undeclaredXyz = 1 } catch (e) { … }` would narrow
+    /// `e` to a TypeError-shaped object — complete with
+    /// `prototype: standard_error_prototype_shape(TypeErrorConstructor)` — for
+    /// a value that is a ReferenceError.
     fn infer_expr_throw_info(&self, expr: &TypedExpr) -> Option<ValueInfo> {
+        let strict_put_value_throw = match carried_put_value_failure(&expr.expr) {
+            Some((Strictness::Strict, failure)) => {
+                let type_error =
+                    Self::standard_error_instance_info(StandardBuiltinId::TypeErrorConstructor);
+                Some(match failure {
+                    PutValueFailure::TypeErrorOnly => type_error,
+                    PutValueFailure::TypeErrorOrReferenceError => self.merge_value_infos(
+                        type_error,
+                        Self::standard_error_instance_info(
+                            StandardBuiltinId::ReferenceErrorConstructor,
+                        ),
+                    ),
+                })
+            }
+            Some((Strictness::Sloppy, _)) | None => None,
+        };
+        self.merge_optional_value_info(
+            strict_put_value_throw,
+            self.infer_expr_operand_throw_info(expr),
+        )
+    }
+
+    /// The part of [`Self::infer_expr_throw_info`] that comes from the node's
+    /// own operands. Recursive calls go back through the wrapper, so a nested
+    /// strict Reference write contributes its TypeError too.
+    fn infer_expr_operand_throw_info(&self, expr: &TypedExpr) -> Option<ValueInfo> {
         match &expr.expr {
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
@@ -12045,16 +12667,17 @@ impl<'a> ScriptLowerer<'a> {
             ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
                 StandardBuiltinId::ReferenceErrorConstructor,
             )),
+            // No match here on purpose. `NativeErrorKind::constructor` is total
+            // over the nine error intrinsics (20.5.1, 20.5.5, 20.5.7 and
+            // Explicit Resource Management), so a tenth kind cannot be omitted
+            // at this call site at all — the exhaustiveness obligation lives in
+            // the one row list that generates it. The six-arm match this
+            // replaced fell through to `ErrorConstructor` for `AggregateError`
+            // and `SuppressedError`, which would have typed both as base
+            // `Error` and made every downstream `instanceof` and shape
+            // inference keyed on the result wrong.
             ExprIr::RuntimeThrow { name, .. } => {
-                Some(Self::standard_error_instance_info(match *name {
-                    RANGE_ERROR_NAME => StandardBuiltinId::RangeErrorConstructor,
-                    TYPE_ERROR_NAME => StandardBuiltinId::TypeErrorConstructor,
-                    SYNTAX_ERROR_NAME => StandardBuiltinId::SyntaxErrorConstructor,
-                    REFERENCE_ERROR_NAME => StandardBuiltinId::ReferenceErrorConstructor,
-                    URI_ERROR_NAME => StandardBuiltinId::URIErrorConstructor,
-                    EVAL_ERROR_NAME => StandardBuiltinId::EvalErrorConstructor,
-                    _ => StandardBuiltinId::ErrorConstructor,
-                }))
+                Some(Self::standard_error_instance_info(name.constructor()))
             }
             ExprIr::ObjectLiteral(properties) => {
                 let mut info = None;
@@ -12196,7 +12819,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            ExprIr::PropertyWrite { target, key, value } => {
+            ExprIr::PropertyWrite {
+                target, key, value, ..
+            } => {
                 let mut info = self.infer_expr_throw_info(target);
                 info =
                     self.merge_optional_value_info(info, self.infer_property_key_throw_info(key));
@@ -12711,7 +13336,10 @@ impl<'a> ScriptLowerer<'a> {
                     for bound in bound_names {
                         self.declare_binding(
                             bound.source_name.clone(),
-                            Self::tdz_binding_info(&bound.source_name, mode),
+                            BindingInfo::tdz_placeholder(
+                                mode,
+                                TdzPlaceholderName::for_source_name(&bound.source_name),
+                            ),
                         );
                     }
                 }
@@ -12901,6 +13529,15 @@ impl<'a> ScriptLowerer<'a> {
     /// Only the array-shaped iterable is rewritten. Anything else keeps the
     /// iterator protocol, which has its own suspension points, so it is reported
     /// as unsupported rather than silently miscompiled.
+    ///
+    /// This is the **fourth** for-of specialization, and the one a `protocol`
+    /// field on `StatementIr::ForOfArray` could never have caught: the statement
+    /// it produces is a `GeneratorLoop`, not a `ForOf*`. It rests on exactly the
+    /// premises of [`IteratorProtocolWitness::ARRAY_INDEX_WALK`] — an
+    /// `index < ArrayLength` test and `ArrayIndex` element reads, with no
+    /// `@@iterator` `Get` anywhere — which is why it returns a
+    /// [`ForOfLoweringIr`] carrying
+    /// [`IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE`].
     #[allow(clippy::too_many_arguments)]
     fn lower_async_for_of_array_with_body_await(
         &mut self,
@@ -12910,29 +13547,59 @@ impl<'a> ScriptLowerer<'a> {
         element_info: &ValueInfo,
         body: StatementIr,
         body_kind: ValueKind,
-        has_unsupported_binding_form: bool,
+        head_form: AsyncForOfArrayWalkForm,
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
-    ) -> (StatementIr, ValueKind) {
-        let is_array = iterable
-            .possible_kinds
-            .is_subset_of(KindSet::from_kind(ValueKind::Array));
-        let Some(entry_state) = entry_state.filter(|_| is_array && !has_unsupported_binding_form)
-        else {
+    ) -> ForOfLoweringIr {
+        // Four premises, five messages — [`AsyncForOfArrayWalkForm`] carries
+        // four of the five, one per rejecting variant, and the entry state is
+        // the fifth. They used to be one `&&`/`||` chain behind one string —
+        // "requires an array iterable and a plain binding" — which was reported
+        // for `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`, whose
+        // head is `for (const v of [array literal])`, i.e. a case where both
+        // named premises hold. A rejection reason that names the wrong premise
+        // is worse than none: it routes triage away from the defect.
+        //
+        // The order the messages depend on (typing, then binding shape, then
+        // captured environment) lives inside `classify` rather than here, so a
+        // second call site cannot get it wrong. See the type's doc.
+        if let Some(message) = head_form.rejection() {
+            self.unsupported(message);
+            return ForOfLoweringIr::no_iteration();
+        }
+        // A SAFETY NET, not a fifth diagnostic family — do not count it among
+        // the messages this split delivers, and do not expect it in a sweep
+        // family map. Reaching it requires `plain_async_entry_state()` to answer
+        // `Some` when `plain_async_await_body` is computed and `None` when it is
+        // re-read just before the body is lowered, and only one transition can
+        // do that: neither `current_async_resume_state` nor
+        // `current_generator_resume_state` is ever assigned `None` after the
+        // lowerer is constructed (every assignment in this file is `Some(..)`,
+        // and the `lowerer.*` ones belong to nested lowerers), so the sole route
+        // is `current_generator_resume_state` going `None -> Some` while the
+        // *head* is lowered. The window is head-only: the iterable is already
+        // known to contain no `await`, and the re-read happens before
+        // `lower_loop_body`. That transition has not been shown to be reachable
+        // and has not been shown to be impossible either, which is exactly why
+        // the arm stays: falling through with no entry state would emit a
+        // straight-line loop holding a suspension, i.e. a miscompile, and this
+        // returns a diagnostic instead.
+        let Some(entry_state) = entry_state else {
             self.unsupported(
-                "async for-of with a body await requires an array iterable and a plain binding",
+                "async for-of with a body await requires a plain async function body with a \
+                 resumable entry state, and this body has none",
             );
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         };
         let Some((before_suspension, suspension_statement, after_suspension)) =
             Self::split_resumable_loop_body(body)
         else {
             self.unsupported("async for-of body did not lower to one direct await");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         };
         let StatementIr::AsyncAwait { resume_state, .. } = &suspension_statement else {
             self.unsupported("async for-of body did not lower to one direct await");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         };
         let resume_state = *resume_state;
         let exit_state = resume_state + 1;
@@ -13036,7 +13703,7 @@ impl<'a> ScriptLowerer<'a> {
         before.extend(before_suspension);
 
         self.current_async_resume_state = Some(exit_state);
-        (
+        ForOfLoweringIr::new(
             StatementIr::GeneratorLoop {
                 init: Some(init),
                 test: Some(test),
@@ -13049,21 +13716,39 @@ impl<'a> ScriptLowerer<'a> {
                 exit_state,
             },
             body_kind,
+            IteratorProtocolWitness::ARRAY_INDEX_WALK_RESUMABLE,
         )
     }
 
+    /// Lowers a `for`-`of` head.
+    ///
+    /// Thin wrapper: the witness [`lower_for_of_head`] produced has done its
+    /// work by the time control returns here (every path out of that function
+    /// had to name one), and no emitter may read it.
+    ///
+    /// [`lower_for_of_head`]: Self::lower_for_of_head
     fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
+        self.lower_for_of_head(for_of).into_statement_and_kind()
+    }
+
+    /// Every path out of this function returns a [`ForOfLoweringIr`], whose only
+    /// constructor takes an [`IteratorProtocolWitness`]. That is what makes
+    /// "add a fourth for-of desugaring and silently assume the protocol away" a
+    /// compile error rather than a silent wrong answer: attaching `protocol` to
+    /// the three `ForOf*` variants alone missed the desugaring to
+    /// `StatementIr::GeneratorLoop` that already existed.
+    fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {
         let uses_unified_resumable_plan = for_of.r#await() && self.current_resumable_plan.is_some();
         if for_of.r#await()
             && !uses_unified_resumable_plan
             && self.current_async_resume_state.is_none()
         {
             self.unsupported("for-await-of outside async function");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         }
         if for_of.r#await() && contains(for_of.body(), ContainsSymbol::AwaitExpression) {
             self.unsupported("explicit await in for-await-of body");
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         }
         // A plain `for (x of …)` whose body awaits needs the same
         // one-iteration-per-invocation shape a resumable `for` loop gets, so it
@@ -13078,14 +13763,17 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported(
                 "async for-of with await requires an eager iterable and a body without break or continue",
             );
-            return (StatementIr::Empty, ValueKind::Undefined);
+            return ForOfLoweringIr::no_iteration();
         }
         if let IterableLoopInitializer::WebCompatCall(call) = for_of.initializer() {
-            return (
+            // The head evaluates the iterable and then throws a ReferenceError,
+            // so no 7.4 operation ever runs: the loop is gone, not specialized.
+            return ForOfLoweringIr::new(
                 StatementIr::Expression(
                     self.lower_web_compat_loop_assignment_target(call, for_of.iterable()),
                 ),
                 ValueKind::Undefined,
+                IteratorProtocolWitness::NO_ITERATION,
             );
         }
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
@@ -13140,7 +13828,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             _ => {
                 self.unsupported("for-of initializer");
-                return (StatementIr::Empty, ValueKind::Undefined);
+                return ForOfLoweringIr::no_iteration();
             }
         };
         let static_generator_elements =
@@ -13164,12 +13852,15 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(bound_names) = supported_bound_names(self.interner, &binding) else {
                     self.unsupported("for-of initializer");
                     self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    return ForOfLoweringIr::no_iteration();
                 };
                 for bound in bound_names {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, *pattern_mode),
+                        BindingInfo::tdz_placeholder(
+                            *pattern_mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
                 let iterable = self.lower_expression(for_of.iterable());
@@ -13190,7 +13881,10 @@ impl<'a> ScriptLowerer<'a> {
             .then_some(self.current_async_resume_state)
             .flatten();
         if for_of.r#await() {
-            for key in ["Symbol.asyncIterator", "Symbol.iterator"] {
+            // 7.4.3 GetIterator tries `@@asyncIterator` first, then falls back
+            // to `@@iterator` wrapped as an async iterator. The order is the
+            // spec obligation.
+            for key in [WellKnownSymbol::AsyncIterator, WellKnownSymbol::Iterator] {
                 let function_targets = self
                     .optional_chain_well_known_symbol_property_info(&iterable.value_info(), key)
                     .map(|method| method.function_targets)
@@ -13259,6 +13953,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: element_info.possible_kinds,
                 heap_shape: element_info.heap_shape.clone(),
                 function_targets: element_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         let mut pattern_prefix = if let Some(access) = access_initializer.as_ref() {
@@ -13277,7 +13972,7 @@ impl<'a> ScriptLowerer<'a> {
             );
             let Some(assign) = self.lower_pattern_assign_value(pattern, value) else {
                 self.pop_scope();
-                return (StatementIr::Empty, ValueKind::Undefined);
+                return ForOfLoweringIr::no_iteration();
             };
             vec![StatementIr::Expression(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
@@ -13288,7 +13983,7 @@ impl<'a> ScriptLowerer<'a> {
             if *pattern_mode == BindingMode::Var {
                 let Some(prefix) = self.lower_pattern_var_binding_from_value(pattern, init) else {
                     self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    return ForOfLoweringIr::no_iteration();
                 };
                 prefix
             } else {
@@ -13311,7 +14006,7 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 else {
                     self.pop_scope();
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    return ForOfLoweringIr::no_iteration();
                 };
                 prefix
             }
@@ -13337,6 +14032,9 @@ impl<'a> ScriptLowerer<'a> {
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
         if plain_async_await_body {
+            let iterable_is_array = iterable
+                .possible_kinds
+                .is_subset_of(KindSet::from_kind(ValueKind::Array));
             return self.lower_async_for_of_array_with_body_await(
                 mode,
                 &storage_name,
@@ -13344,39 +14042,59 @@ impl<'a> ScriptLowerer<'a> {
                 &element_info,
                 body,
                 body_kind,
-                !for_of_environment_is_storage_only(lexical_environment.as_ref())
-                    || pattern_initializer.is_some()
-                    || assignment_pattern_initializer.is_some()
-                    || access_initializer.is_some(),
+                // One closed reason instead of the four-premise boolean that
+                // used to be OR-ed together here. See
+                // `AsyncForOfArrayWalkForm`'s doc comment for the measurement
+                // that forced the split, and for why the iterable's type is an
+                // argument rather than a separate test inside the callee.
+                AsyncForOfArrayWalkForm::classify(
+                    iterable_is_array,
+                    lexical_environment.as_ref(),
+                    pattern_initializer.is_some()
+                        || assignment_pattern_initializer.is_some()
+                        || access_initializer.is_some(),
+                ),
                 plain_async_entry_state,
                 lexical_environment.clone(),
             );
         }
-        let statement = if iterable
+        // Each arm produces its statement together with the witness that says how
+        // it discharged the four 7.4 obligations, so the two cannot drift apart
+        // and a fourth arm cannot be added without stating its premises.
+        let (statement, protocol) = if iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Array))
             && !for_of.r#await()
         {
-            StatementIr::ForOfArray {
-                mode,
-                name: storage_name,
-                iterable,
-                body: Box::new(body),
-                lexical_environment,
-                async_plan: None,
-            }
+            let protocol = IteratorProtocolWitness::ARRAY_INDEX_WALK;
+            (
+                StatementIr::ForOfArray {
+                    mode,
+                    name: storage_name,
+                    iterable,
+                    body: Box::new(body),
+                    lexical_environment,
+                    protocol,
+                },
+                protocol,
+            )
         } else if iterable
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::String))
             && !for_of.r#await()
         {
-            StatementIr::ForOfString {
-                mode,
-                name: storage_name,
-                iterable,
-                body: Box::new(body),
-                lexical_environment,
-            }
+            let protocol = IteratorProtocolWitness::STRING_CODE_POINT_WALK;
+            (
+                StatementIr::ForOfString {
+                    mode,
+                    name: storage_name,
+                    iterable,
+                    body: Box::new(body),
+                    lexical_environment,
+                    protocol,
+                },
+                protocol,
+            )
         } else {
             // Everything else goes through the generic iterator protocol. That
             // includes primitives: `for (x of 37)` has to reach `GetIterator`,
@@ -13410,22 +14128,17 @@ impl<'a> ScriptLowerer<'a> {
             };
             let async_plan = async_states.map(
                 |(entry_state, value_resume_state, close_resume_state, exit_state)| {
-                    let iterator_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.iterator.",
-                        ValueInfo::new(ValueKind::Object),
-                    );
-                    let next_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.next.",
-                        ValueInfo::new(ValueKind::Dynamic),
-                    );
+                    // Allocation order is load-bearing: `alloc_temp_binding_name`
+                    // numbers bindings as it hands them out, so these five calls
+                    // must stay in this sequence for the emitted names to be the
+                    // ones they were before the Iterator Record retrofit.
+                    let iterator = self.alloc_iterator_slot();
+                    let next_method = self.alloc_next_method_slot();
                     let async_iterator_binding = self.alloc_suspension_owned_binding(
                         "async.forof.async_iterator.",
                         ValueInfo::new(ValueKind::Boolean),
                     );
-                    let done_binding = self.alloc_suspension_owned_binding(
-                        "async.forof.done.",
-                        ValueInfo::new(ValueKind::Boolean),
-                    );
+                    let done = self.alloc_done_slot();
                     let close_on_rejection_binding = self.alloc_suspension_owned_binding(
                         "async.forof.close_on_rejection.",
                         ValueInfo::new(ValueKind::Boolean),
@@ -13435,33 +14148,43 @@ impl<'a> ScriptLowerer<'a> {
                         value_resume_state,
                         close_resume_state,
                         exit_state,
-                        iterator_binding,
-                        next_binding,
+                        record: IteratorRecordIr::new(iterator, next_method, done),
                         async_iterator_binding,
-                        done_binding,
                         close_on_rejection_binding,
                     }
                 },
             );
-            StatementIr::ForOfIterator {
-                mode,
-                name: storage_name,
-                iterable,
-                body: Box::new(body),
-                lexical_environment,
-                async_plan,
-            }
+            let protocol = if async_plan.is_some() {
+                IteratorProtocolWitness::ASYNC_ITERATOR_PROTOCOL
+            } else {
+                IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL
+            };
+            (
+                StatementIr::ForOfIterator {
+                    mode,
+                    name: storage_name,
+                    iterable,
+                    body: Box::new(body),
+                    lexical_environment,
+                    protocol,
+                    async_plan,
+                },
+                protocol,
+            )
         };
-        (statement, body_kind)
+        ForOfLoweringIr::new(statement, body_kind, protocol)
     }
 
     fn lower_switch(&mut self, switch: &AstSwitch) -> (StatementIr, ValueKind) {
         let discriminant = self.lower_expression(switch.val());
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
-        self.push_direct_lexical_scope();
         self.breakable_depth += 1;
-        self.predeclare_switch_lexical_bindings(switch);
+        // 14.12.4 CaseBlockEvaluation pushes the CaseBlock's Environment Record
+        // and instantiates its LexicallyScopedDeclarations once for the whole
+        // block, not per case, so one token map is shared by every case body
+        // below. The push is the constructor's; the pop is `scope.finish`.
+        let mut scope = LexicalScopeInstantiation::instantiate_switch(self, switch);
 
         let mut last_function_by_name = BTreeMap::new();
         for case in switch.cases() {
@@ -13502,8 +14225,10 @@ impl<'a> ScriptLowerer<'a> {
         {
             self.var_bindings = case_vars;
             self.global_properties = case_globals;
-            let body = self
-                .lower_statement_items_without_function_initialization(case.body().statements());
+            let body = self.lower_statement_items_without_function_initialization(
+                case.body().statements(),
+                &mut scope,
+            );
             merged_vars = self.merge_var_bindings(&merged_vars, &self.var_bindings);
             merged_globals = self.merge_global_properties(&merged_globals, &self.global_properties);
             if let Some(kind) = result_kind {
@@ -13517,7 +14242,7 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         self.breakable_depth -= 1;
-        self.pop_scope();
+        scope.finish(self);
         self.var_bindings = merged_vars;
         self.global_properties = merged_globals;
 
@@ -13537,77 +14262,14 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn predeclare_block_lexical_bindings(&mut self, items: &[StatementListItem]) {
-        for item in items {
-            self.predeclare_direct_lexical_binding(item);
-        }
-    }
-
-    fn predeclare_switch_lexical_bindings(&mut self, switch: &AstSwitch) {
-        for case in switch.cases() {
-            for item in case.body().statements() {
-                self.predeclare_direct_lexical_binding(item);
-            }
-        }
-    }
-
-    fn predeclare_direct_lexical_binding(&mut self, item: &StatementListItem) {
-        let StatementListItem::Declaration(declaration) = item else {
-            return;
-        };
-        match declaration.as_ref() {
-            Declaration::Lexical(lexical) => {
-                let (mode, variables) = match lexical {
-                    LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
-                    // A `using` binding is immutable like `const` (ECMA-262
-                    // 14.3.4) and is in TDZ until its declaration runs.
-                    LexicalDeclaration::Const(variables)
-                    | LexicalDeclaration::Using(variables)
-                    | LexicalDeclaration::AwaitUsing(variables) => (BindingMode::Const, variables),
-                };
-                for variable in variables.as_ref() {
-                    let Some(bound_names) =
-                        supported_bound_names(self.interner, variable.binding())
-                    else {
-                        continue;
-                    };
-                    for bound in bound_names {
-                        let storage_name =
-                            self.direct_lexical_storage_name(&bound.source_name, bound.span);
-                        self.declare_binding(
-                            bound.source_name.clone(),
-                            BindingInfo {
-                                mode,
-                                storage_name,
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                        );
-                        self.mark_tdz_binding(&bound.source_name);
-                    }
-                }
-            }
-            Declaration::ClassDeclaration(class) => {
-                let name = self.interner.resolve_expect(class.name().sym()).to_string();
-                let storage_name = self.direct_lexical_storage_name(&name, class.name().span());
-                self.declare_binding(
-                    name.clone(),
-                    BindingInfo {
-                        mode: BindingMode::Let,
-                        storage_name,
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                );
-                self.mark_tdz_binding(&name);
-            }
-            _ => {}
-        }
-    }
+    // `predeclare_block_lexical_bindings`, `predeclare_switch_lexical_bindings`
+    // and `predeclare_direct_lexical_binding` lived here. They are now
+    // `LexicalScopeInstantiation::instantiate` / `::instantiate_switch`
+    // (`binding_lifecycle.rs`), which the three statement-list lowering entries
+    // take **by value** — so a statement list can no longer be lowered without
+    // BlockDeclarationInstantiation having run for it, and the
+    // `boa_ast::Declaration` match that used to end in `_ => {}` is exhaustive.
+    // The per-name creation half is `Self::create_lexical_binding`.
 
     fn lower_labelled(&mut self, labelled: &AstLabelled) -> (StatementIr, ValueKind) {
         if let Some(function) = labelled_function_declaration(labelled) {
@@ -13830,6 +14492,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: init.possible_kinds,
                 heap_shape: init.heap_shape.clone(),
                 function_targets: init.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         Some(ForLexicalInitIr {
@@ -14475,6 +15138,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: function_info.possible_kinds,
                     heap_shape: function_info.heap_shape,
                     function_targets: function_info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -14491,7 +15155,7 @@ impl<'a> ScriptLowerer<'a> {
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
                 }
-            } else if name != source_name || Self::is_tdz_binding_storage_name(name) {
+            } else if name != source_name || TdzPlaceholderName::names_a_placeholder(name) {
                 ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
@@ -14579,6 +15243,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -14593,6 +15258,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -14609,14 +15275,24 @@ impl<'a> ScriptLowerer<'a> {
             })
             .collect::<Vec<_>>();
         for name in &parameter_names {
-            lowerer.declare_binding(name.clone(), Self::tdz_binding_info(name, BindingMode::Let));
-            lowerer.mark_tdz_binding(name);
+            // 10.2.11 step 21: every BoundName of the formals is created
+            // before any default initializer evaluates, so `function f(a = b, b)`
+            // throws. Step 24/27 initializes them left to right, which is the
+            // `declare_binding` further down that overwrites this entry with an
+            // `Initialization::Initialized` one — the old `clear_tdz_binding`
+            // loop was a second, separately ordered spelling of that overwrite
+            // and is gone.
+            lowerer.declare_binding(
+                name.clone(),
+                BindingInfo::tdz_placeholder(
+                    BindingMode::Let,
+                    TdzPlaceholderName::for_source_name(name),
+                ),
+            );
         }
         for (index, parameter) in parameters.as_ref().iter().enumerate() {
             let binding = parameter.variable().binding();
             let name = binding_parameter_storage_name(self.interner, binding, index);
-            let mut bound_names = Vec::new();
-            collect_binding_names(self.interner, binding, &mut bound_names);
             let context_signature =
                 lowerer.exact_signature_for_function(&function.id, context_key_override.as_ref());
             let param_info = context_signature
@@ -14651,11 +15327,6 @@ impl<'a> ScriptLowerer<'a> {
             let default_init = parameter
                 .init()
                 .map(|expression| lowerer.lower_expression(expression));
-            if matches!(binding, Binding::Identifier(_)) {
-                for bound_name in &bound_names {
-                    lowerer.clear_tdz_binding(bound_name);
-                }
-            }
             // When an argument is omitted, the default initializer runs and its
             // value becomes the parameter's runtime value — it is never actually
             // `undefined`. Call-site observation alone (`merge_omitted_signature_
@@ -14681,6 +15352,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: param_info.possible_kinds,
                     heap_shape: param_info.heap_shape,
                     function_targets: param_info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
             lowerer.current_param_names.push(name.clone());
@@ -14701,9 +15373,18 @@ impl<'a> ScriptLowerer<'a> {
 
         lowerer.hoist_root_statement_items(function.body.statements());
 
+        // 10.2.11 step 30: a function body is a statement-list scope too, and
+        // its `let`/`const`/`class` names are uninitialized until their
+        // declarators run. `lexEnv` is the frame the parameter bindings above
+        // were declared into, so the sweep joins it rather than pushing one.
+        let body_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut lowerer,
+            function.body.statements(),
+        );
         let lowered_body = lowerer.lower_root_statement_items(
             function.body.statements(),
             function.root_functions.as_slice(),
+            body_scope,
         );
         if let Some(planned_suspensions) = lowerer
             .current_resumable_plan
@@ -15453,6 +16134,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: object_info.possible_kinds,
                 heap_shape: object_info.heap_shape.clone(),
                 function_targets: object_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         let mut statements = vec![StatementIr::Lexical {
@@ -15565,6 +16247,7 @@ impl<'a> ScriptLowerer<'a> {
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
                         function_targets: BTreeSet::new(),
+                        initialization: Initialization::Initialized,
                     },
                 );
                 let (condition_yield_statement, _) = self.lower_linear_generator_yield(
@@ -15692,6 +16375,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     statements.push(StatementIr::Lexical {
@@ -15772,34 +16456,70 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_declaration(&mut self, declaration: &Declaration) -> (StatementIr, ValueKind) {
+    fn lower_declaration(
+        &mut self,
+        declaration: &Declaration,
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         match declaration {
-            Declaration::Lexical(lexical) => self.lower_lexical_declaration(lexical),
+            Declaration::Lexical(lexical) => self.lower_lexical_declaration(lexical, scope),
             Declaration::FunctionDeclaration(function) => (
                 self.lower_function_declaration(function),
                 ValueKind::Undefined,
             ),
-            Declaration::GeneratorDeclaration(function)
-                if generator_function_is_aot_supported(function.body(), function.parameters()) =>
-            {
-                (
-                    self.lower_generator_declaration(function),
-                    ValueKind::Undefined,
-                )
+            // One arm, one walk, no unreachable default.
+            //
+            // This used to be a guarded arm calling
+            // `generator_function_is_aot_supported` plus a fall-through arm that
+            // ran `linear_generator_plan_with_reason` a *second* time from
+            // scratch — the whole body walked twice for every refused generator
+            // — and the fall-through then carried a `map_or` default that a
+            // comment described as unreachable. AGENTS.md is explicit that an
+            // unreachable-by-comment path is weaker than one that cannot be
+            // written, and matching on the `Result` directly is that: the plan
+            // is either there or the reason is, and there is no third case to
+            // supply a default for.
+            //
+            // The acceptance decision is unchanged. `generator_function_is_aot_supported`
+            // is exactly `linear_generator_plan(body).is_some()`, i.e. this same
+            // call `.ok().is_some()`, and it ignores its `parameters` argument.
+            //
+            // The old message, `"function or class declaration"`, was wrong
+            // twice: the declaration is a generator, and the refusal is about
+            // the yield shape rather than the declaration kind. It also
+            // collapsed every refused generator into one `detail_hash` shared
+            // with unrelated declarations, which is the worst outcome for a
+            // sweep whose value is grouping failures into families.
+            //
+            // Two measured victims, both `NotImplemented` with detail
+            // `unsupported in porffor wasm-aot first slice: function or class
+            // declaration`:
+            // `annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js`
+            // and `annexB/built-ins/RegExp/RegExp-invalid-control-escape-character-class.js`.
+            // Each declares `function* invalidControls()` whose third loop
+            // yields from inside an `if`, so both now report
+            // `GeneratorPlanRejection::LoopBodyYieldNotDirect`.
+            Declaration::GeneratorDeclaration(function) => {
+                match linear_generator_plan_with_reason(function.body()) {
+                    Ok(_) => (
+                        self.lower_generator_declaration(function),
+                        ValueKind::Undefined,
+                    ),
+                    Err(reason) => {
+                        self.unsupported(reason.message());
+                        (StatementIr::Empty, ValueKind::Undefined)
+                    }
+                }
             }
             Declaration::AsyncFunctionDeclaration(function) => (
                 self.lower_async_function_declaration(function),
                 ValueKind::Undefined,
             ),
-            Declaration::GeneratorDeclaration(_) => {
-                self.unsupported("function or class declaration");
-                (StatementIr::Empty, ValueKind::Undefined)
-            }
             Declaration::AsyncGeneratorDeclaration(function) => (
                 self.lower_async_generator_declaration(function),
                 ValueKind::Undefined,
             ),
-            Declaration::ClassDeclaration(class) => self.lower_class_declaration(class),
+            Declaration::ClassDeclaration(class) => self.lower_class_declaration(class, scope),
         }
     }
 
@@ -15826,6 +16546,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -15856,6 +16577,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -15889,6 +16611,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -15922,6 +16645,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: function_info.possible_kinds,
                 heap_shape: function_info.heap_shape.clone(),
                 function_targets: function_info.function_targets.clone(),
+                initialization: Initialization::Initialized,
             },
         );
         StatementIr::Lexical {
@@ -15979,12 +16703,13 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_lexical_declaration(
         &mut self,
         declaration: &LexicalDeclaration,
+        scope: &mut LexicalScopeInstantiation,
     ) -> (StatementIr, ValueKind) {
         let (mode, list) = match declaration {
             LexicalDeclaration::Let(list) => (BindingMode::Let, list),
             LexicalDeclaration::Const(list) => (BindingMode::Const, list),
             LexicalDeclaration::Using(list) | LexicalDeclaration::AwaitUsing(list) => {
-                return self.lower_using_declaration(list.as_ref());
+                return self.lower_using_declaration(list.as_ref(), scope);
             }
         };
 
@@ -15993,6 +16718,11 @@ impl<'a> ScriptLowerer<'a> {
             match variable.binding() {
                 Binding::Identifier(identifier) => {
                     let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    // 14.3.1.2 step 5 InitializeReferencedBinding: claim the
+                    // obligation BlockDeclarationInstantiation left for this
+                    // name. Every arm below either discharges it or drops it
+                    // (`unsupported`), and none can discharge it twice.
+                    let pending = scope.take(&name);
                     if self.current_async_resume_state.is_some()
                         && matches!(variable.init(), Some(Expression::Await(_)))
                     {
@@ -16025,7 +16755,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16122,7 +16853,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16144,7 +16876,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16192,7 +16925,8 @@ impl<'a> ScriptLowerer<'a> {
                             mode,
                             name,
                             identifier.span(),
-                            init,
+                            LoweredInitializer::evaluated(init),
+                            pending,
                             None,
                         ));
                         continue;
@@ -16244,24 +16978,27 @@ impl<'a> ScriptLowerer<'a> {
                         self.static_to_string_regexp_object_bindings.remove(&name);
                     }
 
-                    let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
-                    self.clear_tdz_binding(&name);
-                    self.declare_binding(
-                        name.clone(),
-                        BindingInfo {
-                            mode,
-                            storage_name: storage_name.clone(),
-                            kind: init.kind,
-                            possible_kinds: init.possible_kinds,
-                            heap_shape: init.heap_shape.clone(),
-                            function_targets: init.function_targets.clone(),
-                        },
-                    );
-                    statements.push(StatementIr::Lexical {
-                        mode,
-                        name: storage_name,
-                        init,
-                    });
+                    // 14.3.1.2 steps 4-5. The initializer above is already
+                    // lowered, which is what makes `LoweredInitializer` cheap
+                    // here and what makes the reverse order unwritable.
+                    let init = LoweredInitializer::evaluated(init);
+                    let initialized = match pending {
+                        Some(pending) => pending.initialize(init),
+                        None => {
+                            // Not a name this statement list created: a for-head
+                            // binding, or a declarator form the sweep could not
+                            // resolve. Allocate as before.
+                            let storage_name =
+                                self.direct_lexical_storage_name(&name, identifier.span());
+                            InitializedBinding::without_creation(
+                                name.clone(),
+                                mode,
+                                storage_name,
+                                init.into_expr(),
+                            )
+                        }
+                    };
+                    statements.push(initialized.declare(self));
                 }
                 Binding::Pattern(pattern) => {
                     let Some(init) = variable.init() else {
@@ -16291,7 +17028,11 @@ impl<'a> ScriptLowerer<'a> {
     /// `AddDisposableResource` (27.3.1.1) against the enclosing scope's
     /// DisposeCapability. The matching `DisposeResources` call is emitted by
     /// [`Self::finish_using_frame`] once the whole statement list is lowered.
-    fn lower_using_declaration(&mut self, list: &[Variable]) -> (StatementIr, ValueKind) {
+    fn lower_using_declaration(
+        &mut self,
+        list: &[Variable],
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         let mut statements = Vec::with_capacity(list.len() * 3);
         for variable in list {
             let Binding::Identifier(identifier) = variable.binding() else {
@@ -16303,6 +17044,7 @@ impl<'a> ScriptLowerer<'a> {
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let pending = scope.take(&name);
             let init = variable
                 .init()
                 .map(|expression| self.lower_expression(expression))
@@ -16310,24 +17052,20 @@ impl<'a> ScriptLowerer<'a> {
             self.static_iterator_binding_values.remove(&name);
             self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
-            let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
-            self.clear_tdz_binding(&name);
-            self.declare_binding(
-                name.clone(),
-                BindingInfo {
-                    mode: BindingMode::Const,
-                    storage_name: storage_name.clone(),
-                    kind: init.kind,
-                    possible_kinds: init.possible_kinds,
-                    heap_shape: init.heap_shape.clone(),
-                    function_targets: init.function_targets.clone(),
-                },
-            );
-            statements.push(StatementIr::Lexical {
-                mode: BindingMode::Const,
-                name: storage_name,
-                init,
-            });
+            let init = LoweredInitializer::evaluated(init);
+            let initialized = match pending {
+                Some(pending) => pending.initialize(init),
+                None => {
+                    let storage_name = self.direct_lexical_storage_name(&name, identifier.span());
+                    InitializedBinding::without_creation(
+                        name.clone(),
+                        BindingMode::Const,
+                        storage_name,
+                        init.into_expr(),
+                    )
+                }
+            };
+            statements.push(initialized.declare(self));
             statements.extend(self.add_disposable_resource_statements(&name, &slot));
         }
 
@@ -16404,7 +17142,7 @@ impl<'a> ScriptLowerer<'a> {
                 then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
                     ValueInfo::undefined(),
                     ExprIr::RuntimeThrow {
-                        name: TYPE_ERROR_NAME,
+                        name: NativeErrorKind::TypeError,
                         message: "using declaration resource is not an object",
                     },
                 ))),
@@ -16470,7 +17208,7 @@ impl<'a> ScriptLowerer<'a> {
             then_branch: Box::new(StatementIr::Expression(TypedExpr::from_info(
                 ValueInfo::undefined(),
                 ExprIr::RuntimeThrow {
-                    name: TYPE_ERROR_NAME,
+                    name: NativeErrorKind::TypeError,
                     message: missing_message,
                 },
             ))),
@@ -16732,11 +17470,28 @@ impl<'a> ScriptLowerer<'a> {
             .is_some_and(|plan| plan.strict)
     }
 
-    fn is_current_owner_strict(&self) -> bool {
-        self.analysis
-            .owner_plans
-            .get(&self.current_owner_id)
-            .is_some_and(|owner| owner.strict)
+    /// `[[Strict]]` for a Reference created by the code currently being
+    /// lowered (13.1.3 ResolveBinding's `strict` argument; 13.3.2.1 / 13.3.3.1
+    /// member-expression evaluation).
+    ///
+    /// This is the sole producer of [`Strictness`] in the lowerer, and every
+    /// Reference-shaped IR node gets its field from here. The value is a
+    /// property of the Reference at creation time, so it must be taken *when
+    /// the Reference is built* and carried; recovering it later by asking what
+    /// the currently-emitting code's mode is computes a different quantity
+    /// that only coincides while creation and consumption sit in the same
+    /// function body.
+    ///
+    /// An owner with no plan is `Strict`, never `Sloppy`. A spurious throw
+    /// fails loudly in the first test that reaches it; a suppressed throw is
+    /// invisible, which is how strict mode went unenforced for unresolvable
+    /// references without any test noticing.
+    fn reference_strictness(&self) -> Strictness {
+        match self.analysis.owner_plans.get(&self.current_owner_id) {
+            Some(owner) if owner.strict => Strictness::Strict,
+            Some(_) => Strictness::Sloppy,
+            None => Strictness::Strict,
+        }
     }
 
     fn default_this_info_for_function_target(&self, function_id: &FunctionId) -> ValueInfo {
@@ -16892,23 +17647,17 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        if let Some(binding) = self.lookup_binding(&name) {
-            if Self::is_tdz_binding_storage_name(&binding.storage_name)
-                || self.is_tdz_binding(&name)
-            {
-                return TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::RuntimeThrow {
-                        name: REFERENCE_ERROR_NAME,
-                        message: "lexical binding accessed before initialization",
-                    },
-                );
-            }
+        // GetBindingValue (9.1.1.1.6). The state test used to be a disjunction
+        // of a storage-name prefix and a parallel string set; it is now the one
+        // field on the resolved record, and the `Uninitialized` arm has to be
+        // written. 13.5.3 step 3 exempts only an *unresolvable* Reference, so
+        // this covers `typeof x` too.
+        let binding = match self.resolve_binding_reference(&name) {
+            BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+            BindingResolution::Initialized(binding) => Some(binding),
+            BindingResolution::Unresolvable => None,
+        };
+        if let Some(binding) = binding {
             let mut info = ValueInfo {
                 kind: binding.kind,
                 possible_kinds: binding.possible_kinds,
@@ -17030,7 +17779,7 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: BTreeSet::new(),
                 },
                 ExprIr::RuntimeThrow {
-                    name: REFERENCE_ERROR_NAME,
+                    name: NativeErrorKind::ReferenceError,
                     message: "unbound identifier in with scope",
                 },
             );
@@ -17091,7 +17840,7 @@ impl<'a> ScriptLowerer<'a> {
                 target: Box::new(object),
                 key: PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Symbol),
-                    ExprIr::String("Symbol.unscopables".into()),
+                    ExprIr::String(WellKnownSymbol::Unscopables.description().to_string()),
                 ))),
             },
         );
@@ -17615,6 +18364,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
+                initialization: Initialization::Initialized,
             },
         );
 
@@ -17642,6 +18392,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds,
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
             lowerer.current_param_names.push(name.clone());
@@ -18242,13 +18993,28 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_class_declaration(&mut self, class: &ClassDeclaration) -> (StatementIr, ValueKind) {
+    fn lower_class_declaration(
+        &mut self,
+        class: &ClassDeclaration,
+        scope: &mut LexicalScopeInstantiation,
+    ) -> (StatementIr, ValueKind) {
         let name = self.interner.resolve_expect(class.name().sym()).to_string();
+        let pending = scope.take(&name);
+        // Allocated here, before ClassDefinitionEvaluation, exactly as before:
+        // `direct_lexical_storage_name` can consume a `$lexN` temporary index,
+        // and moving that consumption past `lower_class_common` would renumber
+        // every generated name inside the class body. When `pending` is `Some`
+        // the reuse rule returns the created name without allocating anything.
         let storage_name = self.direct_lexical_storage_name(&name, class.name().span());
         let constructor_execution_key = class
             .constructor()
             .map(class_constructor_key)
             .unwrap_or_else(|| class_default_constructor_key(class.linear_span()));
+        // 15.7.16 step 1: ClassDefinitionEvaluation runs *before*
+        // InitializeBoundName, so the class body evaluates while the class name
+        // is still uninitialized in the enclosing scope. That is why the
+        // `LoweredInitializer` is minted from the already-computed result rather
+        // than the binding being initialized first.
         let init = self.lower_class_common(
             Some(name.clone()),
             class_declaration_source_slice(class, self.source_text),
@@ -18257,26 +19023,21 @@ impl<'a> ScriptLowerer<'a> {
             class.constructor(),
             class.elements(),
         );
-        self.clear_tdz_binding(&name);
-        self.declare_binding(
-            name.clone(),
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: storage_name.clone(),
-                kind: init.kind,
-                possible_kinds: init.possible_kinds,
-                heap_shape: init.heap_shape.clone(),
-                function_targets: init.function_targets.clone(),
-            },
-        );
-        (
-            StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: storage_name,
-                init,
-            },
-            ValueKind::Undefined,
-        )
+        // 15.7.16 step 2: InitializeBoundName(className, value, env). In the
+        // `Some` arm the outer `storage_name` computed above is deliberately
+        // *not* referenced: the token carries the name the creation allocated,
+        // and there is no `String` here to substitute for it.
+        let init = LoweredInitializer::evaluated(init);
+        let initialized = match pending {
+            Some(pending) => pending.initialize(init),
+            None => InitializedBinding::without_creation(
+                name.clone(),
+                BindingMode::Let,
+                storage_name,
+                init.into_expr(),
+            ),
+        };
+        (initialized.declare(self), ValueKind::Undefined)
     }
 
     fn lower_class_expression(&mut self, class: &ClassExpression) -> TypedExpr {
@@ -18365,6 +19126,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -19655,6 +20417,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -19673,6 +20436,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: function_info.possible_kinds,
                     heap_shape: function_info.heap_shape,
                     function_targets: function_info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -19686,6 +20450,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
+                initialization: Initialization::Initialized,
             },
         );
 
@@ -19701,8 +20466,20 @@ impl<'a> ScriptLowerer<'a> {
             })
             .collect::<Vec<_>>();
         for name in &parameter_names {
-            lowerer.declare_binding(name.clone(), Self::tdz_binding_info(name, BindingMode::Let));
-            lowerer.mark_tdz_binding(name);
+            // 10.2.11 step 21: every BoundName of the formals is created
+            // before any default initializer evaluates, so `function f(a = b, b)`
+            // throws. Step 24/27 initializes them left to right, which is the
+            // `declare_binding` further down that overwrites this entry with an
+            // `Initialization::Initialized` one — the old `clear_tdz_binding`
+            // loop was a second, separately ordered spelling of that overwrite
+            // and is gone.
+            lowerer.declare_binding(
+                name.clone(),
+                BindingInfo::tdz_placeholder(
+                    BindingMode::Let,
+                    TdzPlaceholderName::for_source_name(name),
+                ),
+            );
         }
         for (index, parameter) in parameters.as_ref().iter().enumerate() {
             let binding = parameter.variable().binding();
@@ -19713,16 +20490,9 @@ impl<'a> ScriptLowerer<'a> {
                 continue;
             }
             let name = binding_parameter_storage_name(self.interner, binding, index);
-            let mut bound_names = Vec::new();
-            collect_binding_names(self.interner, binding, &mut bound_names);
             let default_init = parameter
                 .init()
                 .map(|expression| lowerer.lower_expression(expression));
-            if matches!(binding, Binding::Identifier(_)) {
-                for bound_name in &bound_names {
-                    lowerer.clear_tdz_binding(bound_name);
-                }
-            }
             lowerer.declare_binding(
                 name.clone(),
                 BindingInfo {
@@ -19740,6 +20510,7 @@ impl<'a> ScriptLowerer<'a> {
                     },
                     heap_shape: None,
                     function_targets: BTreeSet::new(),
+                    initialization: Initialization::Initialized,
                 },
             );
             lowerer.current_param_names.push(name.clone());
@@ -19775,9 +20546,15 @@ impl<'a> ScriptLowerer<'a> {
             })
             .unwrap_or_default();
         lowerer.hoist_root_statement_items(body.statements());
+        // 10.2.11 step 30, as above: `lexEnv` already exists.
+        let body_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
+            &mut lowerer,
+            body.statements(),
+        );
         let lowered_body = lowerer.lower_root_statement_items_with_function_bindings(
             body.statements(),
             &root_function_bindings,
+            body_scope,
         );
         let mut statements = prefix_statements;
         statements.extend(parameter_prefix_statements);
@@ -20041,6 +20818,7 @@ impl<'a> ScriptLowerer<'a> {
                     possible_kinds: info.possible_kinds,
                     heap_shape: info.heap_shape,
                     function_targets: info.function_targets,
+                    initialization: Initialization::Initialized,
                 },
             );
         }
@@ -20053,6 +20831,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
                 function_targets: BTreeSet::new(),
+                initialization: Initialization::Initialized,
             },
         );
         let return_value = lowerer.lower_expression(expression);
@@ -20460,7 +21239,7 @@ impl<'a> ScriptLowerer<'a> {
                         return TypedExpr::from_info(
                             ValueInfo::undefined(),
                             ExprIr::RuntimeThrow {
-                                name: RANGE_ERROR_NAME,
+                                name: NativeErrorKind::RangeError,
                                 message: "Number.prototype.toString radix out of range",
                             },
                         );
@@ -20475,34 +21254,33 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                 }
+                // 21.1.3.2. The receiver-finiteness guard and the hand-rolled
+                // `RuntimeThrow` that used to sit here are gone: the ordering
+                // is now `NonFiniteReceiverOrder::ReceiverFirst` inside the
+                // helper, and "the spec requires a RangeError" is a variant
+                // rather than the same `None` that means "I could not fold
+                // this". The match has **no `_` arm** on purpose — a catch-all
+                // would silently absorb a fourth outcome, which is the mistake
+                // class this closes.
                 if field_name == "toExponential" {
-                    if self
-                        .static_number_to_string_receiver_value(access.target())
-                        .is_some_and(|value| value.is_finite())
-                        && self.static_number_fraction_digits_is_invalid(args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                    let fold = self.static_number_to_exponential_call(access.target(), args);
+                    match fold {
+                        NumberFormatFold::Formatted(value) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::String),
+                                ExprIr::String(value),
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::undefined(),
-                            ExprIr::RuntimeThrow {
-                                name: RANGE_ERROR_NAME,
-                                message:
-                                    "Number.prototype.toExponential fraction digits out of range",
-                            },
-                        );
-                    }
-                    if let Some(value) =
-                        self.static_number_to_exponential_call(access.target(), args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                        NumberFormatFold::RangeError(message) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return Self::static_number_format_range_error(message);
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
+                        NumberFormatFold::NotStatic => {}
                     }
                 }
                 if field_name == "valueOf" {
@@ -20521,43 +21299,57 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                 }
+                // 21.1.3.5. This is the site that never had a range check at
+                // all: its `RangeError` arm is new, and the message string with
+                // it. It could not have been fixed by calling the old shared
+                // `[0, 100]` predicate — step 5 here is `p < 1 or p > 100`.
                 if field_name == "toPrecision" {
-                    if let Some(value) = self.static_number_to_precision_call(access.target(), args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                    let fold = self.static_number_to_precision_call(access.target(), args);
+                    match fold {
+                        NumberFormatFold::Formatted(value) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::String),
+                                ExprIr::String(value),
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
+                        NumberFormatFold::RangeError(message) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return Self::static_number_format_range_error(message);
+                        }
+                        NumberFormatFold::NotStatic => {}
                     }
                 }
+                // 21.1.3.3. Steps 4-5 precede step 6, so the range check wins
+                // over the non-finite receiver here and `Infinity.toFixed(101)`
+                // is a RangeError. The old guard's `.is_some()` (versus
+                // `toExponential`'s `.is_some_and(is_finite)` sixty lines up)
+                // was exactly this ordering, spelled as a coincidence of two
+                // adjacent predicates; it is now
+                // `NonFiniteReceiverOrder::RangeCheckFirst`.
                 if field_name == "toFixed" {
-                    if self
-                        .static_number_to_string_receiver_value(access.target())
-                        .is_some()
-                        && self.static_number_fraction_digits_is_invalid(args)
-                    {
-                        for arg in args {
-                            self.lower_expression(arg);
+                    let fold = self.static_number_to_fixed_call(access.target(), args);
+                    match fold {
+                        NumberFormatFold::Formatted(value) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::String),
+                                ExprIr::String(value),
+                            );
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::undefined(),
-                            ExprIr::RuntimeThrow {
-                                name: RANGE_ERROR_NAME,
-                                message: "Number.prototype.toFixed fraction digits out of range",
-                            },
-                        );
-                    }
-                    if let Some(value) = self.static_number_to_fixed_call(access.target(), args) {
-                        for arg in args {
-                            self.lower_expression(arg);
+                        NumberFormatFold::RangeError(message) => {
+                            for arg in args {
+                                self.lower_expression(arg);
+                            }
+                            return Self::static_number_format_range_error(message);
                         }
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::String),
-                            ExprIr::String(value),
-                        );
+                        NumberFormatFold::NotStatic => {}
                     }
                 }
             }
@@ -20661,18 +21453,9 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         if field_name == "propertyIsEnumerable"
                             && args.len() == 1
-                            && matches!(
-                                target_name.as_str(),
-                                ERROR_NAME
-                                    | EVAL_ERROR_NAME
-                                    | AGGREGATE_ERROR_NAME
-                                    | SUPPRESSED_ERROR_NAME
-                                    | RANGE_ERROR_NAME
-                                    | REFERENCE_ERROR_NAME
-                                    | SYNTAX_ERROR_NAME
-                                    | TYPE_ERROR_NAME
-                                    | URI_ERROR_NAME
-                            )
+                            && self
+                                .identifier_is_builtin_native_error(target_name.as_str())
+                                .is_some()
                             && self
                                 .try_static_string_key(&args[0])
                                 .is_some_and(|property| property == "prototype")
@@ -20921,29 +21704,52 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     }
                     if let PropertyAccessField::Expr(expr) = access.field() {
-                        if let Some((symbol_name, symbol_key)) =
+                        if let Some((symbol, symbol_key)) =
                             self.lower_well_known_symbol_property_key(expr)
                         {
-                            let builtin = match symbol_name.as_str() {
-                                "Symbol.iterator" if receiver.kind == ValueKind::String => {
+                            // Contract ledger entry R3, corrected. The domain
+                            // here is `WellKnownSymbol x receiver`, and the R3
+                            // note used to claim both axes were honoured — true
+                            // only of the two `Iterator` arms. The other five
+                            // fired on the symbol alone, so
+                            // `({ [Symbol.match](s) { return 42; } })[Symbol.match]("x")`
+                            // was typed as `RegExp.prototype[@@match]`'s
+                            // `Array | Null` rather than as `Number`. The
+                            // emitted IR is a generic `ExprIr::CallMethod`
+                            // either way, so the damage was confined to the
+                            // inferred `ValueInfo` and to anything keyed on it —
+                            // but that is exactly invariant S5's subject.
+                            //
+                            // Most cells legitimately have no static fast path,
+                            // so this match keeps a catch-all rather than nine
+                            // information-free `=> None` arms. The symbols that
+                            // deliberately fall through are `asyncIterator`,
+                            // `dispose`, `asyncDispose`, `hasInstance`,
+                            // `isConcatSpreadable`, `species`, `toPrimitive`,
+                            // `toStringTag` and `unscopables`; what the enum
+                            // buys is that the arms above name real variants.
+                            let regexp_receiver =
+                                Self::receiver_shape_allows_regexp_symbol_protocol(&receiver);
+                            let builtin = match symbol {
+                                WellKnownSymbol::Iterator if receiver.kind == ValueKind::String => {
                                     Some(StandardBuiltinId::StringPrototypeIterator)
                                 }
-                                "Symbol.iterator" if receiver.kind == ValueKind::Array => {
+                                WellKnownSymbol::Iterator if receiver.kind == ValueKind::Array => {
                                     Some(StandardBuiltinId::ArrayPrototypeValues)
                                 }
-                                "Symbol.match" => {
+                                WellKnownSymbol::Match if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatch)
                                 }
-                                "Symbol.matchAll" => {
+                                WellKnownSymbol::MatchAll if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolMatchAll)
                                 }
-                                "Symbol.replace" => {
+                                WellKnownSymbol::Replace if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolReplace)
                                 }
-                                "Symbol.search" => {
+                                WellKnownSymbol::Search if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSearch)
                                 }
-                                "Symbol.split" => {
+                                WellKnownSymbol::Split if regexp_receiver => {
                                     Some(StandardBuiltinId::RegExpPrototypeSymbolSplit)
                                 }
                                 _ => None,
@@ -21155,7 +21961,7 @@ impl<'a> ScriptLowerer<'a> {
                                         return TypedExpr::from_info(
                                             ValueInfo::undefined(),
                                             ExprIr::RuntimeThrow {
-                                                name: TYPE_ERROR_NAME,
+                                                name: NativeErrorKind::TypeError,
                                                 message: "Cannot convert object to primitive value",
                                             },
                                         );
@@ -21338,10 +22144,10 @@ impl<'a> ScriptLowerer<'a> {
                                     self.lower_object_property_key(receiver.clone(), access.field())
                                 }
                             } else if let PropertyAccessField::Expr(expr) = access.field() {
-                                if let Some((symbol_name, symbol_key)) =
+                                if let Some((symbol, symbol_key)) =
                                     self.lower_well_known_symbol_property_key(expr)
                                 {
-                                    if symbol_name == "Symbol.toPrimitive" {
+                                    if symbol == WellKnownSymbol::ToPrimitive {
                                         TypedExpr::from_info(
                                             Self::standard_builtin_value_info(
                                                 StandardBuiltinId::SymbolPrototypeToPrimitive,
@@ -23429,14 +24235,30 @@ impl<'a> ScriptLowerer<'a> {
             }, ..] => RegExpProgram::compile(pattern, flags),
             _ => return None,
         };
+        // Requested by lane RE-RT (batch 7, `re-rt-b7-integration.md` §5) and
+        // applied in the form that lane preferred: match `error.kind` once,
+        // exhaustively, with no guard and no `unreachable!`.
+        //
+        // Behaviour is unchanged, deliberately. `UnsupportedFeature` means
+        // *legal pattern, this compiler cannot build a program for it yet*, so
+        // it must keep falling through to the runtime path where the fallback
+        // matcher gets a turn; promoting it to a static SyntaxError would invent
+        // a spec violation for every legal-but-unimplemented pattern. What the
+        // catch-all cost was hygiene: a third `RegExpCompileErrorKind` variant
+        // would have been silently treated as "unsupported" here and at the
+        // sibling site below, and nothing would have failed to build.
+        // `porffor-aot-wasm`'s runtime RegExp table draws the same line
+        // (`RuntimeRegExpEntry::{Rejected,Unsupported}`); the two must not drift.
         match compilation {
             Ok(program) => Some(StaticRegExpCompilation::Program(program)),
-            Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax => {
-                Some(StaticRegExpCompilation::InvalidSyntax {
-                    message: format!("invalid regular-expression pattern: {error}"),
-                })
-            }
-            Err(_) => None,
+            Err(error) => match error.kind {
+                RegExpCompileErrorKind::InvalidSyntax => {
+                    Some(StaticRegExpCompilation::InvalidSyntax {
+                        message: format!("invalid regular-expression pattern: {error}"),
+                    })
+                }
+                RegExpCompileErrorKind::UnsupportedFeature => None,
+            },
         }
     }
 
@@ -23877,7 +24699,7 @@ impl<'a> ScriptLowerer<'a> {
                     Some(TypedExpr::from_info(
                         ValueInfo::undefined(),
                         ExprIr::RuntimeThrow {
-                            name: TYPE_ERROR_NAME,
+                            name: NativeErrorKind::TypeError,
                             message: "yield star return result must be object",
                         },
                     ))
@@ -23896,7 +24718,7 @@ impl<'a> ScriptLowerer<'a> {
                     Some(TypedExpr::from_info(
                         ValueInfo::undefined(),
                         ExprIr::RuntimeThrow {
-                            name: TYPE_ERROR_NAME,
+                            name: NativeErrorKind::TypeError,
                             message: "yield star throw result must be object",
                         },
                     ))
@@ -24246,6 +25068,18 @@ impl<'a> ScriptLowerer<'a> {
             if elements.len() >= MAX_STATIC_ARRAY_SHAPE_INDEX {
                 return None;
             }
+            // The static generator enumerates a finite arithmetic progression.
+            // A non-finite induction variable means the progression is not one,
+            // so decline the fold here rather than folding `ToUint16(±∞) = 0`
+            // into a `"\0"` element. Hoisted out of
+            // `static_string_from_char_code_value` so that helper can state
+            // 7.1.9's totality; it must stay *inside* the loop and before the
+            // call, since without it a `for (let i = Infinity; i > 0; i--)`
+            // generator would iterate to `MAX_STATIC_ARRAY_SHAPE_INDEX` before
+            // declining, turning an immediate decline into a compile-time stall.
+            if !current.is_finite() {
+                return None;
+            }
             let value = Self::static_string_from_char_code_value(current)?;
             let include = match &body {
                 StaticStringGeneratorLoopBody::FromCharCode => true,
@@ -24426,12 +25260,21 @@ impl<'a> ScriptLowerer<'a> {
         Regex::with_flags(&pattern, flags.as_str()).ok()
     }
 
+    /// 22.1.2.1 `String.fromCharCode ( ...codeUnits )` step 2.a: the code unit
+    /// whose numeric value is `ℝ(? ToUint16(next))`.
+    ///
+    /// The remaining `None` has exactly **one** cause: a lone surrogate, which
+    /// `String::from_utf16` refuses and Rust's `String` cannot hold.
+    /// `String.fromCharCode(0xD800)` is a perfectly valid JS string, so that
+    /// decline is a limitation of this *fold's output type*, not of ToUint16 —
+    /// which is total. Five CLI fixtures depend on it; do not remove it.
+    ///
+    /// The old `!value.is_finite()` early return moved to the caller, because
+    /// it belongs to the static generator's domain (an arithmetic progression
+    /// with a non-finite induction variable is not one) rather than to 7.1.9,
+    /// whose step 2 sends `±∞` to `+0𝔽`.
     fn static_string_from_char_code_value(value: f64) -> Option<String> {
-        if !value.is_finite() {
-            return None;
-        }
-        let unit = value.trunc().rem_euclid(65536.0) as u16;
-        String::from_utf16(&[unit]).ok()
+        String::from_utf16(&[Uint16::of_number(value).code_unit()]).ok()
     }
 
     fn static_string_typed_expr(value: String) -> TypedExpr {
@@ -24576,14 +25419,21 @@ impl<'a> ScriptLowerer<'a> {
                     }, ..] => Some(RegExpProgram::compile(pattern, flags)),
                     _ => None,
                 };
+                // See the note at the sibling site in
+                // `static_regexp_compilation_for_direct_call`: exhaustive on
+                // `RegExpCompileErrorKind` so a third variant is a compile
+                // error, not a silent "unsupported". Behaviour unchanged.
                 match compilation {
                     Some(Ok(program)) => Some(StaticRegExpCompilation::Program(program)),
-                    Some(Err(error)) if error.kind == RegExpCompileErrorKind::InvalidSyntax => {
-                        Some(StaticRegExpCompilation::InvalidSyntax {
-                            message: format!("invalid regular-expression pattern: {error}"),
-                        })
-                    }
-                    Some(Err(_)) | None => None,
+                    Some(Err(error)) => match error.kind {
+                        RegExpCompileErrorKind::InvalidSyntax => {
+                            Some(StaticRegExpCompilation::InvalidSyntax {
+                                message: format!("invalid regular-expression pattern: {error}"),
+                            })
+                        }
+                        RegExpCompileErrorKind::UnsupportedFeature => None,
+                    },
+                    None => None,
                 }
             } else {
                 None
@@ -25308,6 +26158,34 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). Every arm is
+            // `Some`: `None` here is not "no static information", it is a
+            // refusal — the three consumers read it as "this call does not
+            // happen" and return `TypedExpr::undefined()` with the argument
+            // vector replaced by `Vec::new()` (see the `let Some(...) else`
+            // bindings at the `construct` and `call` sites). A `None` arm for a
+            // builtin that must actually run silently drops the call.
+            //
+            // The kinds match `standard_builtin_signature` above; the
+            // `IntlDateTimeFormatConstructor` arm is again the precedent for a
+            // constructor with no instance shape.
+            StandardBuiltinId::AsyncDisposableStackConstructor
+            | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
+                Some(ValueInfo::new(ValueKind::Object))
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => {
+                Some(ValueInfo::new(ValueKind::Dynamic))
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
+                Some(ValueInfo::undefined())
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::SetConstructor => Some(Self::value_info_from_shape(Some(
                 Self::set_instance_shape(),
             ))),
@@ -25542,8 +26420,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 if let Some(key_arg) = args.get(1) {
                     if let ExprIr::String(key) = &key_arg.expr {
-                        let is_species_symbol =
-                            key_arg.kind == ValueKind::Symbol && key == "Symbol.species";
+                        let is_species_symbol = key_arg.kind == ValueKind::Symbol
+                            && WellKnownSymbol::from_description(SymbolDescription::new(key))
+                                == Some(WellKnownSymbol::Species);
                         let species_getter = if is_species_symbol
                             && target
                                 .function_targets
@@ -26906,9 +27785,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantConstructor => Some(Self::value_info_from_shape(
                 Some(Self::temporal_instant_instance_shape()),
             )),
-            StandardBuiltinId::TemporalInstantFrom => Some(Self::value_info_from_shape(Some(
-                Self::temporal_instant_instance_shape(),
-            ))),
+            StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => Some(
+                Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalInstantCompare => Some(ValueInfo::new(ValueKind::Number)),
             StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
@@ -26918,8 +27800,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeEquals => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            StandardBuiltinId::TemporalInstantPrototypeToString => {
+            StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalInstantPrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
             }
             StandardBuiltinId::IntlGetCanonicalLocales => Some(ValueInfo::new(ValueKind::Array)),
             StandardBuiltinId::IntlLocaleConstructor => Some(Self::value_info_from_shape(Some(
@@ -26983,11 +27869,36 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
+            // Same declaration as the PlainDate / PlainDateTime / PlainYearMonth
+            // era pair; see the sibling comment on the kind table above.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => {
+                Some(ValueInfo::new(ValueKind::Undefined))
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::Number)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            }),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => Some(
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => Some(
+            // Same grouping as the kind table above; the two tables must not be
+            // able to disagree about which ZonedDateTime data methods return a
+            // `Temporal.Duration` and which return a ZonedDateTime.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => Some(
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => Some(
+                Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
             ),
             StandardBuiltinId::RegExpConstructor => Some(Self::value_info_from_shape(Some(
                 Self::regexp_prototype_shape(),
@@ -27399,7 +28310,7 @@ impl<'a> ScriptLowerer<'a> {
         };
         let Some(species_info) = self.read_object_shape(
             &TypedExpr::from_info(constructor_info, ExprIr::Undefined),
-            "Symbol.species",
+            WellKnownSymbol::Species.description(),
         ) else {
             return;
         };
@@ -27460,7 +28371,7 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(constructor_info) = self.read_object_shape(receiver, "constructor") {
             if let Some(species_info) = self.read_object_shape(
                 &TypedExpr::from_info(constructor_info, ExprIr::Undefined),
-                "Symbol.species",
+                WellKnownSymbol::Species.description(),
             ) {
                 if !species_info.possible_kinds.is_subset_of(
                     KindSet::from_kind(ValueKind::Undefined)
@@ -27598,7 +28509,34 @@ impl<'a> ScriptLowerer<'a> {
                         ));
                     }
                     let spread_value = self.lower_expression(spread.target());
-                    if spread_value.possible_kinds.contains(ValueKind::Array) {
+                    // 13.2.4.1 ArrayAccumulation for a SpreadElement is
+                    // `GetIterator(spreadObj)` and a real iteration. Desugaring
+                    // it to `Array.prototype.concat` is observationally equal
+                    // only when the operand really *is* an Array, because
+                    // 23.1.3.1 consults IsConcatSpreadable and **appends** a
+                    // non-spreadable operand instead of iterating it.
+                    //
+                    // The predicate is therefore `is_subset_of({Array})` — the
+                    // same one the for-of array walk uses — and not
+                    // `contains(Array)`. `contains` was satisfied by the
+                    // `KindSet::all_runtime_tags()` an un-inferred parameter
+                    // carries, so `function f(x) { return [...x]; }` desugared
+                    // to `[].concat(x)` and, for any non-array iterable `x`,
+                    // produced `[x]` under a completely pristine realm. That is
+                    // not an unproven intactness premise; it is a wrong answer
+                    // for ordinary programs.
+                    //
+                    // Everything that fails this test falls through to the
+                    // `Array.from` desugaring below, which does run the
+                    // iterator protocol (23.1.2.1 steps 4-5). See ledger
+                    // **IC-5** in the IteratorClose contract: the residual gap
+                    // is that a statically-known Array still skips
+                    // `%Array.prototype%[@@iterator]`, which is what
+                    // `ArraySpreadStrategy` is designed to name.
+                    if spread_value
+                        .possible_kinds
+                        .is_subset_of(KindSet::from_kind(ValueKind::Array))
+                    {
                         args.push(spread_value);
                         continue;
                     }
@@ -27607,7 +28545,20 @@ impl<'a> ScriptLowerer<'a> {
                             ValueInfo {
                                 kind: ValueKind::Array,
                                 possible_kinds: KindSet::from_kind(ValueKind::Array),
-                                heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                                // `ArrayShape::default()` is an array shape with
+                                // ZERO elements, i.e. the claim `length === 0`.
+                                // It is never a spelling of "an Array whose
+                                // contents are unknown". `arguments.slice()` has
+                                // a statically unknown length, so the only
+                                // honest shape here is `None`: with an empty
+                                // element vector `array_concat_result_info`
+                                // accepts this operand (its proven-layout check
+                                // is vacuous over no elements) and hands the
+                                // spread result a `Some(Array{elements: []})`,
+                                // after which `read_array_shape` types
+                                // `[...args][0]` as `undefined` and
+                                // `static_array_shape_len` reports 0.
+                                heap_shape: None,
                                 function_targets: BTreeSet::new(),
                             },
                             ExprIr::CallIndirect {
@@ -27625,7 +28576,13 @@ impl<'a> ScriptLowerer<'a> {
                         ValueInfo {
                             kind: ValueKind::Array,
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
-                            heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
+                            // As above: `ArrayShape::default()` asserts "proven
+                            // zero elements", and `Array.from(x)` for an
+                            // arbitrary iterable `x` proves nothing about its
+                            // length. `kind`/`possible_kinds` stay `Array` —
+                            // 23.1.2.1 really does return an Array — but the
+                            // element vector was fabricated, so it goes away.
+                            heap_shape: None,
                             function_targets: BTreeSet::new(),
                         },
                         ExprIr::CallIndirect {
@@ -27929,9 +28886,8 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_object_literal(&mut self, object: &ObjectLiteral) -> TypedExpr {
         if self.object_literal_has_duplicate_proto_setter(object) {
-            self.diagnostics.push(IrDiagnostic::early_error(
-                "E_OBJECT_DUPLICATE_PROTO",
-                "SyntaxError",
+            self.diagnostics.push(IrDiagnostic::rejected(
+                EarlyErrorCode::ObjectDuplicateProto,
                 "early error: duplicate __proto__ prototype setter in object literal",
                 None,
             ));
@@ -28084,10 +29040,10 @@ impl<'a> ScriptLowerer<'a> {
                             // See the computed data-property case: a
                             // well-known-symbol method is a statically known key,
                             // so it belongs in the tracked shape.
-                            match &well_known_key {
-                                Some(name) => {
+                            match well_known_key {
+                                Some(symbol) => {
                                     shape.properties.insert(
-                                        Self::symbol_shape_property_name(name),
+                                        shape_namespace_key(symbol),
                                         ObjectShapeProperty::Data(function.value_info()),
                                     );
                                 }
@@ -28139,10 +29095,10 @@ impl<'a> ScriptLowerer<'a> {
                     // symbol namespace, so no string-keyed read can reach it —
                     // so ToPrimitive inference sees the hook instead of
                     // concluding the object has no hooks and always stringifies.
-                    match &well_known_key {
-                        Some(name) => {
+                    match well_known_key {
+                        Some(symbol) => {
                             shape.properties.insert(
-                                Self::symbol_shape_property_name(name),
+                                shape_namespace_key(symbol),
                                 ObjectShapeProperty::Data(lowered.value_info()),
                             );
                         }
@@ -28183,10 +29139,9 @@ impl<'a> ScriptLowerer<'a> {
             .is_subset_of(KindSet::from_kind(ValueKind::Symbol))
     }
 
-    /// Shape-map name for a well-known-symbol key such as `Symbol.toPrimitive`.
-    fn symbol_shape_property_name(symbol_name: &str) -> String {
-        format!("{SYMBOL_SHAPE_PROPERTY_PREFIX}{symbol_name}")
-    }
+    // The shape-map name for a well-known-symbol key used to be built here from
+    // a `&str`, so any string at all could be given the symbol namespace. It is
+    // now `well_known::shape_namespace_key`, which takes a `WellKnownSymbol`.
 
     /// Records a *string*-keyed property in a tracked shape. A key inside the
     /// symbol namespace is left untracked rather than written, so it can never
@@ -28256,40 +29211,20 @@ impl<'a> ScriptLowerer<'a> {
                     (access.target(), access.field())
                 {
                     let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    let target_is_builtin_symbol = target_name == "Symbol"
-                        && self.active_with_objects.is_empty()
-                        && self.lookup_binding(&target_name).is_none()
-                        && self
-                            .lookup_global_property_info(&target_name)
-                            .is_some_and(|property| {
-                                property.proven_present
-                                    && property.source == GlobalPropertySource::Builtin
-                            });
-                    let symbol_name = self.interner.resolve_expect(field.sym()).to_string();
-                    if target_is_builtin_symbol
-                        && matches!(
-                            symbol_name.as_str(),
-                            "asyncDispose"
-                                | "asyncIterator"
-                                | "dispose"
-                                | "hasInstance"
-                                | "species"
-                                | "isConcatSpreadable"
-                                | "iterator"
-                                | "match"
-                                | "matchAll"
-                                | "replace"
-                                | "search"
-                                | "split"
-                                | "toStringTag"
-                                | "toPrimitive"
-                                | "unscopables"
-                        )
-                    {
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Symbol),
-                            ExprIr::String(format!("Symbol.{symbol_name}")),
-                        );
+                    let member_name = self.interner.resolve_expect(field.sym()).to_string();
+                    // The runtime encoding of a well-known symbol *value*: its
+                    // 6.1.5.1 Table 1 [[Description]], carried as a string whose
+                    // `ValueKind::Symbol` is what distinguishes it from an
+                    // ordinary string of the same text.
+                    if self.expression_is_builtin_symbol_intrinsic(&target_name) {
+                        if let Some(symbol) =
+                            WellKnownSymbol::from_member_name(SymbolMemberName::new(&member_name))
+                        {
+                            return TypedExpr::from_info(
+                                ValueInfo::new(ValueKind::Symbol),
+                                ExprIr::String(symbol.description().to_string()),
+                            );
+                        }
                     }
                 }
                 let target = self.lower_property_target(access.target());
@@ -28392,10 +29327,10 @@ impl<'a> ScriptLowerer<'a> {
                                 }
                             }
                         } else if let PropertyAccessField::Expr(expr) = access.field() {
-                            if let Some((symbol_name, symbol_key)) =
+                            if let Some((symbol, symbol_key)) =
                                 self.lower_well_known_symbol_property_key(expr)
                             {
-                                if symbol_name == "Symbol.toPrimitive" {
+                                if symbol == WellKnownSymbol::ToPrimitive {
                                     TypedExpr::from_info(
                                         Self::standard_builtin_value_info(
                                             StandardBuiltinId::SymbolPrototypeToPrimitive,
@@ -28773,7 +29708,7 @@ impl<'a> ScriptLowerer<'a> {
     fn optional_chain_well_known_symbol_property_info(
         &self,
         receiver: &ValueInfo,
-        key: &str,
+        key: WellKnownSymbol,
     ) -> Option<ValueInfo> {
         let constructor_name = match receiver
             .possible_kinds
@@ -28798,11 +29733,11 @@ impl<'a> ScriptLowerer<'a> {
         };
         if let Some(property) = constructor_name.and_then(|constructor_name| {
             self.well_known_symbol_prototype_properties
-                .get(&(constructor_name.to_string(), key.to_string()))
+                .get(&(constructor_name.to_string(), key))
         }) {
             return Some(property.clone());
         }
-        self.optional_chain_static_property_info(receiver, key)
+        self.optional_chain_static_property_info(receiver, key.description())
     }
 
     fn optional_chain_call_info(
@@ -29089,36 +30024,15 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn is_error_prototype_expr(&self, expr: &TypedExpr) -> bool {
-        [
-            ERROR_NAME,
-            EVAL_ERROR_NAME,
-            AGGREGATE_ERROR_NAME,
-            SUPPRESSED_ERROR_NAME,
-            RANGE_ERROR_NAME,
-            SYNTAX_ERROR_NAME,
-            TYPE_ERROR_NAME,
-            URI_ERROR_NAME,
-            REFERENCE_ERROR_NAME,
-        ]
-        .into_iter()
-        .any(|name| self.is_builtin_property_expr(expr, name, "prototype"))
-    }
+    // `is_error_prototype_expr` used to sit here: a second hand-kept nine-row
+    // list of the same closed domain, with zero call sites anywhere in the
+    // workspace. AGENTS.md: code unreachable from the product path should fail
+    // to build, not merely fail to run. It was deleted rather than migrated.
 
     fn is_error_constructor_expr(&self, expr: &TypedExpr) -> bool {
-        [
-            ERROR_NAME,
-            EVAL_ERROR_NAME,
-            AGGREGATE_ERROR_NAME,
-            SUPPRESSED_ERROR_NAME,
-            RANGE_ERROR_NAME,
-            SYNTAX_ERROR_NAME,
-            TYPE_ERROR_NAME,
-            URI_ERROR_NAME,
-            REFERENCE_ERROR_NAME,
-        ]
-        .into_iter()
-        .any(|name| self.is_builtin_reference_expr(expr, name))
+        NativeErrorKind::ALL
+            .into_iter()
+            .any(|kind| self.is_builtin_reference_expr(expr, kind.as_str()))
     }
 
     fn property_access_field_is_proven_numeric(&self, field: &PropertyAccessField) -> bool {
@@ -29194,7 +30108,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_static_property_key(&mut self, expr: &Expression) -> Option<PropertyKeyIr> {
         let key = self.try_static_string_key(expr)?;
-        if key.starts_with("Symbol.") {
+        if is_symbol_description(&key) {
             let lowered = self.lower_expression(expr);
             if lowered.kind == ValueKind::Symbol {
                 return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
@@ -29206,13 +30120,13 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_well_known_symbol_property_key(
         &mut self,
         expr: &Expression,
-    ) -> Option<(String, PropertyKeyIr)> {
-        let symbol_name = self.try_well_known_symbol_key_name(expr)?;
+    ) -> Option<(WellKnownSymbol, PropertyKeyIr)> {
+        let symbol = self.try_well_known_symbol_key_name(expr)?;
         let lowered = self.lower_expression(expr);
         if lowered.kind != ValueKind::Symbol {
             return None;
         }
-        Some((symbol_name, PropertyKeyIr::StringExpr(Box::new(lowered))))
+        Some((symbol, PropertyKeyIr::StringExpr(Box::new(lowered))))
     }
 
     fn spec_get_v_operand_from_property_key(key: &PropertyKeyIr) -> Option<TypedExpr> {
@@ -29960,7 +30874,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported array dot access");
         };
-        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
@@ -30088,7 +31002,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported string access");
         };
-        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::StringPrototypeIterator),
@@ -30180,7 +31094,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(expr) = field else {
             return self.unsupported_expr("unsupported arguments access");
         };
-        if self.try_well_known_symbol_key_name(expr).as_deref() == Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(expr) == Some(WellKnownSymbol::Iterator) {
             if let Some((_, symbol_key)) = self.lower_well_known_symbol_property_key(expr) {
                 return TypedExpr::from_info(
                     Self::standard_builtin_value_info(StandardBuiltinId::ArrayPrototypeValues),
@@ -30278,7 +31192,21 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 AssignTarget::Access(access) => self.lower_property_assign(access, rhs),
                 AssignTarget::Pattern(pattern) => self.lower_pattern_assign(pattern, rhs),
-                _ => self.unsupported_expr("non-identifier assignment target"),
+                // Spelled out rather than `_`. `AssignTarget` is a closed
+                // 4-variant boa enum (`boa_ast-0.21.1/src/expression/operator/
+                // assign/mod.rs:126`) and this is invariant I7's AST half: a
+                // fifth production that yields a Reference must be decided
+                // here, as `error[E0004]`, not swallowed as an unsupported
+                // expression with nothing to compile-error about.
+                //
+                // `WebCompatCall` is handled by the early return at the top of
+                // this function — Annex B `f() = v` is a runtime
+                // ReferenceError, not a compiler gap — so it is unreachable
+                // here; it is still named, because `unreachable!()` in its
+                // place would reintroduce a catch-all by another spelling.
+                AssignTarget::WebCompatCall(call) => {
+                    self.lower_web_compat_call_assignment_target(call)
+                }
             },
             AssignOp::Add
             | AssignOp::Sub
@@ -30336,6 +31264,7 @@ impl<'a> ScriptLowerer<'a> {
                                     &key,
                                     &value_info,
                                 );
+                                let strictness = self.reference_strictness();
                                 return TypedExpr::from_info(
                                     value_info,
                                     ExprIr::PropertyCompoundAssign {
@@ -30343,6 +31272,7 @@ impl<'a> ScriptLowerer<'a> {
                                         key,
                                         op: ArithmeticBinaryOp::Add,
                                         value: Box::new(rhs),
+                                        strictness,
                                     },
                                 );
                             }
@@ -30371,7 +31301,83 @@ impl<'a> ScriptLowerer<'a> {
 
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 let value = self.lower_expression(rhs);
+                // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
+                // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
+                // and neither was checked here before. Ledger **L4**: the RHS is
+                // lowered above, so the throw follows its side effects where
+                // 13.15.4 steps 1-2 put it before them; the resolution is placed
+                // at the existing `lookup_binding` line rather than hoisted over
+                // ~300 lines of arm without a runtime oracle.
+                match self.resolve_binding_reference(&name) {
+                    BindingResolution::Uninitialized(violation) => {
+                        let error = violation.into_throw();
+                        return TypedExpr::from_info(
+                            error.value_info(),
+                            ExprIr::Comma {
+                                lhs: Box::new(value),
+                                rhs: Box::new(error),
+                            },
+                        );
+                    }
+                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+                }
                 let binding = self.lookup_binding(&name);
+                // 13.15.2 `AssignmentExpression : LeftHandSideExpression op=
+                // AssignmentExpression` evaluates the LHS Reference, GetValues
+                // it, evaluates the RHS (done above), applies
+                // ApplyStringOrNumericBinaryOperator, and *then* PutValues. A
+                // `const` target fails only at that last step, so everything
+                // before it still runs and can still throw first — `const s =
+                // 'a'; s += { toString() { throw new RangeError(); } }` is a
+                // RangeError, not a TypeError.
+                //
+                // This replaces three separate `unsupported_expr("assignment to
+                // const binding")` sites further down (the coercive-add, the
+                // general-form and the specialised number/string paths). They
+                // sat *after* the specialisation analysis, so which of the three
+                // fired depended on inference — three ways to spell one refusal
+                // of a program the spec says must run. Deciding it once here, on
+                // the binding's mode alone, is both the fix and the reason the
+                // three sites can go: the analysis below is now only ever
+                // reached for a mutable target.
+                let const_target = binding.as_ref().and_then(|binding| {
+                    (binding.mode == BindingMode::Const).then(|| {
+                        (
+                            binding.storage_name.clone(),
+                            ValueInfo {
+                                kind: binding.kind,
+                                possible_kinds: binding.possible_kinds,
+                                heap_shape: binding.heap_shape.clone(),
+                                function_targets: binding.function_targets.clone(),
+                            },
+                        )
+                    })
+                });
+                if let Some((storage_name, lhs_info)) = const_target {
+                    let arithmetic = match op {
+                        AssignOp::Add => ArithmeticOp::Add,
+                        AssignOp::Sub => ArithmeticOp::Sub,
+                        AssignOp::Mul => ArithmeticOp::Mul,
+                        AssignOp::Div => ArithmeticOp::Div,
+                        AssignOp::Mod => ArithmeticOp::Mod,
+                        AssignOp::Exp => ArithmeticOp::Exp,
+                        _ => unreachable!("this match arm covers only the arithmetic operators"),
+                    };
+                    let lhs_read =
+                        TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
+                    // `combine_arithmetic` has refusals of its own: an operand
+                    // that is neither statically coercible nor PRIMITIVE_ONLY
+                    // (`const x = {}; x -= 1`) still reaches
+                    // `unsupported_expr("string or coercive `+`")` or the
+                    // non-primitive `Sub | Mul | Div | Mod` fallback. So this arm
+                    // does not make *every* const compound assignment compile —
+                    // it makes the ones whose arithmetic is representable
+                    // compile, and moves the rest to a message that no longer
+                    // names `const`. Do not read the const refusal's
+                    // disappearance from the grep as those programs working.
+                    let applied = self.combine_arithmetic(arithmetic, lhs_read, value);
+                    return self.immutable_binding_write(&storage_name, applied);
+                }
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
@@ -30421,12 +31427,8 @@ impl<'a> ScriptLowerer<'a> {
                         lhs.kind != ValueKind::Number || value.kind != ValueKind::Number
                     });
                 if coercive_add {
-                    if binding
-                        .as_ref()
-                        .is_some_and(|binding| binding.mode == BindingMode::Const)
-                    {
-                        return self.unsupported_expr("assignment to const binding");
-                    }
+                    // A `const` target returned above; only mutable bindings
+                    // and global properties reach here.
                     let Some(lhs_info) = lhs_info else {
                         self.unsupported_with_message(format!(
                             "unsupported in porffor wasm-aot first slice: unbound identifier `{name}`"
@@ -30468,13 +31470,14 @@ impl<'a> ScriptLowerer<'a> {
                         );
                     }
                     self.set_global_property_value_info(name.clone(), result_info.clone());
+                    let strictness = self.reference_strictness();
                     return TypedExpr::from_info(
                         result_info,
                         ExprIr::GlobalPropertyWrite {
                             name,
                             value: Box::new(result),
                             implicit: false,
-                            strict: false,
+                            strictness,
                         },
                     );
                 }
@@ -30483,15 +31486,18 @@ impl<'a> ScriptLowerer<'a> {
                 // ApplyStringOrNumericBinaryOperator, assign the result back.
                 let needs_general_form = (!string_add && value.kind != ValueKind::Number)
                     || match &binding {
+                        // No `binding.mode != BindingMode::Const` conjunct: a
+                        // `const` target returned at `const_target` above, so it
+                        // was trivially true here and read as though the const
+                        // case were still live.
                         Some(binding) => {
-                            binding.mode != BindingMode::Const
-                                && if string_add {
-                                    !binding_known_string
-                                        && !rhs_may_string
-                                        && !binding_allows_string_add
-                                } else {
-                                    binding.kind != ValueKind::Number
-                                }
+                            if string_add {
+                                !binding_known_string
+                                    && !rhs_may_string
+                                    && !binding_allows_string_add
+                            } else {
+                                binding.kind != ValueKind::Number
+                            }
                         }
                         None => {
                             self.global_property_is_proven_present(&name)
@@ -30507,12 +31513,7 @@ impl<'a> ScriptLowerer<'a> {
                         }
                     };
                 if needs_general_form {
-                    if binding
-                        .as_ref()
-                        .is_some_and(|binding| binding.mode == BindingMode::Const)
-                    {
-                        return self.unsupported_expr("assignment to const binding");
-                    }
+                    // A `const` target returned above.
                     if let Some(lhs_info) = lhs_info {
                         let arithmetic = match op {
                             AssignOp::Add => ArithmeticOp::Add,
@@ -30544,10 +31545,7 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 };
                 if let Some(binding) = binding {
-                    if binding.mode == BindingMode::Const {
-                        return self.unsupported_expr("assignment to const binding");
-                    }
-
+                    // A `const` target returned above.
                     if string_add {
                         if !binding_known_string && !rhs_may_string && !binding_allows_string_add {
                             return self
@@ -30584,6 +31582,7 @@ impl<'a> ScriptLowerer<'a> {
                     AssignOp::Exp => ArithmeticBinaryOp::Exp,
                     _ => unreachable!(),
                 };
+                let strictness = self.reference_strictness();
                 let expr = if let Some(storage_name) = binding_storage_name {
                     ExprIr::CompoundAssignIdentifier {
                         name: storage_name,
@@ -30595,6 +31594,7 @@ impl<'a> ScriptLowerer<'a> {
                         name,
                         op,
                         value: Box::new(value),
+                        strictness,
                     }
                 };
                 TypedExpr::from_info(result_info, expr)
@@ -30617,16 +31617,31 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("logical assignment");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
+                // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
+                // immutability test below, which is the only test this arm used
+                // to make. The RHS is not lowered yet here, so the throw is in
+                // the right place.
+                match self.resolve_binding_reference(&name) {
+                    BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+                }
                 let binding = self.lookup_binding(&name);
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
-                if binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.mode == BindingMode::Const)
-                {
-                    return self.unsupported_expr("assignment to const binding");
-                }
+                // 13.15.2 for `&&=` / `||=` / `??=`: PutValue runs only on the
+                // branch that evaluates the RHS. `const x = 1; x ||= 2`
+                // short-circuits, never reaches PutValue, and is not an error
+                // at all; `const x = 1; x &&= 2` does reach it and throws a
+                // TypeError. The immutability throw therefore belongs *inside*
+                // the RHS branch below — which is why this consumer cannot take
+                // the early-return shape the other three do, and why the
+                // refusal that used to sit here was wrong in two directions at
+                // once (it rejected the short-circuiting program too).
+                let const_storage_name = binding.as_ref().and_then(|binding| {
+                    (binding.mode == BindingMode::Const).then(|| binding.storage_name.clone())
+                });
                 if binding.is_none()
                     && !global_info.as_ref().is_some_and(|info| info.proven_present)
                 {
@@ -30659,6 +31674,22 @@ impl<'a> ScriptLowerer<'a> {
                     AssignOp::Coalesce => LogicalBinaryOp::Coalesce,
                     _ => unreachable!(),
                 };
+                if let Some(storage_name) = const_storage_name {
+                    let throwing_rhs = self.immutable_binding_write(&storage_name, rhs_value);
+                    // The short-circuit branch yields the old value; the other
+                    // branch diverges (or, under the sloppy carve-out, yields
+                    // the RHS). Merging is sound for both.
+                    let result_info =
+                        self.merge_value_infos(lhs_value.value_info(), throwing_rhs.value_info());
+                    return TypedExpr::from_info(
+                        result_info,
+                        ExprIr::LogicalShortCircuit {
+                            op: logical_op,
+                            lhs: Box::new(lhs_value),
+                            rhs: Box::new(throwing_rhs),
+                        },
+                    );
+                }
                 let result_info =
                     self.merge_value_infos(lhs_value.value_info(), rhs_value.value_info());
                 let value = TypedExpr::from_info(
@@ -30680,13 +31711,14 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 } else {
                     self.set_global_property_value_info(name.clone(), value.value_info());
+                    let strictness = self.reference_strictness();
                     TypedExpr::from_info(
                         value.value_info(),
                         ExprIr::GlobalPropertyWrite {
                             name,
                             value: Box::new(value),
                             implicit: false,
-                            strict: false,
+                            strictness,
                         },
                     )
                 }
@@ -30717,16 +31749,25 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("unsupported property assignment operator");
                 };
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                // 13.15.3 / 13.15.4: GetValue then PutValue, so 9.1.1.1.6 step 2
+                // and 9.1.1.1.5 step 3 both apply — and step 3 precedes the
+                // immutability test below, which is the only test this arm used
+                // to make. The RHS is not lowered yet here, so the throw is in
+                // the right place.
+                match self.resolve_binding_reference(&name) {
+                    BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+                    BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+                }
                 let binding = self.lookup_binding(&name);
                 let binding_storage_name =
                     binding.as_ref().map(|binding| binding.storage_name.clone());
                 let global_info = self.lookup_global_property_info(&name).cloned();
-                if binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.mode == BindingMode::Const)
-                {
-                    return self.unsupported_expr("assignment to const binding");
-                }
+                // As for the arithmetic forms: 13.15.2 applies the operator
+                // before PutValue, so a `const` target still coerces both
+                // operands and only then throws.
+                let const_storage_name = binding.as_ref().and_then(|binding| {
+                    (binding.mode == BindingMode::Const).then(|| binding.storage_name.clone())
+                });
                 if binding.is_none()
                     && !global_info.as_ref().is_some_and(|info| info.proven_present)
                 {
@@ -30769,6 +31810,9 @@ impl<'a> ScriptLowerer<'a> {
                         rhs: Box::new(self.lower_expression(rhs)),
                     },
                 );
+                if let Some(storage_name) = const_storage_name {
+                    return self.immutable_binding_write(&storage_name, value);
+                }
                 if let Some(storage_name) = binding_storage_name {
                     self.set_binding_value_info(&name, value.value_info());
                     TypedExpr::from_info(
@@ -30780,13 +31824,14 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 } else {
                     self.set_global_property_value_info(name.clone(), value.value_info());
+                    let strictness = self.reference_strictness();
                     TypedExpr::from_info(
                         value.value_info(),
                         ExprIr::GlobalPropertyWrite {
                             name,
                             value: Box::new(value),
                             implicit: false,
-                            strict: false,
+                            strictness,
                         },
                     )
                 }
@@ -30831,56 +31876,112 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: BTreeSet::new(),
             },
             ExprIr::RuntimeThrow {
-                name: REFERENCE_ERROR_NAME,
+                name: NativeErrorKind::ReferenceError,
                 message: "function call assignment target",
             },
         )
     }
 
+    /// PutValue (6.2.5.6) step 5.c into SetMutableBinding (9.1.1.1.5) step 6.b,
+    /// for a binding whose `[[Mutable]]` is false, in the one place all of its
+    /// callers share.
+    ///
+    /// Four call sites write through an identifier Reference — plain assignment
+    /// (`x = v`), compound assignment (`x += v`), update (`x++`/`x--`) and
+    /// destructuring assignment — and every one of them owes the same
+    /// observable behaviour for a `const` target: run what the spec has already
+    /// evaluated, then throw a `TypeError`. Three of the four used to
+    /// `unsupported_expr` instead, which is a *compile-time* refusal of a
+    /// program the spec says must run and then throw; the difference is
+    /// visible to `assert.throws(TypeError, ...)`.
+    ///
+    /// `evaluated_operand` is whatever 13.15.2 / 13.4.4.1 has already evaluated
+    /// by the time PutValue is reached: the RHS for `x = v`, the *result of the
+    /// applied binary operator* for `x += v`, and `ToNumeric(oldValue)` for
+    /// `x++`. It becomes the lhs of a `Comma`, which is what sequences its
+    /// effects — and its own possible throws, which outrank this one — ahead of
+    /// the immutability `TypeError`. A bare `RuntimeThrow` would drop them, and
+    /// no test262 case in the three this unblocks would notice.
+    /// The single spelling of "this write hits an immutable binding".
+    ///
+    /// Two things a reader needs, neither of which the compiler enforces yet:
+    ///
+    /// 1. **It is not the only one.** Destructuring assignment takes another
+    ///    route entirely — `DestructuringTargetIr::AssignmentIdentifier {
+    ///    immutable: bool }` and the backend's `"assignment to immutable
+    ///    destructuring target"` literal — so `const x = 1; x = 2;` and
+    ///    `const x = 1; [x] = [2];` still throw TypeErrors with different
+    ///    messages. `immutable: bool` type-checks whatever the message is, so
+    ///    the divergence stays invisible to `cargo check`. Making the error
+    ///    constructible exactly once (a variant that carries the constructed
+    ///    error rather than a bool) is the fix; it is a two-site edit through
+    ///    `RUNTIME_ERROR_MESSAGE_LITERALS`, which must stay sorted and unique.
+    ///
+    /// 2. **Reaching here is a claim about the source, and it is unmeasured for
+    ///    five of the six callers.** Across all 174 snapshots under
+    ///    `target/test262-scratch/`, `update of const binding` has hits and
+    ///    `assignment to const binding` has zero, so only the update site has
+    ///    test262 evidence behind its conversion from a refusal to this
+    ///    spec-shaped TypeError. The premise the other five rest on is that
+    ///    every `BindingMode::Const` reaching them is a *user* `const` /
+    ///    class-name / function-self binding. That premise has been false here
+    ///    before: `test262/snapshots/latest-5052292535410439978.json` attributes
+    ///    90 `assignment to const binding` refusals to `built-ins/Array/fromAsync`,
+    ///    whose 95 files contain no compound assignment at all — i.e. a
+    ///    compiler-synthesized write to a synthesized const binding. Under a
+    ///    refusal that was an honest `NotImplemented`; under this it is a silent
+    ///    wrong answer.
+    fn immutable_binding_write(
+        &self,
+        storage_name: &str,
+        evaluated_operand: TypedExpr,
+    ) -> TypedExpr {
+        let message = if is_class_name_binding_storage_name(storage_name) {
+            "assignment to immutable class name"
+        } else {
+            // SetMutableBinding step 6.b: the write throws only when `S` is
+            // true. A sloppy reference to a named function expression's own
+            // binding is a silent no-op whose value is the operand — the live
+            // case, and the reason this carve-out cannot be folded away.
+            if self
+                .sloppy_immutable_binding_storage_names
+                .contains(storage_name)
+                && !self.reference_strictness().throws_on_failed_set()
+            {
+                return evaluated_operand;
+            }
+            "assignment to immutable binding"
+        };
+        let error = TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: BTreeSet::new(),
+            },
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::TypeError,
+                message,
+            },
+        );
+        TypedExpr::from_info(
+            error.value_info(),
+            ExprIr::Comma {
+                lhs: Box::new(evaluated_operand),
+                rhs: Box::new(error),
+            },
+        )
+    }
+
     fn lower_identifier_assign_value(&mut self, name: String, value: TypedExpr) -> TypedExpr {
-        if let Some(binding) = self.lookup_binding(&name) {
-            let storage_name = binding.storage_name.clone();
-            if binding.mode == BindingMode::Const {
-                if is_class_name_binding_storage_name(&storage_name) {
-                    let error = TypedExpr::from_info(
-                        ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                        },
-                        ExprIr::RuntimeThrow {
-                            name: TYPE_ERROR_NAME,
-                            message: "assignment to immutable class name",
-                        },
-                    );
-                    return TypedExpr::from_info(
-                        error.value_info(),
-                        ExprIr::Comma {
-                            lhs: Box::new(value),
-                            rhs: Box::new(error),
-                        },
-                    );
-                }
-                if self
-                    .sloppy_immutable_binding_storage_names
-                    .contains(&storage_name)
-                    && !self.is_current_owner_strict()
-                {
-                    return value;
-                }
-                let error = TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::RuntimeThrow {
-                        name: TYPE_ERROR_NAME,
-                        message: "assignment to immutable binding",
-                    },
-                );
+        // SetMutableBinding (9.1.1.1.5) step 3 runs *before* the immutability
+        // test of step 6/7, and does not consult `S`: an assignment to an
+        // uninitialized binding is a ReferenceError in sloppy mode too. The RHS
+        // has already been evaluated (13.15.2 step 1.e), so its effects are kept
+        // ahead of the throw.
+        match self.resolve_binding_reference(&name) {
+            BindingResolution::Uninitialized(violation) => {
+                let error = violation.into_throw();
                 return TypedExpr::from_info(
                     error.value_info(),
                     ExprIr::Comma {
@@ -30888,6 +31989,18 @@ impl<'a> ScriptLowerer<'a> {
                         rhs: Box::new(error),
                     },
                 );
+            }
+            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+        }
+        if let Some(binding) = self.lookup_binding(&name) {
+            let storage_name = binding.storage_name.clone();
+            if binding.mode == BindingMode::Const {
+                // This is PutValue consumer 4.c, and it is decided here, at
+                // lowering, which is why the identifier-write IR nodes carry no
+                // `[[Strict]]` of their own. The body now lives in
+                // `immutable_binding_write` so that the update and
+                // compound-assignment consumers cannot drift from it.
+                return self.immutable_binding_write(&storage_name, value);
             }
 
             let binding_info = if binding.mode != BindingMode::Var
@@ -30918,12 +32031,12 @@ impl<'a> ScriptLowerer<'a> {
             )
         } else {
             let implicit = !self.global_property_is_proven_present(&name);
-            // PutValue step 2.b: assigning through an unresolvable Reference in
+            // PutValue step 2.a: assigning through an unresolvable Reference in
             // strict code is a ReferenceError. Whether the name resolves is only
             // decidable at run time (the global object may have grown the
             // property via `globalThis.x = ...`), so the strictness travels with
             // the node and the backend performs the presence check.
-            let strict = self.is_current_owner_strict();
+            let strictness = self.reference_strictness();
             self.set_global_property_value_info_with_source(
                 name.clone(),
                 value.value_info(),
@@ -30939,7 +32052,7 @@ impl<'a> ScriptLowerer<'a> {
                     name,
                     value: Box::new(value),
                     implicit,
-                    strict,
+                    strictness,
                 },
             )
         }
@@ -30952,12 +32065,14 @@ impl<'a> ScriptLowerer<'a> {
         value: TypedExpr,
     ) -> TypedExpr {
         let binding_visible = self.lower_with_binding_visible(&name, object.clone());
+        let strictness = self.reference_strictness();
         let with_write = TypedExpr::from_info(
             value.value_info(),
             ExprIr::PropertyWrite {
                 target: Box::new(object),
                 key: PropertyKeyIr::StaticString(name.clone()),
                 value: Box::new(value.clone()),
+                strictness,
             },
         );
         let fallback = self.lower_identifier_assign_value(name, value);
@@ -31085,7 +32200,10 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, mode),
+                        BindingInfo::tdz_placeholder(
+                            mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
             }
@@ -31110,7 +32228,10 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     self.declare_binding(
                         bound.source_name.clone(),
-                        Self::tdz_binding_info(&bound.source_name, mode),
+                        BindingInfo::tdz_placeholder(
+                            mode,
+                            TdzPlaceholderName::for_source_name(&bound.source_name),
+                        ),
                     );
                 }
             }
@@ -31152,7 +32273,10 @@ impl<'a> ScriptLowerer<'a> {
                 .last()
                 .is_some_and(|scope| scope.contains_key(name))
             {
-                self.declare_binding(name.clone(), Self::tdz_binding_info(name, mode));
+                self.declare_binding(
+                    name.clone(),
+                    BindingInfo::tdz_placeholder(mode, TdzPlaceholderName::for_source_name(name)),
+                );
             }
         }
 
@@ -31383,11 +32507,18 @@ impl<'a> ScriptLowerer<'a> {
                     let storage_name = storage_names
                         .and_then(|storage_names| storage_names.get(&target_name))
                         .cloned();
+                    // Ledger **L2**: the destructuring paths take no
+                    // `PendingInitialization`. Their ordering is already correct
+                    // (the pattern's value and default are lowered before this
+                    // runs) and `direct_lexical_storage_name` reuses the name the
+                    // sweep allocated, so this is a missing *proof*, not a
+                    // missing check.
                     statements.push(self.lower_lexical_binding_value(
                         mode,
                         target_name,
                         ident.span(),
-                        value,
+                        LoweredInitializer::evaluated(value),
+                        None,
                         storage_name,
                     ));
                 }
@@ -31435,7 +32566,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31445,6 +32583,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     properties.push(ObjectDestructuringPropertyIr {
@@ -31501,7 +32640,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31511,6 +32657,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::from_kind(ValueKind::Object),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     rest = Some(DestructuringTargetIr::Binding {
@@ -31558,7 +32705,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31568,6 +32722,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     ArrayDestructuringElementIr::Target {
@@ -31592,7 +32747,14 @@ impl<'a> ScriptLowerer<'a> {
                         .unwrap_or_else(|| {
                             self.direct_lexical_storage_name(&source_name, ident.span())
                         });
-                    self.clear_tdz_binding(&source_name);
+                    // InitializeBinding (9.1.1.1.4) for one BoundName of a
+                    // binding pattern (8.6.2 BindingInitialization). Ledger
+                    // **L2**: no `PendingInitialization` is threaded here, so
+                    // the ordering is correct by construction of the surrounding
+                    // code rather than by type — the pattern's value and this
+                    // element's default are both lowered above. The storage name
+                    // is the one BlockDeclarationInstantiation allocated, via
+                    // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
                         source_name,
                         BindingInfo {
@@ -31602,6 +32764,7 @@ impl<'a> ScriptLowerer<'a> {
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
                             heap_shape: None,
                             function_targets: BTreeSet::new(),
+                            initialization: Initialization::Initialized,
                         },
                     );
                     ArrayDestructuringElementIr::Rest {
@@ -31663,7 +32826,14 @@ impl<'a> ScriptLowerer<'a> {
             };
             elements.push(element);
         }
-        Some(ArrayDestructuringPatternIr { elements })
+        // 8.6.3 IteratorBindingInitialization: this pattern's own
+        // `GetIterator`, and its 7.4.11 close under the `[[Done]]` guard, are
+        // emitted by `compile_array_destructure_from_value_locals`. Stated here
+        // because this is where the obligation is *incurred*.
+        Some(ArrayDestructuringPatternIr {
+            elements,
+            protocol: ArrayPatternProtocol::ARRAY_DESTRUCTURING,
+        })
     }
 
     fn lower_array_assignment_pattern(
@@ -31717,7 +32887,14 @@ impl<'a> ScriptLowerer<'a> {
             };
             elements.push(element);
         }
-        Some(ArrayDestructuringPatternIr { elements })
+        // 13.15.5.5 IteratorDestructuringAssignmentEvaluation — a different
+        // abstract operation with the same close discipline, running the same
+        // emitter arm, which distinguishes the two by `ExprIr::ArrayDestructure`'s
+        // `assignment` flag rather than by protocol. Same witness.
+        Some(ArrayDestructuringPatternIr {
+            elements,
+            protocol: ArrayPatternProtocol::ARRAY_DESTRUCTURING,
+        })
     }
 
     /// Lowers a nested pattern that appears inside a *destructuring assignment*
@@ -31812,6 +32989,19 @@ impl<'a> ScriptLowerer<'a> {
         ident: boa_ast::expression::Identifier,
     ) -> Option<DestructuringTargetIr> {
         let source_name = self.interner.resolve_expect(ident.sym()).to_string();
+        match self.resolve_binding_reference(&source_name) {
+            // 13.15.5.3 routes this element through PutValue, so 9.1.1.1.5
+            // step 3 applies. Ledger **L5**: `DestructuringTargetIr` has no
+            // throwing target variant and `ir.rs` is outside this area's owned
+            // files, so the violation cannot be turned into the runtime
+            // ReferenceError here. It is reported as a lowering gap instead of
+            // silently writing the slot, which is what happened before.
+            BindingResolution::Uninitialized(_) => {
+                self.unsupported("destructuring assignment to an uninitialized lexical binding");
+                return None;
+            }
+            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+        }
         if let Some(binding) = self.lookup_binding(&source_name) {
             let immutable = binding.mode == BindingMode::Const;
             let storage_name = binding.storage_name;
@@ -31896,38 +33086,53 @@ impl<'a> ScriptLowerer<'a> {
                 DestructuringPropertyKeyIr::Computed(self.lower_expression(expression))
             }
         };
-        Some(DestructuringTargetIr::AssignmentProperty { target, key })
+        // 13.15.5.4 routes this element through PutValue on the Reference the
+        // property access denotes, so its `[[Strict]]` comes from the code
+        // that *created* the Reference — the same single producer every other
+        // reference-shaped node uses — and not from whichever function the
+        // backend later emits the pattern into.
+        Some(DestructuringTargetIr::AssignmentProperty {
+            target,
+            key,
+            strictness: self.reference_strictness(),
+        })
     }
 
+    /// InitializeBinding (9.1.1.1.4) for one `LexicalBinding`, and the sole
+    /// place the identifier-declarator paths make the transition.
+    ///
+    /// `init` is a [`LoweredInitializer`] rather than a `TypedExpr` because
+    /// 14.3.1.2 step 4 must precede step 5: there is no value of that type until
+    /// the initializer has been lowered, so "clear the TDZ, then lower the
+    /// initializer" — the ordering the deleted `clear_tdz_binding` call left to
+    /// convention at ten sites — cannot be written. `let x = x;` therefore
+    /// lowers its `x` read against the still-uninitialized binding.
+    ///
+    /// `pending` is the obligation BlockDeclarationInstantiation left. When it
+    /// is present the storage name comes from the *creation* and cannot be
+    /// recomputed here, and `initialize` consumes it, so 9.1.1.1.4 step 2's
+    /// "must be uninitialized" assertion is `error[E0382]` rather than a review
+    /// item.
     fn lower_lexical_binding_value(
         &mut self,
         mode: BindingMode,
         name: String,
         span: boa_ast::Span,
-        init: TypedExpr,
+        init: LoweredInitializer,
+        pending: Option<PendingInitialization>,
         storage_name: Option<String>,
     ) -> StatementIr {
         self.static_string_bindings.remove(&name);
         self.static_to_string_regexp_object_bindings.remove(&name);
-        let storage_name =
-            storage_name.unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
-        self.clear_tdz_binding(&name);
-        self.declare_binding(
-            name.clone(),
-            BindingInfo {
-                mode,
-                storage_name: storage_name.clone(),
-                kind: init.kind,
-                possible_kinds: init.possible_kinds,
-                heap_shape: init.heap_shape.clone(),
-                function_targets: init.function_targets.clone(),
-            },
-        );
-        StatementIr::Lexical {
-            mode,
-            name: storage_name,
-            init,
-        }
+        let initialized = match pending {
+            Some(pending) => pending.initialize(init),
+            None => {
+                let storage_name =
+                    storage_name.unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
+                InitializedBinding::without_creation(name, mode, storage_name, init.into_expr())
+            }
+        };
+        initialized.declare(self)
     }
 
     fn lower_object_pattern_value_from_value(&self, target: &TypedExpr, key: &str) -> TypedExpr {
@@ -32017,13 +33222,14 @@ impl<'a> ScriptLowerer<'a> {
             }
             None => {
                 self.set_global_property_value_info(name.to_string(), info.clone());
+                let strictness = self.reference_strictness();
                 TypedExpr::from_info(
                     info,
                     ExprIr::GlobalPropertyWrite {
                         name: name.to_string(),
                         value: Box::new(result),
                         implicit: false,
-                        strict: false,
+                        strictness,
                     },
                 )
             }
@@ -32032,12 +33238,13 @@ impl<'a> ScriptLowerer<'a> {
 
     /// Lowers `ref op= rhs` where `ref` is a property Reference.
     ///
-    /// Spec order (13.15.2 / 13.15.3) is: evaluate the Reference once, read it,
-    /// then evaluate `rhs`, then write back through the *same* Reference. The
-    /// Reference is preserved by lowering the property access as an ordinary
-    /// read, splitting the resulting IR back into its base and key, and pinning
-    /// any effectful base or computed key into a temporary so the write-back
-    /// does not re-evaluate it.
+    /// Spec order (13.15.2 / 13.15.3) is: evaluate the LeftHandSideExpression
+    /// **once**, GetValue it, evaluate `rhs`, then PutValue through *that same*
+    /// Reference. Here the single evaluation is structural rather than
+    /// conventional: the Reference is reified once as a [`ReferenceRecord`],
+    /// `read` borrows it, `write` consumes it, and the temporaries its
+    /// effectful operands were pinned into can only be discharged by spending
+    /// the [`ReferencePins`] the same call produced.
     fn lower_property_reference_update(
         &mut self,
         access: &PropertyAccess,
@@ -32046,101 +33253,37 @@ impl<'a> ScriptLowerer<'a> {
     ) -> TypedExpr {
         let read = self.lower_expression(&Expression::PropertyAccess(access.clone()));
         let read_info = read.value_info();
-        let mut reference = match read.expr {
-            ExprIr::PropertyRead { target, key } => PropertyReference::Property {
-                target: *target,
-                key,
-            },
-            ExprIr::PrivateRead {
-                target,
-                private_name_id,
-            } => PropertyReference::Private {
-                target: *target,
-                private_name_id,
-            },
-            ExprIr::SuperPropertyRead { key } => PropertyReference::Super { key },
-            // A dynamic key lowers the read to GetV; the same base and key
-            // written back is an ordinary property write.
-            ExprIr::SpecOperation {
-                operation: SpecOperationIr::Get | SpecOperationIr::GetV,
-                operands,
-            } => {
-                let mut operands = operands.into_iter();
-                let (Some(target), Some(key), None) =
-                    (operands.next(), operands.next(), operands.next())
-                else {
-                    return self.unsupported_expr("unsupported property assignment operator");
-                };
-                let key = match key.expr {
-                    ExprIr::String(name) => PropertyKeyIr::StaticString(name),
-                    _ => PropertyKeyIr::StringExpr(Box::new(key)),
-                };
-                PropertyReference::Property { target, key }
-            }
-            // `globalThis.x` on a known global resolves to the global binding
-            // itself rather than to a property of an object.
-            ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name } => {
-                PropertyReference::Global { name }
-            }
-            // Anything else is a read the lowering specialised into a shape that
-            // is not a writable Reference (a folded constant, an intrinsic, ...).
-            _ => return self.unsupported_expr("unsupported property assignment operator"),
+        let base = match reference_base_of_lowered_read(read.expr) {
+            Ok(base) => base,
+            Err(unsupported) => return self.unsupported_expr(unsupported.feature()),
         };
+        // 6.2.5: `[[Strict]]` is populated when the Reference is created, and
+        // is carried from here to whichever PutValue consumes it.
+        let mut record = ReferenceRecord::create(base, self.reference_strictness());
+        let pins = self.pin_reference_operands(&mut record);
 
-        // Pin the parts of the Reference that must not be evaluated twice.
-        let mut pinned: Vec<(String, TypedExpr)> = Vec::new();
-        if let PropertyReference::Property { target, .. }
-        | PropertyReference::Private { target, .. } = &mut reference
-        {
-            if !Self::is_repeatable_operand(&target.expr) {
-                let info = target.value_info();
-                let name = self.alloc_temp_binding_name("compound.assign.target.");
-                let pinned_target = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
-                pinned.push((name, std::mem::replace(target, pinned_target)));
-            }
-        }
-        if let PropertyReference::Property { key, .. } | PropertyReference::Super { key } =
-            &mut reference
-        {
-            let key_expr = match key {
-                PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                    Some(&mut **expr)
-                }
-                PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => None,
-            };
-            if let Some(key_expr) = key_expr {
-                if !Self::is_repeatable_operand(&key_expr.expr) {
-                    let info = key_expr.value_info();
-                    let name = self.alloc_temp_binding_name("compound.assign.key.");
-                    let pinned_key = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
-                    pinned.push((name, std::mem::replace(key_expr, pinned_key)));
-                }
-            }
-        }
-
-        let read = TypedExpr::from_info(read_info.clone(), reference.read_ir());
+        let read = record.read(read_info.clone());
         let rhs = self.lower_expression(rhs);
-        let mut result = match op {
+        let (value, shape_info, compose) = match op {
             PropertyUpdateOp::Logical(logical) => {
                 // The write only happens on the branch that evaluates `rhs`, so
                 // the observable property type is the merge of both branches.
                 let written_info = rhs.value_info();
                 let merged = self.merge_value_infos(read_info, written_info);
-                let write =
-                    self.build_property_reference_write(access, &reference, rhs, merged.clone());
-                TypedExpr::from_info(
-                    merged,
-                    ExprIr::LogicalShortCircuit {
+                (
+                    rhs,
+                    merged.clone(),
+                    Composition::ShortCircuit {
                         op: logical,
-                        lhs: Box::new(read),
-                        rhs: Box::new(write),
+                        read,
+                        merged,
                     },
                 )
             }
             PropertyUpdateOp::Arithmetic(arithmetic) => {
                 let value = self.combine_arithmetic(arithmetic, read, rhs);
                 let info = value.value_info();
-                self.build_property_reference_write(access, &reference, value, info)
+                (value, info, Composition::Value)
             }
             PropertyUpdateOp::Bitwise(bitwise) => {
                 let op = match bitwise {
@@ -32160,22 +33303,79 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
                 let info = value.value_info();
-                self.build_property_reference_write(access, &reference, value, info)
+                (value, info, Composition::Value)
             }
         };
+        self.record_reference_write_shape(access, record.base(), shape_info);
+        pins.materialize(record.write(value, compose))
+    }
 
-        for (name, value) in pinned.into_iter().rev() {
-            let info = result.value_info();
-            result = TypedExpr::from_info(
-                info,
-                ExprIr::MaterializeBinding {
-                    name,
-                    value: Box::new(value),
-                    body: Box::new(result),
-                },
-            );
+    /// Pins the operands of a Reference that PutValue must not re-evaluate.
+    ///
+    /// The pins are returned rather than wrapped here: 13.15.2's
+    /// `MaterializeBinding` chain has to enclose the *whole* compound
+    /// expression, which does not exist yet at this point. [`ReferencePins`]
+    /// is the only value that can produce that chain, and it is `#[must_use]`
+    /// and not `Clone`, so the wrap can be neither forgotten nor duplicated.
+    ///
+    /// The record decides *which* operands are pinnable (exhaustively, over
+    /// [`ReferenceBase`]); this decides which of them actually need pinning and
+    /// what the temporary is called. `ReferenceRecord::pin_operands` is the
+    /// only producer of a [`ReferencePins`] in the workspace, so there is no
+    /// way to reach `materialize` with a chain that belongs to no record.
+    fn pin_reference_operands(&mut self, record: &mut ReferenceRecord) -> ReferencePins {
+        record.pin_operands(|operand, expr| {
+            if Self::is_repeatable_operand(&expr.expr) {
+                return None;
+            }
+            let info = expr.value_info();
+            let name = self.alloc_temp_binding_name(match operand {
+                ReferenceOperand::Base => "compound.assign.target.",
+                ReferenceOperand::ComputedKey => "compound.assign.key.",
+            });
+            let pinned = TypedExpr::from_info(info, ExprIr::Identifier(name.clone()));
+            Some((name, std::mem::replace(expr, pinned)))
+        })
+    }
+
+    /// The lowerer-side bookkeeping a PutValue implies: the recorded shape of
+    /// whichever object the write lands on goes stale.
+    ///
+    /// Exhaustive over [`ReferenceBase`] with no catch-all, because "which
+    /// object does this write land on" is exactly the question a fifth base
+    /// shape would have to answer.
+    fn record_reference_write_shape(
+        &mut self,
+        access: &PropertyAccess,
+        base: &ReferenceBase,
+        shape_info: ValueInfo,
+    ) {
+        match base {
+            ReferenceBase::Property { key, .. } => {
+                if let PropertyAccess::Simple(simple) = access {
+                    self.update_written_shape(simple.target(), key, &shape_info);
+                }
+            }
+            // PrivateSet writes a fixed slot of a known class shape; there is
+            // no tracked property shape to invalidate.
+            ReferenceBase::Private { .. } => {}
+            ReferenceBase::Super { key } => {
+                // A super Reference reads through the home object's prototype
+                // but writes with `this` as the Receiver (PutValue 3.c via
+                // GetThisValue), so it is `this`'s recorded shape that goes
+                // stale. This covers a constructor body; a method body has no
+                // tracked `this` shape to update, the same gap the plain
+                // `super.k = v` path has.
+                self.update_binding_shape_path(
+                    LEXICAL_THIS_NAME,
+                    std::slice::from_ref(key),
+                    shape_info,
+                );
+            }
+            ReferenceBase::Global { name } => {
+                self.set_global_property_value_info(name.clone(), shape_info);
+            }
         }
-        result
     }
 
     /// Whether an operand can be duplicated into both the read and the
@@ -32191,62 +33391,6 @@ impl<'a> ScriptLowerer<'a> {
                 | ExprIr::Number(_)
                 | ExprIr::String(_)
         )
-    }
-
-    fn build_property_reference_write(
-        &mut self,
-        access: &PropertyAccess,
-        reference: &PropertyReference,
-        value: TypedExpr,
-        shape_info: ValueInfo,
-    ) -> TypedExpr {
-        let info = value.value_info();
-        let write = match reference {
-            PropertyReference::Property { target, key } => {
-                if let PropertyAccess::Simple(simple) = access {
-                    self.update_written_shape(simple.target(), key, &shape_info);
-                }
-                ExprIr::PropertyWrite {
-                    target: Box::new(target.clone()),
-                    key: key.clone(),
-                    value: Box::new(value),
-                }
-            }
-            PropertyReference::Private {
-                target,
-                private_name_id,
-            } => ExprIr::PrivateWrite {
-                target: Box::new(target.clone()),
-                private_name_id: *private_name_id,
-                value: Box::new(value),
-            },
-            PropertyReference::Super { key } => {
-                // A super Reference reads through the home object's prototype
-                // but writes to `this`, so it is `this`'s recorded shape that
-                // goes stale. This covers a constructor body; a method body has
-                // no tracked `this` shape to update, the same gap the plain
-                // `super.k = v` path has.
-                self.update_binding_shape_path(
-                    LEXICAL_THIS_NAME,
-                    std::slice::from_ref(key),
-                    shape_info,
-                );
-                ExprIr::SuperPropertyWrite {
-                    key: key.clone(),
-                    value: Box::new(value),
-                }
-            }
-            PropertyReference::Global { name } => {
-                self.set_global_property_value_info(name.clone(), shape_info);
-                ExprIr::GlobalPropertyWrite {
-                    name: name.clone(),
-                    value: Box::new(value),
-                    implicit: false,
-                    strict: false,
-                }
-            }
-        };
-        TypedExpr::from_info(info, write)
     }
 
     fn lower_property_assign_value(
@@ -32345,12 +33489,14 @@ impl<'a> ScriptLowerer<'a> {
             _ => return self.unsupported_expr("property access on non-object target"),
         };
         self.update_written_shape(access.target(), &key, &value.value_info());
+        let strictness = self.reference_strictness();
         TypedExpr::from_info(
             value.value_info(),
             ExprIr::PropertyWrite {
                 target: Box::new(target),
                 key,
                 value: Box::new(value),
+                strictness,
             },
         )
     }
@@ -32468,12 +33614,14 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         }
                         self.update_written_shape(access.target(), &key, &value.value_info());
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32499,12 +33647,14 @@ impl<'a> ScriptLowerer<'a> {
                             self.array_prototype_mutated = true;
                         }
                         self.update_written_shape(access.target(), &key, &value.value_info());
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32536,12 +33686,14 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         };
                         let value = self.lower_expression(rhs);
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32598,12 +33750,14 @@ impl<'a> ScriptLowerer<'a> {
                             self.number_prototype_split_is_string_split =
                                 self.is_string_prototype_property_expr(rhs, "split");
                         }
+                        let strictness = self.reference_strictness();
                         TypedExpr::from_info(
                             value.value_info(),
                             ExprIr::PropertyWrite {
                                 target: Box::new(target),
                                 key,
                                 value: Box::new(value),
+                                strictness,
                             },
                         )
                     }
@@ -32615,11 +33769,14 @@ impl<'a> ScriptLowerer<'a> {
                         // there is no real mutation: evaluate `rhs` (for its
                         // side effects/value) and drop the write.
                         let value = self.lower_expression(rhs);
-                        if self.is_current_owner_strict() {
+                        // PutValue 3.d, folded at compile time: `[[Set]]` on a
+                        // primitive Receiver always answers `false`, so the
+                        // Reference's `[[Strict]]` alone decides the outcome.
+                        if self.reference_strictness().throws_on_failed_set() {
                             TypedExpr::from_info(
                                 value.value_info(),
                                 ExprIr::RuntimeThrow {
-                                    name: TYPE_ERROR_NAME,
+                                    name: NativeErrorKind::TypeError,
                                     message: "Cannot create property on symbol",
                                 },
                             )
@@ -32653,82 +33810,134 @@ impl<'a> ScriptLowerer<'a> {
                     return TypedExpr::undefined();
                 };
                 let value = self.lower_expression(rhs);
+                let strictness = self.reference_strictness();
                 TypedExpr::from_info(
                     value.value_info(),
                     ExprIr::SuperPropertyWrite {
                         key,
                         value: Box::new(value),
+                        strictness,
                     },
                 )
             }
         }
     }
 
-    fn lower_update(&mut self, op: UpdateOp, target: &UpdateTarget) -> TypedExpr {
-        if let UpdateTarget::WebCompatCall(call) = target {
-            return self.lower_web_compat_call_assignment_target(call);
-        }
-        if let UpdateTarget::PropertyAccess(access) = target {
-            let read = self.lower_property_access(access);
-            let value_kind = if read
-                .possible_kinds
-                .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
-            {
-                ValueKind::BigInt
-            } else {
-                ValueKind::Number
-            };
-            let (op, return_mode) = match op {
-                UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
-                UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
-                UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
-                UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
-            };
-            let (target, key) = match read.expr {
-                ExprIr::PropertyRead { target, key } => (target, key),
-                ExprIr::SpecOperation {
-                    operation: SpecOperationIr::Get | SpecOperationIr::GetV,
-                    mut operands,
-                } if operands.len() == 2 => {
-                    let property_key = operands.pop().expect("GetV property key operand");
-                    let target = operands.pop().expect("GetV target operand");
-                    let key = match property_key.expr {
-                        ExprIr::String(key) if property_key.kind == ValueKind::String => {
-                            PropertyKeyIr::StaticString(key)
-                        }
-                        _ if property_key.possible_kinds.is_subset_of(
-                            KindSet::from_kind(ValueKind::String)
-                                .union(KindSet::from_kind(ValueKind::Symbol)),
-                        ) =>
-                        {
-                            PropertyKeyIr::StringExpr(Box::new(property_key))
-                        }
-                        _ => return self.unsupported_expr("property update key"),
-                    };
-                    (Box::new(target), key)
-                }
-                _ => return self.unsupported_expr("property update target"),
-            };
-            return TypedExpr::from_info(
+    /// 13.4 `++`/`--` on a property Reference.
+    ///
+    /// Extracted from `lower_update` so that function can match `UpdateTarget`
+    /// exhaustively; the body is unchanged.
+    fn lower_property_access_update(&mut self, op: UpdateOp, access: &PropertyAccess) -> TypedExpr {
+        let read = self.lower_property_access(access);
+        let value_kind = if read
+            .possible_kinds
+            .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
+        {
+            ValueKind::BigInt
+        } else {
+            ValueKind::Number
+        };
+        let (op, return_mode) = match op {
+            UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
+            UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
+            UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
+            UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+        };
+        // 13.4: `++`/`--` evaluate the UnaryExpression once and PutValue
+        // through the Reference that evaluation produced. Recovering that
+        // Reference is the same total function the compound-assignment
+        // path uses. The two nested catch-alls this replaces matched 2 of
+        // the 77 `ExprIr` shapes and silently downgraded everything else —
+        // `super.x++`, `#priv++`, and every read the lowering had
+        // specialised — to `unsupported_expr`, with no compile error to
+        // say so.
+        let base = match reference_base_of_lowered_read(read.expr) {
+            Ok(base) => base,
+            Err(unsupported) => return self.unsupported_expr(unsupported.feature()),
+        };
+        let strictness = self.reference_strictness();
+        match base {
+            ReferenceBase::Property { target, key } => TypedExpr::from_info(
                 ValueInfo::new(value_kind),
                 ExprIr::PropertyUpdate {
-                    target,
+                    target: Box::new(target),
                     key,
                     op,
                     return_mode,
                     value_kind,
+                    strictness,
                 },
-            );
+            ),
+            ReferenceBase::Global { name } => TypedExpr::from_info(
+                ValueInfo::new(value_kind),
+                ExprIr::GlobalPropertyUpdate {
+                    name,
+                    op,
+                    return_mode,
+                    value_kind,
+                    strictness,
+                },
+            ),
+            // There is no `PrivateUpdate` or `SuperPropertyUpdate` IR node
+            // yet, so these two still have no lowering. They are named
+            // here rather than swallowed by a `_` arm, so that adding one
+            // is a deliberate edit at this site.
+            ReferenceBase::Private { .. } => self.unsupported_expr("private field update target"),
+            ReferenceBase::Super { .. } => self.unsupported_expr("super property update target"),
         }
-        let UpdateTarget::Identifier(identifier) = target else {
-            return self.unsupported_expr("non-identifier update target");
+    }
+
+    fn lower_update(&mut self, op: UpdateOp, target: &UpdateTarget) -> TypedExpr {
+        // `UpdateTarget` is a closed 3-variant boa enum
+        // (`boa_ast-0.21.1/src/expression/operator/update/mod.rs:129`).
+        // Matched exhaustively rather than as two `if let`s and a
+        // `let ... else`, so a fourth production that yields a Reference is
+        // `error[E0004]` here instead of a silent `unsupported_expr`. That is
+        // invariant I7's AST half for update expressions.
+        let identifier = match target {
+            // Annex B `f()++` is a runtime ReferenceError, not a compiler gap.
+            UpdateTarget::WebCompatCall(call) => {
+                return self.lower_web_compat_call_assignment_target(call)
+            }
+            UpdateTarget::PropertyAccess(access) => {
+                return self.lower_property_access_update(op, access)
+            }
+            UpdateTarget::Identifier(identifier) => identifier,
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        // 13.4.4 / 13.4.5 UpdateExpression: GetValue then PutValue, so
+        // 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 both apply. `x++` on an
+        // uninitialized binding used to read the slot.
+        match self.resolve_binding_reference(&name) {
+            BindingResolution::Uninitialized(violation) => return violation.into_throw(),
+            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
+        }
         let (binding_storage_name, update_kind) = if let Some(binding) = self.lookup_binding(&name)
         {
             if binding.mode == BindingMode::Const {
-                return self.unsupported_expr("update of const binding");
+                // 13.4.4.1 (and 13.4.5.1 / the prefix forms) run
+                //   1. expr = evaluate the UnaryExpression
+                //   2. oldValue = ToNumeric(GetValue(expr))
+                //   3. newValue = the numeric op on oldValue
+                //   4. PutValue(expr, newValue)
+                // — so the ToNumeric of step 2 happens *before* the PutValue of
+                // step 4 fails, and it can throw first. `const s = Symbol();
+                // s++` must report ToNumeric's TypeError, not the immutability
+                // one, and `const o = { valueOf() { log(); return 1; } }; o++`
+                // must call `valueOf`. That is why the operand handed to
+                // `immutable_binding_write` is the coercion and not the bare
+                // read. Step 3 is unobservable once step 4 always throws.
+                let old_value = TypedExpr::spec_to_numeric(TypedExpr::from_info(
+                    ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    },
+                    ExprIr::Identifier(binding.storage_name.clone()),
+                ));
+                return self.immutable_binding_write(&binding.storage_name, old_value);
             }
             let update_kind = if binding
                 .possible_kinds
@@ -32797,6 +34006,7 @@ impl<'a> ScriptLowerer<'a> {
             UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
         };
 
+        let strictness = self.reference_strictness();
         TypedExpr::from_info(
             ValueInfo::new(update_kind),
             if let Some(storage_name) = binding_storage_name {
@@ -32812,6 +34022,7 @@ impl<'a> ScriptLowerer<'a> {
                     op,
                     return_mode,
                     value_kind: update_kind,
+                    strictness,
                 }
             },
         )
@@ -33810,20 +35021,34 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let order: &[&str] = match hint {
-            ToPrimitiveHint::String => &["Symbol.toPrimitive", "toString", "valueOf"],
-            ToPrimitiveHint::Default | ToPrimitiveHint::Number => {
-                &["Symbol.toPrimitive", "valueOf", "toString"]
-            }
+        // 7.1.1 ToPrimitive step 2 looks up `@@toPrimitive` first, then
+        // OrdinaryToPrimitive tries the two ordinary method names in a
+        // hint-dependent order. The *order* is the spec obligation and the
+        // *kinds* differ, so the list is typed rather than three bare strings.
+        let order: &[ToPrimitiveLookupKey; 3] = match hint {
+            ToPrimitiveHint::String => &[
+                ToPrimitiveLookupKey::Symbol(WellKnownSymbol::ToPrimitive),
+                ToPrimitiveLookupKey::Method("toString"),
+                ToPrimitiveLookupKey::Method("valueOf"),
+            ],
+            ToPrimitiveHint::Default | ToPrimitiveHint::Number => &[
+                ToPrimitiveLookupKey::Symbol(WellKnownSymbol::ToPrimitive),
+                ToPrimitiveLookupKey::Method("valueOf"),
+                ToPrimitiveLookupKey::Method("toString"),
+            ],
         };
         for key in order {
-            // `Symbol.toPrimitive` is a symbol key: object literals record it in
-            // the symbol namespace, while the intrinsic wrapper shapes still use
-            // the bare name. Accept either spelling.
-            let entry = shape
-                .properties
-                .get(&Self::symbol_shape_property_name(key))
-                .or_else(|| shape.properties.get(*key));
+            let entry = match key {
+                // A symbol key has two spellings in the shape maps: object
+                // literals record it under the symbol namespace, while the
+                // intrinsic wrapper shapes still use the bare description.
+                // Accept either.
+                ToPrimitiveLookupKey::Symbol(symbol) => shape
+                    .properties
+                    .get(&shape_namespace_key(*symbol))
+                    .or_else(|| shape.properties.get(symbol.description())),
+                ToPrimitiveLookupKey::Method(name) => shape.properties.get(*name),
+            };
             let Some(ObjectShapeProperty::Data(info)) = entry else {
                 continue;
             };
@@ -33907,9 +35132,12 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 Some(self.interner.resolve_expect(*sym).to_string())
             }
-            Expression::PropertyAccess(PropertyAccess::Simple(_)) => {
-                self.try_well_known_symbol_key_name(expr)
-            }
+            // A well-known symbol is not a string key, but this compiler encodes
+            // its value as its [[Description]]; `lower_static_property_key` is
+            // what re-separates the two, via `is_symbol_description`.
+            Expression::PropertyAccess(PropertyAccess::Simple(_)) => self
+                .try_well_known_symbol_key_name(expr)
+                .map(|symbol| symbol.description().to_string()),
             _ => None,
         }
     }
@@ -33926,7 +35154,118 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn try_well_known_symbol_key_name(&self, expr: &Expression) -> Option<String> {
+    /// Whether `target_name` names the real builtin `Symbol` intrinsic here.
+    ///
+    /// An active `with` scope, a shadowing lexical binding, or a global that is
+    /// not provably the builtin all make `Symbol.iterator` mean something this
+    /// compiler must not resolve statically. Both well-known-symbol paths ask
+    /// exactly this question; before this helper existed they asked it with two
+    /// byte-identical inline copies of the four clauses, ~5,700 lines apart.
+    fn expression_is_builtin_symbol_intrinsic(&self, target_name: &str) -> bool {
+        target_name == SYMBOL_NAME && self.identifier_resolves_to_builtin_global(target_name)
+    }
+
+    /// ResolveBinding (9.1.1) for a name a constant fold wants to treat as a
+    /// **builtin global**: true only when nothing shadows it.
+    ///
+    /// The four clauses are the ones the two intrinsic guards below and above
+    /// already spelled inline, lifted so there is one of them:
+    ///
+    /// 1. no active `with` object, whose binding object could supply the name
+    ///    at run time (14.11.2);
+    /// 2. no Environment Record in the chain binds it — 9.1.1 resolves against
+    ///    the environment *before* the global object, so a parameter, `let`,
+    ///    `const`, `var` or catch parameter named `Infinity` wins;
+    /// 3. the global property is proven present, and
+    /// 4. it is still the *builtin* one, not something a `GlobalWrite` replaced.
+    ///
+    /// Testing a fold's precondition by **spelling alone** has already shipped
+    /// wrong answers here three times: the two recorded on
+    /// `identifier_is_builtin_native_error`, and a third at the
+    /// `Number.prototype.toPrecision` fold, where the new 21.1.3.5 step 5
+    /// RangeError arm turned `function f(){ let Infinity = 5; return
+    /// (1.5).toPrecision(Infinity); }` from a correct runtime answer into an
+    /// emitted `RangeError` throw. Any new resolver that maps an identifier
+    /// spelling to a value must call this.
+    fn identifier_resolves_to_builtin_global(&self, name: &str) -> bool {
+        self.active_with_objects.is_empty()
+            && self.lookup_binding(name).is_none()
+            && self
+                .lookup_global_property_info(name)
+                .is_some_and(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                })
+    }
+
+    /// The value of `Infinity`, `NaN` or `undefined` **when the identifier
+    /// really is the builtin global** (ECMA-262 19.1.1, 19.1.2, 19.1.3), and
+    /// `None` for every other spelling and for a shadowed one.
+    ///
+    /// `undefined` maps to `NaN` because every caller is inside a `ToNumber`
+    /// (7.1.4 table row `Undefined` → `NaN`); a site that needs to know the
+    /// value *was* `undefined` asks [`Self::is_static_undefined_expr`], which
+    /// carries the same guard.
+    fn static_global_number_identifier(&self, name: &str) -> Option<f64> {
+        let value = match name {
+            "Infinity" => f64::INFINITY,
+            "NaN" | "undefined" => f64::NAN,
+            _ => return None,
+        };
+        self.identifier_resolves_to_builtin_global(name)
+            .then_some(value)
+    }
+
+    /// The native-error intrinsic `name` denotes, **if** the identifier really
+    /// resolves to the builtin.
+    ///
+    /// `NativeErrorKind::from_str(name).is_some()` tests the *spelling* of an
+    /// identifier and nothing else, but 9.1.1 resolves a name against the
+    /// environment before the global object, so a parameter named `TypeError`
+    /// shadows it. Two constant-folds keyed off the bare spelling and gave
+    /// silent wrong answers:
+    ///
+    /// - `function f(TypeError) { for (const k in TypeError) return k; } f({a:1})`
+    ///   elided the loop and answered `undefined` instead of `"a"`;
+    /// - `function g(RangeError) { return RangeError.propertyIsEnumerable("prototype"); }`
+    ///   folded to `false` whatever the argument was.
+    ///
+    /// Neither was introduced by the `NativeErrorKind` retrofit — the nine-arm
+    /// `matches!` it replaced was equally unguarded — but the retrofit is where
+    /// the asymmetry with `expression_is_builtin_symbol_intrinsic` above became
+    /// visible, and the guard is the same four clauses.
+    fn identifier_is_builtin_native_error(&self, name: &str) -> Option<NativeErrorKind> {
+        let kind = NativeErrorKind::from_str(name)?;
+        self.identifier_resolves_to_builtin_global(name)
+            .then_some(kind)
+    }
+
+    /// Whether a `receiver[@@match]`-shaped call may be typed as
+    /// `RegExp.prototype`'s.
+    ///
+    /// Conservative in the direction that matters. `true` when the receiver
+    /// carries the RegExp prototype shape (a literal or a `RegExpConstructor`
+    /// result), and `true` when nothing is known about its shape — that is the
+    /// pre-existing inference, and the emitter dispatches dynamically anyway.
+    /// `false` for any other *known* shape, which is what an object literal with
+    /// its own `[Symbol.match]` has.
+    fn receiver_shape_allows_regexp_symbol_protocol(receiver: &TypedExpr) -> bool {
+        Self::has_regexp_prototype_shape(receiver) || receiver.heap_shape.is_none()
+    }
+
+    fn has_regexp_prototype_shape(target: &TypedExpr) -> bool {
+        target.heap_shape.as_deref() == Some(Self::regexp_prototype_shape().as_ref())
+    }
+
+    /// The well-known symbol `expr` denotes, if it is a static `Symbol.x` read
+    /// of the real intrinsic.
+    ///
+    /// This is the only parse of a well-known symbol out of source text.
+    /// `WellKnownSymbol::from_member_name` replaced the fifteen-element
+    /// `matches!` whitelist that used to live here, and the identical one that
+    /// used to live in `lower_property_access`; returning the enum rather than
+    /// an `Option<String>` is what makes a consumer that compares against a
+    /// misspelling `error[E0599]` instead of a silently dead fast path.
+    fn try_well_known_symbol_key_name(&self, expr: &Expression) -> Option<WellKnownSymbol> {
         let Expression::PropertyAccess(PropertyAccess::Simple(access)) = expr else {
             return None;
         };
@@ -33934,42 +35273,14 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         let target_name = self.interner.resolve_expect(identifier.sym()).to_string();
-        if target_name != "Symbol"
-            || !self.active_with_objects.is_empty()
-            || self.lookup_binding(&target_name).is_some()
-            || !self
-                .lookup_global_property_info(&target_name)
-                .is_some_and(|property| {
-                    property.proven_present && property.source == GlobalPropertySource::Builtin
-                })
-        {
+        if !self.expression_is_builtin_symbol_intrinsic(&target_name) {
             return None;
         }
         let PropertyAccessField::Const(name) = access.field() else {
             return None;
         };
-        let symbol_name = self.interner.resolve_expect(name.sym()).to_string();
-        if !matches!(
-            symbol_name.as_str(),
-            "asyncDispose"
-                | "asyncIterator"
-                | "dispose"
-                | "hasInstance"
-                | "species"
-                | "isConcatSpreadable"
-                | "iterator"
-                | "match"
-                | "matchAll"
-                | "replace"
-                | "search"
-                | "split"
-                | "toStringTag"
-                | "toPrimitive"
-                | "unscopables"
-        ) {
-            return None;
-        }
-        Some(format!("Symbol.{symbol_name}"))
+        let member_name = self.interner.resolve_expect(name.sym()).to_string();
+        WellKnownSymbol::from_member_name(SymbolMemberName::new(&member_name))
     }
 
     fn static_parse_float_arg(&self, arg: Option<&Expression>) -> Option<f64> {
@@ -34208,16 +35519,11 @@ impl<'a> ScriptLowerer<'a> {
                 _ => None,
             },
             Expression::Identifier(identifier) => {
-                match self
-                    .interner
-                    .resolve_expect(identifier.sym())
-                    .to_string()
-                    .as_str()
-                {
-                    "Infinity" => Some(f64::INFINITY),
-                    "NaN" | "undefined" => Some(f64::NAN),
-                    _ => None,
-                }
+                // 9.1.1 resolves the name against the environment first, so the
+                // spelling alone is not enough — see
+                // `static_global_number_identifier`.
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                self.static_global_number_identifier(&name)
             }
             Expression::Unary(unary) => match unary.op() {
                 UnaryOp::Plus => self.static_to_number_expr(unary.target()),
@@ -34369,14 +35675,12 @@ impl<'a> ScriptLowerer<'a> {
         }
         match receiver {
             Expression::Identifier(identifier) => {
-                match self
-                    .interner
-                    .resolve_expect(identifier.sym())
-                    .to_string()
-                    .as_str()
-                {
-                    "Infinity" => Some(f64::INFINITY),
-                    "NaN" => Some(f64::NAN),
+                // Same guard as `static_to_number_expr`: `undefined` is not a
+                // receiver this fold accepts, but `Infinity` and `NaN` are, and
+                // both can be shadowed.
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                match name.as_str() {
+                    "Infinity" | "NaN" => self.static_global_number_identifier(&name),
                     _ => None,
                 }
             }
@@ -34438,95 +35742,153 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    /// The folded form of a 21.1.3.x RangeError.
+    ///
+    /// One builder, three call sites, so the `ExprIr::RuntimeThrow` shape
+    /// cannot drift between the clauses. The message is no longer a literal any
+    /// of the three arms spells: it is carried out of the fold as
+    /// `NumberFormatFold::RangeError(<C as NumberFormatClause>::RANGE_ERROR)`,
+    /// so a clause cannot be given another clause's text.
+    fn static_number_format_range_error(message: &'static str) -> TypedExpr {
+        TypedExpr::from_info(
+            ValueInfo::undefined(),
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::RangeError,
+                message,
+            },
+        )
+    }
+
+    /// 21.1.3.2 `Number.prototype.toExponential ( fractionDigits )`, folded.
+    ///
+    /// The clause's ordering — step 4 (non-finite receiver) before step 5 (the
+    /// range check) — is named once, as `NonFiniteReceiverOrder::ReceiverFirst`,
+    /// instead of being an emergent property of a guard at the dispatch site.
     fn static_number_to_exponential_call(
         &self,
         receiver: &Expression,
         args: &[Expression],
-    ) -> Option<String> {
+    ) -> NumberFormatFold {
         if args.len() > 1 {
-            return None;
+            return NumberFormatFold::NotStatic;
         }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
-        let fraction_digits = match args.first() {
-            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                Some(self.static_to_integer_or_zero_expr(arg)?)
-            }
-            _ => None,
+        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
+            return NumberFormatFold::NotStatic;
         };
-        if let Some(fraction_digits) = fraction_digits {
-            if !(0..=100).contains(&fraction_digits) {
-                return None;
+        // 21.1.3.2 step 12.a distinguishes `fractionDigits === undefined` from
+        // `f === 0`, so the `Option` inside the `RangeChecked` is spec-shaped
+        // and not a convenience.
+        let digits = match args.first() {
+            Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
+                let Some(f) = self.static_to_integer_or_infinity_expr(arg) else {
+                    return NumberFormatFold::NotStatic;
+                };
+                f.fraction_digits().map(Some)
             }
-        }
-        Self::static_number_to_exponential(value, fraction_digits.map(|value| value as usize))
+            _ => RangeChecked::InBounds(None),
+        };
+        fold_number_format::<ToExponential>(
+            value,
+            digits,
+            Self::js_number_to_string,
+            |value, digits: Option<FractionDigits>| {
+                Self::static_number_to_exponential(value, digits.map(FractionDigits::as_usize))
+            },
+        )
     }
 
+    /// 21.1.3.3 `Number.prototype.toFixed ( fractionDigits )`, folded.
+    ///
+    /// Steps 4–5 (the range check) precede step 6 (the non-finite receiver
+    /// return), which is why `Infinity.toFixed(101)` is a **RangeError** and
+    /// `Infinity.toExponential(101)` is `"Infinity"`. The two clauses differ
+    /// here and the difference is observable; that is the whole reason
+    /// `NonFiniteReceiverOrder` is a required argument.
     fn static_number_to_fixed_call(
         &self,
         receiver: &Expression,
         args: &[Expression],
-    ) -> Option<String> {
+    ) -> NumberFormatFold {
         if args.len() > 1 {
-            return None;
+            return NumberFormatFold::NotStatic;
         }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
-        let fraction_digits = match args.first() {
+        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
+            return NumberFormatFold::NotStatic;
+        };
+        let digits = match args.first() {
             Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                self.static_to_integer_or_zero_expr(arg)?
+                let Some(f) = self.static_to_integer_or_infinity_expr(arg) else {
+                    return NumberFormatFold::NotStatic;
+                };
+                f.fraction_digits()
             }
-            _ => 0,
+            // Step 3: `fractionDigits` undefined ⇒ `f` is 0.
+            _ => RangeChecked::InBounds(FractionDigits::ZERO),
         };
-        if !(0..=100).contains(&fraction_digits) {
-            return None;
-        }
-        Self::static_number_to_fixed(value, fraction_digits as usize)
+        fold_number_format::<ToFixed>(
+            value,
+            digits,
+            Self::js_number_to_string,
+            |value, digits: FractionDigits| Self::static_number_to_fixed(value, digits.as_usize()),
+        )
     }
 
-    fn static_number_fraction_digits_is_invalid(&self, args: &[Expression]) -> bool {
-        if args.len() != 1 {
-            return false;
-        }
-        let digits = Self::unwrap_parenthesized_expr(&args[0]);
-        if self.is_static_undefined_expr(digits) {
-            return false;
-        }
-        let Some(value) = self.static_to_number_like_expr(digits) else {
-            return false;
-        };
-        if value.is_nan() {
-            return false;
-        }
-        if !value.is_finite() {
-            return true;
-        }
-        let integer = value.trunc();
-        !(0.0..=100.0).contains(&integer)
-    }
-
+    /// 21.1.3.5 `Number.prototype.toPrecision ( precision )`, folded.
+    ///
+    /// The accepted interval here is `[1, 100]`, not `[0, 100]`, which is why
+    /// this calls `precision()` and gets a [`Precision`] rather than calling
+    /// `fraction_digits()` and getting a [`FractionDigits`]. The deleted
+    /// `static_number_fraction_digits_is_invalid` hard-coded `[0, 100]` and was
+    /// therefore never callable here: doing so would have made
+    /// `(1.5).toPrecision(0)` fold instead of throw.
     fn static_number_to_precision_call(
         &self,
         receiver: &Expression,
         args: &[Expression],
-    ) -> Option<String> {
+    ) -> NumberFormatFold {
         if args.len() > 1 {
-            return None;
+            return NumberFormatFold::NotStatic;
         }
-        let value = self.static_number_to_string_receiver_value(receiver)?;
+        let Some(value) = self.static_number_to_string_receiver_value(receiver) else {
+            return NumberFormatFold::NotStatic;
+        };
         let precision = match args.first() {
             Some(arg) if !self.is_static_undefined_expr(Self::unwrap_parenthesized_expr(arg)) => {
-                self.static_to_integer_or_zero_expr(arg)?
+                let Some(p) = self.static_to_integer_or_infinity_expr(arg) else {
+                    return NumberFormatFold::NotStatic;
+                };
+                p.precision()
             }
-            _ => return Some(Self::js_number_to_string(value)),
+            // Step 2: `precision` undefined returns `! ToString(x)` *before*
+            // step 3's coercion, so `undefined` never reaches 7.1.5 here.
+            _ => return NumberFormatFold::Formatted(Self::js_number_to_string(value)),
         };
-        Self::static_number_to_precision(value, precision)
+        fold_number_format::<ToPrecision>(
+            value,
+            precision,
+            Self::js_number_to_string,
+            |value, precision: Precision| Self::static_number_to_precision(value, precision.get()),
+        )
     }
 
-    fn static_to_integer_or_zero_expr(&self, expr: &Expression) -> Option<i32> {
-        let value = self.static_to_number_like_expr(expr)?;
-        if !value.is_finite() || value == 0.0 || value.is_nan() {
-            return Some(0);
-        }
-        Some(value.trunc() as i32)
+    /// 7.1.5 ToIntegerOrInfinity over a statically-known argument.
+    ///
+    /// The `Option` means "not statically decidable", which is this compiler's
+    /// business; 7.1.5 itself is **total**, so the payload is an
+    /// [`IntegerOrInfinity`] and not an `Option<IntegerOrInfinity>` on the
+    /// inside.
+    ///
+    /// This replaces `static_to_integer_or_zero_expr`, which had three defects
+    /// in six lines and all three are now unrepresentable: its `Option<i32>`
+    /// codomain could not hold `±∞`; it tested `!value.is_finite()` *before*
+    /// distinguishing the two infinities, collapsing both onto `Some(0)`; and
+    /// its `value.trunc() as i32` saturated, turning `truncate(1e300)` into
+    /// `i32::MAX` — the same mechanism as the backend defect where a
+    /// saturating truncation precedes 5.2.5's modulo.
+    fn static_to_integer_or_infinity_expr(&self, expr: &Expression) -> Option<IntegerOrInfinity> {
+        Some(IntegerOrInfinity::of_number(
+            self.static_to_number_like_expr(expr)?,
+        ))
     }
 
     fn static_to_number_like_expr(&self, expr: &Expression) -> Option<f64> {
@@ -34549,14 +35911,16 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn static_number_to_exponential(value: f64, fraction_digits: Option<usize>) -> Option<String> {
-        if value == f64::INFINITY {
-            return Some("Infinity".to_string());
-        }
-        if value == f64::NEG_INFINITY {
-            return Some("-Infinity".to_string());
-        }
-        if value.is_finite() && value.fract() == 0.0 && value.abs() > 0.0 && value.abs() < 10.0 {
+    /// 21.1.3.2 steps 6 onward. Step 4's non-finite return is discharged by
+    /// [`FiniteReceiver`]: the `±Infinity` arms this used to open with were
+    /// unreachable once `fold_number_format` owned the ordering, and are now
+    /// unwritable as well.
+    fn static_number_to_exponential(
+        value: FiniteReceiver,
+        fraction_digits: Option<usize>,
+    ) -> Option<String> {
+        let value = value.get();
+        if value.fract() == 0.0 && value.abs() > 0.0 && value.abs() < 10.0 {
             if let Some(fraction_digits) = fraction_digits {
                 let sign = if value.is_sign_negative() { "-" } else { "" };
                 let digit = value.abs() as u64;
@@ -34646,11 +36010,14 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
-    fn static_number_to_fixed(value: f64, fraction_digits: usize) -> Option<String> {
-        if value.is_nan() {
-            return Some("NaN".to_string());
-        }
-        if value != 0.0 && value.is_finite() && value.fract() == 0.0 && value.abs() < 1e21 {
+    /// 21.1.3.3 steps 7 onward. Step 6's non-finite return is discharged by
+    /// [`FiniteReceiver`], so the `NaN` arm this used to open with is gone —
+    /// and this is the clause where that matters most: `ToFixed`'s
+    /// `RangeCheckFirst` ordering means a `NaN` arm here would answer `"NaN"`
+    /// for `NaN.toFixed(101)`, where 21.1.3.3 steps 4–5 require a RangeError.
+    fn static_number_to_fixed(value: FiniteReceiver, fraction_digits: usize) -> Option<String> {
+        let value = value.get();
+        if value != 0.0 && value.fract() == 0.0 && value.abs() < 1e21 {
             let sign = if value.is_sign_negative() { "-" } else { "" };
             let integer = value.abs() as u64;
             return Some(if fraction_digits == 0 {
@@ -34676,16 +36043,24 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
-    fn static_number_to_precision(value: f64, precision: i32) -> Option<String> {
-        if !(1..=100).contains(&precision) {
-            return None;
-        }
-        if value == f64::INFINITY {
-            return Some("Infinity".to_string());
-        }
-        if value == f64::NEG_INFINITY {
-            return Some("-Infinity".to_string());
-        }
+    /// 21.1.3.5 steps 6 onward.
+    fn static_number_to_precision(value: FiniteReceiver, precision: u8) -> Option<String> {
+        // 21.1.3.5 step 5 (`p < 1 or p > 100`) is discharged by `Precision`'s
+        // one constructor before this is reached, and step 4's non-finite
+        // receiver return is discharged by [`FiniteReceiver`], whose only
+        // producer is the branch of `fold_number_format` that has already
+        // applied `NonFiniteReceiverOrder::ReceiverFirst`.
+        // Ledger **LN3**: `precision` is still a primitive because the rest of
+        // this body is outside this area's owned region, so the lower bound is
+        // re-stated here as an assertion rather than re-tested as a branch.
+        //
+        // The former `!(1..=100).contains(&precision)` guard also *preceded*
+        // the `±Infinity` arms this function used to open with, inverting
+        // 21.1.3.5 steps 4 and 5. Those arms are deleted (follow-up F5 of
+        // `target/lane-notes/numeric-conversion-codomains-theory-integration.md`)
+        // and `FiniteReceiver` is what stops them being written again.
+        debug_assert!((1..=100).contains(&precision));
+        let value = value.get();
         if value == 0.0 {
             return Some(if precision <= 1 {
                 "0".to_string()
@@ -34693,7 +36068,7 @@ impl<'a> ScriptLowerer<'a> {
                 format!("0.{}", "0".repeat(precision as usize - 1))
             });
         }
-        if value.is_finite() && value.fract() == 0.0 && value.abs() >= 1.0 && value.abs() < 1e21 {
+        if value.fract() == 0.0 && value.abs() >= 1.0 && value.abs() < 1e21 {
             let sign = if value.is_sign_negative() { "-" } else { "" };
             let integer = value.abs() as u64;
             let digits = integer.to_string();
@@ -34772,11 +36147,19 @@ impl<'a> ScriptLowerer<'a> {
         })
     }
 
+    /// Whether `expr` is statically the `undefined` value.
+    ///
+    /// The identifier arm carries the same 9.1.1 guard as
+    /// [`Self::static_global_number_identifier`]: `function f(undefined) {
+    /// return (1.5).toFixed(undefined); }` binds `undefined` as a parameter, so
+    /// the spelling does not denote 19.1.3's global property and 21.1.3.3
+    /// step 2 must not take the "`fractionDigits` is undefined" branch.
     fn is_static_undefined_expr(&self, expr: &Expression) -> bool {
         match Self::unwrap_parenthesized_expr(expr) {
             Expression::Literal(literal) => matches!(literal.kind(), LiteralKind::Undefined),
             Expression::Identifier(identifier) => {
-                self.interner.resolve_expect(identifier.sym()).to_string() == "undefined"
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                name == "undefined" && self.identifier_resolves_to_builtin_global(&name)
             }
             _ => false,
         }
@@ -35083,19 +36466,33 @@ impl<'a> ScriptLowerer<'a> {
         }
         if key_is_symbol {
             if let ExprIr::String(symbol_name) = &key.expr {
-                if !symbol_name.starts_with("Symbol.") {
+                // Ledger entry R2, runtime half: a `ValueKind::Symbol` string is
+                // only ever produced by this compiler inside the symbol-value
+                // namespace. The namespace is open, so this cannot be a type;
+                // the three measured producers all emit a Table 1 description.
+                debug_assert!(
+                    is_symbol_description(symbol_name),
+                    "ValueKind::Symbol string outside the symbol-value namespace: {symbol_name}"
+                );
+                // Anything outside the fifteen — including a description this
+                // compiler never produces — takes the conservative branch that
+                // discards everything recorded for this intrinsic, which is
+                // strictly weaker inference and never a wrong answer.
+                let Some(symbol) =
+                    WellKnownSymbol::from_description(SymbolDescription::new(symbol_name))
+                else {
                     self.well_known_symbol_prototype_properties
                         .retain(|(constructor_name, _), _| constructor_name != &root);
                     return true;
-                }
+                };
                 match value {
                     Some(value) => {
                         self.well_known_symbol_prototype_properties
-                            .insert((root, symbol_name.clone()), value.clone());
+                            .insert((root, symbol), value.clone());
                     }
                     None => {
                         self.well_known_symbol_prototype_properties
-                            .remove(&(root, symbol_name.clone()));
+                            .remove(&(root, symbol));
                     }
                 }
                 return true;
@@ -35493,10 +36890,12 @@ impl<'a> ScriptLowerer<'a> {
                 _ => None,
             },
             Expression::Identifier(identifier) => {
+                // Ledger row **LN5**'s original site. `let Infinity = 5;
+                // Math.clz32(Infinity)` folded against the builtin's value here
+                // because the test was on the spelling alone.
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 match name.as_str() {
-                    "NaN" => Some(f64::NAN),
-                    "Infinity" => Some(f64::INFINITY),
+                    "NaN" | "Infinity" => self.static_global_number_identifier(&name),
                     _ => None,
                 }
             }
@@ -35893,8 +37292,8 @@ impl<'a> ScriptLowerer<'a> {
         for property in object.properties() {
             match property {
                 PropertyDefinition::Property(PropertyName::Computed(expr), value)
-                    if self.try_well_known_symbol_key_name(expr).as_deref()
-                        == Some("Symbol.iterator") =>
+                    if self.try_well_known_symbol_key_name(expr)
+                        == Some(WellKnownSymbol::Iterator) =>
                 {
                     if !self.is_static_undefined_expr(value)
                         && !matches!(
@@ -36098,7 +37497,7 @@ impl<'a> ScriptLowerer<'a> {
         let PropertyAccessField::Expr(field_expr) = field else {
             return None;
         };
-        if self.try_well_known_symbol_key_name(field_expr).as_deref() != Some("Symbol.iterator") {
+        if self.try_well_known_symbol_key_name(field_expr) != Some(WellKnownSymbol::Iterator) {
             return None;
         }
         let target_name = self.static_target_identifier_name(target)?;
@@ -36177,13 +37576,16 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// 21.3.2.11 `Math.clz32 ( x )` steps 1–3.
+    ///
+    /// The early `!is_finite() || == 0.0` guard is gone, and its absence is the
+    /// point: 7.1.7 step 2 already sends NaN, `±0` and `±∞` to `+0𝔽`, and
+    /// `0u32.leading_zeros()` is 32, so the guard was a restatement of the
+    /// codomain rather than a substitute for it. The hand-rolled
+    /// `trunc().rem_euclid(4294967296.0)` is likewise gone: 5.2.5's residue is
+    /// stated once, in [`Uint32::of_number`].
     fn static_clz32(value: f64) -> f64 {
-        if !value.is_finite() || value == 0.0 {
-            return 32.0;
-        }
-        let truncated = value.trunc();
-        let modulo = truncated.rem_euclid(4294967296.0) as u32;
-        modulo.leading_zeros() as f64
+        f64::from(Uint32::of_number(value).leading_zeros())
     }
 
     fn static_round(value: f64) -> f64 {
@@ -36697,7 +38099,33 @@ impl<'a> ScriptLowerer<'a> {
                     _ => None,
                 };
                 if loop_key_name.as_deref() == Some(name) {
-                    return Some(ValueInfo::new(ValueKind::String));
+                    // A `for-in` loop variable is a String only if the loop body
+                    // runs at least once, and nothing here can prove that: the
+                    // head is an arbitrary expression this pre-pass never
+                    // evaluates, `{}` has no enumerable keys, and a statically
+                    // nullish head takes 14.7.5.6 step 3.a's break completion and
+                    // assigns nothing at all. A hoisted `var` is `undefined` in
+                    // every one of those cases, so the honest static type is
+                    // `String | Undefined`.
+                    //
+                    // This also matches what the lowering pass itself concludes:
+                    // `lower_for_in_loop` merges the pre-loop bindings with the
+                    // post-body ones (`merge_var_bindings` / `merge_global_properties`),
+                    // which unions `Undefined` with `String`. Publishing a proven
+                    // `String` here made the seeded *global* disagree with the
+                    // merged *local* for the same source program, and the seed
+                    // won, because it is already in `before_globals` when the
+                    // merge runs. `for (var k in null) {} k + 1` then lowered to
+                    // a `StringConcat` and produced `"undefined1"` where the spec
+                    // requires `NaN`.
+                    let key_kinds = KindSet::from_kind(ValueKind::String)
+                        .union(KindSet::from_kind(ValueKind::Undefined));
+                    return Some(ValueInfo {
+                        kind: key_kinds.as_value_kind(),
+                        possible_kinds: key_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    });
                 }
                 self.infer_var_binding_info_from_statement(for_in.body(), name)
             }
@@ -36946,7 +38374,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn is_script_global_var_capture(&self, name: &str, capture: &CaptureBindingPlan) -> bool {
-        if Self::is_tdz_binding_storage_name(name) {
+        if TdzPlaceholderName::names_a_placeholder(name) {
             return false;
         }
         name == capture.source_name
@@ -37250,9 +38678,23 @@ impl<'a> ScriptLowerer<'a> {
                         possible_kinds: binding.possible_kinds,
                         heap_shape,
                         function_targets,
+                        initialization: Initialization::Initialized,
                     })
                 })
             })
+    }
+
+    /// ResolveBinding (9.1.2.1) followed by the 9.1.1.1.6 step 2 / 9.1.1.1.5
+    /// step 3 state test, for the seven sites that perform GetValue or PutValue
+    /// on an Environment Record Reference.
+    ///
+    /// `lookup_binding` stays as it is for the other call sites, which ask
+    /// metadata questions (`is_some`, `possible_kinds`, `storage_name` as a map
+    /// key) and must not be forced to decide what TDZ means for them. This is
+    /// the only accessor that answers the lifecycle question, and the only way
+    /// to obtain a [`TdzViolation`].
+    fn resolve_binding_reference(&self, name: &str) -> BindingResolution {
+        BindingResolution::of(self.lookup_binding(name))
     }
 
     fn set_binding_kind(&mut self, name: &str, kind: ValueKind) -> Option<()> {
@@ -37497,7 +38939,6 @@ impl<'a> ScriptLowerer<'a> {
     fn push_scope(&mut self) {
         self.scopes.push(BTreeMap::new());
         self.direct_lexical_scopes.push(false);
-        self.tdz_scopes.push(BTreeSet::new());
     }
 
     fn push_direct_lexical_scope(&mut self) {
@@ -37511,39 +38952,14 @@ impl<'a> ScriptLowerer<'a> {
     fn pop_scope(&mut self) {
         self.scopes.pop();
         self.direct_lexical_scopes.pop();
-        self.tdz_scopes.pop();
     }
 
-    fn mark_tdz_binding(&mut self, name: &str) {
-        self.tdz_scopes
-            .last_mut()
-            .expect("TDZ scope stack must match binding scope stack")
-            .insert(name.to_string());
-    }
-
-    fn clear_tdz_binding(&mut self, name: &str) {
-        self.tdz_scopes
-            .last_mut()
-            .expect("TDZ scope stack must match binding scope stack")
-            .remove(name);
-    }
-
-    fn is_tdz_binding(&self, name: &str) -> bool {
-        self.scopes
-            .iter()
-            .rev()
-            .zip(self.tdz_scopes.iter().rev())
-            .find_map(|(bindings, tdz_bindings)| {
-                if tdz_bindings.contains(name) {
-                    Some(true)
-                } else if bindings.contains_key(name) {
-                    Some(false)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false)
-    }
+    // `mark_tdz_binding`, `clear_tdz_binding` and `is_tdz_binding` lived here,
+    // over a `tdz_scopes: Vec<BTreeSet<String>>` that was zipped positionally
+    // against `scopes`. The state is now a field of the binding record itself
+    // (`BindingInfo::initialization`), so the two stacks cannot fall out of step
+    // — there is one stack, and a re-introduction of the second is
+    // `error[E0609] no field 'tdz_scopes' on type 'ScriptLowerer'`.
 
     fn unsupported_expr(&mut self, feature: &str) -> TypedExpr {
         self.unsupported_with_message(format!(

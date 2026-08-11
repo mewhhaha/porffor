@@ -12,6 +12,378 @@ fn is_canonical_array_index_name(name: &str) -> bool {
         .is_ok_and(|index| index <= MAX_ARRAY_LENGTH - 1)
 }
 
+/// The destination local pair of an `Iterator.prototype` helper fast path.
+///
+/// # The measured defect, corrected
+///
+/// The paragraph that used to sit here blamed callee *acquisition*
+/// (`emit_function_value_payload`) and it was wrong. Callee acquisition is
+/// never reached on the receiver that fails, because **no code is emitted for
+/// the call at all**.
+///
+/// `new S()`, for a class with heritage and no explicit constructor, is lowered
+/// with `kind = Undefined` and a nullish `possible_kinds`. So
+/// [`super::receiver_shape_targets_iterator_helper`] is false, the seven
+/// bare-guard blocks (`find`, `reduce`, `take`, `map`, `every`, `some`,
+/// `filter`) declined the call, and `emit_method_call`'s generic tail took its
+/// statically-nullish shortcut — release the temps, return `Ok(())`, emit
+/// nothing. `drop` and `flatMap` carry an extra `!receiver_is_array` disjunct
+/// and were dispatched properly, which is the entire reason those two were
+/// green on an otherwise identical fixture.
+///
+/// Measured, not argued: `porffor::main` for a script whose only statement is
+/// `new Source().flatMap(identity);` is 561,563 bytes, and for
+/// `new Source().some(identity);`, `.map(identity);` and `.find(identity);` it
+/// is 561,494 — the same number for all three, i.e. those three emit *nothing*
+/// and differ from each other by nothing.
+///
+/// Nothing here says the generic tail is unreachable or unused: it remains the
+/// right destination for primitive and dynamically-typed receivers and keeps
+/// them. What changed is where an object-or-nullish-typed receiver goes for
+/// these seven keys.
+///
+/// # What this type does and does not prove
+///
+/// It proves that a helper fast path handed its destination to
+/// [`super::Emitter::emit_iterator_prototype_helper_method_call`], which is the
+/// only function that consumes a [`MethodCallDestination`]. That is worth
+/// having — an eleventh helper block cannot be added that forgets the
+/// destination entirely.
+///
+/// It does **not** prove that a store was emitted, and it would not have caught
+/// the real defect at all: the seven broken blocks never constructed a
+/// destination, because they never called the emitter. A witness type can only
+/// constrain the paths that reach it, and "the arm silently declined to handle
+/// the call" is a path that does not. The assertion that closes *that* hole is
+/// an emitted-module one, and it lives in
+/// `crates/porffor-aot-wasm/tests/iterator_helper_dispatch.rs`.
+///
+/// It is also not yet an invariant over `emit_method_call` as a whole. That
+/// function still returns `Result<(), EmitError>` with ~50 other `return`
+/// paths, so an eleventh fast path that returns without storing remains
+/// writable. Making the claim real means threading a `MethodCallDestination`
+/// through `emit_method_call` itself — an internal
+/// `emit_method_call_into(.., destination) -> Result<DestinationWritten, _>`
+/// with the public wrapper constructing the destination, so `new` need not be
+/// visible outside this file. That is a ~50-site mechanical rewrite of a
+/// 1,400-line emitter function and `docs/rust-rewrite/batch-workflow.md`
+/// requires rung G (golden byte-diff) for any refactor of this crate, so it is
+/// left for a lane with build access. Note when doing it that a mechanical
+/// conversion mints a proof for every *existing* path: it constrains future
+/// code, it does not audit present code.
+///
+/// Constructor and witness are `pub(super)`, not `pub(crate)`: forging the
+/// proof with `MethodCallDestination::new(p, t).written()` is still one
+/// expression, but only from inside this file.
+mod method_call_destination {
+    /// The `(payload, tag)` locals a method call must store its result into.
+    /// Moved rather than copied so the receiving code path has to account for
+    /// it.
+    pub(super) struct MethodCallDestination {
+        payload_local: u32,
+        tag_local: u32,
+    }
+
+    /// Proof that stores into both locals of a [`MethodCallDestination`] have
+    /// been emitted on every path that **completes normally** out of the
+    /// emitter.
+    ///
+    /// The qualifier is load-bearing and was added when it stopped being
+    /// redundant. `emit_iterator_prototype_helper_method_call` now calls
+    /// `emit_propagate_throw_from_locals_if_needed` after compiling the
+    /// receiver, and that emits a branch-to-handler / `return` before either
+    /// destination local has been written (`control_flow.rs`). An abrupt exit
+    /// carries its value in `completion_local` / `result_local` instead, so the
+    /// destination pair is not read on that path — but "every path" would be a
+    /// false statement about the emitted code, and this type is the
+    /// compiler-enforced half of the batch's "the callee must write its
+    /// destination" invariant. It must not over-claim.
+    #[must_use]
+    pub(super) struct DestinationWritten(());
+
+    impl MethodCallDestination {
+        pub(super) fn new(payload_local: u32, tag_local: u32) -> Self {
+            Self {
+                payload_local,
+                tag_local,
+            }
+        }
+
+        pub(super) fn payload_local(&self) -> u32 {
+            self.payload_local
+        }
+
+        pub(super) fn tag_local(&self) -> u32 {
+            self.tag_local
+        }
+
+        /// Consume the destination, witnessing that the code just emitted
+        /// stores into both of its locals. Call this only immediately after
+        /// the instruction sequence that performs those stores.
+        pub(super) fn written(self) -> DestinationWritten {
+            DestinationWritten(())
+        }
+    }
+
+    impl DestinationWritten {
+        /// Discharge the proof into the `()` that `emit_method_call` and its
+        /// fast paths return.
+        pub(super) fn discharge(self) {}
+    }
+}
+
+use self::method_call_destination::{DestinationWritten, MethodCallDestination};
+
+/// The `Iterator.prototype` methods `emit_method_call` has a static-key fast
+/// path for.
+///
+/// `toArray` is deliberately absent: it has no fast path, reaches the generic
+/// tail, and is measured correct there. The generic tail is the oracle for all
+/// of these — a fast path may only be *faster*, never *different*.
+///
+/// Every helper's property name and builtin id live on this one enum, and both
+/// mappings are exhaustive `match`es with no `_` arm, so adding an eleventh
+/// helper is a compile error rather than a silently half-wired fast path. Ten
+/// hand-copied blocks of which nine were wrong and one was right is exactly the
+/// drifted-parallel-tables shape `AGENTS.md` warns about.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum IteratorHelper {
+    Map,
+    Filter,
+    FlatMap,
+    Take,
+    Drop,
+    Some,
+    Every,
+    Find,
+    Reduce,
+    ForEach,
+}
+
+impl IteratorHelper {
+    /// The builtin this helper's property resolves to. Used by the guard, so
+    /// the guard and the emission cannot name different builtins.
+    pub(crate) fn builtin(self) -> StandardBuiltinId {
+        match self {
+            Self::Map => StandardBuiltinId::IteratorPrototypeMap,
+            Self::Filter => StandardBuiltinId::IteratorPrototypeFilter,
+            Self::FlatMap => StandardBuiltinId::IteratorPrototypeFlatMap,
+            Self::Take => StandardBuiltinId::IteratorPrototypeTake,
+            Self::Drop => StandardBuiltinId::IteratorPrototypeDrop,
+            Self::Some => StandardBuiltinId::IteratorPrototypeSome,
+            Self::Every => StandardBuiltinId::IteratorPrototypeEvery,
+            Self::Find => StandardBuiltinId::IteratorPrototypeFind,
+            Self::Reduce => StandardBuiltinId::IteratorPrototypeReduce,
+            Self::ForEach => StandardBuiltinId::IteratorPrototypeForEach,
+        }
+    }
+
+    /// The property name read off the receiver. This is the same string the
+    /// guard passes to `read_static_heap_shape_property` and the same one
+    /// `intrinsics/iterator.rs` installs on `Iterator.prototype`; all eleven
+    /// are interned unconditionally by `StringPool::collect`
+    /// (`data.rs`), so `strings.payload` cannot miss.
+    ///
+    /// It is also what each helper block in `emit_method_call` matches its
+    /// `PropertyKeyIr::StaticString` against. That was a bare literal per block
+    /// until batch 6, which meant every block named its helper twice from two
+    /// independent sources — once as `"take"` in the guard and once as
+    /// `IteratorHelper::Take` in the emission — and batch 6 added a second
+    /// emission site to each of seven blocks, doubling the pairs that could
+    /// disagree. A disagreement compiles cleanly and silently dispatches the
+    /// wrong helper or none at all, which is precisely the defect class this
+    /// family has already shipped twice.
+    pub(crate) fn property_name(self) -> &'static str {
+        match self {
+            Self::Map => "map",
+            Self::Filter => "filter",
+            Self::FlatMap => "flatMap",
+            Self::Take => "take",
+            Self::Drop => "drop",
+            Self::Some => "some",
+            Self::Every => "every",
+            Self::Find => "find",
+            Self::Reduce => "reduce",
+            Self::ForEach => "forEach",
+        }
+    }
+}
+
+/// Whether the receiver's static heap shape resolves `helper`'s property name
+/// to `helper`'s `Iterator.prototype` builtin.
+///
+/// This was spelled out nine times inline, once per fast path, with the name
+/// and the builtin written as two independent literals; a mismatched pair
+/// compiled cleanly and silently disabled the fast path. Both now come off
+/// [`IteratorHelper`].
+fn receiver_shape_targets_iterator_helper(receiver: &TypedExpr, helper: IteratorHelper) -> bool {
+    receiver
+        .heap_shape
+        .as_deref()
+        .and_then(|shape| read_static_heap_shape_property(shape, helper.property_name()))
+        .is_some_and(|property| match property {
+            ObjectShapeProperty::Data(info) => info
+                .function_targets
+                .contains(&helper.builtin().function_id()),
+            ObjectShapeProperty::Accessor { .. } => false,
+        })
+}
+
+/// Whether a receiver that has exhausted a helper block's *receiver-specific*
+/// alternatives must still be dispatched through
+/// [`super::Emitter::emit_iterator_prototype_helper_method_call`] rather than
+/// falling through to `emit_method_call`'s generic tail.
+///
+/// # The receiver this exists for, measured rather than reasoned
+///
+/// `new S()` where `S` is a class **with heritage and no explicit
+/// constructor** — the shape all thirteen iterator fixtures use — is lowered
+/// with `kind = Undefined` and a `possible_kinds` contained in
+/// [`KindSet::NULLISH`]. That is a `porffor-ir` defect, not a fact about the
+/// program, and it is what every symptom in this family reduces to:
+///
+/// | probe (`porf inspect`, script result kind) | result |
+/// |---|---|
+/// | `class C { m(){} } new C();` | `object` |
+/// | `class F { constructor(){} } new F();` | `object` |
+/// | `class E extends Iterator { constructor(){super();} } new E();` | `object` |
+/// | `class D extends Iterator { } new D();` | **`undefined`** |
+///
+/// Downstream of that, `emit_method_call`'s generic tail takes its
+/// statically-nullish shortcut: the receiver "can only be undefined or null",
+/// so the runtime kind dispatch is dead code, and the arm releases its temps
+/// and returns `Ok(())` **having written neither destination local**. The
+/// runtime value is an ordinary object, the emitted nullish check does not
+/// fire, and the caller reads whatever the scratch pair happened to hold. Every
+/// measured face of this family is that one hole:
+///
+/// * `typeof new Source().take(2)` answering `number`, and answering different
+///   types in different programs — stale scratch, not a wrong result;
+/// * `.some(cb)` returning with `calls-0` — no call was emitted at all;
+/// * `TypeError: value is not callable` when the stale pair is then used as the
+///   receiver of `.toArray()`;
+/// * `helper::value_to_string` trapping on it.
+///
+/// Two independent measurements pin the mechanism. Emitted-size attribution
+/// (`PORFFOR_EMIT_SIZE_REPORT_PATH`) over two programs differing in one
+/// identifier gives `porffor::main` = 557,233 bytes for `new Source().drop(1)`
+/// and 557,156 for `new Source().take(1)`: the failing helper emits **77 bytes
+/// fewer**, i.e. it emits nothing where the working one emits a call. And
+/// `new D().test(1)` — an ordinary method on the same receiver — is correct,
+/// because `lowering.rs` only builds a `CallMethod` for `test` when
+/// `possible_kinds.contains(Object)`, which this receiver fails, so it takes
+/// the property-read path instead and never meets the hole.
+///
+/// `drop` and `flatMap` were green throughout for exactly one reason: their
+/// guards carry a `!receiver_is_array` disjunct, so a non-array receiver
+/// reaches the dispatch whatever the shape guard says.
+///
+/// # Why this predicate is narrower than `drop`'s disjunct
+///
+/// `!receiver_is_array` is also true for statically primitive receivers, and
+/// the generic tail does real work for those that this dispatch does not:
+/// per-kind prototype lookups for `String`/`Number`/`Boolean`/`Symbol`/`BigInt`
+/// receivers. Restricting the fall-back to receivers whose kind set is
+/// contained in `{Object, Function} ∪ NULLISH` leaves every one of those on the
+/// tail, byte for byte, while covering the mistyped-`undefined` receiver above
+/// and ordinary object receivers.
+///
+/// **What that does *not* do, stated because the earlier wording claimed
+/// otherwise:** it does not leave `Dynamic` receivers on the tail. The
+/// predicate partitions on `possible_kinds`, and `ValueKind::Dynamic` is what
+/// `KindSet::as_value_kind` returns for *any* non-singleton kind set
+/// (`ir.rs:402`), so a `cond ? {} : undefined` receiver carries
+/// `kind == Dynamic` with `possible_kinds == {Object, Undefined}` — which is
+/// inside the set above and is routed here. That is sound for these seven keys
+/// rather than accidental: the tail's `Dynamic` arm differs from its `Object`
+/// arm only by pre-resolving `toString`/`valueOf`/`toLocaleString` against the
+/// number/string/bigint prototypes, and `runtime_number_builtin`,
+/// `runtime_string_builtin` and `runtime_bigint_builtin` are all `None` for
+/// `find`/`reduce`/`take`/`map`/`every`/`some`/`filter`. A receiver that can
+/// still be a *primitive* is a different matter, and that is what the
+/// `receiver.kind` conjunct below is for.
+///
+/// The nullish half of that set is not a licence to skip
+/// `RequireObjectCoercible`: a genuinely nullish receiver is indistinguishable
+/// from the mistyped one here, so
+/// [`super::Emitter::emit_iterator_prototype_helper_method_call`] performs the
+/// 7.2.1 check itself before the property read.
+///
+/// The `Array` heap-shape exclusion is redundant against the kind set and is
+/// kept because it costs nothing and makes "arrays keep their own fast paths" a
+/// claim local to this function rather than one distributed across seven call
+/// sites.
+///
+/// # The `receiver.kind` conjunct is the L5 guard, not decoration
+///
+/// `KindSet::EMPTY.is_subset_of(anything)` is `true` (`ir.rs:370` —
+/// `self.0 & !other.0 == 0`), so a kind-set test alone routes a receiver whose
+/// `possible_kinds` is *empty* into an object-shaped `[[Get]]` regardless of
+/// what its `kind` says. This repository already tracks that exact trap for the
+/// identical guard shape on `{Array}`: see ledger **L5** on
+/// `IntactnessPremise::ArrayIteratorIntact`
+/// (`porffor-ir/src/iterator_obligations.rs`). Nothing in the type system
+/// forbids an empty `possible_kinds` — `lowering.rs` filters on
+/// `!= KindSet::EMPTY` in the class-heritage path precisely because such
+/// `ValueInfo`s get built — and a `kind == ValueKind::String` receiver that
+/// arrived here would skip the tail's String-prototype routing and run
+/// `emit_object_read` against a String tag.
+///
+/// So the predicate also tests `receiver.kind` against the same domain. On
+/// every receiver this fall-back is meant to move the conjunct is already true
+/// (`Object`, `Function`, `Undefined`, `Null`, or `Dynamic` per the paragraph
+/// above), so it changes no emitted byte; on an `EMPTY` kind set with a
+/// primitive `kind` it falls to the tail exactly as before.
+///
+/// # This set is deliberately WIDER than the repair needs. Two claims, kept apart
+///
+/// **The minimal repair is `possible_kinds.is_subset_of(KindSet::NULLISH)`.**
+/// That is exactly the receiver the tail gets wrong — the statically-nullish
+/// shortcut in `emit_method_call`, which returns having emitted no call. Every
+/// other receiver this predicate captures reaches the tail's
+/// `Object | Function | Dynamic` arm, which emits the same `[[Get]]` plus
+/// `emit_function_handle_call_with_argv` this dispatch does, so on a *callable*
+/// property the two are behaviourally equivalent and moving them repairs
+/// nothing.
+///
+/// **What the wider set buys is a second, separate improvement, and it is the
+/// only reason to keep it:** on a NON-callable property the two differ. The
+/// tail's callee check is `i64.eq` against the `Function` tag followed by
+/// `Instruction::Unreachable` — `({}).map(1)` traps the module. This dispatch
+/// reaches `emit_function_handle_call_with_argv_inner`, whose own check throws
+/// `TypeError: value is not callable`. Turning a Wasm trap into a spec-shaped
+/// `TypeError` for seven of the most common method names in JavaScript is worth
+/// having; treating it as a side effect of a bug fix is not, which is why it is
+/// stated here rather than left to be re-derived.
+///
+/// The cost, stated so the next batch does not have to re-discover it: every
+/// `{Object, Function}` receiver of these seven names moves off the tail for the
+/// whole corpus, so any argument that banked rung-1c verdicts survive this
+/// change has to enumerate those call sites. If the `TypeError` improvement is
+/// ever given up, narrow the body to the `NULLISH` subset test alone — it still
+/// repairs the mistyped class receiver, and it leaves every already-correct
+/// object receiver on the tail byte for byte.
+///
+/// Neither claim is witnessed by a test today. `({}).map(1)` throwing a
+/// `TypeError` rather than trapping is unfixtured, and the differential in
+/// `crates/porffor-aot-wasm/tests/iterator_helper_dispatch.rs` cannot see it
+/// (it compares sizes, and both programs there have callable properties).
+fn receiver_needs_dynamic_helper_dispatch(receiver: &TypedExpr) -> bool {
+    let dispatchable = KindSet::from_kind(ValueKind::Object)
+        .union(KindSet::from_kind(ValueKind::Function))
+        .union(KindSet::NULLISH);
+    receiver.possible_kinds.is_subset_of(dispatchable)
+        && matches!(
+            receiver.kind,
+            ValueKind::Object
+                | ValueKind::Function
+                | ValueKind::Undefined
+                | ValueKind::Null
+                | ValueKind::Dynamic
+        )
+        && !matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)))
+}
+
 #[cfg(test)]
 mod async_generator_topology_tests {
     use super::*;
@@ -672,7 +1044,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 2, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -1211,7 +1583,6 @@ impl<'a> FunctionBuilder<'a> {
             "derived constructor may only return object or undefined",
             self.result_local,
             self.result_tag_local,
-            3,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -1303,10 +1674,9 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
-            4,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -2198,6 +2568,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::WeakSetConstructor,
             StandardBuiltinId::WeakRefConstructor,
             StandardBuiltinId::FinalizationRegistryConstructor,
+            StandardBuiltinId::AsyncDisposableStackConstructor,
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
         ]
@@ -2530,10 +2901,9 @@ impl<'a> FunctionBuilder<'a> {
             proto_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             proto_payload_local,
             proto_tag_local,
-            2,
             function,
         )?;
         self.emit_is_heap_object_like_tag_i32(proto_tag_local, function);
@@ -4578,7 +4948,14 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_function_or_proxy_call_with_throw_extra_depth(
+    /// `emit_function_or_proxy_call_leave_throw_completion` plus the throw
+    /// propagation, for callers that want the throw routed to the active
+    /// handler rather than left in the completion tuple.
+    ///
+    /// Was `..._with_throw_extra_depth`: the trailing `u32` declared how many
+    /// raw frames the caller had open, which the branch arithmetic could not
+    /// see. It can see them now, so there is nothing to declare.
+    pub(crate) fn emit_function_or_proxy_call_with_throw_propagation(
         &mut self,
         callee_payload_local: u32,
         callee_tag_local: u32,
@@ -4587,7 +4964,6 @@ impl<'a> FunctionBuilder<'a> {
         args: &[(u32, u32)],
         payload_local: u32,
         tag_local: u32,
-        throw_extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_function_or_proxy_call_leave_throw_completion(
@@ -4600,15 +4976,12 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            throw_extra_depth,
-            function,
-        )
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
     }
 
-    pub(crate) fn emit_function_handle_call_with_throw_extra_depth(
+    /// See [`Self::emit_function_or_proxy_call_with_throw_propagation`] for why
+    /// this no longer takes a depth.
+    pub(crate) fn emit_function_handle_call_with_throw_propagation(
         &mut self,
         callee_payload_local: u32,
         callee_tag_local: u32,
@@ -4616,7 +4989,6 @@ impl<'a> FunctionBuilder<'a> {
         args: &[(u32, u32)],
         payload_local: u32,
         tag_local: u32,
-        throw_extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argc_local = self.reserve_temp_local();
@@ -4630,7 +5002,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            Some(throw_extra_depth),
+            PropagateCallThrow::ToActiveHandler,
             function,
         )?;
         self.release_temp_local(argv_local);
@@ -4657,7 +5029,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            Some(1),
+            PropagateCallThrow::ToActiveHandler,
             function,
         )
     }
@@ -4681,7 +5053,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             payload_local,
             tag_local,
-            None,
+            PropagateCallThrow::LeaveInCompletion,
             function,
         )
     }
@@ -5019,7 +5391,7 @@ impl<'a> FunctionBuilder<'a> {
         argv_local: u32,
         payload_local: u32,
         tag_local: u32,
-        propagate_throw_extra_depth: Option<u32>,
+        propagate_throw: PropagateCallThrow,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if self.outline_function_call {
@@ -5049,21 +5421,23 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(payload_local, tag_local, function);
-                if let Some(extra_depth) = propagate_throw_extra_depth {
-                    self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                        payload_local,
-                        tag_local,
-                        extra_depth.saturating_sub(1),
-                        function,
-                    )?;
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                } else {
-                    function.instruction(&Instruction::LocalGet(self.completion_local));
-                    function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    function.instruction(&Instruction::End);
+                match propagate_throw {
+                    PropagateCallThrow::ToActiveHandler => {
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            payload_local,
+                            tag_local,
+                            function,
+                        )?;
+                        self.set_completion_kind(CompletionKind::Normal, function);
+                    }
+                    PropagateCallThrow::LeaveInCompletion => {
+                        function.instruction(&Instruction::LocalGet(self.completion_local));
+                        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.set_completion_kind(CompletionKind::Normal, function);
+                        function.instruction(&Instruction::End);
+                    }
                 }
                 return Ok(());
             }
@@ -5094,8 +5468,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(callee_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "value is not callable",
@@ -5103,12 +5476,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            propagate_throw_extra_depth.unwrap_or(0),
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -5703,21 +6071,23 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
         self.store_call_results(payload_local, tag_local, function);
-        if let Some(extra_depth) = propagate_throw_extra_depth {
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                extra_depth,
-                function,
-            )?;
-            self.set_completion_kind(CompletionKind::Normal, function);
-        } else {
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.set_completion_kind(CompletionKind::Normal, function);
-            function.instruction(&Instruction::End);
+        match propagate_throw {
+            PropagateCallThrow::ToActiveHandler => {
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                self.set_completion_kind(CompletionKind::Normal, function);
+            }
+            PropagateCallThrow::LeaveInCompletion => {
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.set_completion_kind(CompletionKind::Normal, function);
+                function.instruction(&Instruction::End);
+            }
         }
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error(
@@ -5727,13 +6097,15 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        if let Some(extra_depth) = propagate_throw_extra_depth {
-            self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-                payload_local,
-                tag_local,
-                extra_depth,
-                function,
-            )?;
+        match propagate_throw {
+            PropagateCallThrow::ToActiveHandler => {
+                self.emit_propagate_throw_from_locals_if_needed(
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            PropagateCallThrow::LeaveInCompletion => {}
         }
         function.instruction(&Instruction::End);
 
@@ -5818,10 +6190,9 @@ impl<'a> FunctionBuilder<'a> {
             call_tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+        self.emit_propagate_throw_from_locals_if_needed(
             call_payload_local,
             call_tag_local,
-            0,
             function,
         )?;
         // Construct consumes the base constructor's completion.  Its produced
@@ -6402,8 +6773,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(param_index as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                // 10.4.4.2/10.4.4.3: the mapping is not a descriptor *kind*, it
+                // is an orthogonal exotic flag with a payload. `DescriptorFlags`
+                // makes bit 5 and the bits-32..63 slot index inseparable, which
+                // the hand-built `ARGUMENTS_DESCRIPTOR_MAPPED as i64 | ((slot as
+                // i64) << 32)` did not: either half could be written without the
+                // other. The `const _` in `heap.rs` proves this reproduces that
+                // word for slot 7; this is what makes the proof load-bearing on
+                // the product path rather than an assertion about unused types.
                 function.instruction(&Instruction::I64Const(
-                    ARGUMENTS_DESCRIPTOR_MAPPED as i64 | ((mapped_slot as i64) << 32),
+                    DescriptorWord::of_data(false, false, false)
+                        .with_flags(DescriptorFlags {
+                            array_own_property: false,
+                            mapped: Some(MappedSlot::new(mapped_slot)),
+                        })
+                        .as_i64(),
                 ));
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::I64Const(0));
@@ -6819,7 +7203,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to arguments.callee", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to arguments.callee", function)?;
         function.instruction(&Instruction::End);
 
         self.release_temp_local(write_succeeded_local);
@@ -6985,7 +7369,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(32));
+        // The reader of the bits-32..63 mapped-slot payload. `MappedSlot::SHIFT`
+        // rather than a bare literal, so the writer in
+        // `emit_arguments_descriptor_kind_for_index` and both readers move
+        // together.
+        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::LocalSet(mapped_slot_local));
         function.instruction(&Instruction::LocalGet(env_local));
@@ -7070,7 +7458,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(32));
+        // The reader of the bits-32..63 mapped-slot payload. `MappedSlot::SHIFT`
+        // rather than a bare literal, so the writer in
+        // `emit_arguments_descriptor_kind_for_index` and both readers move
+        // together.
+        function.instruction(&Instruction::I64Const(MappedSlot::SHIFT as i64));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::LocalSet(mapped_slot_local));
         function.instruction(&Instruction::LocalGet(env_local));
@@ -7416,7 +7808,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_write_set_failure_else("Cannot assign to arguments index", 1, function)?;
+        self.emit_object_write_set_failure_else("Cannot assign to arguments index", function)?;
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(write_succeeded_local));
@@ -7624,8 +8016,9 @@ impl<'a> FunctionBuilder<'a> {
         // and result locals. Dispatch it through the normal completion path so
         // active `finally` blocks run before the throw reaches its handler (or
         // returns from the function). The dispatch is nested inside this
-        // null-test `if`, hence the extra branch depth.
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        // null-test `if`; the sink counts that frame, so the branch immediate
+        // needs no correction here.
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -7712,8 +8105,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.compile_nullish_tagged_i32(source_tag_local, function)?;
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread argument is not iterable",
@@ -7762,8 +8154,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread argument is not iterable",
@@ -7792,8 +8183,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread iterator method must return object",
@@ -7824,8 +8214,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread iterator next must be callable",
@@ -7837,10 +8226,8 @@ impl<'a> FunctionBuilder<'a> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
 
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            let iterator_exit = self.push_control(ControlFrameKind::Block);
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            let iterator_loop = self.push_control(ControlFrameKind::Loop);
+            let iterator_exit = self.open_frame(ControlFrameKind::Block, function);
+            let iterator_loop = self.open_frame(ControlFrameKind::Loop, function);
 
             self.emit_function_or_proxy_call_leave_throw_completion(
                 next_payload_local,
@@ -7859,8 +8246,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
             function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.emit_throw_runtime_error(
                 TYPE_ERROR_NAME,
                 "Spread iterator next result must be object",
@@ -7886,7 +8272,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.emit_propagate_current_completion_if_throw(function);
             self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-            self.emit_branch_if_to_target(iterator_exit, 0, function);
+            self.emit_branch_if_to_target(iterator_exit, function);
 
             function.instruction(&Instruction::I64Const(self.strings.payload("value")));
             function.instruction(&Instruction::LocalSet(key_local));
@@ -7912,7 +8298,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::LocalSet(argc_local));
-            self.emit_branch_to_target(iterator_loop, 0, function);
+            self.emit_branch_to_target(iterator_loop, function);
 
             self.pop_control(ControlFrameKind::Loop);
             function.instruction(&Instruction::End);
@@ -8187,7 +8573,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             if let Some(target) = self.active_throw_target() {
-                self.emit_branch_to_target(target, 0, function);
+                self.emit_branch_to_target(target, function);
             } else {
                 self.emit_return_current_completion(function);
             }
@@ -8661,6 +9047,189 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The one emission shape for every `Iterator.prototype` helper fast path.
+    ///
+    /// The callee is acquired by an ordinary `[[Get]]` of the helper's property
+    /// name off the receiver — the same acquisition the generic tail uses.
+    /// Because the read is dynamic, this is *not* an iterator-specific
+    /// emission: it is a generic method call for any object receiver, which is
+    /// why `drop` and `flatMap` route every non-array receiver here
+    /// unconditionally and are correct on receivers that are not `Iterator`
+    /// subclasses at all. That is what makes it safe for
+    /// [`super::receiver_needs_dynamic_helper_dispatch`] to send the other
+    /// seven helpers here too.
+    ///
+    /// # Abrupt completions and RequireObjectCoercible
+    ///
+    /// Four checks below were all missing, and their absence is why routing
+    /// more receivers here would otherwise have traded one defect for another.
+    /// Three of them are the ones the structurally identical
+    /// [`Self::emit_custom_array_named_method_call`] already performed; each is
+    /// a no-op unless `completion_local` holds a throw, so they cost one
+    /// comparison on the ordinary path:
+    ///
+    /// 1. after the receiver is compiled — otherwise a receiver expression that
+    ///    threw is used as the base of the `[[Get]]`;
+    /// 2. after the `[[Get]]` — otherwise a throwing accessor's completion is
+    ///    treated as the callee, the arguments are still evaluated for their
+    ///    side effects, and the user sees `value is not callable` in place of
+    ///    the error they threw;
+    /// 3. after the call, matching the tail.
+    ///
+    /// **(3) IS STATICALLY DEAD, and calling it load-bearing was wrong.**
+    /// [`Self::emit_function_handle_call_with_argv`] hard-codes
+    /// `PropagateCallThrow::ToActiveHandler`, and *both* arms that implement it
+    /// — the outlined-helper path and the inline path — already call
+    /// `emit_propagate_throw_from_locals_if_needed` and then
+    /// `set_completion_kind(CompletionKind::Normal)`. Control reaches (3) only
+    /// with `completion_local == NORMAL`, so the `i64.eq`/`if`/`end` it emits
+    /// can never take its true arm. The generic tail carries the identical dead
+    /// check after its own call, so this is a copy of an existing no-op rather
+    /// than a repair; it is kept for symmetry with the tail and so that a future
+    /// switch to `PropagateCallThrow::LeaveInCompletion` here is safe, and for
+    /// no other reason. (1) and (2) are the two that are merely *unwitnessed*,
+    /// which is a weaker statement than dead — see below.
+    ///
+    /// The fourth is 7.2.1 RequireObjectCoercible, between (1) and (2). It is a
+    /// *runtime* tag test rather than a static one for the reason spelled out
+    /// on [`super::receiver_needs_dynamic_helper_dispatch`]: the receiver that
+    /// makes this dispatch necessary is one `porffor-ir` mistypes as
+    /// `undefined`, so no static test can separate it from a program that
+    /// really wrote `undefined.take(1)`. It is the only one of the four with a
+    /// reachable true arm on the ordinary path.
+    ///
+    /// `wasm_iterator_helper_class_receiver_abrupt_dispatch.js` answers `ok` on
+    /// the *pre-repair* compiler, because its receivers are ordinary objects
+    /// that the generic tail already handled. **It pins that the routing change
+    /// preserves the tail's abrupt-completion behaviour; it does not witness
+    /// checks (1)-(3),** and an earlier version of this comment claimed it did.
+    /// Measured: the fixture still answers `ok` with all three deleted — and for
+    /// (3) no fixture ever could, per the paragraph above. In this
+    /// emitter's configuration they are redundant —
+    /// [`Self::emit_object_read`] routes to `emit_object_read_ordinary`, which
+    /// propagates on the outlined-helper path (the variant that does *not* is
+    /// spelled `emit_object_read_without_throw_propagation`, and is not what is
+    /// called here), and `emit_function_handle_call_with_argv` propagates a
+    /// callee throw itself, as the comment at its call site below says.
+    ///
+    /// They are not dead in general: on the inlined read path
+    /// `AccessorThrowRouting::BreakToOrdinaryReadExit` leaves the throw for the
+    /// caller, and that configuration is what (2) exists for. Nothing in the
+    /// CLI corpus is known to reach it through this emitter, so the honest
+    /// statement is "defensive, load-bearing on one configuration, unwitnessed
+    /// by the fixture" rather than "the fixture would catch their removal".
+    /// A probe that forces the inlined read is the missing coverage.
+    ///
+    /// Property installation is not at risk here. `planning.rs` roots
+    /// `IteratorConstructor` for every helper in this family, and
+    /// `intrinsics/iterator.rs` installs all eleven together, so the dynamic
+    /// read finds a real function object.
+    ///
+    /// Every temp this needs is reserved here, so the emitted sequence never
+    /// depends on `self.scratch_local` / `self.result_tag_local` — which
+    /// matters because `expressions.rs` hands `emit_method_call` the scratch
+    /// local as its destination.
+    fn emit_iterator_prototype_helper_method_call(
+        &mut self,
+        helper: IteratorHelper,
+        receiver: &TypedExpr,
+        args: &[TypedExpr],
+        destination: MethodCallDestination,
+        function: &mut Function,
+    ) -> Result<DestinationWritten, EmitError> {
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let callee_payload_local = self.reserve_temp_local();
+        let callee_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        self.compile_expr_to_locals(
+            receiver,
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        // 7.2.1 RequireObjectCoercible, checked at run time rather than
+        // statically. It has to be here, not at the call sites, because the
+        // receiver this dispatch exists for is one `porffor-ir` types as
+        // `undefined` while the runtime value is an ordinary object — so a
+        // static nullish test cannot tell "the compiler is wrong about this
+        // receiver" from "the program really wrote `undefined.take(1)`", and
+        // only the tag decides. The generic tail spells the same check the same
+        // way; before this the dispatch had none at all, so `drop` and `flatMap`
+        // read a property off `undefined` instead of throwing.
+        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            TYPE_ERROR_NAME,
+            "Cannot read properties of null or undefined",
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(helper.property_name()),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_read(
+            receiver_payload_local,
+            receiver_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            key_local,
+            callee_payload_local,
+            callee_tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            callee_payload_local,
+            callee_tag_local,
+            function,
+        )?;
+        let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
+        // Writes both destination locals on every path, and propagates a
+        // callee throw to the active handler (`PropagateCallThrow::ToActiveHandler`),
+        // which is what makes a callback throw reach a user `catch`.
+        self.emit_function_handle_call_with_argv(
+            callee_payload_local,
+            callee_tag_local,
+            Some((receiver_payload_local, Some(receiver_tag_local))),
+            argc_local,
+            argv_local,
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            destination.payload_local(),
+            destination.tag_local(),
+            function,
+        )?;
+        self.release_temp_local(argv_local);
+        self.release_temp_local(argc_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(callee_tag_local);
+        self.release_temp_local(callee_payload_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        // Witnesses the normal-completion path only, which is exactly what
+        // `DestinationWritten` claims: the three propagate calls above can each
+        // emit an abrupt exit before `emit_function_handle_call_with_argv`
+        // writes the pair, and those exits carry their value in the completion
+        // locals rather than in the destination.
+        Ok(destination.written())
+    }
+
     pub(crate) fn emit_method_call(
         &mut self,
         receiver: &TypedExpr,
@@ -9025,7 +9594,36 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "flatMap") {
+        // `flatMap` is handled once, here. There used to be a second
+        // `name == "flatMap"` block further down whose guard was
+        // `receiver_is_iterator || !receiver_is_array` and whose trailing
+        // array call was therefore unreachable: this block already returned for
+        // every array receiver, so `!receiver_is_array` always held by the time
+        // control got there and the disjunction was constant `true`. Nothing
+        // between the two blocks matches the key `"flatMap"`.
+        //
+        // Two separate claims, and only the first is "behaviour-preserving":
+        //
+        // 1. BLOCK SELECTION is unchanged by the fold. Same receiver
+        //    classification, same two destinations, no interleaved `"flatMap"`
+        //    key.
+        // 2. CALLEE ACQUISITION on the non-array branch is NOT unchanged. It
+        //    was a static reference to `IteratorPrototypeFlatMap`; it is now an
+        //    ordinary `[[Get]]` of `"flatMap"` off the receiver. That is the
+        //    repair, and it is the correct semantics — but it applies to every
+        //    receiver this branch takes, not only to `Iterator` subclasses.
+        //    `receiver_is_array` here tests `receiver.kind`, not
+        //    `possible_kinds` (unlike `drop` below), so a `Dynamic` receiver
+        //    takes this branch. Two paths are consequently unfixtured:
+        //    `function f(x, g) { return x.flatMap(g); }` called with an array,
+        //    and a primitive receiver such as `(5).flatMap(g)`, which used to
+        //    throw a clean `TypeError` from the builtin body and now reaches
+        //    `emit_object_read`. Neither is covered by
+        //    `wasm_iterator_helper_class_receiver_flat_map.js` (literal array +
+        //    `class extends Iterator`), and rung 1c is the only gate that would
+        //    see them.
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::FlatMap.property_name())
+        {
             let receiver_is_array = receiver.kind == ValueKind::Array
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
             if receiver_is_array {
@@ -9037,6 +9635,15 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            return self
+                .emit_iterator_prototype_helper_method_call(
+                    IteratorHelper::FlatMap,
+                    receiver,
+                    args,
+                    MethodCallDestination::new(payload_local, tag_local),
+                    function,
+                )
+                .map(DestinationWritten::discharge);
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "at") {
             return self.emit_array_at_method_call(
@@ -9074,21 +9681,14 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "find") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Find.property_name())
+        {
             let receiver_is_array = receiver
                 .possible_kinds
                 .is_subset_of(KindSet::from_kind(ValueKind::Array))
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "find"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeFind.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Find);
             let receiver_has_typed_array_find = receiver
                 .heap_shape
                 .as_deref()
@@ -9110,46 +9710,15 @@ impl<'a> FunctionBuilder<'a> {
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeFind.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.find`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Find,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
             if receiver_has_typed_array_find {
                 return self.emit_array_direct_builtin_method_call(
@@ -9170,6 +9739,21 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 );
+            }
+            // Every receiver-specific alternative has been ruled out above, so
+            // a typed array (whose instance shape carries `find`) has already
+            // returned and cannot reach here. What is left and still ordinary
+            // is an object receiver, which the generic tail mishandles.
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Find,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findIndex") {
@@ -9202,170 +9786,90 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "reduce") {
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "reduce"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeReduce.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Reduce.property_name())
+        {
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Reduce);
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeReduce.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.reduce`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Reduce,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
+            // `reduce` has no array fast path in this function at all: an array
+            // receiver reaches the generic tail and must keep doing so, which
+            // is why the predicate is kind-restricted rather than
+            // `!receiver_is_array`.
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Reduce,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "take") {
-            let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
-                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "take"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeTake.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Take.property_name())
+        {
+            // No `receiver_is_array` binding here, unlike `drop` below: this
+            // block has no array fast path to protect, so the array case is
+            // excluded by the kind restriction inside
+            // `receiver_needs_dynamic_helper_dispatch` rather than by a local.
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Take);
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeTake.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.take`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Take,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
+            // The A/B that identified the defect: this block and `drop`'s below
+            // are otherwise identical, and `drop`'s extra disjunct is the only
+            // reason its fixture is green and this one's was red.
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Take,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "drop") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Drop.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "drop"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeDrop.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Drop);
+            // Guard preserved verbatim, including the `|| !receiver_is_array`
+            // disjunct that the plain-`receiver_is_iterator` helpers do not
+            // have. Only the callee acquisition changes here.
             if receiver_is_iterator || !receiver_is_array {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeDrop.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.drop`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Drop,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "findLast") {
@@ -9428,19 +9932,12 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "map") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Map.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "map"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeMap.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Map);
             let receiver_has_array_map = receiver
                 .heap_shape
                 .as_deref()
@@ -9452,46 +9949,15 @@ impl<'a> FunctionBuilder<'a> {
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeMap.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.map`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Map,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
             if receiver_is_array || receiver_has_array_map {
                 return self.emit_array_map_method_call(
@@ -9502,20 +9968,24 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Map,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "every") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Every.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "every"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeEvery.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Every);
             let receiver_has_array_every = receiver
                 .heap_shape
                 .as_deref()
@@ -9527,46 +9997,15 @@ impl<'a> FunctionBuilder<'a> {
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeEvery.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.every`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Every,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
             if receiver_is_array || receiver_has_array_every {
                 return self.emit_array_every_method_call(
@@ -9577,20 +10016,24 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Every,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "some") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Some.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "some"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeSome.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Some);
             let receiver_has_array_some = receiver
                 .heap_shape
                 .as_deref()
@@ -9602,46 +10045,15 @@ impl<'a> FunctionBuilder<'a> {
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeSome.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.some`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Some,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
             if receiver_is_array || receiver_has_array_some {
                 return self.emit_array_some_method_call(
@@ -9652,20 +10064,24 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Some,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
+            }
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "filter") {
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Filter.property_name())
+        {
             let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
                 || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "filter"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeFilter.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
+            let receiver_is_iterator =
+                receiver_shape_targets_iterator_helper(receiver, IteratorHelper::Filter);
             let receiver_has_array_filter = receiver
                 .heap_shape
                 .as_deref()
@@ -9677,46 +10093,15 @@ impl<'a> FunctionBuilder<'a> {
                     ObjectShapeProperty::Accessor { .. } => false,
                 });
             if receiver_is_iterator {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeFilter.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.filter`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Filter,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
             if receiver_is_array || receiver_has_array_filter {
                 return self.emit_array_filter_method_call(
@@ -9727,124 +10112,44 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
             }
-        }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "flatMap") {
-            let receiver_is_array = receiver.kind == ValueKind::Array
-                || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-            let receiver_is_iterator = receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "flatMap"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeFlatMap.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                });
-            if receiver_is_iterator || !receiver_is_array {
-                let receiver_payload_local = self.reserve_temp_local();
-                let receiver_tag_local = self.reserve_temp_local();
-                let callee_payload_local = self.reserve_temp_local();
-                let callee_tag_local = self.reserve_temp_local();
-                self.compile_expr_to_locals(
-                    receiver,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    function,
-                )?;
-                let meta = self
-                    .functions
-                    .get(&StandardBuiltinId::IteratorPrototypeFlatMap.function_id())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in porffor wasm-aot first slice: missing builtin meta `Iterator.prototype.flatMap`",
-                        )
-                    })?;
-                self.emit_function_value_payload(meta, function)?;
-                function.instruction(&Instruction::LocalSet(callee_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(callee_tag_local));
-                let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-                self.emit_function_handle_call_with_argv(
-                    callee_payload_local,
-                    callee_tag_local,
-                    Some((receiver_payload_local, Some(receiver_tag_local))),
-                    argc_local,
-                    argv_local,
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
-                self.release_temp_local(argv_local);
-                self.release_temp_local(argc_local);
-                self.release_temp_local(callee_tag_local);
-                self.release_temp_local(callee_payload_local);
-                self.release_temp_local(receiver_tag_local);
-                self.release_temp_local(receiver_payload_local);
-                return Ok(());
+            if receiver_needs_dynamic_helper_dispatch(receiver) {
+                return self
+                    .emit_iterator_prototype_helper_method_call(
+                        IteratorHelper::Filter,
+                        receiver,
+                        args,
+                        MethodCallDestination::new(payload_local, tag_local),
+                        function,
+                    )
+                    .map(DestinationWritten::discharge);
             }
-            return self.emit_array_flat_map_method_call(
-                receiver,
-                args,
-                payload_local,
-                tag_local,
-                function,
-            );
         }
-        if matches!(key, PropertyKeyIr::StaticString(name) if name == "forEach")
-            && receiver
-                .heap_shape
-                .as_deref()
-                .and_then(|shape| read_static_heap_shape_property(shape, "forEach"))
-                .is_some_and(|property| match property {
-                    ObjectShapeProperty::Data(info) => info
-                        .function_targets
-                        .contains(&StandardBuiltinId::IteratorPrototypeForEach.function_id()),
-                    ObjectShapeProperty::Accessor { .. } => false,
-                })
+        // `forEach` needs no fall-back disjunct, and the batch-5 story for why
+        // it was already correct — "it was the one helper that acquired its
+        // callee with an ordinary `[[Get]]`, and it is now the same call as the
+        // other nine" — was wrong on both halves, which is why it no longer sits
+        // here. Callee acquisition was never the defect (see this file's header:
+        // for the failing receiver no code was emitted for the call at all), no
+        // arm was converted, and "the other nine" does not describe anything:
+        // there are eleven helpers, seven bare-guard blocks, `drop`/`flatMap` on
+        // a different guard shape, and `toArray` never reaches this function.
+        //
+        // What is true at this head: lowering resolves `forEach` off the fixed
+        // instance shape, so `receiver_shape_targets_iterator_helper` fires for
+        // the class receiver and this guard alone is enough.
+        // `wasm_iterator_helper_class_receiver_for_each.js` is what covers it.
+        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::ForEach.property_name())
+            && receiver_shape_targets_iterator_helper(receiver, IteratorHelper::ForEach)
         {
-            let receiver_payload_local = self.reserve_temp_local();
-            let receiver_tag_local = self.reserve_temp_local();
-            let callee_payload_local = self.reserve_temp_local();
-            let callee_tag_local = self.reserve_temp_local();
-            let key_local = self.reserve_temp_local();
-            self.compile_expr_to_locals(
-                receiver,
-                receiver_payload_local,
-                receiver_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload("forEach")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_read(
-                receiver_payload_local,
-                receiver_tag_local,
-                receiver_payload_local,
-                receiver_tag_local,
-                key_local,
-                callee_payload_local,
-                callee_tag_local,
-                function,
-            )?;
-            let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-            self.emit_function_handle_call_with_argv(
-                callee_payload_local,
-                callee_tag_local,
-                Some((receiver_payload_local, Some(receiver_tag_local))),
-                argc_local,
-                argv_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.release_temp_local(argv_local);
-            self.release_temp_local(argc_local);
-            self.release_temp_local(key_local);
-            self.release_temp_local(callee_tag_local);
-            self.release_temp_local(callee_payload_local);
-            self.release_temp_local(receiver_tag_local);
-            self.release_temp_local(receiver_payload_local);
-            return Ok(());
+            return self
+                .emit_iterator_prototype_helper_method_call(
+                    IteratorHelper::ForEach,
+                    receiver,
+                    args,
+                    MethodCallDestination::new(payload_local, tag_local),
+                    function,
+                )
+                .map(DestinationWritten::discharge);
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if matches!(name.as_str(), "trim" | "trimStart" | "trimLeft" | "trimEnd" | "trimRight"))
         {
@@ -10002,7 +10307,7 @@ impl<'a> FunctionBuilder<'a> {
                         argv_local,
                         payload_local,
                         tag_local,
-                        Some(0),
+                        PropagateCallThrow::ToActiveHandler,
                         function,
                     )?;
                 } else {
@@ -10100,21 +10405,35 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            1,
-            function,
-        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::End);
         // 7.2.1 RequireObjectCoercible / 13.3.6.2 EvaluateCall. A receiver that
         // can only be undefined or null always takes the throw above, so the
         // runtime kind dispatch below is statically dead: emitting it only
         // grows the function and can fail the whole module on a missing
         // primitive-prototype builtin that could never be reached.
+        //
+        // "Statically dead" is a claim about the *type*, and this compiler has
+        // been wrong about that type: `new S()` for a class with heritage and no
+        // explicit constructor lowers with `kind = Undefined` and a nullish
+        // `possible_kinds` while the runtime value is an ordinary object. The
+        // emitted nullish test then does not fire, control reaches this return,
+        // and before the two stores below both destination locals kept whatever
+        // the scratch pair last held — a corruption, not a wrong answer, and the
+        // whole of the batch-5 `iterator_helpers` failure set.
+        //
+        // The stores do not make that receiver *work* — the routing in the
+        // helper blocks above is what does — but they bound what a future
+        // mistyping can cost to a well-defined `undefined` instead of unrelated
+        // memory, and they are what lets this arm honour "no path out of
+        // `emit_method_call` leaves the destination unwritten".
         if matches!(receiver.kind, ValueKind::Undefined | ValueKind::Null)
             && receiver.possible_kinds.is_subset_of(KindSet::NULLISH)
         {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
             self.release_temp_local(flags_local);
             self.release_temp_local(table_index_local);
             self.release_temp_local(callee_env_local);
@@ -10550,7 +10869,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             if let Some(target) = self.active_throw_target() {
-                self.emit_branch_to_target(target, 0, function);
+                self.emit_branch_to_target(target, function);
             } else {
                 self.emit_return_current_completion(function);
             }

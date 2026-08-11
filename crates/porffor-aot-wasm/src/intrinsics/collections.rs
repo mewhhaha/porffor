@@ -462,6 +462,142 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `%AsyncDisposableStack.prototype%` (ECMA-262 explicit-resource-management
+    /// 27.4.3).
+    ///
+    /// Two shapes here are load-bearing rather than stylistic:
+    ///
+    /// * `disposeAsync` is defined *with* `Symbol.asyncDispose` as an alias, not
+    ///   as two independent installs, because
+    ///   `prototype/Symbol.asyncDispose.js` asserts the two properties hold the
+    ///   same function *object*.
+    /// * `disposed` is an accessor with no setter, so
+    ///   `prototype/disposed/getter.js` sees `typeof descriptor.set ===
+    ///   'undefined'`.
+    pub(crate) fn install_async_disposable_stack_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // Re-bind the shared preamble values under the names the moved body
+        // already uses, so the body below is a verbatim copy of the arm it
+        // replaced. Most families read only a few of them.
+        #[allow(unused_variables)]
+        let IntrinsicInstall {
+            builtin,
+            meta,
+            prototype_global_index,
+            constructor_global_index,
+            object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            prototype_object_local,
+        } = *context;
+
+        let prototype_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::GlobalGet(
+            ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        for (name, builtin) in [
+            (
+                "adopt",
+                StandardBuiltinId::AsyncDisposableStackPrototypeAdopt,
+            ),
+            (
+                "defer",
+                StandardBuiltinId::AsyncDisposableStackPrototypeDefer,
+            ),
+            ("move", StandardBuiltinId::AsyncDisposableStackPrototypeMove),
+            ("use", StandardBuiltinId::AsyncDisposableStackPrototypeUse),
+        ] {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            self.emit_object_define_function_data(prototype_local, name, &meta, function)?;
+        }
+        let dispose_async_meta = self
+            .functions
+            .get(&StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `AsyncDisposableStack.prototype.disposeAsync`",
+                )
+            })?;
+        self.emit_object_define_function_data_with_aliases(
+            prototype_local,
+            "disposeAsync",
+            &["Symbol.asyncDispose"],
+            &dispose_async_meta,
+            function,
+        )?;
+        let disposed_getter = self
+            .functions
+            .get(&StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `get AsyncDisposableStack.prototype.disposed`",
+                )
+            })?;
+        function.instruction(&Instruction::I64Const(self.strings.payload("disposed")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_function_value_payload(&disposed_getter, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_accessor_property_with_flags(
+            prototype_local,
+            key_local,
+            Some((payload_local, tag_local)),
+            None,
+            false,
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("AsyncDisposableStack"),
+        ));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(prototype_local);
+
+        Ok(())
+    }
+
     pub(crate) fn install_set_constructor_intrinsics(
         &mut self,
         context: &IntrinsicInstall<'_>,

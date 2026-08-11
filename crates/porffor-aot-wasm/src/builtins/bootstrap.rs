@@ -285,6 +285,19 @@ impl<'a> FunctionBuilder<'a> {
                 )?,
             StandardBuiltinId::FinalizationRegistryPrototypeRegister
             | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {}
+            StandardBuiltinId::AsyncDisposableStackConstructor => self
+                .install_async_disposable_stack_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {}
             StandardBuiltinId::SetConstructor => {
                 self.install_set_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -1016,7 +1029,12 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEquals
             | StandardBuiltinId::TemporalInstantFrom
+            | StandardBuiltinId::TemporalInstantCompare
+            | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
             | StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson
+            | StandardBuiltinId::TemporalInstantPrototypeValueOf
             | StandardBuiltinId::TemporalZonedDateTimeFrom
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
@@ -1024,6 +1042,8 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
@@ -1036,7 +1056,13 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {}
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {}
         }
 
         self.release_temp_local(prototype_object_local);
@@ -1591,7 +1617,17 @@ impl<'a> FunctionBuilder<'a> {
 
     /// ECMA-402 8: the `Intl` namespace object. Only the properties this
     /// backend actually implements are installed — nothing is stubbed.
-    pub(crate) fn init_intl_object(&mut self, function: &mut Function) -> Result<(), EmitError> {
+    ///
+    /// `members` is a proof, obtainable only from
+    /// `RuntimeBootstrapPlan::intl_namespace_members`, that every member is
+    /// rooted. Holding it is what lets this function install the whole list
+    /// unconditionally; it is also the reason the function cannot be called for
+    /// a program that does not get an `Intl` object at all.
+    pub(crate) fn init_intl_object(
+        &mut self,
+        members: IntlNamespaceMembers,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
         let constructor_local = self.reserve_temp_local();
         let constructor_tag_local = self.reserve_temp_local();
@@ -1619,22 +1655,51 @@ impl<'a> FunctionBuilder<'a> {
             get_canonical_locales_meta,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(constructor_local));
+        // One list, `INTL_NAMESPACE_CONSTRUCTORS`, decides both what the IR
+        // shape claims `Intl` has (`ScriptLowerer::intl_object_value_info`) and
+        // what actually gets installed here. They used to be two
+        // hand-maintained lists and they drifted: `DateTimeFormat` was declared
+        // and never installed, so constant-folded member access hid the gap —
+        // `new Intl.DateTimeFormat()` worked while
+        // `Object.getOwnPropertyDescriptor(Intl, "DateTimeFormat")`,
+        // `Object.keys(Intl)`, `Intl["DateTimeFormat"]` and destructuring all
+        // saw nothing. That is `intl402/DateTimeFormat/prop-desc.js`'s
+        // "Expected descriptor to exist".
+        //
+        // Unifying the lists closed the drift but left a second divergence
+        // point right here: a per-member `should_initialize_standard_builtin`
+        // check with a `continue`, which reintroduced exactly the same wrong
+        // object whenever the plan under-rooted the namespace. That check is
+        // gone. `members` is the proof that it would have been vacuous, and it
+        // is the only way to reach the list at all, so a partially installed
+        // `Intl` is now unrepresentable rather than untested.
+        //
+        // Installation order is `Object.getOwnPropertyNames(Intl)` order, so it
+        // is the slice's order and must not be sorted here.
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        self.emit_object_append_local_data_property_with_flags(
-            object_local,
-            "Locale",
-            constructor_local,
-            constructor_tag_local,
-            true,
-            false,
-            true,
-            function,
-        )?;
+        for (name, builtin) in members.in_installation_order() {
+            let global_index =
+                standard_builtin_constructor_global_index(builtin).ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in porffor wasm-aot first slice: \
+                         missing Intl constructor global `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            function.instruction(&Instruction::GlobalGet(global_index));
+            function.instruction(&Instruction::LocalSet(constructor_local));
+            self.emit_object_append_local_data_property_with_flags(
+                object_local,
+                name,
+                constructor_local,
+                constructor_tag_local,
+                true,
+                false,
+                true,
+                function,
+            )?;
+        }
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),
@@ -3603,6 +3668,21 @@ impl<'a> FunctionBuilder<'a> {
             HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
             function,
         );
+        // `%AsyncDisposableStack.prototype%` deliberately gets no
+        // `HEAP_REALM_INTRINSICS_*` slot. The only case that could observe one
+        // is `proto-from-ctor-realm.js`, which is a policy case
+        // (`Function constructor dynamic code generation`) and cannot pass on
+        // this backend; the constructor therefore falls back to the current
+        // realm's global (`NewTargetPrototypeFallback::CurrentGlobal`) and the
+        // 344-byte realm-intrinsics record does not move.
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+        ));
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -4424,6 +4504,16 @@ impl<'a> FunctionBuilder<'a> {
         }
         if self
             .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::AsyncDisposableStackConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::AsyncDisposableStackConstructor,
+                ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::SetConstructor)
         {
             self.init_builtin_constructor_object(
@@ -4545,10 +4635,11 @@ impl<'a> FunctionBuilder<'a> {
         {
             self.init_temporal_object(function)?;
         }
-        if self.runtime_bootstrap_plan.full_standard_globals
-            || self.runtime_bootstrap_plan.intl_object
-        {
-            self.init_intl_object(function)?;
+        // Unlike its five siblings above, the `Intl` gate hands back the member
+        // list rather than a bool: "install `Intl`" and "every member the IR
+        // shape declares is rooted" are one decision, made once in `planning`.
+        if let Some(intl_namespace_members) = self.runtime_bootstrap_plan.intl_namespace_members() {
+            self.init_intl_object(intl_namespace_members, function)?;
         }
         Ok(())
     }

@@ -2,7 +2,7 @@ use porffor_aot_wasm::{decode_heap_bigint_decimal, WasmRuntimeValueTag};
 use porffor_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, SourceUnit};
 use porffor_ir::{
     lower, lower_module_graph, lower_script_graph, source_writes_dynamic_import, IrDiagnostic,
-    IrDiagnosticKind, ProgramIr, ValueKind,
+    ProgramIr, ValueKind,
 };
 use sha2::{Digest, Sha256};
 use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
@@ -32,6 +32,7 @@ pub use module_loader::{
 const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
+const WASM_THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "porf_host";
 const WASM_HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
@@ -43,12 +44,69 @@ const WASM_HOST_IMPORT_AGENT_CALL: &str = "agent_call";
 const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
 const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
 const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
+/// Default bound on [`memory_wasm_modules`], **in entries and in nothing else**.
+///
+/// # This is the in-process retention that the disk-cache knobs do not touch
+///
+/// Read this next to `cache.rs`'s `PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`.
+/// Those three bound bytes *on disk*. This one bounds fully compiled native
+/// Wasmtime modules held in **this process's memory**, and it bounds them by
+/// count, so the resident cost is `entries x whatever a module happens to weigh`
+/// with no ceiling on the second factor.
+///
+/// That distinction was measured the expensive way. `crates/porffor-cli`'s
+/// `language` CLI module (105 tests in one libtest process) was OOM-SIGKILLed
+/// three times on a 4-CPU / 15.7 GiB container with `avail` falling
+/// *monotonically* — 8.5 GiB at ~7 tests, 3.56 at ~49, 1.14 at ~67 — and the
+/// three per-tier byte knobs changed nothing, because none of them reaches this
+/// deque. The in-process CLI test path is `Retain` (see
+/// `run_source_with_cached_wasm` and `run_with_wasm_bytes`), so it retains one
+/// native module per distinct fixture; the three fatal runs sat at roughly
+/// 53-62 entries, i.e. just short of the 64-entry cap where growth would finally
+/// have plateaued. A test module that spawns `porf` as a child process
+/// contributes nothing here, which is why the cheap tests in that file are free.
+///
+/// So the override below is a real lever for a memory-constrained run, and the
+/// standing follow-up it does not discharge is to bound this deque by **bytes**
+/// as well, the way the disk tiers already are. Until that lands, "fewer tests
+/// per process" is not the only lever — it is the lever that needs no code
+/// change.
 const WASM_MODULE_MEMORY_CACHE_ENTRIES: usize = 64;
+
+/// Override for [`WASM_MODULE_MEMORY_CACHE_ENTRIES`], named to sit beside the
+/// three `PORFFOR_*_CACHE_LIMIT_BYTES` disk knobs it is repeatedly confused
+/// with.
+const MODULE_MEMORY_CACHE_ENTRIES_ENV: &str = "PORFFOR_MODULE_MEMORY_CACHE_ENTRIES";
+
+/// Entry bound actually applied to [`memory_wasm_modules`].
+///
+/// Unset, blank, unparseable and zero all fall back to the default rather than
+/// panicking or disabling the cache, matching `cache.rs::parse_cache_limit`: a
+/// typo in an environment variable must not silently change execution cost for
+/// a run that has been going for hours.
+fn wasm_module_memory_cache_entries() -> usize {
+    static ENTRIES: OnceLock<usize> = OnceLock::new();
+    *ENTRIES.get_or_init(|| {
+        std::env::var(MODULE_MEMORY_CACHE_ENTRIES_ENV)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|entries| *entries > 0)
+            .unwrap_or(WASM_MODULE_MEMORY_CACHE_ENTRIES)
+    })
+}
 /// Cut over before the multi-megabyte function bodies seen in slow Test262
 /// artifacts can exhaust Cranelift's fast-compilation per-function limits.
 /// This is a performance heuristic only; the normal compiler retains its
 /// authoritative `CodeTooLarge` fallback below the cutoff.
 const SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES: usize = 1024 * 1024;
+/// Cranelift's `CodegenError::CodeTooLarge` display text, verbatim
+/// (`cranelift-codegen/src/result.rs`). Both the size-optimized retry and the
+/// per-function attribution key on it, and a single constant keeps the two from
+/// drifting apart.
+const WASM_CODE_TOO_LARGE_MESSAGE: &str = "Code for function is too large";
 /// Large AOT functions can have multi-megabyte native stack frames even
 /// without deep JavaScript recursion. Keep half of the 64MiB worker stack
 /// available to Wasmtime while leaving the other half for host calls.
@@ -572,6 +630,129 @@ fn plan_wasm_native_compilation(bytes: &[u8]) -> WasmNativeCompilationPlan {
     }
 }
 
+/// One code-section body, as the attribution below ranks it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WasmCodeBodyFacts {
+    /// Index in the Wasm function index space, i.e. after the imports.
+    function_index: u32,
+    body_bytes: usize,
+    /// `None` when the local declaration could not be decoded, which is
+    /// reported as `?` rather than as a plausible number.
+    declared_locals: Option<u64>,
+}
+
+impl core::fmt::Display for WasmCodeBodyFacts {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "wasm[0]::function[{}] ({} bytes, ",
+            self.function_index, self.body_bytes
+        )?;
+        match self.declared_locals {
+            Some(locals) => write!(f, "{locals} locals)"),
+            None => write!(f, "? locals)"),
+        }
+    }
+}
+
+/// Total declared locals of one body, or `None` when the declaration does not
+/// decode.
+fn wasm_body_declared_locals(body: &wasmparser::FunctionBody<'_>) -> Option<u64> {
+    let mut reader = body.get_locals_reader().ok()?;
+    let mut total: u64 = 0;
+    for _ in 0..reader.get_count() {
+        let (count, _value_type) = reader.read().ok()?;
+        total = total.checked_add(u64::from(count))?;
+    }
+    Some(total)
+}
+
+/// Attributes a `Code for function is too large` failure to the emitted
+/// function bodies most likely to be responsible, **by Wasm function index**.
+///
+/// Cranelift's `CodegenError::CodeTooLarge` — raised when `VRegAllocator::alloc`
+/// exhausts the 2,097,151 virtual registers `VReg::MAX_BITS = 21` allows — says
+/// nothing about *which* function ran out. The module carries two candidate
+/// answers and this reports both, because they are frequently different
+/// functions:
+///
+/// * the largest code-section body, and
+/// * the body declaring the most locals.
+///
+/// The second is the better predictor: the Cranelift Wasm frontend materialises
+/// a value per live local at every control-flow join, so virtual-register
+/// pressure tracks `locals × blocks` rather than encoded size. Reporting only
+/// the byte-largest body names a shared builtin that is byte-identical in
+/// hundreds of modules Cranelift compiles fine, which is a plausible-looking
+/// wrong answer. Both are hints, and they are labelled as the two rankings they
+/// are.
+///
+/// **Deliberately index-only: no symbol names appear here.** This string is
+/// appended to the failure detail that `porffor-test262` classifies with, and
+/// both `classify_failure_origin` and `classify_failure_outcome` match
+/// case-insensitive substrings over the *whole* detail. A symbol such as
+/// `builtin::Intl.DateTimeFormat.prototype.format` would match `intl` and file
+/// a Cranelift backend defect under `FailureOrigin::IcuIntl`; `builtin::JSON.parse`
+/// would match `parse` and give `BoaParser`; `builtin_stub::…` would match
+/// `stub` and demote the outcome from `Bug` to `NotImplemented`. The
+/// index-to-symbol mapping lives in the module's `name` section — which is what
+/// wasmtime itself symbolises `wasm[0]::function[N]::<name>` from — and in the
+/// backend `debug_dump` size report (`PORFFOR_EMIT_SIZE_REPORT`).
+/// `attribution_is_inert_for_the_test262_failure_classifiers` guards this.
+///
+/// Returns `None` for a module that fails to parse or carries no code section —
+/// in that case the caller reports the original error unchanged.
+fn describe_largest_wasm_code_body(bytes: &[u8]) -> Option<String> {
+    let mut imported_function_count: u32 = 0;
+    let mut code_entry_ordinal: u32 = 0;
+    let mut largest: Option<WasmCodeBodyFacts> = None;
+    let mut most_locals: Option<WasmCodeBodyFacts> = None;
+
+    for payload in WasmParser::new(0).parse_all(bytes) {
+        match payload.ok()? {
+            WasmPayload::ImportSection(reader) => {
+                // `into_imports` rather than iterating the section directly:
+                // one `Imports` entry can carry a whole compact-encoding group
+                // (many names under one module, or many names under one type),
+                // so counting section entries would undercount the imported
+                // functions and shift every function index reported below.
+                for import in reader.into_imports() {
+                    let import = import.ok()?;
+                    if matches!(
+                        import.ty,
+                        wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                    ) {
+                        imported_function_count += 1;
+                    }
+                }
+            }
+            WasmPayload::CodeSectionEntry(body) => {
+                let facts = WasmCodeBodyFacts {
+                    function_index: imported_function_count + code_entry_ordinal,
+                    body_bytes: body.range().len(),
+                    declared_locals: wasm_body_declared_locals(&body),
+                };
+                code_entry_ordinal += 1;
+                if largest.is_none_or(|current| facts.body_bytes > current.body_bytes) {
+                    largest = Some(facts);
+                }
+                if most_locals.is_none_or(|current| {
+                    facts.declared_locals.unwrap_or(0) > current.declared_locals.unwrap_or(0)
+                }) {
+                    most_locals = Some(facts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let largest = largest?;
+    let most_locals = most_locals?;
+    Some(format!(
+        "largest emitted function: {largest}; most locals: {most_locals}"
+    ))
+}
+
 fn largest_wasm_code_body_size(bytes: &[u8]) -> Option<usize> {
     let mut largest_code_body_bytes = 0;
     for payload in WasmParser::new(0).parse_all(bytes) {
@@ -599,7 +780,26 @@ fn compile_wasm_module(
 ) -> Result<WasmtimeModule, EngineError> {
     compilation_pool()?
         .install(|| WasmtimeModule::new(engine, bytes))
-        .map_err(|err| EngineError::new(format!("wasmtime module validation failed: {err:#}")))
+        .map_err(|err| {
+            let message = format!("wasmtime module validation failed: {err:#}");
+            // Cranelift's per-function limits are the one failure class whose
+            // message names neither the function nor its size. Attach the two
+            // index rankings, so the failure detail recorded by the Test262
+            // runner points at a specific code-section body.
+            //
+            // This says nothing about the `[origin:…]` prefix that detail also
+            // carries: that is a `porffor-test262` `FailureOrigin` value, and
+            // the attribution is index-only precisely so it cannot perturb it
+            // (see `describe_largest_wasm_code_body`). The retry in
+            // `run_with_wasm_aot_inner` matches on the `Code for function is
+            // too large` substring, which this only ever appends to.
+            if message.contains(WASM_CODE_TOO_LARGE_MESSAGE) {
+                if let Some(attribution) = describe_largest_wasm_code_body(bytes) {
+                    return EngineError::new(format!("{message}; {attribution}"));
+                }
+            }
+            EngineError::new(message)
+        })
 }
 
 fn memory_cached_wasm_module(
@@ -627,7 +827,7 @@ fn memory_cached_wasm_module(
     let mut modules = modules
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if modules.len() == WASM_MODULE_MEMORY_CACHE_ENTRIES {
+    while modules.len() >= wasm_module_memory_cache_entries() {
         modules.pop_front();
     }
     modules.push_back((key, module.clone()));
@@ -876,6 +1076,22 @@ pub struct Artifact {
     pub kind: ArtifactKind,
     pub bytes: Vec<u8>,
     pub description: String,
+    /// The backend's self-description for this artifact, empty for backends
+    /// that produce none.
+    ///
+    /// This field exists because dropping it was a real defect, not a
+    /// hypothetical one. `porffor_aot_wasm::emit` returns a `debug_dump`
+    /// carrying the emitted-size attribution (`largest emitted function: ...`
+    /// and, under `PORFFOR_EMIT_SIZE_REPORT`, one line per emitted body);
+    /// `emit_wasm_on_current_thread` used to build an `Artifact` that had
+    /// nowhere to put it and discarded it. The only printer of a dump,
+    /// `PORFFOR_WASM_TRACE_DUMP` in `run_with_wasm_aot_inner`, is reachable
+    /// only from `run_compiled_unit`, while `porf build wasm` and the Test262
+    /// wasm-aot backend both go through this path — so the variable named
+    /// "trace dump" printed nothing on exactly the two commands anyone would
+    /// use it from, and `PORFFOR_EMIT_SIZE_REPORT` silently reported nothing
+    /// for a whole batch of size work.
+    pub debug_dump: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1674,11 +1890,22 @@ impl Engine {
 
     fn emit_wasm_on_current_thread(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
         match porffor_aot_wasm::emit(&unit.ir) {
-            Ok(wasm) => Ok(Artifact {
-                kind: ArtifactKind::Wasm,
-                bytes: wasm.bytes,
-                description: wasm.invariant_note.to_string(),
-            }),
+            Ok(wasm) => {
+                // `porf build wasm` and the Test262 wasm-aot backend both reach
+                // emission through here and never through
+                // `run_with_wasm_aot_inner`, so this is where
+                // `PORFFOR_WASM_TRACE_DUMP` has to be honoured for the variable
+                // to mean what its name says.
+                if std::env::var_os("PORFFOR_WASM_TRACE_DUMP").is_some() {
+                    eprintln!("porffor wasm trace: artifact debug:\n{}", wasm.debug_dump);
+                }
+                Ok(Artifact {
+                    kind: ArtifactKind::Wasm,
+                    bytes: wasm.bytes,
+                    description: wasm.invariant_note.to_string(),
+                    debug_dump: wasm.debug_dump,
+                })
+            }
             Err(err) => Err(EngineError::new(format!(
                 "{}. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
                 err
@@ -1692,6 +1919,8 @@ impl Engine {
                 kind: ArtifactKind::C,
                 bytes: c.source.into_bytes(),
                 description: "shared IR to C artifact".to_string(),
+                // The C backend produces no self-description today.
+                debug_dump: String::new(),
             }),
             Err(err) => Err(EngineError::new(err)),
         })
@@ -1711,6 +1940,8 @@ impl Engine {
                         "native artifact placeholder for {:?}",
                         native.target_triple
                     ),
+                    // The native backend produces no self-description today.
+                    debug_dump: String::new(),
                 }),
                 Err(err) => Err(EngineError::new(err)),
             },
@@ -1798,10 +2029,19 @@ impl Engine {
         if trace {
             eprintln!("porffor wasm trace: lower: {:?}", lower_started.elapsed());
         }
+        // Every *coded* diagnostic is a pre-evaluation rejection: `code()` is
+        // `Some` exactly for `IrDiagnostic::rejected`, whose kind is derived by
+        // `rejection_kind`. Matching on `kind == EarlyError` instead dropped the
+        // `LinkError` half on the floor — a link failure then fell through to
+        // `porffor_aot_wasm::emit`, was flattened to `EmitError::unsupported`,
+        // and arrived with `ir_diagnostic: None`, so the conformance matcher's
+        // `IrDiagnosticPhase::Resolution` arm was unreachable. This is the same
+        // predicate `porffor-test262` uses (`diagnostic.code().is_some()`), and
+        // the one that survives folding the code into `IrDiagnosticKind`.
         if let Some(diagnostic) = ir
             .diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.kind == IrDiagnosticKind::EarlyError)
+            .find(|diagnostic| diagnostic.code().is_some())
         {
             return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
         }
@@ -2017,7 +2257,7 @@ impl Engine {
             Err(error)
                 if native_compilation_plan.mode == WasmNativeCompilationMode::Fast
                     && agent_execution.is_none()
-                    && error.to_string().contains("Code for function is too large") =>
+                    && error.to_string().contains(WASM_CODE_TOO_LARGE_MESSAGE) =>
             {
                 if trace_wasm {
                     eprintln!(
@@ -2634,31 +2874,23 @@ impl Engine {
                 "wasm completion_kind export had unexpected type",
             ));
         };
+        // Read the throw diagnostics *before* rendering, because the rendering
+        // is what consumes them: without the message, a thrown heap object
+        // renders as nothing but its address.
+        let thrown_error = if completion_kind != 0 {
+            ThrownErrorText::read(&instance, &mut store, result_kind)?
+        } else {
+            ThrownErrorText::NONE
+        };
         let note = render_wasmtime_completion(
             result_tag,
             payload,
             wasmtime_exported_memory(&instance, &mut store),
             &mut store,
+            thrown_error.message(),
         )?;
         if completion_kind != 0 {
-            let error_name = if matches!(
-                result_kind,
-                ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments
-            ) {
-                let memory = wasmtime_exported_memory(&instance, &mut store);
-                read_wasmtime_string_payload_global(
-                    &instance,
-                    &mut store,
-                    WASM_THROW_ERROR_NAME_EXPORT,
-                    memory,
-                )?
-            } else {
-                None
-            };
-            let prefix = error_name
-                .filter(|name| !name.is_empty())
-                .map(|name| format!("{name}: "))
-                .unwrap_or_default();
+            let prefix = thrown_error.name_prefix();
             return Err(EngineError::new(format!("uncaught throw: {prefix}{note}")));
         }
 
@@ -2718,6 +2950,77 @@ fn read_wasmtime_shared_memory(
     Ok(())
 }
 
+/// What an uncaught throw carried out of the module, as the module itself
+/// reported it: the error's `name` and its `message`.
+///
+/// Both come from exported globals the emitter sets at every throw site
+/// (`builtins/errors.rs`), and both are `None` for a completion that is not a
+/// throw of a heap object — which is also the only case where either global
+/// could be read at all, since a heap-less module aliases the two exports onto
+/// one slot.
+///
+/// The type exists so the two are read *together*, once, at one place. They
+/// used to be one lonely string read inline at the throw site, and the result
+/// was that `render_wasmtime_completion` had nothing to print for an object
+/// except `handle@{payload}` — a raw linear-memory address that is not stable
+/// across builds (batch 3 measured a fixed set of handles shifting by exactly
+/// +136 bytes between two builds of the same source) and maps to no allocation
+/// site anywhere in this tree. ~2,488 measured Wasm-AOT failures across ~1,743
+/// distinct addresses therefore carried one bit of information between them.
+struct ThrownErrorText {
+    name: Option<String>,
+    message: Option<String>,
+}
+
+impl ThrownErrorText {
+    const NONE: Self = Self {
+        name: None,
+        message: None,
+    };
+
+    fn read(
+        instance: &wasmtime::Instance,
+        store: &mut WasmtimeStore<WasmHostState>,
+        result_kind: ValueKind,
+    ) -> Result<Self, EngineError> {
+        if !matches!(
+            result_kind,
+            ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments
+        ) {
+            return Ok(Self::NONE);
+        }
+        let memory = wasmtime_exported_memory(instance, store);
+        let name = read_wasmtime_string_payload_global(
+            instance,
+            store,
+            WASM_THROW_ERROR_NAME_EXPORT,
+            memory,
+        )?;
+        let memory = wasmtime_exported_memory(instance, store);
+        let message = read_wasmtime_string_payload_global(
+            instance,
+            store,
+            WASM_THROW_ERROR_MESSAGE_EXPORT,
+            memory,
+        )?;
+        Ok(Self {
+            name: name.filter(|value| !value.is_empty()),
+            message: message.filter(|value| !value.is_empty()),
+        })
+    }
+
+    fn name_prefix(&self) -> String {
+        self.name
+            .as_ref()
+            .map(|name| format!("{name}: "))
+            .unwrap_or_default()
+    }
+
+    fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+}
+
 fn read_wasmtime_string_payload_global(
     instance: &wasmtime::Instance,
     store: &mut WasmtimeStore<WasmHostState>,
@@ -2749,11 +3052,20 @@ fn read_wasmtime_string_payload_global(
         .map_err(|err| EngineError::new(format!("wasm string result is not utf-8: {err}")))
 }
 
+/// Render a completion value for a human.
+///
+/// `thrown_message` is `Some` only for an uncaught throw of a heap object, and
+/// it is the difference between a detail that names a defect and a detail that
+/// names an address. It is appended to the handle rather than replacing it: the
+/// address is worthless as an *identity* (see `ThrownErrorText`), but it is
+/// still the only thing that distinguishes two live objects while debugging, so
+/// it stays in the text and is erased only from the runner's `detail_hash`.
 fn render_wasmtime_completion(
     tag: WasmRuntimeValueTag,
     payload: i64,
     memory: Option<WasmtimeExportedMemory>,
     store: &mut WasmtimeStore<WasmHostState>,
+    thrown_message: Option<&str>,
 ) -> Result<String, EngineError> {
     let (kind, rendered) = match tag {
         WasmRuntimeValueTag::HeapBigInt => {
@@ -2801,10 +3113,10 @@ fn render_wasmtime_completion(
                         EngineError::new(format!("wasm string result is not utf-8: {err}"))
                     })?
                 }
-                ValueKind::Object => format!("handle@{}", payload as u64),
-                ValueKind::Array => format!("handle@{}", payload as u64),
-                ValueKind::Function => format!("handle@{}", payload as u64),
-                ValueKind::Arguments => format!("handle@{}", payload as u64),
+                ValueKind::Object
+                | ValueKind::Array
+                | ValueKind::Function
+                | ValueKind::Arguments => render_heap_handle(payload, thrown_message),
                 ValueKind::Symbol => format!("symbol@{}", payload as u64),
                 ValueKind::BigInt => format!("{}n", payload),
                 ValueKind::Dynamic => {
@@ -2820,6 +3132,18 @@ fn render_wasmtime_completion(
         "wasm-aot completion: {}({rendered})",
         kind.as_str()
     ))
+}
+
+/// `handle@5397552` on its own, or `handle@5397552: <message>` when the module
+/// told us what was thrown.
+///
+/// A normal completion whose value happens to be an object keeps the bare form:
+/// there is no message, because nothing was thrown.
+fn render_heap_handle(payload: i64, thrown_message: Option<&str>) -> String {
+    match thrown_message {
+        Some(message) => format!("handle@{}: {message}", payload as u64),
+        None => format!("handle@{}", payload as u64),
+    }
 }
 
 #[cfg(test)]
@@ -3410,6 +3734,180 @@ report;
         )
     }
 
+    /// Recomputes the two rankings independently of
+    /// `describe_largest_wasm_code_body` and asserts the reported indices and
+    /// figures are the ones the module actually has.
+    ///
+    /// Asserting only that the text *contains* `wasm[0]::function[` would pass
+    /// for any index the walk happened to produce, including one shifted by the
+    /// imported-function count — and a shifted index points at the wrong
+    /// function, which is the whole failure mode this attribution exists to
+    /// avoid.
+    #[test]
+    fn largest_wasm_code_body_is_attributed_by_index() {
+        let engine = engine();
+        let unit = engine
+            .compile_script("var x = 1 + 1;", CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+
+        let mut imported_function_count = 0u32;
+        let mut bodies: Vec<WasmCodeBodyFacts> = Vec::new();
+        for payload in WasmParser::new(0).parse_all(&artifact.bytes) {
+            match payload.expect("emitted module should parse") {
+                WasmPayload::ImportSection(reader) => {
+                    for import in reader.into_imports() {
+                        let import = import.expect("import should parse");
+                        if matches!(
+                            import.ty,
+                            wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                        ) {
+                            imported_function_count += 1;
+                        }
+                    }
+                }
+                WasmPayload::CodeSectionEntry(body) => {
+                    bodies.push(WasmCodeBodyFacts {
+                        function_index: imported_function_count
+                            + u32::try_from(bodies.len()).expect("code entry count fits u32"),
+                        body_bytes: body.range().len(),
+                        declared_locals: wasm_body_declared_locals(&body),
+                    });
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            imported_function_count > 0,
+            "module should import functions"
+        );
+        let largest = bodies
+            .iter()
+            .copied()
+            .max_by_key(|facts| facts.body_bytes)
+            .expect("an emitted module always has a code section");
+        let most_locals = bodies
+            .iter()
+            .copied()
+            .max_by_key(|facts| facts.declared_locals.unwrap_or(0))
+            .expect("an emitted module always has a code section");
+        assert!(
+            most_locals.declared_locals.is_some_and(|locals| locals > 0),
+            "the backend declares locals; a `?` here means the decode broke"
+        );
+
+        let description = describe_largest_wasm_code_body(&artifact.bytes)
+            .expect("an emitted module always has a code section");
+        assert_eq!(
+            description,
+            format!("largest emitted function: {largest}; most locals: {most_locals}"),
+        );
+    }
+
+    /// `Engine::emit_wasm` must carry the backend's `debug_dump` out to its
+    /// caller.
+    ///
+    /// This is the regression [`Artifact::debug_dump`] exists to prevent, and
+    /// nothing else pins it. `emit_wasm_on_current_thread` used to build an
+    /// `Artifact` with nowhere to put the dump and drop it on the floor, which
+    /// is the path both `porf build wasm` and the Test262 wasm-aot backend take
+    /// — so `PORFFOR_WASM_TRACE_DUMP` printed nothing on exactly the two
+    /// commands anyone would use it from, and `PORFFOR_EMIT_SIZE_REPORT`
+    /// silently reported nothing for a whole batch of size work. A test in
+    /// `porffor-aot-wasm` cannot catch that: the dump was correct where it was
+    /// produced and lost one layer up.
+    ///
+    /// The attribution line is asserted rather than mere non-emptiness, so that
+    /// truncating the dump to a placeholder does not pass.
+    #[test]
+    fn emit_wasm_carries_the_backend_debug_dump_to_its_caller() {
+        let engine = engine();
+        let unit = engine
+            .compile_script("var x = 1 + 1;", CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+
+        assert!(
+            !artifact.debug_dump.is_empty(),
+            "the wasm backend always produces a self-description; an empty dump \
+             here means it was dropped between `porffor_aot_wasm::emit` and the \
+             `Artifact`"
+        );
+        for prefix in [
+            "largest emitted function: ",
+            "most locals in an emitted function: ",
+            "emitted code bytes: ",
+        ] {
+            assert!(
+                artifact
+                    .debug_dump
+                    .lines()
+                    .any(|line| line.starts_with(prefix)),
+                "debug_dump is missing {prefix:?}:\n{}",
+                artifact.debug_dump
+            );
+        }
+    }
+
+    /// The attribution is appended to the failure detail that `porffor-test262`
+    /// classifies with, and both `classify_failure_origin` and
+    /// `classify_failure_outcome` (`crates/porffor-test262/src/lib.rs`) match
+    /// case-insensitive substrings over the whole detail. Re-introducing a
+    /// symbol name here would silently re-file Cranelift backend defects as
+    /// `IcuIntl`/`BoaParser`/`NotImplemented` records, so the keyword list those
+    /// two functions use is duplicated here as a tripwire.
+    #[test]
+    fn attribution_is_inert_for_the_test262_failure_classifiers() {
+        const CLASSIFIER_KEYWORDS: &[&str] = &[
+            "local harness",
+            "worker panic",
+            "icu_",
+            "hijri",
+            "intl",
+            "datetimeformat",
+            "numberformat",
+            "durationformat",
+            "relativetimeformat",
+            "spec-exec",
+            "syntaxerror",
+            "syntax error",
+            "parse",
+            "referenceerror",
+            "typeerror",
+            "rangeerror",
+            "urierror",
+            "runtime",
+            "index out of bounds",
+            "must be declarative environment",
+            "not implemented",
+            "unsupported",
+            "not supported",
+            "stub",
+            "panic",
+            "panicked",
+            "crash",
+            "segmentation fault",
+            "trapped",
+            "timeout exceeded",
+            "wasm `unreachable`",
+        ];
+
+        let engine = engine();
+        let unit = engine
+            .compile_script("var x = 1 + 1;", CompileOptions::default())
+            .expect("script compile should succeed");
+        let artifact = engine.emit_wasm(&unit).expect("wasm emit should succeed");
+        let description = describe_largest_wasm_code_body(&artifact.bytes)
+            .expect("an emitted module always has a code section")
+            .to_ascii_lowercase();
+        for keyword in CLASSIFIER_KEYWORDS {
+            assert!(
+                !description.contains(keyword),
+                "attribution contains classifier keyword {keyword:?}: {description}"
+            );
+        }
+    }
+
     #[test]
     fn wasm_number_pow_matches_ecmascript_special_values() {
         assert_eq!(wasm_number_pow(f64::NAN, 0.0), 1.0);
@@ -3657,6 +4155,12 @@ report;
                 WASM_RESULT_TAG_EXPORT,
                 WASM_COMPLETION_KIND_EXPORT,
                 WASM_THROW_ERROR_NAME_EXPORT,
+                // If this one is missing, the emitter's export section was not
+                // updated alongside the `throw_error_message` global and every
+                // uncaught throw silently loses its message again. Asserting it
+                // here makes that a named failure instead of a quiet
+                // regression to `object(handle@N)`.
+                WASM_THROW_ERROR_MESSAGE_EXPORT,
             ] {
                 assert!(
                     exports.contains(&export.to_string()),
@@ -3699,6 +4203,68 @@ report;
             err.message()
                 .contains("uncaught throw: TypeError: wasm-aot completion: object(handle@"),
             "error: {err}"
+        );
+        // The handle alone is not a diagnosis. This assertion is the enforcement
+        // half of the throw-message repair: without it the improvement is
+        // something a reader observes once and a later refactor removes without
+        // any test noticing, which is exactly how `object(handle@N)` became the
+        // shared signature of ~2,488 unrelated failures.
+        assert!(
+            err.message().contains("boom"),
+            "an uncaught throw must carry the thrown error's message, not just its address: {err}"
+        );
+
+        // ...and a runtime-thrown error, whose message the runtime supplies
+        // rather than the script. This is the same repair seen from the other
+        // side: before it, `message` was defined from the error's `name`, so
+        // there was no message to report even in principle.
+        let runtime_err = engine()
+            .run_script(
+                "null.x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("reading a property of null should throw");
+        assert!(
+            runtime_err
+                .message()
+                .contains("uncaught throw: TypeError: "),
+            "error: {runtime_err}"
+        );
+        assert!(
+            runtime_err
+                .message()
+                .contains("Cannot read properties of null or undefined"),
+            "a runtime-thrown error must report its own message: {runtime_err}"
+        );
+    }
+
+    /// The message is appended **only** when something was thrown.
+    ///
+    /// This is what keeps the sibling assertions elsewhere in this file correct
+    /// by construction rather than by having been loosened: the ones that pin
+    /// `object(handle@` and `function(handle@` — `check()` returning `this`,
+    /// `globalThis.f`, and the two `catch (e) { e; }` cases in the new.target
+    /// table — are all *normal* completions whose value happens to be a heap
+    /// object. Nothing was thrown, `ThrownErrorText` is `NONE`, and they keep
+    /// the bare form. They were re-read and deliberately left alone.
+    #[test]
+    fn render_wasmtime_completion_appends_the_thrown_message_only_when_there_is_one() {
+        assert_eq!(render_heap_handle(5_397_552, None), "handle@5397552");
+        assert_eq!(
+            render_heap_handle(5_397_552, Some("RegExp.prototype.exec unsupported pattern")),
+            "handle@5397552: RegExp.prototype.exec unsupported pattern"
+        );
+        // An empty message is normalised to `None` by `ThrownErrorText::read`,
+        // so it can never reach here as `Some("")` and produce a dangling
+        // separator. Pinned so a later caller cannot reintroduce one.
+        assert_eq!(
+            render_heap_handle(1, Some("x")),
+            "handle@1: x",
+            "the separator is `: ` and nothing else"
         );
     }
 
@@ -3821,19 +4387,29 @@ report;
             .parse_diagnostic()
             .expect("engine error should retain parse diagnostic");
         assert_eq!(
-            diagnostic.kind,
+            diagnostic.kind(),
             porffor_front::ParseDiagnosticKind::MalformedJavaScript
         );
-        assert_eq!(diagnostic.phase, porffor_front::ParseDiagnosticPhase::Parse);
-        assert_eq!(diagnostic.error_type, "SyntaxError");
-        assert_eq!(diagnostic.code, "P_PARSE_MALFORMED");
+        assert_eq!(
+            diagnostic.phase(),
+            porffor_front::ParseDiagnosticPhase::Parse
+        );
+        assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
+        assert_eq!(diagnostic.code, porffor_front::ParseCode::Malformed);
         assert!(diagnostic.span.is_some());
     }
 
     #[test]
     fn engine_error_preserves_structured_ir_early_error_diagnostic() {
-        let source_diagnostic =
-            IrDiagnostic::early_error("E_TEST_EARLY", "SyntaxError", "early error: test", None);
+        // The code is a real inhabitant of the domain. It used to be
+        // `"E_TEST_EARLY"`, a code no producer emits, which a `&'static str`
+        // field happily accepted — the mistake class this type exists to make
+        // unrepresentable.
+        let source_diagnostic = IrDiagnostic::rejected(
+            porffor_ir::EarlyErrorCode::ObjectDuplicateProto,
+            "early error: test",
+            None,
+        );
         let err = EngineError::from_ir_diagnostic(source_diagnostic.clone());
 
         assert_eq!(err.message(), source_diagnostic.message);
@@ -3852,9 +4428,17 @@ report;
         let diagnostic = err
             .parse_diagnostic()
             .expect("engine error should retain front-end diagnostic");
-        assert_eq!(diagnostic.code, "E_OBJECT_DUPLICATE_PROTO");
-        assert_eq!(diagnostic.phase, porffor_front::ParseDiagnosticPhase::Early);
-        assert_eq!(diagnostic.error_type, "SyntaxError");
+        assert_eq!(
+            diagnostic.code,
+            porffor_front::ParseCode::Early(porffor_front::ParseClassified::from_parse_table(
+                porffor_front::EarlyErrorCode::ObjectDuplicateProto
+            ))
+        );
+        assert_eq!(
+            diagnostic.phase(),
+            porffor_front::ParseDiagnosticPhase::Early
+        );
+        assert_eq!(diagnostic.error_type(), Some("SyntaxError"));
         assert!(err.ir_diagnostic().is_none());
     }
 
@@ -17420,20 +18004,150 @@ var reflected = Reflect.ownKeys(proxy);
     }
 
     #[test]
-    fn wasm_backend_rejects_const_update_precisely() {
-        let err = engine()
+    fn wasm_backend_throws_type_error_for_const_update() {
+        // Rewritten from `wasm_backend_rejects_const_update_precisely`, which
+        // pinned `unsupported in porffor wasm-aot first slice: update of const
+        // binding`. That refusal was wrong: 13.4.4.1 evaluates the operand,
+        // coerces it with ToNumeric, and only then reaches the PutValue that
+        // fails, so `const x = 1; x++` is a program that *runs* and throws a
+        // TypeError. The old string made
+        // `assert.throws(TypeError, function() { for (const i = 0; i < 1; i++) {} })`
+        // a NotImplemented instead of a pass. Deleting this test rather than
+        // rewriting it would have made the fix vacuous, so it now asserts the
+        // throw, that it is catchable, and that the binding is unchanged.
+        let outcome = engine()
             .run_script(
-                "const x = 1; x++;",
+                "let log = ''; const x = 1; try { x++; } catch (e) { log = (e instanceof TypeError) ? 'TypeError' : e.name; } log + '|' + x;",
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
                     ..RunOptions::default()
                 },
             )
-            .expect_err("const update should stay unsupported");
-        assert!(err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice: update of const binding"));
+            .expect("const update should compile and throw at run time");
+        assert!(
+            outcome.note.contains("string(TypeError|1)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_sequences_const_compound_assignment_operand_before_throw() {
+        // 13.15.2 step 1: the RHS is evaluated, and
+        // ApplyStringOrNumericBinaryOperator is applied, *before* PutValue
+        // fails. `immutable_binding_write` puts the applied result on the lhs
+        // of a `Comma` for exactly this; a bare RuntimeThrow would drop the
+        // `log = 'a'` and still pass a test that only checked the error.
+        let outcome = engine()
+            .run_script(
+                "let log = ''; const x = 0; try { x += (log = log + 'a', 1); } catch (e) { log = log + (e instanceof TypeError ? 'T' : e.name); } log + '|' + x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("const compound assignment should compile and throw at run time");
+        assert!(outcome.note.contains("string(aT|0)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_short_circuits_const_logical_assignment_without_throwing() {
+        // `||=` on a truthy const never reaches PutValue, so it is not an error
+        // at all; `&&=` on the same binding does. Both used to be refused by
+        // one `assignment to const binding` site, which is why this asserts the
+        // pair rather than only the throwing half.
+        let outcome = engine()
+            .run_script(
+                "const x = 1; let short = 'no'; x ||= 2; short = 'yes'; let threw = 'no'; try { x &&= 3; } catch (e) { threw = (e instanceof TypeError) ? 'yes' : e.name; } short + '|' + threw + '|' + x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("logical assignment to a const should compile");
+        assert!(
+            outcome.note.contains("string(yes|yes|1)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_runs_zero_iterations_for_undefined_for_in_target() {
+        // 14.7.5.6 step 3.a: a nullish head is a break completion, so the loop
+        // runs zero times and nothing throws. This used to be
+        // `unsupported in porffor wasm-aot first slice: for-in non-enumerable
+        // target`, which is test262 `language/statements/for-in/S12.6.4_A1.js`.
+        let outcome = engine()
+            .run_script(
+                "let ran = 'no'; for (var key in undefined) { ran = 'yes'; } ran + '|' + key;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a for-in over undefined must compile");
+        assert!(
+            outcome.note.contains("string(no|undefined)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_runs_for_in_head_effects_for_a_nullish_target() {
+        // Anti-vacuity for the above: steps 1-2 of ForIn/OfHeadEvaluation still
+        // evaluate the head. Returning `StatementIr::Empty` instead of the
+        // lowered head would pass every test262 case in this family and lose
+        // `bump()`, so the effect is asserted here rather than nowhere.
+        let outcome = engine()
+            .run_script(
+                "let hits = 0; function bump() { hits = hits + 1; return 0; } let ran = 'no'; for (var k in (bump(), null)) { ran = 'yes'; } hits + '|' + ran + '|' + k;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a for-in over a statically null head must compile");
+        assert!(
+            outcome.note.contains("string(1|no|undefined)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_does_not_type_a_zero_iteration_for_in_key_as_a_string() {
+        // Anti-vacuity for the two tests above. Both read the loop variable
+        // through a string concatenation, which is tag-dispatched at run time,
+        // so they pass whether or not the key is correctly TYPED. Arithmetic is
+        // not tag-dispatched: `infer_var_binding_info_from_statement`'s
+        // `ForInLoop` arm published a proven `String` for any `var` named as a
+        // for-in key, `seed_script_global_var_properties` installed that as the
+        // script global's `proven_present` info, and `combine_arithmetic`'s
+        // `lhs_proves_string` test then lowered `key + 1` to
+        // `ExprIr::StringConcat`. The program answered `"undefined1"` where the
+        // spec requires `NaN`.
+        //
+        // `r !== r` is the oracle rather than `typeof`: it is true for exactly
+        // `NaN` and false for every string, so neither answer can be reached by
+        // accident.
+        let outcome = engine()
+            .run_script(
+                "for (var key in null) { key; } var r = key + 1; r !== r;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a for-in over null followed by arithmetic on the key must compile");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 
     #[test]

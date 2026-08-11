@@ -2,8 +2,7 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use porffor_ir::{
-    AsyncForOfIteratorPlanIr, AsyncForOfPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
-    ObjectDestructuringPatternIr,
+    AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr, ObjectDestructuringPatternIr,
 };
 
 fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
@@ -23,10 +22,12 @@ mod tests {
         let outer = ControlTarget {
             frame: 2,
             environment_depth: 1,
+            label: LabelDepth::for_test(3),
         };
         let inner = ControlTarget {
             frame: 5,
             environment_depth: 3,
+            label: LabelDepth::for_test(6),
         };
 
         assert_eq!(innermost_target(outer, inner), inner);
@@ -50,14 +51,17 @@ mod tests {
         let finalizer = ControlTarget {
             frame: 4,
             environment_depth: 0,
+            label: LabelDepth::for_test(5),
         };
         let outer_branch = ControlTarget {
             frame: 1,
             environment_depth: 0,
+            label: LabelDepth::for_test(2),
         };
         let inner_branch = ControlTarget {
             frame: 6,
             environment_depth: 0,
+            label: LabelDepth::for_test(7),
         };
 
         assert!(finalizer_crosses_branch(finalizer, outer_branch));
@@ -127,6 +131,13 @@ enum PreparedDestructuringTarget {
         key: DestructuringPropertyKeyIr,
         key_payload: Option<u32>,
         key_tag: Option<u32>,
+        /// Carried through from
+        /// [`porffor_ir::DestructuringTargetIr::AssignmentProperty`] so the
+        /// write-back can install it. `put_destructuring_target` matches the
+        /// target with `..` and reads the prepared value instead, so the
+        /// strictness the write uses is the one `prepare_destructuring_target`
+        /// saw on the *same* element.
+        strictness: Strictness,
     },
     Private {
         target_payload: u32,
@@ -490,8 +501,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -499,12 +509,20 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_propagate_current_throw(&self, function: &mut Function) {
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 0, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
     }
 
+    /// Breaks `depth` labels out of the *caller's own* region when the current
+    /// completion is a throw.
+    ///
+    /// This is deliberately not a [`ControlTarget`] branch and deliberately
+    /// still takes a raw immediate: the caller opened those frames itself and
+    /// closes them itself, and the immediate is relative to the position this
+    /// call stands at, which the label-depth work does not move. See the
+    /// "what it deliberately does not do" section of `code_sink.rs`.
     pub(crate) fn emit_break_current_completion_if_throw(
         &self,
         depth: u32,
@@ -533,25 +551,44 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// CLOSED DEFECT — the note this replaces described a live one.
+    ///
+    /// The `Br` below used to be `depth_to(target) + 1 + extra_depth`, where
+    /// `depth_to` counted only frames pushed through `push_control`, the `+ 1`
+    /// covered this function's own raw `If`, and every *other* raw
+    /// `Instruction::If`/`Block`/`Loop` between the innermost tracked frame and
+    /// this call had to be declared by the caller through an `extra_depth`
+    /// argument. Several callers declared nothing, and two arms of one
+    /// `if`/`else` chain in `builtins/array.rs` declared different numbers for
+    /// the same frame count.
+    ///
+    /// What that cost, on the binary before this change:
+    ///
+    /// * a property read that throws inside a `for` landed on the loop back
+    ///   edge instead of the handler — the loop spun ~560,000 times and
+    ///   trapped;
+    /// * the same read inside a `switch` had its throw discarded silently.
+    ///
+    /// A flat `try { ... } catch` was `depth_to == 0` and worked, which is why
+    /// probes kept passing. The named path (`a.zzz`) and the computed path
+    /// (`a[k]`) failed identically, so it was upstream of any one emitter.
+    ///
+    /// Two things cannot detect a wrong depth, and both were offered as
+    /// evidence at the time: rung G, because a `Br` immediate is the same width
+    /// either way, and wasm validation, because both the right and the wrong
+    /// label index are in range. Only running the program can tell — which is
+    /// why `crates/porffor-cli/tests/cli/throw_propagation.rs` runs it.
+    ///
+    /// The repair was structural rather than arithmetical: `ControlTarget` now
+    /// carries the real Wasm label its frame opened, taken from the sink that
+    /// every instruction in this crate is written through, so an undeclared
+    /// frame is not a thing a caller can have. There is no `extra_depth`
+    /// parameter to get wrong, in this function or anywhere else. See
+    /// `code_sink.rs`.
     pub(crate) fn emit_propagate_throw_from_locals_if_needed(
         &mut self,
         payload_local: u32,
         tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-            payload_local,
-            tag_local,
-            0,
-            function,
-        )
-    }
-
-    pub(crate) fn emit_propagate_throw_from_locals_if_needed_with_extra_depth(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
@@ -560,7 +597,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_from_locals(payload_local, tag_local, function)?;
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 1 + extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -587,9 +624,9 @@ impl<'a> FunctionBuilder<'a> {
             saved_aux_local,
             function,
         );
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::Else);
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -597,7 +634,6 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_dispatch_branch_completion(
         &self,
         targets: &[(u32, ControlTarget)],
-        extra_depth: u32,
         function: &mut Function,
     ) {
         for (target_id, branch_target) in targets {
@@ -608,7 +644,7 @@ impl<'a> FunctionBuilder<'a> {
             let target = self
                 .active_finally_target_for_branch(*branch_target)
                 .unwrap_or(*branch_target);
-            self.emit_branch_to_target(target, extra_depth, function);
+            self.emit_branch_to_target(target, function);
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::Unreachable);
@@ -671,16 +707,18 @@ impl<'a> FunctionBuilder<'a> {
             .filter(|finalizer| finalizer_crosses_branch(*finalizer, branch_target))
     }
 
+    /// Routes the pending completion — throw, return, break or continue — to
+    /// whichever frame owns it.
+    ///
+    /// The four `1`/`2`/`4`/`5` compensations this used to add on top of
+    /// `depth_to` were exactly the count of `If` frames opened by the
+    /// `if`/`else` chain below (and, for the two dispatch arms, the extra `If`
+    /// that `emit_dispatch_branch_completion` opens per target). They were
+    /// right, and they are now double counts: the sink sees those `If`s. There
+    /// is no `extra_depth` to forward, so a caller standing inside frames of
+    /// its own no longer has to declare them.
     pub(crate) fn emit_dispatch_current_completion(
         &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_dispatch_current_completion_with_extra_depth(0, function)
-    }
-
-    pub(crate) fn emit_dispatch_current_completion_with_extra_depth(
-        &mut self,
-        extra_depth: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
@@ -688,7 +726,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 1 + extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -698,7 +736,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if let Some(target) = self.finally_stack.last().copied() {
-            self.emit_branch_to_target(target, 2 + extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.normalize_derived_constructor_result(function)?;
             self.set_completion_kind(CompletionKind::Normal, function);
@@ -710,14 +748,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         let targets = self.active_break_targets();
-        self.emit_dispatch_branch_completion(&targets, 4 + extra_depth, function);
+        self.emit_dispatch_branch_completion(&targets, function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         let targets = self.active_continue_targets();
-        self.emit_dispatch_branch_completion(&targets, 5 + extra_depth, function);
+        self.emit_dispatch_branch_completion(&targets, function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -725,17 +763,13 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_dispatch_async_generator_completion_with_extra_depth(
-        &self,
-        extra_depth: u32,
-        function: &mut Function,
-    ) {
+    fn emit_dispatch_async_generator_completion(&self, function: &mut Function) {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if let Some(target) = self.active_throw_target() {
-            self.emit_branch_to_target(target, 1 + extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -745,7 +779,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         if let Some(target) = self.finally_stack.last().copied() {
-            self.emit_branch_to_target(target, 2 + extra_depth, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -758,21 +792,44 @@ impl<'a> FunctionBuilder<'a> {
             .current_function_meta()
             .is_some_and(|meta| meta.execution_kind == FunctionExecutionKind::AsyncGenerator)
         {
-            self.emit_dispatch_async_generator_completion_with_extra_depth(0, function);
+            self.emit_dispatch_async_generator_completion(function);
             return Ok(());
         }
         self.emit_dispatch_current_completion(function)
     }
 
-    pub(crate) fn push_control(&mut self, kind: ControlFrameKind) -> ControlTarget {
+    /// Opens a Wasm control frame *and* records it, in one call.
+    ///
+    /// The frame instruction is written here rather than by the caller, so the
+    /// "emit the frame, then push the entry" ordering that ~190 call sites used
+    /// to follow by hand cannot be got backwards — and the label recorded in
+    /// the returned [`ControlTarget`] is the sink's depth *after* the frame is
+    /// open, which is the label a branch to this frame must name.
+    pub(crate) fn open_frame(
+        &mut self,
+        kind: ControlFrameKind,
+        function: &mut Function,
+    ) -> ControlTarget {
+        function.instruction(&match kind {
+            ControlFrameKind::If => Instruction::If(BlockType::Empty),
+            ControlFrameKind::Block => Instruction::Block(BlockType::Empty),
+            ControlFrameKind::Loop => Instruction::Loop(BlockType::Empty),
+        });
         let target = ControlTarget {
             frame: self.control_stack.len(),
             environment_depth: self.environment_depth,
+            label: function.label_depth(),
         };
         self.control_stack.push(kind);
         target
     }
 
+    /// Pops the tracked entry `open_frame` pushed.
+    ///
+    /// The matching `End` is still written by the caller and is still counted
+    /// by the sink, so this does not need the body: the tracked stack no longer
+    /// carries any branch arithmetic, only the frame *identity* used to order
+    /// targets and to name one in the completion dispatcher.
     pub(crate) fn pop_control(&mut self, expected: ControlFrameKind) {
         let actual = self
             .control_stack
@@ -786,10 +843,6 @@ impl<'a> FunctionBuilder<'a> {
         ));
     }
 
-    pub(crate) fn depth_to(&self, target: ControlTarget) -> u32 {
-        (self.control_stack.len() - 1 - target.frame) as u32
-    }
-
     fn emit_unwind_environments_to_target(&self, target: ControlTarget, function: &mut Function) {
         for _ in 0..environment_hops(self.environment_depth, target.environment_depth) {
             self.load_i64_to_local_from_offset(
@@ -801,29 +854,21 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(crate) fn emit_branch_to_target(
-        &self,
-        target: ControlTarget,
-        extra_depth: u32,
-        function: &mut Function,
-    ) {
+    pub(crate) fn emit_branch_to_target(&self, target: ControlTarget, function: &mut Function) {
         self.emit_unwind_environments_to_target(target, function);
-        function.instruction(&Instruction::Br(self.depth_to(target) + extra_depth));
+        function.branch_to_label(target.label);
     }
 
-    pub(crate) fn emit_branch_if_to_target(
-        &self,
-        target: ControlTarget,
-        extra_depth: u32,
-        function: &mut Function,
-    ) {
+    pub(crate) fn emit_branch_if_to_target(&self, target: ControlTarget, function: &mut Function) {
         if target.environment_depth == self.environment_depth {
-            function.instruction(&Instruction::BrIf(self.depth_to(target) + extra_depth));
+            function.branch_if_to_label(target.label);
             return;
         }
 
+        // The `If` opened here used to need an `extra_depth + 1` on the branch
+        // inside it. The sink counts it, so the compensation is gone.
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_branch_to_target(target, extra_depth + 1, function);
+        self.emit_branch_to_target(target, function);
         function.instruction(&Instruction::End);
     }
 
@@ -991,8 +1036,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(self.scratch_local));
             function.instruction(&Instruction::I64Const(segment_state as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.compile_statement(statement, function)?;
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
@@ -1033,10 +1077,6 @@ impl<'a> FunctionBuilder<'a> {
                 async_plan: Some(plan),
                 ..
             } => Some(plan.entry_state),
-            StatementIr::ForOfArray {
-                async_plan: Some(plan),
-                ..
-            } => Some(plan.entry_state),
             StatementIr::ForOfIterator {
                 async_plan: Some(plan),
                 ..
@@ -1069,10 +1109,6 @@ impl<'a> FunctionBuilder<'a> {
                 ..
             }
             | StatementIr::TryCatchFinally {
-                async_plan: Some(plan),
-                ..
-            } => Some(plan.exit_state),
-            StatementIr::ForOfArray {
                 async_plan: Some(plan),
                 ..
             } => Some(plan.exit_state),
@@ -1330,14 +1366,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(*resume_state as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
 
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(*entry_state as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.initialize_direct_lexical_bindings(before_suspension, function);
         self.initialize_direct_lexical_bindings(after_suspension, function);
         if let Some(init) = init {
@@ -1370,8 +1404,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(condition_local));
         function.instruction(&Instruction::I32WrapI64);
         self.release_temp_local(condition_local);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.store_i64_const_at_offset(
             activation_local,
             resume_state_offset,
@@ -1690,7 +1723,7 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Throw, function);
         function.instruction(&Instruction::End);
         self.release_temp_local(resume_kind_local);
-        self.emit_dispatch_async_generator_completion_with_extra_depth(1, function);
+        self.emit_dispatch_async_generator_completion(function);
 
         match resume_mode {
             GeneratorResumeModeIr::Ignore => {
@@ -1698,7 +1731,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             GeneratorResumeModeIr::Return => {
                 self.set_completion_kind(CompletionKind::Return, function);
-                self.emit_dispatch_async_generator_completion_with_extra_depth(1, function);
+                self.emit_dispatch_async_generator_completion(function);
             }
             GeneratorResumeModeIr::AssignIdentifier(name) => {
                 if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
@@ -1854,7 +1887,7 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Return, function);
         function.instruction(&Instruction::End);
         self.release_temp_local(resume_kind_local);
-        self.emit_dispatch_async_generator_completion_with_extra_depth(1, function);
+        self.emit_dispatch_async_generator_completion(function);
 
         match resume_mode {
             AsyncResumeModeIr::Ignore => {
@@ -1866,7 +1899,7 @@ impl<'a> FunctionBuilder<'a> {
                     ASYNC_GENERATOR_RETURN_VALUE_ALREADY_AWAITED as i64,
                     function,
                 );
-                self.emit_dispatch_async_generator_completion_with_extra_depth(1, function);
+                self.emit_dispatch_async_generator_completion(function);
             }
             AsyncResumeModeIr::AssignIdentifier(name) => {
                 if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
@@ -2213,7 +2246,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.set_completion_kind(CompletionKind::Throw, function);
                 function.instruction(&Instruction::End);
                 self.release_temp_local(resume_kind_local);
-                self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+                self.emit_dispatch_current_completion(function)?;
                 function.instruction(&Instruction::End);
 
                 if matches!(resume_mode, GeneratorResumeModeIr::Return) {
@@ -2435,7 +2468,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.set_completion_kind(CompletionKind::Throw, function);
-                self.emit_dispatch_current_completion_with_extra_depth(2, function)?;
+                self.emit_dispatch_current_completion(function)?;
                 function.instruction(&Instruction::End);
                 self.release_temp_local(resume_kind_local);
 
@@ -2445,7 +2478,7 @@ impl<'a> FunctionBuilder<'a> {
                     }
                     AsyncResumeModeIr::Return => {
                         self.set_completion_kind(CompletionKind::Return, function);
-                        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+                        self.emit_dispatch_current_completion(function)?;
                     }
                     AsyncResumeModeIr::AssignIdentifier(name) => {
                         if self.is_script_global_binding(name)
@@ -2859,7 +2892,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(-1));
                 function.instruction(&Instruction::LocalSet(self.completion_aux_local));
                 if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, 0, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.emit_return_current_completion(function);
                 }
@@ -2984,8 +3017,7 @@ impl<'a> FunctionBuilder<'a> {
                 else_branch,
             } => {
                 self.compile_truthy_i32(condition, function)?;
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 self.compile_statement(then_branch, function)?;
                 function.instruction(&Instruction::Else);
                 if let Some(else_branch) = else_branch {
@@ -3025,30 +3057,17 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
-                async_plan,
+                ..
             } => {
-                if let Some(async_plan) = async_plan {
-                    self.compile_async_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        async_plan,
-                        &[],
-                        function,
-                    )?;
-                } else {
-                    self.compile_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        &[],
-                        function,
-                    )?;
-                }
+                self.compile_for_of_array(
+                    *mode,
+                    name,
+                    iterable,
+                    body,
+                    lexical_environment.as_ref(),
+                    &[],
+                    function,
+                )?;
             }
             StatementIr::ForOfString {
                 mode,
@@ -3056,6 +3075,7 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
+                ..
             } => self.compile_for_of_string(
                 *mode,
                 name,
@@ -3072,6 +3092,7 @@ impl<'a> FunctionBuilder<'a> {
                 body,
                 lexical_environment,
                 async_plan,
+                ..
             } => {
                 if let Some(async_plan) = async_plan {
                     if self.current_function_meta().is_some_and(|meta| {
@@ -3195,7 +3216,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 if let Some(target) = self.finally_stack.last().copied() {
                     self.set_completion_kind(CompletionKind::Return, function);
-                    self.emit_branch_to_target(target, 0, function);
+                    self.emit_branch_to_target(target, function);
                 } else {
                     self.set_completion_kind(CompletionKind::Return, function);
                     self.normalize_derived_constructor_result(function)?;
@@ -3332,8 +3353,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match statement {
             StatementIr::Block(block) => {
-                function.instruction(&Instruction::Block(BlockType::Empty));
-                let break_frame = self.push_control(ControlFrameKind::Block);
+                let break_frame = self.open_frame(ControlFrameKind::Block, function);
                 self.push_labels(labels, break_frame, None);
                 self.push_scope();
                 self.compile_block_contents(block, function)?;
@@ -3371,30 +3391,17 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
-                async_plan,
+                ..
             } => {
-                if let Some(async_plan) = async_plan {
-                    self.compile_async_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        async_plan,
-                        labels,
-                        function,
-                    )?;
-                } else {
-                    self.compile_for_of_array(
-                        *mode,
-                        name,
-                        iterable,
-                        body,
-                        lexical_environment.as_ref(),
-                        labels,
-                        function,
-                    )?;
-                }
+                self.compile_for_of_array(
+                    *mode,
+                    name,
+                    iterable,
+                    body,
+                    lexical_environment.as_ref(),
+                    labels,
+                    function,
+                )?;
             }
             StatementIr::ForOfString {
                 mode,
@@ -3402,6 +3409,7 @@ impl<'a> FunctionBuilder<'a> {
                 iterable,
                 body,
                 lexical_environment,
+                ..
             } => self.compile_for_of_string(
                 *mode,
                 name,
@@ -3418,6 +3426,7 @@ impl<'a> FunctionBuilder<'a> {
                 body,
                 lexical_environment,
                 async_plan,
+                ..
             } => {
                 if let Some(async_plan) = async_plan {
                     self.compile_async_for_of_iterator(
@@ -3503,8 +3512,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             _ => {
-                function.instruction(&Instruction::Block(BlockType::Empty));
-                let break_frame = self.push_control(ControlFrameKind::Block);
+                let break_frame = self.open_frame(ControlFrameKind::Block, function);
                 self.push_labels(labels, break_frame, None);
                 self.compile_statement(statement, function)?;
                 self.pop_labels(labels.len());
@@ -3524,10 +3532,8 @@ impl<'a> FunctionBuilder<'a> {
         catch_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let _outer_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_frame = self.push_control(ControlFrameKind::Block);
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
         self.push_scope();
         self.compile_block_contents(try_block, function)?;
@@ -3737,12 +3743,9 @@ impl<'a> FunctionBuilder<'a> {
             generator_plan.exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let outer_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_frame = self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::If, function);
+        let outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_generator_state_in_range(
@@ -3751,8 +3754,7 @@ impl<'a> FunctionBuilder<'a> {
             generator_plan.try_exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         self.compile_generator_block_contents(
             try_block,
@@ -3762,7 +3764,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.pop_scope();
         self.emit_set_generator_resume_state(activation_local, generator_plan.exit_state, function);
-        self.emit_branch_to_target(outer_frame, 0, function);
+        self.emit_branch_to_target(outer_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -3842,12 +3844,9 @@ impl<'a> FunctionBuilder<'a> {
             generator_plan.exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_entry_frame = self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::If, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let finally_entry_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_entry_frame);
 
         self.emit_generator_state_in_range(
@@ -3856,8 +3855,7 @@ impl<'a> FunctionBuilder<'a> {
             generator_plan.try_exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         self.compile_generator_block_contents(
             try_block,
@@ -3866,7 +3864,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.pop_scope();
-        self.emit_branch_to_target(finally_entry_frame, 0, function);
+        self.emit_branch_to_target(finally_entry_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -3889,8 +3887,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_set_generator_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finalizer_epilogue_frame = self.push_control(ControlFrameKind::Block);
+        let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.generator_finalizer_depth += 1;
         self.push_scope();
@@ -3953,17 +3950,12 @@ impl<'a> FunctionBuilder<'a> {
             generator_plan.exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_skip_frame = self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::If, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let catch_skip_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(catch_skip_frame);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_frame = self.push_control(ControlFrameKind::Block);
+        let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_generator_state_in_range(
@@ -3972,8 +3964,7 @@ impl<'a> FunctionBuilder<'a> {
             generator_plan.try_exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         self.compile_generator_block_contents(
             try_block,
@@ -3982,7 +3973,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.pop_scope();
-        self.emit_branch_to_target(catch_skip_frame, 0, function);
+        self.emit_branch_to_target(catch_skip_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -4000,8 +3991,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
@@ -4041,7 +4031,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_leave_lexical_environment(function);
         }
         self.pop_scope();
-        self.emit_branch_to_target(catch_skip_frame, 0, function);
+        self.emit_branch_to_target(catch_skip_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -4066,8 +4056,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_set_generator_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finalizer_epilogue_frame = self.push_control(ControlFrameKind::Block);
+        let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.generator_finalizer_depth += 1;
         self.push_scope();
@@ -4127,12 +4116,9 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let outer_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_frame = self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::If, function);
+        let outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_async_try_state_in_range(
@@ -4141,8 +4127,7 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.try_exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         self.compile_async_block_contents(
             try_block,
@@ -4153,7 +4138,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.pop_scope();
         self.emit_set_async_resume_state(activation_local, async_plan.exit_state, function);
-        self.emit_branch_to_target(outer_frame, 0, function);
+        self.emit_branch_to_target(outer_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -4260,17 +4245,12 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_skip_frame = self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::If, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let catch_skip_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(catch_skip_frame);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_frame = self.push_control(ControlFrameKind::Block);
+        let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
 
         self.emit_async_try_state_in_range(
@@ -4279,8 +4259,7 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.try_exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         self.compile_async_block_contents(
             try_block,
@@ -4290,7 +4269,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.pop_scope();
-        self.emit_branch_to_target(catch_skip_frame, 0, function);
+        self.emit_branch_to_target(catch_skip_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -4308,8 +4287,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         let catch_storage = self
             .lookup_current_scope_binding(catch_name)
@@ -4363,7 +4341,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_leave_lexical_environment(function);
         }
         self.pop_scope();
-        self.emit_branch_to_target(catch_skip_frame, 0, function);
+        self.emit_branch_to_target(catch_skip_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -4384,8 +4362,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_set_async_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finalizer_epilogue_frame = self.push_control(ControlFrameKind::Block);
+        let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.push_scope();
         self.compile_async_block_contents(
@@ -4446,12 +4423,9 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_entry_frame = self.push_control(ControlFrameKind::Block);
+        self.open_frame(ControlFrameKind::If, function);
+        self.open_frame(ControlFrameKind::Block, function);
+        let finally_entry_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_entry_frame);
 
         self.emit_async_try_state_in_range(
@@ -4460,8 +4434,7 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.try_exit_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.push_scope();
         self.compile_async_block_contents(
             try_block,
@@ -4471,7 +4444,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.pop_scope();
-        self.emit_branch_to_target(finally_entry_frame, 0, function);
+        self.emit_branch_to_target(finally_entry_frame, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -4490,8 +4463,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_set_async_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finalizer_epilogue_frame = self.push_control(ControlFrameKind::Block);
+        let finalizer_epilogue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finalizer_epilogue_frame);
         self.push_scope();
         self.compile_async_block_contents(
@@ -4536,10 +4508,8 @@ impl<'a> FunctionBuilder<'a> {
         let saved_completion_local = self.reserve_temp_local();
         let saved_aux_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let _outer_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_frame = self.push_control(ControlFrameKind::Block);
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let finally_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_frame);
         self.push_scope();
         self.compile_block_contents(try_block, function)?;
@@ -4590,14 +4560,10 @@ impl<'a> FunctionBuilder<'a> {
         let saved_completion_local = self.reserve_temp_local();
         let saved_aux_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let _outer_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let _finally_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_skip_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let catch_frame = self.push_control(ControlFrameKind::Block);
+        let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
+        let _finally_frame = self.open_frame(ControlFrameKind::Block, function);
+        let catch_skip_frame = self.open_frame(ControlFrameKind::Block, function);
+        let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
         // `br` targets exit the selected block. In this layout, branching to
         // `finally_frame` would therefore skip the finalizer itself. The
@@ -4609,7 +4575,7 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_block_contents(try_block, function)?;
         self.pop_scope();
         self.throw_handler_stack.pop();
-        self.emit_branch_to_target(catch_skip_frame, 0, function);
+        self.emit_branch_to_target(catch_skip_frame, function);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
@@ -4685,18 +4651,16 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Loop);
+        let continue_frame = self.open_frame(ControlFrameKind::Loop, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_truthy_i32(condition, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
         self.compile_statement(body, function)?;
-        function.instruction(&Instruction::Br(self.depth_to(continue_frame)));
+        function.branch_to_label(continue_frame.label);
         self.pop_labels(labels.len());
         self.loop_stack.pop();
         self.pop_control(ControlFrameKind::Loop);
@@ -4715,20 +4679,17 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         self.compile_truthy_i32(condition, function)?;
-        function.instruction(&Instruction::BrIf(self.depth_to(loop_frame)));
+        function.branch_if_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
@@ -4749,8 +4710,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.push_scope();
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
             bindings: environment.bindings.clone(),
@@ -4764,15 +4724,13 @@ impl<'a> FunctionBuilder<'a> {
         if let Some(environment) = lexical_environment {
             self.emit_replace_lexical_environment(environment, function)?;
         }
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         if let Some(test) = test {
             self.compile_truthy_i32(test, function)?;
             function.instruction(&Instruction::I32Eqz);
-            self.emit_branch_if_to_target(break_frame, 0, function);
+            self.emit_branch_if_to_target(break_frame, function);
         }
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
@@ -4787,7 +4745,7 @@ impl<'a> FunctionBuilder<'a> {
             self.compile_expr_payload(update, function)?;
             function.instruction(&Instruction::Drop);
         }
-        function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+        function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
@@ -4850,8 +4808,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(selected_local));
             function.instruction(&Instruction::I64Const(-1));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.compile_switch_case_match(
                 discriminant,
                 discriminant_payload_local,
@@ -4884,8 +4841,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(active_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         for (index, case) in cases.iter().enumerate() {
             function.instruction(&Instruction::LocalGet(active_local));
@@ -4901,8 +4857,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(active_local));
             function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
             self.compile_switch_case_body(&case.body, function)?;
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
@@ -5037,10 +4992,10 @@ impl<'a> FunctionBuilder<'a> {
                 break_frame.frame as i64,
                 function,
             );
-            self.emit_branch_to_target(target, 0, function);
+            self.emit_branch_to_target(target, function);
             return Ok(());
         }
-        self.emit_branch_to_target(break_frame, 0, function);
+        self.emit_branch_to_target(break_frame, function);
         Ok(())
     }
 
@@ -5077,10 +5032,10 @@ impl<'a> FunctionBuilder<'a> {
                 continue_frame.frame as i64,
                 function,
             );
-            self.emit_branch_to_target(target, 0, function);
+            self.emit_branch_to_target(target, function);
             return Ok(());
         }
-        self.emit_branch_to_target(continue_frame, 0, function);
+        self.emit_branch_to_target(continue_frame, function);
         Ok(())
     }
 
@@ -5280,455 +5235,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    pub(crate) fn compile_async_for_of_array(
-        &mut self,
-        mode: BindingMode,
-        name: &str,
-        iterable: &TypedExpr,
-        body: &StatementIr,
-        lexical_environment: Option<&ForInOfEnvironmentIr>,
-        async_plan: &AsyncForOfPlanIr,
-        labels: &[String],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let activation_local = self.new_target_payload_local().ok_or_else(|| {
-            EmitError::unsupported("for-await-of requires the async function call ABI")
-        })?;
-        let state_local = self.reserve_temp_local();
-        let array_payload_local = self.reserve_temp_local();
-        let array_tag_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let index_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let length_payload_local = self.reserve_temp_local();
-        let length_tag_local = self.reserve_temp_local();
-        let done_payload_local = self.reserve_temp_local();
-        let done_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let continuation_payload_local = self.reserve_temp_local();
-        let continuation_tag_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
-        let saved_payload_local = self.reserve_temp_local();
-        let saved_tag_local = self.reserve_temp_local();
-        let saved_completion_local = self.reserve_temp_local();
-        let saved_aux_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            state_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            async_plan.continuation_resume_state as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-
-        self.push_scope();
-        let storage_without_environment = if mode == BindingMode::Var {
-            Some(self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in porffor wasm-aot first slice: unbound for-await-of var `{name}`"
-                ))
-            })?)
-        } else if !iteration_environment_owns_binding(lexical_environment, name) {
-            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
-        } else {
-            None
-        };
-        if mode == BindingMode::Var {
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(
-                    name.to_string(),
-                    storage_without_environment.expect("for-await-of var storage must exist"),
-                );
-        }
-        let array_storage = self.allocate_binding(
-            async_plan.iterable_binding.clone(),
-            BindingMode::Let,
-            iterable.kind,
-        );
-        let index_storage = self.allocate_binding(
-            async_plan.index_binding.clone(),
-            BindingMode::Let,
-            ValueKind::Number,
-        );
-        let done_storage = self.allocate_binding(
-            async_plan.done_binding.clone(),
-            BindingMode::Let,
-            ValueKind::Boolean,
-        );
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        if let Some(environment) = lexical_environment {
-            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
-        }
-        self.compile_expr_to_locals(iterable, array_payload_local, array_tag_local, function)?;
-        if let Some(environment) = lexical_environment {
-            self.emit_leave_for_in_of_tdz_scope(environment, function);
-        }
-        self.write_binding_from_locals(
-            array_storage,
-            array_payload_local,
-            array_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        self.write_binding_from_locals(
-            index_storage,
-            index_payload_local,
-            index_tag_local,
-            function,
-        );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
-        self.breakable_stack.push(break_frame);
-        self.push_labels(labels, break_frame, None);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(
-            async_plan.continuation_resume_state as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_KIND_OFFSET,
-            resume_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            u64::from(async_plan.value_resume_state),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(ASYNC_RESUME_KIND_REJECT as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        let rejected_promise_payload_local = self.reserve_temp_local();
-        let rejected_promise_record_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_alloc_promise_with_prototype(
-            self.scratch_local,
-            rejected_promise_payload_local,
-            rejected_promise_record_local,
-            function,
-        )?;
-        self.emit_settle_promise_record(
-            rejected_promise_record_local,
-            PROMISE_STATE_REJECTED,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(rejected_promise_payload_local));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.release_temp_local(rejected_promise_record_local);
-        self.release_temp_local(rejected_promise_payload_local);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_async_await_reactions(
-            activation_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_return_current_completion(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_KIND_OFFSET,
-            resume_kind_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(ASYNC_RESUME_KIND_REJECT as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
-        self.emit_dispatch_current_completion(function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.read_binding_to_locals(done_storage, done_payload_local, done_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
-
-        if let Some(environment) =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
-        {
-            self.emit_enter_lexical_environment(environment, function)?;
-        }
-        let storage = self
-            .lookup_current_scope_binding(name)
-            .or(storage_without_environment)
-            .expect("for-await-of lexical storage must be allocated before assignment");
-        self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
-        self.mirror_binding_to_global_object(name, storage, function)?;
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
-        self.loop_stack.push(LoopTargets { continue_frame });
-        self.push_labels(labels, break_frame, Some(continue_frame));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_frame = self.push_control(ControlFrameKind::Block);
-        self.finally_stack.push(finally_frame);
-        self.compile_statement(body, function)?;
-        self.finally_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_labels(labels.len());
-        self.loop_stack.pop();
-        self.save_current_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(saved_completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_CONTINUE));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(saved_aux_local));
-        function.instruction(&Instruction::I64Const(continue_frame.frame as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::LocalSet(saved_completion_local));
-        function.instruction(&Instruction::End);
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            self.emit_leave_lexical_environment(function);
-        }
-        self.restore_saved_completion(
-            saved_payload_local,
-            saved_tag_local,
-            saved_completion_local,
-            saved_aux_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.read_binding_to_locals(
-            array_storage,
-            array_payload_local,
-            array_tag_local,
-            function,
-        )?;
-        self.read_binding_to_locals(
-            index_storage,
-            index_payload_local,
-            index_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_array_length(
-            array_payload_local,
-            length_payload_local,
-            length_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(length_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(length_payload_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(length_payload_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(done_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(done_tag_local));
-        self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_array_read(
-            array_payload_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        self.write_binding_from_locals(
-            index_storage,
-            index_payload_local,
-            index_tag_local,
-            function,
-        );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            u64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_async_from_sync_value_continuation(
-            value_payload_local,
-            value_tag_local,
-            continuation_payload_local,
-            continuation_tag_local,
-            function,
-        )?;
-        self.emit_async_await_reactions(
-            activation_local,
-            continuation_payload_local,
-            continuation_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind_with_aux(
-            CompletionKind::Normal,
-            i64::from(async_plan.value_resume_state),
-            function,
-        );
-        self.emit_return_current_completion(function);
-
-        self.breakable_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.store_i64_const_at_offset(
-            activation_local,
-            HEAP_ASYNC_RESUME_STATE_OFFSET,
-            u64::from(async_plan.exit_state),
-            function,
-        );
-        self.emit_statement_result(function, ValueKind::Undefined);
-
-        self.pop_scope();
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(saved_aux_local);
-        self.release_temp_local(saved_completion_local);
-        self.release_temp_local(saved_tag_local);
-        self.release_temp_local(saved_payload_local);
-        self.release_temp_local(resume_kind_local);
-        self.release_temp_local(continuation_tag_local);
-        self.release_temp_local(continuation_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(done_tag_local);
-        self.release_temp_local(done_payload_local);
-        self.release_temp_local(length_tag_local);
-        self.release_temp_local(length_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(index_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(array_tag_local);
-        self.release_temp_local(array_payload_local);
-        self.release_temp_local(state_local);
-        Ok(())
-    }
-
     pub(crate) fn compile_for_of_array(
         &mut self,
         mode: BindingMode,
@@ -5784,15 +5290,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(len_payload_local));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
         self.emit_array_read(
             array_local,
             index_local,
@@ -5811,8 +5315,7 @@ impl<'a> FunctionBuilder<'a> {
             .expect("for-of lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
@@ -5830,7 +5333,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+        function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
@@ -5902,8 +5405,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(string_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of target is not iterable",
@@ -5924,15 +5426,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(byte_len_local));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
         self.emit_load_string_byte(buffer_local, index_local, byte_local, function);
         self.emit_decode_utf8_scalar_at_index(
             buffer_local,
@@ -5966,8 +5466,7 @@ impl<'a> FunctionBuilder<'a> {
             .expect("for-of lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, value_payload_local, string_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
@@ -5985,7 +5484,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(advance_local));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+        function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
@@ -6224,8 +5723,7 @@ impl<'a> FunctionBuilder<'a> {
             async_plan.close_resume_state,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
 
         self.push_scope();
         let storage_without_environment = if mode == BindingMode::Var {
@@ -6265,12 +5763,12 @@ impl<'a> FunctionBuilder<'a> {
                 );
         }
         let iterator_storage = self.allocate_binding(
-            async_plan.iterator_binding.clone(),
+            async_plan.record.iterator().as_str().to_string(),
             BindingMode::Let,
             ValueKind::Object,
         );
         let next_storage = self.allocate_binding(
-            async_plan.next_binding.clone(),
+            async_plan.record.next_method().as_str().to_string(),
             BindingMode::Let,
             ValueKind::Dynamic,
         );
@@ -6280,7 +5778,7 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Boolean,
         );
         let done_storage = self.allocate_binding(
-            async_plan.done_binding.clone(),
+            async_plan.record.done().as_str().to_string(),
             BindingMode::Let,
             ValueKind::Boolean,
         );
@@ -6293,8 +5791,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(async_plan.entry_state as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         if let Some(environment) = lexical_environment {
             self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
         }
@@ -6330,8 +5827,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.emit_propagate_current_completion_if_throw(function);
         self.compile_nullish_tagged_i32(method_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(done_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
@@ -6362,8 +5858,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of iterator method must be callable",
@@ -6387,8 +5882,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_current_completion_if_throw(function);
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of iterator method must return object",
@@ -6414,8 +5908,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_current_completion_if_throw(function);
         self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of iterator next must be callable",
@@ -6436,15 +5929,13 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
 
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(async_plan.close_resume_state as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.load_i64_to_local_from_offset(
             activation_local,
             resume_kind_offset,
@@ -6477,8 +5968,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
@@ -6502,12 +5992,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of async iterator return result must be object",
@@ -6543,8 +6031,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
             function.instruction(&Instruction::I64Eq);
         }
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         // Unpacking the result reads the activation's resume payload/tag/kind,
         // which describe the `await` that just settled. On a body resume they
         // describe the body's own suspension instead, and the iteration's
@@ -6554,8 +6041,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(state_local));
             function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
         }
         self.load_i64_to_local_from_offset(
             activation_local,
@@ -6583,13 +6069,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(resume_kind_local));
         function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
@@ -6600,8 +6084,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of async iterator next result must be object",
@@ -6633,8 +6116,7 @@ impl<'a> FunctionBuilder<'a> {
         self.write_binding_from_locals(done_storage, done_payload_local, done_tag_local, function);
         function.instruction(&Instruction::LocalGet(done_payload_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(self.strings.payload("value")));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -6657,12 +6139,10 @@ impl<'a> FunctionBuilder<'a> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_frame = self.push_control(ControlFrameKind::Block);
+        let finally_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_frame);
         // A sync iterator whose `next()` promise rejected reports the rejection
         // here rather than through the async-iterator path. It reads the resume
@@ -6673,8 +6153,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(state_local));
             function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
         }
         function.instruction(&Instruction::LocalGet(resume_kind_local));
         function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
@@ -6683,8 +6162,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(value_tag_local));
@@ -6699,8 +6177,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(method_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         let outer_finalizer = self.finally_stack.iter().rev().nth(1).copied();
         let surrounding_throw_target =
             match (self.throw_handler_stack.last().copied(), outer_finalizer) {
@@ -6710,7 +6187,7 @@ impl<'a> FunctionBuilder<'a> {
                 (None, None) => None,
             };
         if let Some(target) = surrounding_throw_target {
-            self.emit_branch_to_target(target, 0, function);
+            self.emit_branch_to_target(target, function);
         } else {
             self.emit_return_current_completion(function);
         }
@@ -6733,7 +6210,7 @@ impl<'a> FunctionBuilder<'a> {
         self.read_binding_to_locals(done_storage, done_payload_local, done_tag_local, function)?;
         function.instruction(&Instruction::LocalGet(done_payload_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
         // Binding the loop variable belongs to the start of an iteration. On a
         // body resume the iteration is already under way, the value locals hold
         // nothing this invocation assigned, and the binding still holds the
@@ -6744,8 +6221,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(state_local));
             function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
             function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
         }
         if let Some(environment) =
             lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
@@ -6816,8 +6292,7 @@ impl<'a> FunctionBuilder<'a> {
             continue_frame,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.read_binding_to_locals(
             iterator_storage,
             iterator_payload_local,
@@ -6859,8 +6334,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(method_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
@@ -6868,12 +6342,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of iterator return must be callable",
@@ -6891,8 +6363,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(self.completion_aux_local));
         function.instruction(&Instruction::LocalSet(close_get_method_aux_local));
         self.emit_pop_and_restore_async_pending_completion(function)?;
@@ -6905,8 +6376,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(method_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(method_tag_local));
@@ -6924,8 +6394,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(method_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
@@ -6933,18 +6402,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(method_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_function_handle_call_without_throw_propagation(
             method_payload_local,
             method_tag_local,
@@ -6971,17 +6437,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of iterator return result must be object",
@@ -6995,8 +6458,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(self.strings.payload("done")));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read_without_throw_propagation(
@@ -7015,8 +6477,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(self.strings.payload("value")));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read_without_throw_propagation(
@@ -7041,8 +6502,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         let rejected_promise_record_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
@@ -7141,7 +6601,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -7189,8 +6649,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_dispatch_current_completion(function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -7198,17 +6657,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-await-of iterator next result must be object",
@@ -7223,8 +6679,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(self.strings.payload("done")));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read_without_throw_propagation(
@@ -7243,8 +6698,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(done_payload_local));
@@ -7269,8 +6723,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(done_payload_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I64ExtendI32U);
@@ -7291,8 +6744,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         let rejected_promise_record_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
@@ -7493,8 +6945,7 @@ impl<'a> FunctionBuilder<'a> {
         // symbols, bigints) has to reach its wrapper prototype rather than being
         // rejected here.
         self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of target is not iterable",
@@ -7541,8 +6992,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(method_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator method must be callable",
@@ -7570,8 +7020,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator method must return object",
@@ -7599,8 +7048,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(next_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator next must be callable",
@@ -7613,11 +7061,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
 
         self.emit_function_handle_call(
             next_payload_local,
@@ -7631,8 +7077,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_current_completion_if_throw(function);
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "for-of iterator next result must be object",
@@ -7658,7 +7103,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_propagate_current_completion_if_throw(function);
         self.compile_truthy_tagged_i32(done_tag_local, done_payload_local, function)?;
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
 
         function.instruction(&Instruction::I64Const(self.strings.payload("value")));
         function.instruction(&Instruction::LocalSet(key_local));
@@ -7685,12 +7130,10 @@ impl<'a> FunctionBuilder<'a> {
         self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let finally_frame = self.push_control(ControlFrameKind::Block);
+        let finally_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(finally_frame);
         self.compile_statement(body, function)?;
         self.finally_stack.pop();
@@ -7731,13 +7174,11 @@ impl<'a> FunctionBuilder<'a> {
             continue_frame,
             function,
         );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(saved_completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.restore_saved_completion(
             saved_payload_local,
             saved_tag_local,
@@ -7792,12 +7233,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dispatch_current_completion_with_extra_depth(1, function)?;
+        self.emit_dispatch_current_completion(function)?;
         function.instruction(&Instruction::End);
 
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+        function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
@@ -7871,8 +7312,7 @@ impl<'a> FunctionBuilder<'a> {
         let mut excluded_keys = Vec::with_capacity(pattern.properties.len());
 
         self.compile_nullish_tagged_i32(source_tag, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "Cannot destructure undefined or null",
@@ -7927,8 +7367,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(property_value_tag));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 self.compile_expr_to_locals(
                     default,
                     property_value_payload,
@@ -8069,18 +7508,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
         function.instruction(&Instruction::LocalSet(enumerable_key));
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let copy_break = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let copy_loop = self.push_control(ControlFrameKind::Loop);
+        let copy_break = self.open_frame(ControlFrameKind::Block, function);
+        let copy_loop = self.open_frame(ControlFrameKind::Loop, function);
         function.instruction(&Instruction::LocalGet(key_index));
         function.instruction(&Instruction::LocalGet(keys_length));
         function.instruction(&Instruction::I64GeU);
-        self.emit_branch_if_to_target(copy_break, 0, function);
+        self.emit_branch_if_to_target(copy_break, function);
         self.emit_array_read(keys_payload, key_index, key_payload, key_tag, function);
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let skip_key = self.push_control(ControlFrameKind::Block);
+        let skip_key = self.open_frame(ControlFrameKind::Block, function);
         for (excluded_payload, excluded_tag) in excluded_keys {
             self.emit_tagged_payload_same_value_i32(
                 key_tag,
@@ -8089,7 +7525,7 @@ impl<'a> FunctionBuilder<'a> {
                 *excluded_payload,
                 function,
             )?;
-            self.emit_branch_if_to_target(skip_key, 0, function);
+            self.emit_branch_if_to_target(skip_key, function);
         }
 
         self.emit_direct_js_call(
@@ -8108,7 +7544,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(descriptor_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        self.emit_branch_if_to_target(skip_key, 0, function);
+        self.emit_branch_if_to_target(skip_key, function);
 
         self.emit_object_read(
             descriptor_payload,
@@ -8123,7 +7559,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_current_completion_if_throw(function);
         self.compile_truthy_tagged_i32(enumerable_tag, enumerable_payload, function)?;
         function.instruction(&Instruction::I32Eqz);
-        self.emit_branch_if_to_target(skip_key, 0, function);
+        self.emit_branch_if_to_target(skip_key, function);
 
         // `Reflect.ownKeys` yields keys as JS values; both the [[Get]] and the
         // CreateDataPropertyOrThrow below index on the internal property-key
@@ -8160,7 +7596,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(key_index));
-        self.emit_branch_to_target(copy_loop, 0, function);
+        self.emit_branch_to_target(copy_loop, function);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
@@ -8217,7 +7653,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn compile_array_destructure_from_value_locals(
+    pub(crate) fn compile_array_destructure_from_value_locals(
         &mut self,
         value_info: ValueInfo,
         source_payload: u32,
@@ -8260,10 +7696,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(locals.done));
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let exit_target = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let abrupt_target = self.push_control(ControlFrameKind::Block);
+        let exit_target = self.open_frame(ControlFrameKind::Block, function);
+        let abrupt_target = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(abrupt_target);
         for element in &pattern.elements {
             self.compile_array_destructuring_element(element, locals, function)?;
@@ -8272,8 +7706,7 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::LocalGet(locals.done));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_iterator_close(
             locals.iterator_payload,
             locals.iterator_tag,
@@ -8286,14 +7719,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_branch_to_target(exit_target, 0, function);
+        self.emit_branch_to_target(exit_target, function);
 
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(locals.done));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_iterator_close_preserving_current_throw(
             IteratorCloseOnThrowLocals {
                 iterator_payload_local: locals.iterator_payload,
@@ -8405,8 +7837,7 @@ impl<'a> FunctionBuilder<'a> {
         let source_object_payload = self.reserve_temp_local();
         let source_object_tag = self.reserve_temp_local();
         self.compile_nullish_tagged_i32(source_tag, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "destructuring value is not iterable",
@@ -8469,8 +7900,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
         self.emit_is_callable_i32(method_tag, method_payload, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "destructuring value is not iterable",
@@ -8485,8 +7915,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(method_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_function_handle_call(
             method_payload,
             method_tag,
@@ -8516,8 +7945,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_is_heap_object_like_tag_i32(locals.iterator_tag, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "destructuring iterator method must return object",
@@ -8559,8 +7987,7 @@ impl<'a> FunctionBuilder<'a> {
             ArrayDestructuringElementIr::Elision => {
                 function.instruction(&Instruction::LocalGet(locals.done));
                 function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_destructuring_iterator_step(
                     locals,
                     DestructuringIteratorStepKind::Elision,
@@ -8577,8 +8004,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(locals.value_tag));
                 function.instruction(&Instruction::LocalGet(locals.done));
                 function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_destructuring_iterator_step(
                     locals,
                     DestructuringIteratorStepKind::Value,
@@ -8590,8 +8016,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalGet(locals.value_tag));
                     function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.push_control(ControlFrameKind::If);
+                    self.open_frame(ControlFrameKind::If, function);
                     self.compile_expr_to_locals(
                         default,
                         locals.value_payload,
@@ -8622,14 +8047,12 @@ impl<'a> FunctionBuilder<'a> {
                 let rest_index = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(rest_index));
-                function.instruction(&Instruction::Block(BlockType::Empty));
-                let rest_break = self.push_control(ControlFrameKind::Block);
-                function.instruction(&Instruction::Loop(BlockType::Empty));
-                let rest_loop = self.push_control(ControlFrameKind::Loop);
+                let rest_break = self.open_frame(ControlFrameKind::Block, function);
+                let rest_loop = self.open_frame(ControlFrameKind::Loop, function);
                 function.instruction(&Instruction::LocalGet(locals.done));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
-                self.emit_branch_if_to_target(rest_break, 0, function);
+                self.emit_branch_if_to_target(rest_break, function);
                 self.emit_destructuring_iterator_step(
                     locals,
                     DestructuringIteratorStepKind::Value,
@@ -8638,7 +8061,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(locals.done));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
-                self.emit_branch_if_to_target(rest_break, 0, function);
+                self.emit_branch_if_to_target(rest_break, function);
                 self.emit_array_write(
                     rest_payload,
                     rest_index,
@@ -8650,7 +8073,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Add);
                 function.instruction(&Instruction::LocalSet(rest_index));
-                self.emit_branch_to_target(rest_loop, 0, function);
+                self.emit_branch_to_target(rest_loop, function);
                 self.pop_control(ControlFrameKind::Loop);
                 function.instruction(&Instruction::End);
                 self.pop_control(ControlFrameKind::Block);
@@ -8684,8 +8107,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(locals.next_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_function_handle_call(
             locals.next_payload,
             locals.next_tag,
@@ -8717,8 +8139,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(locals.done));
         self.emit_is_heap_object_like_tag_i32(locals.result_tag, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(locals.done));
         self.emit_throw_runtime_error(
@@ -8750,8 +8171,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(locals.done));
         self.compile_truthy_tagged_i32(locals.done_tag, locals.done_payload, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(locals.done));
         self.emit_undefined_payload(function);
@@ -8804,7 +8224,12 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
 
-        let DestructuringTargetIr::AssignmentProperty { target, key } = target else {
+        let DestructuringTargetIr::AssignmentProperty {
+            target,
+            key,
+            strictness,
+        } = target
+        else {
             return Ok(PreparedDestructuringTarget::Direct);
         };
 
@@ -8829,6 +8254,7 @@ impl<'a> FunctionBuilder<'a> {
             key: key.clone(),
             key_payload,
             key_tag,
+            strictness: *strictness,
         })
     }
 
@@ -8888,6 +8314,7 @@ impl<'a> FunctionBuilder<'a> {
                     key,
                     key_payload,
                     key_tag,
+                    strictness,
                 } = prepared
                 else {
                     unreachable!("property destructuring target must be prepared")
@@ -8948,14 +8375,20 @@ impl<'a> FunctionBuilder<'a> {
                     },
                     ExprIr::Identifier(value_name.to_string()),
                 );
-                self.compile_property_write_to_locals(
-                    &target_expr,
-                    &property_key,
-                    &value_expr,
-                    self.scratch_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                // 13.15.5.4's PutValue, under *this* Reference's `[[Strict]]`.
+                // Without the scope the write would fall back to
+                // `ambient_object_write_strict_flag_word`, i.e. the mode of the
+                // Wasm function the pattern was emitted into.
+                self.with_reference_strictness(strictness, function, |emitter, function| {
+                    emitter.compile_property_write_to_locals(
+                        &target_expr,
+                        &property_key,
+                        &value_expr,
+                        emitter.scratch_local,
+                        emitter.result_tag_local,
+                        function,
+                    )
+                })?;
                 self.emit_propagate_current_completion_if_throw(function);
                 self.pop_scope();
                 if let Some(key_tag) = key_tag {
@@ -9078,12 +8511,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_is_callable_i32(return_tag_local, return_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "IteratorClose return method must be callable",
@@ -9097,8 +8528,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(return_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_function_handle_call(
             return_payload_local,
             return_tag_local,
@@ -9125,8 +8555,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             "IteratorClose return result must be object",
@@ -9211,8 +8640,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let close_frame = self.push_control(ControlFrameKind::Block);
+        let close_frame = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(close_frame);
         self.emit_iterator_close(
             close.iterator_payload_local,
@@ -9384,15 +8812,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
         self.emit_statement_result(function, ValueKind::Undefined);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(len_local));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::F64ConvertI64U);
         function.instruction(&Instruction::I64ReinterpretF64);
@@ -9412,8 +8838,7 @@ impl<'a> FunctionBuilder<'a> {
             .expect("for-in lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, key_payload_local, key_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
@@ -9431,7 +8856,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+        function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();
@@ -9703,13 +9128,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(current_local));
         function.instruction(&Instruction::LocalGet(object_tag_local));
         function.instruction(&Instruction::LocalSet(current_tag_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let prototype_break_frame = self.push_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let prototype_loop_frame = self.push_control(ControlFrameKind::Loop);
+        let prototype_break_frame = self.open_frame(ControlFrameKind::Block, function);
+        let prototype_loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         function.instruction(&Instruction::LocalGet(current_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(self.depth_to(prototype_break_frame)));
+        function.branch_if_to_label(prototype_break_frame.label);
 
         self.emit_direct_js_call(
             &keys_meta,
@@ -9781,7 +9204,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(current_tag_local));
-        function.instruction(&Instruction::Br(self.depth_to(prototype_loop_frame)));
+        function.branch_to_label(prototype_loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
@@ -9874,15 +9297,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            let break_frame = self.push_control(ControlFrameKind::Block);
+            let break_frame = self.open_frame(ControlFrameKind::Block, function);
             self.breakable_stack.push(break_frame);
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            let loop_frame = self.push_control(ControlFrameKind::Loop);
+            let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
             function.instruction(&Instruction::LocalGet(index_local));
             function.instruction(&Instruction::LocalGet(len_local));
             function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+            function.branch_if_to_label(break_frame.label);
             self.emit_array_read(
                 buffer_local,
                 index_local,
@@ -9901,8 +9322,7 @@ impl<'a> FunctionBuilder<'a> {
                 .expect("for-in lexical storage must be allocated before assignment");
             self.write_binding_from_locals(storage, key_payload_local, key_tag_local, function);
             self.mirror_binding_to_global_object(name, storage, function)?;
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            let continue_frame = self.push_control(ControlFrameKind::Block);
+            let continue_frame = self.open_frame(ControlFrameKind::Block, function);
             self.loop_stack.push(LoopTargets { continue_frame });
             self.push_labels(labels, break_frame, Some(continue_frame));
             self.compile_statement(body, function)?;
@@ -9920,7 +9340,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+            function.branch_to_label(loop_frame.label);
             self.pop_control(ControlFrameKind::Loop);
             function.instruction(&Instruction::End);
             self.breakable_stack.pop();
@@ -9943,22 +9363,19 @@ impl<'a> FunctionBuilder<'a> {
         }
         if target.kind == ValueKind::Dynamic {
             self.emit_is_heap_object_like_tag_i32(object_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.push_control(ControlFrameKind::If);
+            self.open_frame(ControlFrameKind::If, function);
         }
         self.load_i64_to_local_from_offset(object_local, HEAP_PTR_OFFSET, buffer_local, function);
         self.load_i64_to_local_from_offset(object_local, HEAP_LEN_OFFSET, len_local, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let break_frame = self.push_control(ControlFrameKind::Block);
+        let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        let loop_frame = self.push_control(ControlFrameKind::Loop);
+        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(len_local));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(self.depth_to(break_frame)));
+        function.branch_if_to_label(break_frame.label);
         function.instruction(&Instruction::LocalGet(buffer_local));
         function.instruction(&Instruction::LocalGet(index_local));
         if target.kind == ValueKind::Dynamic {
@@ -10042,8 +9459,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(should_iterate_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.push_control(ControlFrameKind::If);
+        self.open_frame(ControlFrameKind::If, function);
         if let Some(environment) =
             lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
         {
@@ -10055,8 +9471,7 @@ impl<'a> FunctionBuilder<'a> {
             .expect("for-in lexical storage must be allocated before assignment");
         self.write_binding_from_locals(storage, key_payload_local, key_tag_local, function);
         self.mirror_binding_to_global_object(name, storage, function)?;
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        let continue_frame = self.push_control(ControlFrameKind::Block);
+        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
         self.compile_statement(body, function)?;
@@ -10076,7 +9491,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(self.depth_to(loop_frame)));
+        function.branch_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
         self.breakable_stack.pop();

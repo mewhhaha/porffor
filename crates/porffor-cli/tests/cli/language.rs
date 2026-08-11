@@ -1,4 +1,124 @@
-//! `language` CLI integration tests.
+//! `language` CLI integration tests: pipeline shape, bindings, scoping,
+//! closures, `for-in` and TDZ.
+//!
+//! # Why this module is three modules
+//!
+//! Not taste — memory, measured. As one 105-test libtest process this module
+//! could not be run at all on the 4-CPU / 15.7 GiB container: three attempts
+//! (batch 6, 22:43Z / 23:29Z / 00:30Z) were each SIGKILLed by the OOM killer at
+//! t+1200 s after 66, 75 and 75 tests, with `avail` falling MONOTONICALLY from
+//! 8.5 GiB at ~7 tests to 3.56 GiB at ~49 and 1.14 GiB two minutes before the
+//! kill. That trajectory is cumulative growth across the process, not a
+//! three-in-flight plateau, so fewer tests per process was the lever this split
+//! reached for. (Do **not** reach for `frontend_test262_subset`'s flat 5.55 GiB
+//! as the contrast — that plateau belongs to a child process, see below.)
+//!
+//!   * per-tier cache limits at 256/64/64 MiB were tried and changed nothing —
+//!     they bound bytes on disk, not RSS (`porffor-engine/src/cache.rs`);
+//!   * `PORFFOR_CPU_PERCENT` is overridden inside `run_chunk`
+//!     (`scripts/rung1c-chunks.sh`);
+//!   * `--test-threads` below 3 is banned by that script's property 1 — libtest
+//!     then names every worker thread `main`, `known_failures::execution_path`
+//!     cannot route on the per-test name, and all ~600 tests fall back to
+//!     spawning a cold `porf` child.
+//!
+//! # What the growth might be — a hypothesis, and the counterevidence
+//!
+//! An earlier version of this comment called the split "the only lever left".
+//! That list is three *environment knobs*; it never examined in-process
+//! retention, and there is a named candidate mechanism there:
+//! `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs:74`) bounds a
+//! `VecDeque` LRU of fully compiled Wasmtime modules **by entry count and by
+//! nothing else** — 64 entries, no byte ceiling. The in-process path these
+//! tests take retains into it (`WasmModuleMemoryCachePolicy::Retain`,
+//! `porffor-engine/src/lib.rs`), so it holds one native module per distinct
+//! fixture, which is at least why the three *disk* knobs did nothing.
+//!
+//! That is where the confidence stops, and the entry-count story does **not**
+//! survive the banked chunks. Counted, not estimated, from
+//! `target/watched/rung1c-done-counts` and the current sources:
+//!
+//! | chunk | banked | `ProcessCommand::new` | `.arg("run")` | distinct fixtures | mean fixture bytes |
+//! |---|---|---|---|---|---|
+//! | `array` | 84 | 0 | 84 | 77 | 1,945 |
+//! | `typed_array` | 58 | 0 | 58 | 48 | 2,716 |
+//! | `language` (pre-split) | never | 1 | 32 | 33 | 1,285 |
+//!
+//! `array` is 84 in-process `run` invocations over 77 distinct fixtures, i.e.
+//! it pins the 64-entry LRU at its cap with sources half again as large as
+//! `language`'s, and it **banked**. `typed_array` sits at 48 retained modules —
+//! inside the 53/62/62 band the fatal `language` runs reached — and banked too.
+//! So retained-entry count does not explain the `language` OOM, and neither
+//! does the linear `~0.118 GiB/test` model below, which would project `array`
+//! at ~9.9 GiB. Whatever the real variable is (per-fixture *bytes* of native
+//! code is the obvious suspect, and it is exactly what an entry-count LRU does
+//! not bound), it is unidentified.
+//!
+//! Two further corrections to the earlier version of this paragraph, because it
+//! reasoned from both:
+//!
+//! * the 53/62/62 figures are `tests_done - 13`, which silently assumes one
+//!   distinct fixture per test. The 105 tests reference 81 distinct fixtures,
+//!   so those are over-counts of retained modules, not measurements of them.
+//! * `frontend_test262_subset`'s flatness is **not** evidence about this
+//!   process's LRU. Its single call is a real child
+//!   (`ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))`,
+//!   `frontend_test262_subset.rs:123` — `grep -c 'ProcessCommand::new'` is 1),
+//!   so its 5.55 GiB plateau is the *child's* RSS across hundreds of test262
+//!   cases and the libtest process's module cache never sees it.
+//!
+//! Likewise the "cheap" tests kept here do **not** run as child processes: only
+//! `build_wasm_succeeds_for_dynamic_fractional_exponentiation_fixture` uses
+//! `ProcessCommand`. The other five `build_wasm_*` and all six `inspect_*` call
+//! `crate::Command`, whose `output()` (`main.rs:186-215`) dispatches
+//! `ExecutionPath::InProcess` to `porffor_cli::run_cli_capture` on a worker
+//! thread of *this* process; the `program` field is unused on that path, so
+//! `env!("CARGO_BIN_EXE_porf")` there is decoration. They are cheap for a
+//! different reason: `build wasm` and `inspect` never reach
+//! `WasmModuleMemoryCachePolicy::Retain`, which is on the `run` path only
+//! (`porffor-engine/src/lib.rs`), so they add no cache entry — they do add
+//! transient RSS.
+//!
+//! `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` now overrides that bound, so a
+//! memory-constrained run has a lever that needs no code change; bounding the
+//! deque by bytes, as the disk tiers already are, is the standing follow-up.
+//! It is also the cheap experiment that would settle the paragraph above:
+//! `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES=8` on one `language*` chunk. Until that
+//! runs, do not justify a sizing decision by the entry-count model.
+//!
+//! Splitting by libtest FILTER is not available either:
+//! `known_failures::rung_1c_chunks` asserts each chunk's second argument is
+//! exactly `<name>::` and that anything further is `--skip <other>::`, and
+//! `rung_1c_chunks_cover_every_cli_area_module` asserts a bijection between
+//! chunk names, `tests/cli/*.rs` stems and `mod` lines in `main.rs`. An
+//! `--exact` name list is rejected at rung 0. So the split has to be by module
+//! file, which is what [`crate::language_errors`] and [`crate::language_numerics`]
+//! are.
+//!
+//! Sizing rests on ONE direct measurement, and it is deliberately not the
+//! extrapolations. The standalone 30-name tail **completed** in a fresh process
+//! (30 in 498.2 s, 16.6 s/test) where 75 tests in 1200 s (16.0 s/test) did not,
+//! so ~30 heavy tests per process is a size that has actually been observed to
+//! finish. Hence three chunks, at 32 / 29 / 31 heavy tests.
+//!
+//! The `avail` trajectory (8.5 GiB @ ~7 tests, 3.56 @ ~49, 1.14 @ ~67) reads
+//! ~0.118 GiB/test and reaches the same answer, but see the counterevidence
+//! above: `array` banked 84 in-process runs, which that line projects at
+//! ~9.9 GiB. Treat it as consistent, not as support. Per-module *distinct*
+//! fixtures — the unit an entry-count LRU would care about — are 32 / 21 / 28,
+//! not the test counts; `language_errors` shares 8 of its fixtures across its
+//! 29 tests. This module keeps the 13 cheap ones
+//! (`in_process_module_reuse_*`, six `inspect_reports_phase_*`, six
+//! `build_wasm_succeeds_for_*`) as well, since they cost almost nothing.
+//!
+//! THE THREE STEMS MUST NOT BECOME `::`-SUFFIXES OF ONE ANOTHER. The overlap
+//! rule in `rung_1c_chunks_cover_every_cli_area_module` fires when
+//! `format!("{other}::").ends_with(&format!("{chunk}::"))`, and
+//! `"language_errors::".ends_with("language::")` is false — which is exactly why
+//! these three need no `--skip` while `array` needs `--skip typed_array::`. By
+//! the same token libtest's substring filter `language::` does not select
+//! `language_errors::…`, so the three chunks run in three SEPARATE processes,
+//! which is the entire point: the accumulation is per-process.
 
 use crate::*;
 
@@ -77,7 +197,16 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("builtin_globals=51"));
+    // `builtin_globals` counts the program's global bindings that resolve to a
+    // builtin, i.e. it is a function of the GLOBAL ENVIRONMENT and not of this
+    // fixture's text. So every batch that adds an intrinsic root moves it and
+    // this assertion goes red without anything in the fixture changing.
+    // Batch 8: 51 -> 52, the +1 being `AsyncDisposableStack`. Recount with
+    // `porf inspect crates/porffor-cli/tests/fixtures/wasm_builtin_globals.js`
+    // rather than guessing the delta; do not weaken this to a prefix match,
+    // because the exact number is the only thing that makes an accidental
+    // global-environment change visible at rung 1b.
+    assert!(stdout.contains("builtin_globals=52"), "{stdout}");
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));
@@ -318,182 +447,6 @@ fn run_wasm_backend_preserves_captured_block_lexical_environments() {
 }
 
 #[test]
-fn run_wasm_backend_succeeds_for_spec_to_boolean_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_to_boolean.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_is_constructor_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_is_constructor.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_to_number_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_to_number.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_to_string_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_to_string.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_strict_equality_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_strict_equality.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_same_value_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_same_value.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_get_v_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_get_v.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_spec_has_property_order_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_spec_has_property_order.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_coercive_relational_runtime_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_coercive_relational_runtime.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_abstract_module_source_host_hook_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_abstract_module_source_host_hook.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(262"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_htmldda_host_hook_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_htmldda_host_hook.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(262"));
-}
-
-#[test]
 fn run_wasm_backend_succeeds_for_for_in_array_key_capture_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -510,74 +463,6 @@ fn run_wasm_backend_succeeds_for_for_in_array_key_capture_fixture() {
 }
 
 #[test]
-fn run_wasm_backend_succeeds_for_json_parse_invalid_literal_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_json_parse_invalid_literal.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(262"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_json_parse_reviver_array_getter_throw_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_json_parse_reviver_array_getter_throw.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_json_parse_reviver_forward_modification_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_json_parse_reviver_forward_modification.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_json_parse_reviver_nonconfigurable_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_json_parse_reviver_nonconfigurable.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(262"));
-}
-
-#[test]
 fn run_wasm_backend_succeeds_for_script_global_var_nested_update_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -591,194 +476,6 @@ fn run_wasm_backend_succeeds_for_script_global_var_nested_update_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(262"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_aggregateerror_cross_realm_newtarget_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_aggregateerror_cross_realm_newtarget.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
-}
-
-#[test]
-fn run_wasm_backend_uses_async_function_intrinsic_prototype_topology() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_async_function_intrinsics.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"), "{stdout}");
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_boolean_cross_realm_newtarget_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_boolean_cross_realm_newtarget.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_supported_bigint_minimal_validation_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_minimal_validation.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(5"));
-}
-
-#[test]
-fn run_wasm_backend_observes_bigint_wrapper_ordinary_to_primitive_hooks() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_wrapper_ordinary_to_primitive.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(6"));
-}
-
-#[test]
-fn run_wasm_backend_preserves_exact_bigint_number_loose_equality() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_loose_equality.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(137"));
-}
-
-#[test]
-fn run_wasm_backend_preserves_bigint_number_relational_comparison() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_number_relational.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(1"));
-}
-
-#[test]
-fn run_wasm_backend_parses_arbitrary_precision_bigint_strings() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_string_arbitrary_precision.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(1"));
-}
-
-#[test]
-fn run_wasm_backend_converts_arbitrary_precision_bigint_strings_to_fixed_width() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_string_fixed_width.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(1"));
-}
-
-#[test]
-fn run_wasm_backend_truncates_bigints_at_arbitrary_widths() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bigint_as_n_arbitrary_width.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(1"));
 }
 
 #[test]
@@ -1093,22 +790,6 @@ fn run_wasm_backend_succeeds_for_missing_arguments_shadowing_fixture() {
 }
 
 #[test]
-fn run_wasm_backend_succeeds_for_to_locale_string_boxed_receivers_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_to_locale_string_boxed_receivers.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
 fn run_wasm_backend_succeeds_for_supported_global_resolution_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
@@ -1141,273 +822,12 @@ fn run_wasm_backend_succeeds_for_global_constant_descriptors_fixture() {
 }
 
 #[test]
-fn run_wasm_backend_routes_abrupt_completions_through_finally() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_abrupt_finally_routing.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_preserves_catch_finally_derived_return_completions() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_catch_finally_derived_return.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_non_callable_catchability_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_non_callable_catchability.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("string(call,construct,error-call,error-construct)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_error_tostring_toprimitive_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_error_tostring_toprimitive.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("string(message,name)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_error_iserror_other_realm_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_error_iserror_other_realm.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains(
-        "string(Error,EvalError,RangeError,ReferenceError,SyntaxError,TypeError,URIError,AggregateError)"
-    ));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_error_constructor_properties_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_error_constructor_properties.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_throwtypeerror_intrinsic_properties_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_throwtypeerror_intrinsic_properties.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_reflect_set_core_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_reflect_set_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_reports_uncaught_throw_fixture_error() {
-    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_uncaught_throw.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw: wasm-aot completion: number(1)"));
-}
-
-#[test]
-fn run_wasm_backend_reports_gc_requires_real_collector() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_gc_requires_real_collector.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw"));
-    assert!(stderr.contains("gc requires a real collector in wasm-aot"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_supported_abrupt_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_abrupt_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
 fn run_wasm_backend_succeeds_for_supported_builtin_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_porf"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_builtin_globals.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_preserves_number_isnan_global_nan_binding_result() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_number_isnan_global.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(262"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_aggregateerror_newtarget_prototype_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_aggregateerror_newtarget_prototype.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_aggregateerror_iterable_to_list_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_aggregateerror_iterable_to_list.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(123"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_aggregateerror_constructor_properties_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_aggregateerror_constructor_properties.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_suppressederror_constructor_properties_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_suppressederror_constructor_properties.js",
-        ))
         .output()
         .expect("run command should run");
 
@@ -1447,290 +867,6 @@ fn run_wasm_backend_succeeds_for_supported_null_heritage_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_static_exponentiation_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_exponentiation_static_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_dynamic_integer_exponentiation_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_exponentiation_dynamic_integer_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_dynamic_fractional_exponentiation_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_exponentiation_dynamic_fractional_core.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_special_number_exponentiation_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_exponentiation_special_numbers_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_bigint_exponentiation_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_exponentiation_bigint_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_math_min_max_arity_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_math_min_max_arity.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_annexb_escape_unescape_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_annexb_escape_unescape_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_uri_codecs_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_uri_codecs_core.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_bound_construct_new_target_identity_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_bound_construct_new_target_identity.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_succeeds_for_construct_function_realm_fallback_fixture() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path("wasm_construct_function_realm_fallback.js"))
-        .output()
-        .expect("run command should run");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("boolean(true)"));
-}
-
-#[test]
-fn run_wasm_backend_preserves_async_generator_yield_star_acquisition_across_method_wrappers() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_async_generator_yield_star_wrapper_acquisition.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(stdout.contains("number(5"), "{stdout}");
-}
-
-#[test]
-fn run_wasm_backend_preserves_async_generator_yield_star_lexical_initialization() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_async_generator_yield_star_lexical_initialization.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(
-        stdout.contains("async-generator-yield-star-lexical-initialization:11:13"),
-        "{stdout}"
-    );
-}
-
-#[test]
-fn run_wasm_backend_validates_async_generator_yield_star_next_across_method_wrappers() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_async_generator_yield_star_next_wrapper_validation.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(
-        stdout.contains("async-generator-next-wrapper-validation:12:false"),
-        "{stdout}"
-    );
-}
-
-#[test]
-fn run_wasm_backend_validates_async_generator_yield_star_return_across_method_wrappers() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_async_generator_yield_star_return_wrapper_validation.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(
-        stdout.contains("async-generator-return-wrapper-validation:4"),
-        "{stdout}"
-    );
-}
-
-#[test]
-fn run_wasm_backend_validates_async_generator_yield_star_throw_across_method_wrappers() {
-    let output = Command::new(env!("CARGO_BIN_EXE_porf"))
-        .arg("run")
-        .arg("--execution-backend")
-        .arg("wasm")
-        .arg(fixture_path(
-            "wasm_async_generator_yield_star_throw_wrapper_validation.js",
-        ))
-        .output()
-        .expect("run command should run");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("backend_used: WasmAot"));
-    assert!(
-        stdout.contains("async-generator-throw-wrapper-validation:4"),
-        "{stdout}"
-    );
 }
 
 /// A hoisted function's `const` capture must not be typed from the hoist-time

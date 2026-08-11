@@ -2155,13 +2155,6 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let time_payload_local = self.reserve_temp_local();
         let milliseconds_local = self.reserve_temp_local();
-        let magnitude_local = self.reserve_temp_local();
-        let negative_local = self.reserve_temp_local();
-        let low_word_local = self.reserve_temp_local();
-        let low_product_local = self.reserve_temp_local();
-        let high_product_local = self.reserve_temp_local();
-        let low_limb_local = self.reserve_temp_local();
-        let high_limb_local = self.reserve_temp_local();
         let nanoseconds_payload_local = self.reserve_temp_local();
         let nanoseconds_tag_local = self.reserve_temp_local();
         let instant_prototype_local = self.reserve_temp_local();
@@ -2191,129 +2184,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::I64TruncF64S);
         function.instruction(&Instruction::LocalSet(milliseconds_local));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(negative_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(magnitude_local));
-
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Const(u32::MAX as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(low_word_local));
-        function.instruction(&Instruction::LocalGet(low_word_local));
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(low_product_local));
-        function.instruction(&Instruction::LocalGet(magnitude_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(high_product_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64Shl);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(high_product_local));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::LocalGet(low_product_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(high_limb_local));
-
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Const(i64::MAX));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(low_limb_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
-        function.instruction(&Instruction::Else);
-        let record_local = self.reserve_temp_local();
-        let limbs_local = self.reserve_temp_local();
-        let limb_count_local = self.reserve_temp_local();
-        self.emit_heap_alloc_const(HEAP_BIGINT_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(record_local));
-        self.emit_heap_alloc_const(16, function)?;
-        function.instruction(&Instruction::LocalSet(limbs_local));
-        self.store_i64_local_at_offset(limbs_local, 0, low_limb_local, function);
-        self.store_i64_local_at_offset(limbs_local, 8, high_limb_local, function);
-        function.instruction(&Instruction::LocalGet(high_limb_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(limb_count_local));
-        function.instruction(&Instruction::LocalGet(negative_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(low_word_local));
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_SIGN_OFFSET,
-            low_word_local,
+        // No range check follows, and that is not an omission: `TimeClip` has
+        // already bounded the time value to ±8.64e15 ms, whose nanosecond
+        // widening is exactly the `IsValidEpochNanoseconds` limit.
+        self.emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(
+            milliseconds_local,
+            UnvalidatedEpochNanoseconds {
+                payload_local: nanoseconds_payload_local,
+                tag_local: nanoseconds_tag_local,
+            },
             function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_PTR_OFFSET,
-            limbs_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_LEN_OFFSET,
-            limb_count_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            record_local,
-            HEAP_BIGINT_LIMBS_CAP_OFFSET,
-            limb_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(record_local));
-        function.instruction(&Instruction::LocalSet(nanoseconds_payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(nanoseconds_tag_local));
-        self.release_temp_local(limb_count_local);
-        self.release_temp_local(limbs_local);
-        self.release_temp_local(record_local);
-        function.instruction(&Instruction::End);
+        )?;
 
         function.instruction(&Instruction::GlobalGet(
             TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
@@ -2329,13 +2210,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(instant_prototype_local);
         self.release_temp_local(nanoseconds_tag_local);
         self.release_temp_local(nanoseconds_payload_local);
-        self.release_temp_local(high_limb_local);
-        self.release_temp_local(low_limb_local);
-        self.release_temp_local(high_product_local);
-        self.release_temp_local(low_product_local);
-        self.release_temp_local(low_word_local);
-        self.release_temp_local(negative_local);
-        self.release_temp_local(magnitude_local);
         self.release_temp_local(milliseconds_local);
         self.release_temp_local(time_payload_local);
         Ok(())

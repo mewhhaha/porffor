@@ -7,6 +7,29 @@
 use super::super::*;
 use super::IntrinsicInstall;
 
+/// The property key a `Temporal.Instant` member is installed under, derived
+/// from the one place its name is already stated.
+///
+/// `native_function_name()` is what `Function.prototype.name` reports, so for a
+/// plain method it *is* the key. An accessor's name carries the spec's
+/// `get `/`set ` prefix (`get epochMilliseconds`), which the key does not, so
+/// the prefix is stripped rather than the key being written out a second time —
+/// a literal beside the id is a second spelling of a closed fact, and a typo in
+/// it installs a correctly-named function under the wrong key with nothing in
+/// the compiler noticing.
+fn temporal_instant_property_key(builtin: StandardBuiltinId) -> Result<&'static str, EmitError> {
+    let name = builtin.native_function_name().ok_or_else(|| {
+        EmitError::unsupported(format!(
+            "unsupported in porffor wasm-aot first slice: builtin `{}` has no native function name",
+            builtin.debug_name()
+        ))
+    })?;
+    Ok(name
+        .strip_prefix("get ")
+        .or_else(|| name.strip_prefix("set "))
+        .unwrap_or(name))
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn install_temporal_instant_constructor_intrinsics(
         &mut self,
@@ -29,27 +52,37 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
-        let from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantFrom.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.from`",
-                )
+        // Property installation order is observable through `Object.keys`, so
+        // the statics go on in specification order and every one of them is
+        // installed before the prototype is touched.
+        //
+        // The property key is *derived* from `native_function_name()`, not
+        // written beside the id. They are two spellings of one closed fact —
+        // `.name` already comes from `native_function_name()` — so a literal
+        // here could install `Temporal.Instant.prototype.toJson` under a
+        // correctly-named function with nothing in the compiler noticing.
+        for builtin in [
+            StandardBuiltinId::TemporalInstantFrom,
+            StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
+            StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
+            StandardBuiltinId::TemporalInstantCompare,
+        ] {
+            let name = temporal_instant_property_key(builtin)?;
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
             })?;
-        self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+            self.emit_object_define_function_data(object_local, name, meta, function)?;
+        }
         function.instruction(&Instruction::GlobalGet(prototype_global_index));
         function.instruction(&Instruction::LocalSet(prototype_object_local));
-        for (name, builtin) in [
-            (
-                "epochMilliseconds",
-                StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
-            ),
-            (
-                "epochNanoseconds",
-                StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
-            ),
+        for builtin in [
+            StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
+            StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
         ] {
+            let name = temporal_instant_property_key(builtin)?;
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
@@ -72,34 +105,25 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        let to_string_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantPrototypeToString.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.prototype.toString`",
-                )
+        // `toJSON` and `toString` share an emitter but never a function object,
+        // so each gets its own meta here; installing them from one meta would
+        // make `Temporal.Instant.prototype.toJSON === ...toString` true, which
+        // `toJSON/prop-desc.js` and `toJSON/name.js` observe.
+        for builtin in [
+            StandardBuiltinId::TemporalInstantPrototypeToString,
+            StandardBuiltinId::TemporalInstantPrototypeEquals,
+            StandardBuiltinId::TemporalInstantPrototypeToJson,
+            StandardBuiltinId::TemporalInstantPrototypeValueOf,
+        ] {
+            let name = temporal_instant_property_key(builtin)?;
+            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
             })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "toString",
-            to_string_meta,
-            function,
-        )?;
-        let equals_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalInstantPrototypeEquals.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.Instant.prototype.equals`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "equals",
-            equals_meta,
-            function,
-        )?;
+            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
+        }
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),
@@ -947,6 +971,24 @@ impl<'a> FunctionBuilder<'a> {
                 "calendarId",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter,
             ),
+            // Spec property order puts `era`/`eraYear` between `calendarId`
+            // and `year`, and *this* loop is what makes that observable: it
+            // emits one define-property call per entry, in sequence, so
+            // `Object.keys(Temporal.ZonedDateTime.prototype)` reports this
+            // list's order. The sibling list in
+            // `lowering::temporal_zoned_date_time_prototype_shape` is a
+            // `BTreeMap` and its order is discarded, so what the two lists
+            // must share is *membership*, not order: a name here with no shape
+            // entry (or the reverse) is a prototype and a shape that disagree
+            // about what exists.
+            (
+                "era",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+            ),
+            (
+                "eraYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            ),
             (
                 "year",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
@@ -1010,51 +1052,40 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        let equals_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimePrototypeEquals.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.equals`",
-                )
+        // Every data-property method of this prototype, in install order.
+        //
+        // Order is observable (`Object.keys` on the prototype). The order below
+        // is the one this installer already emitted — `equals`, `toInstant`,
+        // `withTimeZone`, `toPlainDateTime`, then batch 6's five appended — so
+        // the fold that put the first four into the table moved no name. It is
+        // deliberately NOT spec order (`equals` before `withTimeZone`); fixing
+        // that is a separate change with an observable result.
+        //
+        // The list lives in `porffor-ir`
+        // (`names::TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`) and is iterated
+        // by `lowering::temporal_zoned_date_time_prototype_shape` too, so this
+        // prototype and that shape cannot disagree about what exists. Batch 6
+        // shipped the five new names as separate literals in each crate with a
+        // comment asking the reader to keep them in step, and left the four
+        // older names duplicated that way afterwards; this replaces both.
+        // Adding a member means editing the const, which updates both sites at
+        // once. The accessors above are installed through a different emitter
+        // and are deliberately outside the table — see the const's doc.
+        for (name, builtin) in TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS {
+            let builtin = *builtin;
+            let method_meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in porffor wasm-aot first slice: missing builtin meta `{}`",
+                    builtin.debug_name()
+                ))
             })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "equals",
-            equals_meta,
-            function,
-        )?;
-        let to_instant_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.toInstant`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "toInstant",
-            to_instant_meta,
-            function,
-        )?;
-        let with_time_zone_meta = self
-            .functions
-            .get(
-                &StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
-                    .function_id(),
-            )
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in porffor wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.prototype.withTimeZone`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            prototype_object_local,
-            "withTimeZone",
-            with_time_zone_meta,
-            function,
-        )?;
+            self.emit_object_define_function_data(
+                prototype_object_local,
+                name,
+                method_meta,
+                function,
+            )?;
+        }
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),

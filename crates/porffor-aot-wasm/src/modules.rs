@@ -97,10 +97,10 @@ impl FunctionBuilder<'_> {
         let guard = self.module_unit_guard_global_index(module);
         function.instruction(&Instruction::GlobalGet(guard));
         function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // The `if` is a Wasm control frame: any `br` emitted inside `block`
-        // counts depths from here, so the builder's stack must know about it.
-        self.push_control(ControlFrameKind::If);
+        // The `if` is a Wasm control frame. `open_frame` emits it and records
+        // the label it opened in one call, so the branch arithmetic can see it
+        // whether or not anyone remembered to say so.
+        self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::GlobalSet(guard));
         self.push_scope();

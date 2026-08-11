@@ -3,6 +3,7 @@ use super::array::{
     ArrayCallbackReceiverKind, ArraySortOutput, TypedArrayFindKind, TypedArrayQuantifierKind,
 };
 use super::string::UriCodecKind;
+use super::temporal::ZonedDateTimeField;
 
 const ITERATOR_ZIP_MODE_SHORTEST: u64 = 0.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_LONGEST: u64 = 1.0_f64.to_bits();
@@ -9720,6 +9721,33 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 self.emit_finalization_registry_unregister(function)?;
             }
+            StandardBuiltinId::AsyncDisposableStackConstructor => {
+                self.emit_async_disposable_stack_constructor(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse => {
+                self.emit_async_disposable_stack_use(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => {
+                self.emit_async_disposable_stack_adopt(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer => {
+                self.emit_async_disposable_stack_defer(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeMove => {
+                self.emit_async_disposable_stack_move(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
+                self.emit_async_disposable_stack_dispose_async(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+                self.emit_async_disposable_stack_disposed_getter(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled => {
+                self.emit_async_disposable_stack_dispose_async_fulfilled(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
+                self.emit_async_disposable_stack_dispose_async_rejected(function)?;
+            }
             StandardBuiltinId::WeakMapPrototypeDelete => {
                 self.emit_weak_map_prototype_delete(function)?;
             }
@@ -10227,10 +10255,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     self.result_local,
                     self.result_tag_local,
-                    1,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -10474,8 +10501,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(properties_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.push_control(ControlFrameKind::If);
+                self.open_frame(ControlFrameKind::If, function);
                 self.emit_direct_js_call(
                     &define_properties_meta,
                     None,
@@ -17714,7 +17740,6 @@ impl<'a> FunctionBuilder<'a> {
                     "Proxy preventExtensions trap returned false",
                     self.result_local,
                     self.result_tag_local,
-                    0,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -34181,10 +34206,9 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     prototype_payload_local,
                     prototype_tag_local,
-                    0,
                     function,
                 )?;
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
@@ -35224,10 +35248,9 @@ impl<'a> FunctionBuilder<'a> {
                         new_object_tag_local,
                         function,
                     )?;
-                    self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                    self.emit_propagate_throw_from_locals_if_needed(
                         new_object_local,
                         new_object_tag_local,
-                        0,
                         function,
                     )?;
                     function.instruction(&Instruction::End);
@@ -36664,6 +36687,15 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalInstantFrom => {
                 self.emit_temporal_instant_from(function)?;
             }
+            StandardBuiltinId::TemporalInstantCompare => {
+                self.emit_temporal_instant_compare(function)?;
+            }
+            StandardBuiltinId::TemporalInstantFromEpochMilliseconds => {
+                self.emit_temporal_instant_from_epoch_milliseconds(function)?;
+            }
+            StandardBuiltinId::TemporalInstantFromEpochNanoseconds => {
+                self.emit_temporal_instant_from_epoch_nanoseconds(function)?;
+            }
             StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => {
                 self.emit_temporal_instant_epoch_milliseconds(function)?;
             }
@@ -36673,8 +36705,18 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalInstantPrototypeEquals => {
                 self.emit_temporal_instant_equals(function)?;
             }
-            StandardBuiltinId::TemporalInstantPrototypeToString => {
+            // `toJSON` is `TemporalInstantToString(instant, AUTO)` — the same
+            // body, but a distinct function object: `toJSON/prop-desc.js` and
+            // `toJSON/name.js` observe that it is not `toString`. Because the
+            // emitter reads no arguments, `toJSON/basic.js`'s throwing Proxy
+            // options bag ("should not get properties off argument") passes
+            // without any extra guard.
+            StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 self.emit_temporal_instant_to_string(function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeValueOf => {
+                self.emit_temporal_instant_value_of(function)?;
             }
             StandardBuiltinId::TemporalPlainDateConstructor => {
                 self.emit_temporal_plain_date_constructor(function)?;
@@ -37028,17 +37070,62 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter => {
                 self.emit_temporal_zoned_date_time_calendar_id(function)?;
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
-                self.emit_temporal_zoned_date_time_iso_field(builtin, function)?;
+            // One arm per accessor rather than an or-pattern that forwards
+            // `builtin`: this is the only `StandardBuiltinId ->
+            // ZonedDateTimeField` conversion, and spelling it here means the
+            // emitter never has to match a several-hundred-variant enum with a
+            // catch-all. Adding a ZonedDateTime accessor is a compile error in
+            // this match until it names its field.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Era, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::EraYear,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Year, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Month, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::MonthCode,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Day, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Hour, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Minute, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(ZonedDateTimeField::Second, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::Millisecond,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::Microsecond,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::Nanosecond,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
                 self.emit_temporal_zoned_date_time_equals(function)?;
@@ -37046,8 +37133,38 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => {
                 self.emit_temporal_zoned_date_time_to_instant(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => {
+                self.emit_temporal_zoned_date_time_to_plain_date_time(function)?;
+            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
                 self.emit_temporal_zoned_date_time_with_time_zone(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar => {
+                self.emit_temporal_zoned_date_time_with_calendar(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeAdd => {
+                self.emit_temporal_zoned_date_time_add_or_subtract(
+                    ZonedDateTimeArithmetic::Add,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract => {
+                self.emit_temporal_zoned_date_time_add_or_subtract(
+                    ZonedDateTimeArithmetic::Subtract,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil => {
+                self.emit_temporal_zoned_date_time_until_or_since(
+                    ZonedDateTimeDifference::Until,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
+                self.emit_temporal_zoned_date_time_until_or_since(
+                    ZonedDateTimeDifference::Since,
+                    function,
+                )?;
             }
             StandardBuiltinId::IntlGetCanonicalLocales => {
                 self.emit_intl_get_canonical_locales(function)?;
@@ -38114,10 +38231,9 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     prototype_payload_local,
                     prototype_tag_local,
-                    0,
                     function,
                 )?;
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
@@ -38391,10 +38507,9 @@ impl<'a> FunctionBuilder<'a> {
                     prototype_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     prototype_payload_local,
                     prototype_tag_local,
-                    0,
                     function,
                 )?;
                 self.emit_is_heap_object_like_tag_i32(prototype_tag_local, function);
@@ -44899,10 +45014,9 @@ impl<'a> FunctionBuilder<'a> {
                         // untracked `If` deep, the `has_arg_local` check above)
                         // instead of falling through and stamping a bogus
                         // Number tag over the thrown error.
-                        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                        self.emit_propagate_throw_from_locals_if_needed(
                             self.result_local,
                             self.result_tag_local,
-                            1,
                             function,
                         )?;
                         function
@@ -44958,10 +45072,9 @@ impl<'a> FunctionBuilder<'a> {
                         // Nested two untracked `If`s deep here: the
                         // `has_arg_local` check and the Symbol-tag check
                         // above.
-                        self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                        self.emit_propagate_throw_from_locals_if_needed(
                             string_arg_primitive_payload_local,
                             string_arg_primitive_tag_local,
-                            2,
                             function,
                         )?;
                         self.emit_primitive_to_string_payload(
@@ -47452,7 +47565,7 @@ impl<'a> FunctionBuilder<'a> {
                     value_payload_local,
                     flags_payload_local,
                     function,
-                );
+                )?;
                 function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::F64Const(0.0.into()));
@@ -48946,10 +49059,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 )?;
-                self.emit_propagate_throw_from_locals_if_needed_with_extra_depth(
+                self.emit_propagate_throw_from_locals_if_needed(
                     self.result_local,
                     self.result_tag_local,
-                    1,
                     function,
                 )?;
                 function.instruction(&Instruction::End);

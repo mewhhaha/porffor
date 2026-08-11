@@ -3,6 +3,16 @@ use boa_interner::Interner;
 use boa_parser::{Parser, Source};
 use std::panic::{self, AssertUnwindSafe};
 
+// The closed domain of pre-evaluation rejection codes and the one table that
+// classifies boa's static-semantics messages into it. See
+// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
+mod early_error_code;
+
+pub use early_error_code::{
+    classify_parse_failure, EarlyErrorCode, ParseClassified, MODULE_REPARSE_PREFIX,
+    NO_EARLY_ERROR_CODE,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseGoal {
     Script,
@@ -38,12 +48,21 @@ pub struct SourceUnit {
     pub source_text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What sort of thing the front end rejected. A **return type**, not a field:
+/// it is a function of [`ParseCode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseDiagnosticKind {
     MalformedJavaScript,
     UnsupportedParserFeature,
 }
 
+/// When the rejection was decided. A **return type**, not a field.
+///
+/// 16.1.4 `ParseScript` and 16.2.1.6.1 `ParseModule` fix the reporting phase per
+/// producing operation; clause 17 makes it a property of *where* the rejection
+/// comes from, never a free parameter of a call site. Storing it as a field was
+/// the opportunity for one condition to be reported under two phases depending
+/// on which path found it, and that had already happened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseDiagnosticPhase {
     Parse,
@@ -56,14 +75,118 @@ pub struct SourceSpan {
     pub end: usize,
 }
 
+/// Everything [`parse`] can report, as one closed domain.
+///
+/// The two `P_...` codes are **compiler-gap** codes, not spec rejections, and
+/// keeping them out of [`EarlyErrorCode`] is deliberate: an `EarlyErrorCode`
+/// must always name a program that ECMAScript rejects. A source boa could not
+/// read, or a parse that aborted, is a fact about this front end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseCode {
+    /// Boa rejected the source and we do not model the wording.
+    Malformed,
+    /// Boa's parser aborted; the panic was caught in [`parse`].
+    UnsupportedParserFeature,
+    /// A modelled spec rejection, classified by
+    /// [`classify_parse_failure`] — the same table the dependency-module path
+    /// uses, so one source cannot report under two codes depending on whether it
+    /// was the entry file or an import.
+    ///
+    /// The payload is [`ParseClassified`], not a bare [`EarlyErrorCode`]: this
+    /// variant reports at [`ParseDiagnosticPhase::Early`], and a link-only code
+    /// reported there is one condition under two phases from two paths. The
+    /// witness makes that `error[E0308]` at the call site rather than a
+    /// convention the table's assertion P7 can only state for the table.
+    Early(ParseClassified),
+}
+
+impl ParseCode {
+    /// The single spelling authority for the two `P_...` codes; an early code
+    /// delegates to [`EarlyErrorCode::wire_name`], which owns all eighteen of
+    /// the `E_...` spellings.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Malformed => "P_PARSE_MALFORMED",
+            Self::UnsupportedParserFeature => "P_PARSE_UNSUPPORTED",
+            Self::Early(code) => code.code().wire_name(),
+        }
+    }
+
+    #[must_use]
+    pub const fn kind(self) -> ParseDiagnosticKind {
+        match self {
+            Self::Malformed | Self::Early(_) => ParseDiagnosticKind::MalformedJavaScript,
+            Self::UnsupportedParserFeature => ParseDiagnosticKind::UnsupportedParserFeature,
+        }
+    }
+
+    #[must_use]
+    pub const fn phase(self) -> ParseDiagnosticPhase {
+        match self {
+            Self::Early(_) => ParseDiagnosticPhase::Early,
+            Self::Malformed | Self::UnsupportedParserFeature => ParseDiagnosticPhase::Parse,
+        }
+    }
+
+    /// The error the program would have thrown, if the spec says it throws one.
+    ///
+    /// The one `"SyntaxError"` literal in this crate. 16.1.4 and 16.2.1.6.1
+    /// both return "a List of **SyntaxError** objects", and every
+    /// `parse`/`resolution` negative in the pinned test262 suite is a
+    /// `SyntaxError` — there is no second inhabitant to choose between. It
+    /// cannot be `porffor_ir::NativeErrorKind` because that type lives in a
+    /// crate this one is *below*; closing that requires moving
+    /// `NativeErrorKind` down and is another lane's file (ledger L2).
+    ///
+    /// **`UnsupportedParserFeature` returns `None`, and that is a fix.** It is
+    /// the caught-panic case ([`parse`]: "parser aborted while handling
+    /// source") — a compiler gap, not a program ECMAScript rejects. Returning
+    /// `"SyntaxError"` for it made `compile_negative_error_matches` score a
+    /// **pass** for any `parse`/`SyntaxError` negative whose source merely
+    /// crashed boa's parser, because `phase()` is already `Parse`. Clause 17:
+    /// an implementation "must not treat other kinds of error as early errors".
+    /// This is the same shape `porffor_ir::IrDiagnosticKind::error_type`
+    /// already has, and what `module_parse_failure_diagnostic`'s doc comment
+    /// forbids in words.
+    #[must_use]
+    pub const fn error_type(self) -> Option<&'static str> {
+        match self {
+            // boa read the source and rejected it: a real syntax error, whether
+            // or not the fragment table models its wording.
+            Self::Malformed | Self::Early(_) => Some("SyntaxError"),
+            Self::UnsupportedParserFeature => None,
+        }
+    }
+}
+
+/// A front-end rejection: one closed code, plus payload.
+///
+/// `kind`, `phase` and `error_type` used to be independent fields beside
+/// `code`; they are now accessors derived from `code`, so no call site can pair
+/// them inconsistently.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseDiagnostic {
-    pub kind: ParseDiagnosticKind,
-    pub phase: ParseDiagnosticPhase,
-    pub code: &'static str,
-    pub error_type: &'static str,
+    pub code: ParseCode,
     pub span: Option<SourceSpan>,
     pub message: String,
+}
+
+impl ParseDiagnostic {
+    #[must_use]
+    pub const fn kind(&self) -> ParseDiagnosticKind {
+        self.code.kind()
+    }
+
+    #[must_use]
+    pub const fn phase(&self) -> ParseDiagnosticPhase {
+        self.code.phase()
+    }
+
+    #[must_use]
+    pub const fn error_type(&self) -> Option<&'static str> {
+        self.code.error_type()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,51 +197,39 @@ pub struct ParseError {
 
 impl ParseError {
     pub fn malformed(message: impl Into<String>, span: Option<SourceSpan>) -> Self {
-        let message = message.into();
-        Self {
-            diagnostic: ParseDiagnostic {
-                kind: ParseDiagnosticKind::MalformedJavaScript,
-                phase: ParseDiagnosticPhase::Parse,
-                code: "P_PARSE_MALFORMED",
-                error_type: "SyntaxError",
-                span,
-                message: message.clone(),
-            },
-            message,
-        }
+        Self::new(ParseCode::Malformed, message, span)
     }
 
     pub fn unsupported_parser_feature(
         message: impl Into<String>,
         span: Option<SourceSpan>,
     ) -> Self {
-        let message = message.into();
-        Self {
-            diagnostic: ParseDiagnostic {
-                kind: ParseDiagnosticKind::UnsupportedParserFeature,
-                phase: ParseDiagnosticPhase::Parse,
-                code: "P_PARSE_UNSUPPORTED",
-                error_type: "SyntaxError",
-                span,
-                message: message.clone(),
-            },
-            message,
-        }
+        Self::new(ParseCode::UnsupportedParserFeature, message, span)
     }
 
+    /// A modelled spec rejection. The `error_type` parameter is gone: passing
+    /// `"SyntaxError"` here was never a choice, and passing anything else was
+    /// never correct.
+    ///
+    /// The code parameter is a [`ParseClassified`], not a bare
+    /// [`EarlyErrorCode`]: this constructor reports at
+    /// [`ParseDiagnosticPhase::Early`], so it must not be able to name a
+    /// link-only condition. Obtain one from [`classify_parse_failure`], or —
+    /// for a producer that names its code directly — from
+    /// [`ParseClassified::from_parse_table`] in a `const` initializer.
     pub fn early_error(
-        code: &'static str,
-        error_type: &'static str,
+        code: ParseClassified,
         message: impl Into<String>,
         span: Option<SourceSpan>,
     ) -> Self {
+        Self::new(ParseCode::Early(code), message, span)
+    }
+
+    fn new(code: ParseCode, message: impl Into<String>, span: Option<SourceSpan>) -> Self {
         let message = message.into();
         Self {
             diagnostic: ParseDiagnostic {
-                kind: ParseDiagnosticKind::MalformedJavaScript,
-                phase: ParseDiagnosticPhase::Early,
                 code,
-                error_type,
                 span,
                 message: message.clone(),
             },
@@ -178,8 +289,12 @@ pub fn parse(
             let err = err.to_string();
             let message = format!("parse error: {err}");
             let span = parse_error_span_from_message(&source_text, &err);
-            return if let Some(code) = parser_static_semantics_error_code(&err) {
-                Err(ParseError::early_error(code, "SyntaxError", message, span))
+            // `&err` is boa's bare message. Do not classify `message` — it
+            // carries this crate's `"parse error: "` prefix, and the one table's
+            // prefix-inertness assertion (P6) is stated for the *dependency*
+            // path's prefix only.
+            return if let Some(code) = classify_parse_failure(&err) {
+                Err(ParseError::early_error(code, message, span))
             } else {
                 Err(ParseError::malformed(message, span))
             };
@@ -200,59 +315,6 @@ pub fn parse(
         filename: options.filename,
         source_text,
     })
-}
-
-/// Classifies a `boa_parser` static-semantics failure into a stable code.
-///
-/// The module-goal fragments must stay byte-identical to
-/// `porffor_ir::modules::early`'s `PARSE_FAILURE_RULES`: a module early error
-/// is classified here when it happens on the *entry* file and there when it
-/// happens on a dependency, and one test262 case must not report under two
-/// codes depending on which of the two it was.
-fn parser_static_semantics_error_code(message: &str) -> Option<&'static str> {
-    if message.contains("Duplicate __proto__ fields are not allowed in object literals") {
-        return Some("E_OBJECT_DUPLICATE_PROTO");
-    }
-    // Module-goal early errors (16.2.3.1), reported by `ModuleParser::parse`.
-    if message.contains("exported name") && message.contains("declared multiple times") {
-        return Some("E_MODULE_DUPLICATE_EXPORT");
-    }
-    if message.contains("could not find the exported binding") {
-        return Some("E_MODULE_UNDECLARED_EXPORT");
-    }
-    if message.contains("module cannot contain") && message.contains("super") {
-        return Some("E_MODULE_TOP_LEVEL_SUPER");
-    }
-    if message.contains("module cannot contain") && message.contains("new.target") {
-        return Some("E_MODULE_TOP_LEVEL_NEW_TARGET");
-    }
-    if message.contains("invalid private identifier usage") {
-        return Some("E_INVALID_PRIVATE_IDENTIFIER");
-    }
-    if message.contains("duplicate label") {
-        return Some("E_DUPLICATE_LABEL");
-    }
-    if message.contains("duplicate lexical declaration")
-        || message.contains("lexical name declared multiple times")
-        || (message.contains("lexical")
-            && message.contains("declared")
-            && message.contains("names"))
-    {
-        return Some("E_DUPLICATE_LEXICAL_DECLARATION");
-    }
-    if message.contains("undefined break target") {
-        return Some("E_UNDEFINED_BREAK_TARGET");
-    }
-    if message.contains("undefined continue target") {
-        return Some("E_UNDEFINED_CONTINUE_TARGET");
-    }
-    if message.contains("illegal break statement") {
-        return Some("E_ILLEGAL_BREAK");
-    }
-    if message.contains("illegal continue statement") {
-        return Some("E_ILLEGAL_CONTINUE");
-    }
-    None
 }
 
 fn first_nul_span(source_text: &str) -> Option<SourceSpan> {
@@ -342,18 +404,27 @@ mod tests {
     use boa_ast::operations::{annex_b_function_declarations, annex_b_function_declarations_names};
     use boa_ast::{Declaration, StatementListItem};
 
+    /// The expected `ParseCode` for a modelled rejection.
+    ///
+    /// Goes through `ParseClassified::from_parse_table`, so a test that names a
+    /// link-only code panics here instead of asserting against a `ParseCode`
+    /// the product path cannot construct.
+    fn early(code: EarlyErrorCode) -> ParseCode {
+        ParseCode::Early(ParseClassified::from_parse_table(code))
+    }
+
     #[test]
     fn script_rejects_module_syntax() {
         let err = parse("export const value = 1;", ParseOptions::script())
             .expect_err("script goal should reject export");
         assert!(err.message().contains("parse error"));
         assert_eq!(
-            err.diagnostic().kind,
+            err.diagnostic().kind(),
             ParseDiagnosticKind::MalformedJavaScript
         );
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Parse);
-        assert_eq!(err.diagnostic().error_type, "SyntaxError");
-        assert_eq!(err.diagnostic().code, "P_PARSE_MALFORMED");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed);
     }
 
     #[test]
@@ -362,7 +433,7 @@ mod tests {
             .expect_err("broken function syntax should fail");
         assert!(err.message().contains("parse error"));
         assert_eq!(
-            err.diagnostic().kind,
+            err.diagnostic().kind(),
             ParseDiagnosticKind::MalformedJavaScript
         );
     }
@@ -372,12 +443,12 @@ mod tests {
         let err =
             parse("let x = ;", ParseOptions::script()).expect_err("broken initializer should fail");
         assert_eq!(
-            err.diagnostic().kind,
+            err.diagnostic().kind(),
             ParseDiagnosticKind::MalformedJavaScript
         );
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Parse);
-        assert_eq!(err.diagnostic().error_type, "SyntaxError");
-        assert_eq!(err.diagnostic().code, "P_PARSE_MALFORMED");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed);
         assert!(
             err.diagnostic().span.is_some(),
             "diagnostic should carry Boa's source position when available: {err:?}"
@@ -391,9 +462,12 @@ mod tests {
             ParseOptions::script(),
         )
         .expect_err("duplicate __proto__ prototype setters should fail");
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Early);
-        assert_eq!(err.diagnostic().error_type, "SyntaxError");
-        assert_eq!(err.diagnostic().code, "E_OBJECT_DUPLICATE_PROTO");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ObjectDuplicateProto)
+        );
         assert!(
             err.diagnostic().span.is_some(),
             "diagnostic should carry Boa's source position when available: {err:?}"
@@ -404,29 +478,80 @@ mod tests {
     fn parser_label_static_semantics_errors_report_early_phase() {
         let err = parse("break;", ParseOptions::script())
             .expect_err("unlabelled break outside breakable statement should fail");
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Early);
-        assert_eq!(err.diagnostic().code, "E_ILLEGAL_BREAK");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().code, early(EarlyErrorCode::IllegalBreak));
 
         let err = parse("continue missing;", ParseOptions::script())
             .expect_err("labelled continue outside iteration should fail");
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Early);
-        assert_eq!(err.diagnostic().code, "E_ILLEGAL_CONTINUE");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::IllegalContinue)
+        );
 
         let err = parse(
             "while (false) { continue missing; }",
             ParseOptions::script(),
         )
         .expect_err("continue to undefined label should fail");
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Early);
-        assert_eq!(err.diagnostic().code, "E_UNDEFINED_CONTINUE_TARGET");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::UndefinedContinueTarget)
+        );
     }
 
     #[test]
     fn parser_duplicate_lexical_declaration_reports_early_phase() {
         let err = parse("let x; let x;", ParseOptions::script())
             .expect_err("duplicate lexical declaration should fail");
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Early);
-        assert_eq!(err.diagnostic().code, "E_DUPLICATE_LEXICAL_DECLARATION");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::DuplicateLexicalDeclaration)
+        );
+    }
+
+    /// Drift B3, closed.
+    ///
+    /// `ModuleParser::parse` words this one ``lexical name `x` declared
+    /// multiple times`` — with an interpolated identifier and no `names`. The
+    /// front end's old loose alternative required the literal substring
+    /// `names`, so a module-goal lexical redeclaration classified as
+    /// `P_PARSE_MALFORMED` here while the identical source classified as
+    /// `E_DUPLICATE_LEXICAL_DECLARATION` when it arrived as a *dependency*
+    /// module. One table, one answer.
+    #[test]
+    fn module_goal_duplicate_lexical_declaration_is_an_early_error_not_malformed() {
+        let err = parse("let x; const x = 1;", ParseOptions::module())
+            .expect_err("duplicate lexical declaration should fail in module goal");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::DuplicateLexicalDeclaration),
+            "{err:?}"
+        );
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+    }
+
+    /// The two goals agree on the *same* source, which is the property the two
+    /// deleted tables could only promise in a doc comment.
+    #[test]
+    fn both_goals_classify_one_source_identically() {
+        for source in [
+            "({ __proto__: null, __proto__: {} });",
+            "let x; const x = 1;",
+            "break;",
+        ] {
+            let script = parse(source, ParseOptions::script())
+                .expect_err("source is rejected in script goal");
+            let module = parse(source, ParseOptions::module())
+                .expect_err("source is rejected in module goal");
+            assert_eq!(
+                script.diagnostic().code,
+                module.diagnostic().code,
+                "goals disagree on {source:?}"
+            );
+        }
     }
 
     #[test]
@@ -434,7 +559,7 @@ mod tests {
         let err = parse("if (true {", ParseOptions::script())
             .expect_err("unbalanced delimiters should fail");
         assert!(err.message().contains("parse error"));
-        assert_eq!(err.diagnostic().phase, ParseDiagnosticPhase::Parse);
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
     }
 
     #[test]
@@ -442,10 +567,10 @@ mod tests {
         let err = parse("let x = 0;\0", ParseOptions::script())
             .expect_err("NUL byte should be rejected before Boa parsing");
         assert_eq!(
-            err.diagnostic().kind,
+            err.diagnostic().kind(),
             ParseDiagnosticKind::MalformedJavaScript
         );
-        assert_eq!(err.diagnostic().code, "P_PARSE_MALFORMED");
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed);
         assert_eq!(
             err.diagnostic().span,
             Some(SourceSpan { start: 10, end: 11 })
@@ -774,5 +899,36 @@ switch (0) {
         ] {
             parse(source, ParseOptions::module()).expect_err("module HTML comment should fail");
         }
+    }
+
+    /// Ledger L1's injection channel, closed.
+    ///
+    /// boa renders a `TokenKind::StringLiteral` as its raw contents
+    /// (`boa_parser/src/lexer/token.rs:313`) and interpolates the found token
+    /// into `Error::Unexpected` / `Error::Expected`, so a program can put a
+    /// whole fragment set of the one table into the message boa produces for an
+    /// ordinary syntax error. `classify_parse_failure` refuses the two
+    /// interpolating shapes, so this stays `Malformed` — a syntax error we do
+    /// not model — rather than becoming a forged `E_ILLEGAL_BREAK`.
+    #[test]
+    fn user_source_text_cannot_forge_an_early_error_classification() {
+        let err = parse(
+            "var x = \"illegal break statement\" \"y\";",
+            ParseOptions::script(),
+        )
+        .expect_err("two adjacent string literals are a syntax error");
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed, "{err}");
+    }
+
+    /// MC4's call-site half. A code the fragment table cannot produce is not a
+    /// `ParseClassified`, so it cannot be reported at
+    /// `ParseDiagnosticPhase::Early` by any parse-stage producer.
+    #[test]
+    fn only_parse_table_codes_are_parse_classified() {
+        assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleTooManyUnits).is_none());
     }
 }

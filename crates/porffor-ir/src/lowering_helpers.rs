@@ -620,13 +620,168 @@ pub(crate) fn async_generator_resumable_plan(body: &FunctionBody) -> ResumablePl
     collector.states.finish()
 }
 
+/// Why a generator body has no linear suspension plan.
+///
+/// # Why this exists
+///
+/// [`linear_generator_plan`] answered `Option`, and its single consumer in
+/// `lower_declaration` reported the rejection as
+/// `unsupported("function or class declaration")`. That string is wrong twice:
+/// the declaration is a *generator*, not a function or class, and the reason is
+/// the shape of its yields, not the kind of declaration. Every generator this
+/// compiler refuses therefore collapsed into one `detail_hash` shared with
+/// genuinely unrelated declarations, which is the worst possible outcome for a
+/// sweep whose whole purpose is grouping failures into families.
+///
+/// Measured example, and the pair this was written against:
+/// `annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js` and
+/// `RegExp-invalid-control-escape-character-class.js` both declare
+///
+/// ```ignore
+/// function* invalidControls() {
+///   for (var alpha = 0x0410; alpha <= 0x042F; alpha++) { yield String.fromCharCode(alpha); }
+///   // ... and then a third loop whose yield is nested inside an `if`:
+///   for (alpha = 0x00; alpha <= 0x7F; alpha++) {
+///     let letter = String.fromCharCode(alpha);
+///     if (!letter.match(/[0-9A-Za-z_\$(|)\[\]\/\\^]/)) { yield letter; }
+///   }
+/// }
+/// ```
+///
+/// and both reported `unsupported in porffor wasm-aot first slice: function or
+/// class declaration`. The actual refusal is [`Self::LoopBodyYieldNotDirect`],
+/// raised by `simple_generator_loop_body_is_supported` on the third loop: its
+/// body's `if` is a statement that *contains* a yield without *being* one.
+///
+/// # Scope
+///
+/// This is a diagnostic type only. It changes no acceptance decision: the set of
+/// bodies [`linear_generator_plan`] accepts is byte-for-byte the set it accepted
+/// before, because the wrapper is `.ok()` over the same walk. Widening the walk
+/// to count yields per *path* rather than per statement list is filed as a
+/// batch-8 candidate and is deliberately not done here —
+/// `simple_generator_loop_body_is_supported`'s own comment records that
+/// accepting a body whose block carries a lexical environment does not fail
+/// loudly, it produces a loop the generator dispatcher cannot re-enter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratorPlanRejection {
+    /// A nested declaration (a function, class or lexical declaration at the top
+    /// level of the body) contains a yield.
+    YieldInDeclaration,
+    /// A statement-level `yield`, or `x = yield …`, whose operand itself hides
+    /// further suspensions the linear walk cannot order.
+    YieldOperandNotDirect,
+    /// `return <expression containing a yield>` whose expression cannot be
+    /// staged into a sequence of suspensions.
+    ReturnOperandNotStageable,
+    /// An expression statement whose value is discarded but whose yields cannot
+    /// be flattened into a sequence.
+    DiscardedYieldExpression,
+    /// A bare block whose yields cannot be flattened into a sequence.
+    DiscardedYieldBlock,
+    /// `with (<expression containing a yield>)`.
+    YieldInWithHead,
+    /// A `with` body that is neither a block nor an expression statement and
+    /// contains a yield.
+    YieldInWithBody,
+    /// A `for`/`while` body that is not exactly one direct `yield` statement —
+    /// most often because the yield sits inside an `if`, a nested block or a
+    /// `try` within the body, or because the body yields more than once.
+    LoopBodyYieldNotDirect,
+    /// A `for`/`while` carrying `break`, `continue`, or a nested function that
+    /// would capture a per-iteration binding.
+    LoopControlFlow,
+    /// `if (<condition containing a yield>)`.
+    YieldInIfCondition,
+    /// An `if` branch whose yields are not a countable direct sequence.
+    IfBranchYieldNotDirect,
+    /// A `try`, `catch` or `finally` block whose yields are not a countable
+    /// direct sequence.
+    YieldInTryStatement,
+    /// Any other statement kind that contains a yield: `switch`, labelled
+    /// statements, `do`-`while`, `for`-`in`, `for`-`of`, and so on.
+    YieldInUnsupportedStatement,
+}
+
+impl GeneratorPlanRejection {
+    /// The reported reason. Every message names the *generator body* and the
+    /// shape that failed, so a sweep groups these into families instead of into
+    /// one bucket labelled "function or class declaration".
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::YieldInDeclaration => {
+                "generator body: a nested declaration contains a yield, which has no linear \
+                 suspension plan"
+            }
+            Self::YieldOperandNotDirect => {
+                "generator body: a yield operand hides further suspensions, which has no linear \
+                 suspension plan"
+            }
+            Self::ReturnOperandNotStageable => {
+                "generator body: a `return` operand containing a yield cannot be staged into a \
+                 linear suspension plan"
+            }
+            Self::DiscardedYieldExpression => {
+                "generator body: a discarded expression statement's yields cannot be flattened \
+                 into a linear suspension plan"
+            }
+            Self::DiscardedYieldBlock => {
+                "generator body: a block's yields cannot be flattened into a linear suspension \
+                 plan"
+            }
+            Self::YieldInWithHead => {
+                "generator body: a yield in a `with` head has no linear suspension plan"
+            }
+            Self::YieldInWithBody => {
+                "generator body: a yield in this `with` body shape has no linear suspension plan"
+            }
+            Self::LoopBodyYieldNotDirect => {
+                "generator body: a loop body whose yield is nested inside another statement \
+                 (an `if`, a block or a `try`), or which yields more than once, has no linear \
+                 suspension plan"
+            }
+            Self::LoopControlFlow => {
+                "generator body: a loop carrying `break`, `continue` or a capturing nested \
+                 function has no linear suspension plan"
+            }
+            Self::YieldInIfCondition => {
+                "generator body: a yield in an `if` condition has no linear suspension plan"
+            }
+            Self::IfBranchYieldNotDirect => {
+                "generator body: an `if` branch whose yields are not a direct sequence has no \
+                 linear suspension plan"
+            }
+            Self::YieldInTryStatement => {
+                "generator body: a `try`/`catch`/`finally` block whose yields are not a direct \
+                 sequence has no linear suspension plan"
+            }
+            Self::YieldInUnsupportedStatement => {
+                "generator body: a yield inside a statement kind with no resumable lowering \
+                 (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear \
+                 suspension plan"
+            }
+        }
+    }
+}
+
+/// The acceptance answer, unchanged. Every existing caller asks only whether a
+/// plan exists; only `lower_declaration`'s rejection arm needs the reason, and
+/// it calls [`linear_generator_plan_with_reason`] directly. Keeping this a thin
+/// `.ok()` wrapper is what makes "the accepted set did not move" a property of
+/// the code rather than a claim in a note.
 pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlanIr> {
+    linear_generator_plan_with_reason(body).ok()
+}
+
+pub(crate) fn linear_generator_plan_with_reason(
+    body: &FunctionBody,
+) -> Result<GeneratorPlanIr, GeneratorPlanRejection> {
     let mut suspension_points = Vec::new();
     let mut current_state = 0u32;
     for item in body.statements() {
         let StatementListItem::Statement(statement) = item else {
             if contains(item, ContainsSymbol::YieldExpression) {
-                return None;
+                return Err(GeneratorPlanRejection::YieldInDeclaration);
             }
             continue;
         };
@@ -652,7 +807,8 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
         };
         if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
             let yield_count =
-                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)?;
+                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)
+                    .ok_or(GeneratorPlanRejection::YieldOperandNotDirect)?;
             for _ in 0..yield_count {
                 let suspend_state = current_state;
                 current_state += 1;
@@ -668,7 +824,8 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
                 .target()
                 .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
             {
-                let yield_count = staged_generator_expression_yield_count(target)?;
+                let yield_count = staged_generator_expression_yield_count(target)
+                    .ok_or(GeneratorPlanRejection::ReturnOperandNotStageable)?;
                 for _ in 0..yield_count {
                     let suspend_state = current_state;
                     current_state += 1;
@@ -686,7 +843,8 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
                     expression,
                     &mut current_state,
                     &mut suspension_points,
-                )?;
+                )
+                .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 continue;
             }
         }
@@ -696,28 +854,33 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
                     block.statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )?;
+                )
+                .ok_or(GeneratorPlanRejection::DiscardedYieldBlock)?;
                 continue;
             }
         }
         if let Statement::With(with) = statement.as_ref() {
             if contains(with.expression(), ContainsSymbol::YieldExpression) {
-                return None;
+                return Err(GeneratorPlanRejection::YieldInWithHead);
             }
             match with.statement() {
                 Statement::Block(block) => append_discarded_generator_block_suspensions(
                     block.statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )?,
+                )
+                .ok_or(GeneratorPlanRejection::DiscardedYieldBlock)?,
                 Statement::Expression(expression) => {
                     append_discarded_generator_expression_suspensions(
                         expression,
                         &mut current_state,
                         &mut suspension_points,
-                    )?;
+                    )
+                    .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 }
-                statement if contains(statement, ContainsSymbol::YieldExpression) => return None,
+                statement if contains(statement, ContainsSymbol::YieldExpression) => {
+                    return Err(GeneratorPlanRejection::YieldInWithBody)
+                }
                 _ => {}
             }
             continue;
@@ -731,10 +894,15 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
             _ => None,
         };
         if let Some((loop_body, reject_nested_functions, loop_statement)) = loop_shape {
-            if !simple_generator_loop_body_is_supported(loop_body)
-                || generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions)
-            {
-                return None;
+            // Split into two answers rather than one `||`. This is the arm the
+            // two `annexB` `invalidControls` cases take, and "the loop body's
+            // yield is nested inside an `if`" and "the loop carries a break" are
+            // different families with different fixes.
+            if !simple_generator_loop_body_is_supported(loop_body) {
+                return Err(GeneratorPlanRejection::LoopBodyYieldNotDirect);
+            }
+            if generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions) {
+                return Err(GeneratorPlanRejection::LoopControlFlow);
             }
             let resume_state = current_state + 1;
             suspension_points.push(GeneratorSuspensionPointIr {
@@ -749,10 +917,11 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
             continue;
         }
         if let Statement::WhileLoop(loop_statement) = statement.as_ref() {
-            if !simple_generator_loop_body_is_supported(loop_statement.body())
-                || generator_loop_has_unsupported_construct(loop_statement, false)
-            {
-                return None;
+            if !simple_generator_loop_body_is_supported(loop_statement.body()) {
+                return Err(GeneratorPlanRejection::LoopBodyYieldNotDirect);
+            }
+            if generator_loop_has_unsupported_construct(loop_statement, false) {
+                return Err(GeneratorPlanRejection::LoopControlFlow);
             }
             let resume_state = current_state + 1;
             suspension_points.push(GeneratorSuspensionPointIr {
@@ -768,11 +937,13 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
         }
         if let Statement::If(if_statement) = statement.as_ref() {
             if contains(if_statement.cond(), ContainsSymbol::YieldExpression) {
-                return None;
+                return Err(GeneratorPlanRejection::YieldInIfCondition);
             }
-            let then_yields = simple_generator_if_branch_yield_count(if_statement.body())?;
+            let then_yields = simple_generator_if_branch_yield_count(if_statement.body())
+                .ok_or(GeneratorPlanRejection::IfBranchYieldNotDirect)?;
             let else_yields = match if_statement.else_node() {
-                Some(branch) => simple_generator_if_branch_yield_count(branch)?,
+                Some(branch) => simple_generator_if_branch_yield_count(branch)
+                    .ok_or(GeneratorPlanRejection::IfBranchYieldNotDirect)?,
                 None => 0,
             };
             let yield_count = then_yields + else_yields;
@@ -793,14 +964,16 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
                 try_statement.block().statement_list().statements(),
                 &mut current_state,
                 &mut suspension_points,
-            )?;
+            )
+            .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
             current_state += 1;
             if let Some(catch) = try_statement.catch() {
                 append_structured_generator_suspensions(
                     catch.block().statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )?;
+                )
+                .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
                 current_state += 1;
             }
             if let Some(finally) = try_statement.finally() {
@@ -808,16 +981,17 @@ pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlan
                     finally.block().statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )?;
+                )
+                .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
                 current_state += 1;
             }
             continue;
         }
         if contains(statement.as_ref(), ContainsSymbol::YieldExpression) {
-            return None;
+            return Err(GeneratorPlanRejection::YieldInUnsupportedStatement);
         }
     }
-    Some(GeneratorPlanIr {
+    Ok(GeneratorPlanIr {
         entry_state: 0,
         state_count: current_state + 1,
         suspension_points,
@@ -1462,23 +1636,183 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
     loop_statement.visit_with(&mut visitor).is_break()
 }
 
-/// Whether a `for`-`of` head environment does nothing beyond putting the loop
-/// binding in TDZ while the iterable is evaluated.
+/// Whether a `for`-`of` head can take the resumable array-index walk
+/// (`ScriptLowerer::lower_async_for_of_array_with_body_await`), and if not, the
+/// one premise that failed.
 ///
-/// `None`, and "no runtime environment objects, only TDZ storage slots", are
-/// both reproducible by the resumable loop lowering: it declares those slots as
-/// `StatementIr::Lexical` bindings, which every loop compiler marks
-/// uninitialized before running the loop init — the same observable TDZ
-/// (ECMA-262 14.7.5.5 ForIn/OfHeadEvaluation, 8.6.2). A captured iteration
-/// environment needs the real per-iteration environment object and is not
-/// reproducible this way.
-pub(crate) fn for_of_environment_is_storage_only(
-    environment: Option<&ForInOfEnvironmentIr>,
-) -> bool {
-    let Some(environment) = environment else {
-        return true;
-    };
-    environment.tdz_environment.is_none() && environment.iteration_environment.is_none()
+/// # Why this is a closed type and not the `bool` it replaces
+///
+/// It used to be `has_unsupported_binding_form: bool`, computed as
+///
+/// ```ignore
+/// !for_of_environment_is_storage_only(lexical_environment.as_ref())
+///     || pattern_initializer.is_some()
+///     || assignment_pattern_initializer.is_some()
+///     || access_initializer.is_some()
+/// ```
+///
+/// and OR-ed at the use site with an array-typing test and an
+/// `Option<u32>` entry state, so **four** independent premises produced one
+/// message: `async for-of with a body await requires an array iterable and a
+/// plain binding`.
+///
+/// That message is wrong for the family it actually rejects. Measured on the
+/// batch-7 baseline sweep, `built-ins/Array/fromAsync` is 95 cases, 93 passed,
+/// and both failures carry that string under one `detail_hash`
+/// (`10438609855492019567`):
+///
+/// ```ignore
+/// asyncTest(async function () {
+///   for (const v of [true, "", Symbol(), 1, 1n, {}]) {
+///     await assert.throwsAsync(TypeError,
+///       () => Array.fromAsync({ [Symbol.asyncIterator]: v }),
+///       `@@asyncIterator = ${typeof v}`);
+///   }
+/// });
+/// ```
+///
+/// The iterable IS an array literal and the binding IS a plain `const v`. Both
+/// stated premises hold. The real disqualifier is the third, unnamed one: the
+/// arrow captures `v`, so ECMA-262 14.7.5.7 per-iteration bindings materialise
+/// an *iteration environment*, and this specialization cannot reproduce one.
+/// Reproduced directly at the CLI on the same head:
+///
+/// ```ignore
+/// async function f() {
+///   const out = [];
+///   for (const v of [1, 2, 3]) { out.push(() => v); await 0; }
+/// }
+/// // -> unsupported in porffor wasm-aot first slice: async for-of with a body
+/// //    await requires an array iterable and a plain binding
+/// ```
+///
+/// A wrong reason is worse than no reason: it sent triage at an
+/// iterable-typing problem that was not there. Each variant below names exactly
+/// one premise, and [`Self::rejection`] is the only way to get a message, so a
+/// future variant cannot be added without stating what it means.
+///
+/// # What each variant costs to lift
+///
+/// `PlainStorageOnly` covers both "no head environment at all" and "storage
+/// slots only, no runtime environment object". Both are reproducible here: the
+/// lowering declares those slots as `StatementIr::Lexical` bindings, which every
+/// loop compiler marks uninitialized before running the loop init — the same
+/// observable TDZ (14.7.5.5 ForIn/OfHeadEvaluation, 8.6.2).
+///
+/// `CapturedPerIterationBinding` is **not** liftable inside `porffor-ir`, and
+/// that is a source-verified claim rather than a guess. The specialization
+/// produces a `StatementIr::GeneratorLoop`, which carries no lexical
+/// environment field at all, and its emitter
+/// (`porffor-aot-wasm::control_flow::compile_resumable_async_loop`) enters no
+/// environment. The per-iteration environment object that `ForOfArray` gets from
+/// `emit_enter_lexical_environment` is chained through `current_env_local`, a
+/// wasm local, which the return to the job queue discards — so a fix needs the
+/// environment pointer to live in the activation record and be re-attached on
+/// re-entry. Hoisting the binding into one activation slot instead would give
+/// every closure the *same* cell and silently break per-iteration semantics.
+/// # Why the iterable's type is a variant here and not a test at the call site
+///
+/// Two of the messages below assert that the *iterable type* is fine, which was
+/// once a premise this type could not see: it was tested separately at the sole
+/// call site, and the doc here carried a prose "caller obligation" saying that
+/// site must test typing **first**. That is exactly the substitution AGENTS.md's
+/// "Code Invariants Before Test Invariants" warns against — a second call site
+/// would have compiled cleanly while emitting a message asserting a premise it
+/// never checked, in a type whose entire thesis is that a wrong reason routes
+/// triage away from the defect.
+///
+/// So the premise moved into the type. [`Self::NonArrayIterable`] is tested
+/// first inside [`Self::classify`], which makes the load-bearing order
+/// unrepresentable-wrong rather than documented: `for (const c of "ab") { f = ()
+/// => c; await 0; }` is captured **and** non-array at once, and answering
+/// "captured" for it would certify a String iterable as fine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncForOfArrayWalkForm {
+    /// One plain storage name over an array iterable, and no runtime
+    /// environment record to reproduce.
+    PlainStorageOnly,
+    /// The iterable can be something other than an array, so the walk would
+    /// have to be the `@@iterator` protocol instead of an index walk. Tested
+    /// first, because it is the cheapest and most universal premise and because
+    /// the two "captured" messages below claim it holds.
+    NonArrayIterable,
+    /// The head destructures, or assigns into a property/member target, so the
+    /// per-iteration value is not one storage name.
+    DestructuringOrPropertyTarget,
+    /// A closure in the body captures the loop binding, so 14.7.5.7 requires a
+    /// fresh environment record per iteration.
+    CapturedPerIterationBinding,
+    /// A closure captures a name the head puts in TDZ while the iterable is
+    /// evaluated, so the TDZ scope needs a real environment record too. This is
+    /// a different problem from the iteration environment and is left rejected
+    /// until it is measured on its own.
+    CapturedTdzBinding,
+}
+
+impl AsyncForOfArrayWalkForm {
+    /// The only constructor.
+    ///
+    /// `iterable_is_array` is the `KindSet` subset test on the iterable, passed
+    /// in rather than assumed — see the type's doc for why it is a parameter and
+    /// not a caller obligation. `binds_pattern_or_property_target` is the
+    /// disjunction of the head's three non-identifier initializer forms
+    /// (`pattern_initializer`, `assignment_pattern_initializer`,
+    /// `access_initializer`).
+    ///
+    /// The arm order is the message order: typing, then binding shape, then
+    /// captured environments. Do not reorder — [`Self::rejection`]'s last two
+    /// messages state that the premises above them hold.
+    pub(crate) fn classify(
+        iterable_is_array: bool,
+        environment: Option<&ForInOfEnvironmentIr>,
+        binds_pattern_or_property_target: bool,
+    ) -> Self {
+        if !iterable_is_array {
+            return Self::NonArrayIterable;
+        }
+        if binds_pattern_or_property_target {
+            return Self::DestructuringOrPropertyTarget;
+        }
+        let Some(environment) = environment else {
+            return Self::PlainStorageOnly;
+        };
+        if environment.iteration_environment.is_some() {
+            return Self::CapturedPerIterationBinding;
+        }
+        if environment.tdz_environment.is_some() {
+            return Self::CapturedTdzBinding;
+        }
+        Self::PlainStorageOnly
+    }
+
+    /// `None` when the head is reproducible; otherwise the one premise that
+    /// failed, spelled so that the reader is not sent to check the ones that
+    /// held. Every premise these messages name is one [`Self::classify`] has
+    /// already tested, so none of them is a claim this type cannot back.
+    pub(crate) fn rejection(self) -> Option<&'static str> {
+        match self {
+            Self::PlainStorageOnly => None,
+            Self::NonArrayIterable => Some(
+                "async for-of with a body await requires an array iterable, and this one \
+                 can be something else; every other iterable keeps the @@iterator protocol, \
+                 whose own suspension points this index walk does not have",
+            ),
+            Self::DestructuringOrPropertyTarget => Some(
+                "async for-of with a body await requires a plain single-name binding, \
+                 and this head destructures or assigns into a property target",
+            ),
+            Self::CapturedPerIterationBinding => Some(
+                "async for-of with a body await cannot give the loop binding a fresh \
+                 per-iteration environment record, and a closure in the body captures it; \
+                 the iterable is an array and the head binds one plain name",
+            ),
+            Self::CapturedTdzBinding => Some(
+                "async for-of with a body await cannot materialize the head's TDZ \
+                 environment record, and a closure captures a name the head puts in TDZ; \
+                 the iterable is an array and the head binds one plain name",
+            ),
+        }
+    }
 }
 
 /// `break`/`continue` anywhere inside a resumable loop body is rejected: the
@@ -1538,9 +1872,10 @@ pub(crate) fn for_in_loop_binding_storage_name(
     )
 }
 
-pub(crate) fn tdz_binding_storage_name(source_name: &str) -> String {
-    format!("{TDZ_BINDING_STORAGE_PREFIX}{source_name}")
-}
+// `tdz_binding_storage_name` lived here. It is now
+// `binding_lifecycle::TdzPlaceholderName::for_source_name`, the sole constructor
+// of the `$tdz.` name domain; a bare `String` is no longer accepted where a
+// placeholder name is wanted.
 
 pub(crate) fn for_of_loop_binding_storage_name(for_of: &ForOfLoop, source_name: &str) -> String {
     let span = for_of.iterable().span();
