@@ -2449,12 +2449,11 @@ impl<'a> FunctionBuilder<'a> {
         if self.strings.runtime_regexp_program_count == 0 {
             return Ok(());
         }
-        // Eight program words plus the `entry_kind` discriminant written by
-        // `StringPool::append_runtime_regexp_program_table`. Both sides of this
-        // number live in exactly two places; changing one without the other is
-        // the reason the constant is named on both sides rather than inlined.
-        const REGEXP_PROGRAM_TABLE_RECORD_SIZE: u64 = 72;
-        const REGEXP_PROGRAM_TABLE_ENTRY_KIND_OFFSET: u64 = 64;
+        // The stride and every offset below come from the word indices
+        // `StringPool::append_runtime_regexp_program_table` assigns through, so
+        // this reader cannot fall out of step with that writer. They used to be
+        // literal `72`/`64`/`16`…`56` here, agreeing with the writer's array
+        // order only by inspection.
         let index_local = self.reserve_temp_local();
         let record_ptr_local = self.reserve_temp_local();
         let candidate_payload_local = self.reserve_temp_local();
@@ -2481,15 +2480,15 @@ impl<'a> FunctionBuilder<'a> {
             self.strings.runtime_regexp_program_table_ptr as i64,
         ));
         function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(
-            REGEXP_PROGRAM_TABLE_RECORD_SIZE as i64,
-        ));
+        function.instruction(&Instruction::I64Const(RUNTIME_REGEXP_RECORD_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(record_ptr_local));
         function.instruction(&Instruction::LocalGet(record_ptr_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_SOURCE_WORD),
+        )));
         function.instruction(&Instruction::LocalSet(candidate_payload_local));
         self.emit_string_payload_equality_i32(
             source_payload_local,
@@ -2499,7 +2498,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(record_ptr_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(8)));
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_FLAGS_WORD),
+        )));
         function.instruction(&Instruction::LocalSet(candidate_payload_local));
         self.emit_string_payload_equality_i32(
             flags_payload_local,
@@ -2512,7 +2513,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(record_ptr_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64Load(Self::memarg8(
-            REGEXP_PROGRAM_TABLE_ENTRY_KIND_OFFSET,
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD),
         )));
         function.instruction(&Instruction::LocalSet(entry_kind_local));
         function.instruction(&Instruction::LocalGet(entry_kind_local));
@@ -2521,17 +2522,37 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        for (record_offset, heap_offset) in [
-            (16, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
-            (24, HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET),
-            (32, HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET),
-            (40, HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET),
-            (48, HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET),
-            (56, HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET),
+        for (record_word, heap_offset) in [
+            (
+                RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD,
+                HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD,
+                HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+            ),
+            (
+                RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD,
+                HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
+            ),
         ] {
             function.instruction(&Instruction::LocalGet(record_ptr_local));
             function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(record_offset)));
+            function.instruction(&Instruction::I64Load(Self::memarg8(
+                runtime_regexp_record_offset(record_word),
+            )));
             function.instruction(&Instruction::LocalSet(candidate_payload_local));
             self.store_i64_local_at_offset(
                 object_local,

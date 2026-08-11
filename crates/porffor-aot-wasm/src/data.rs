@@ -7,13 +7,12 @@ use icu_normalizer::{
 use icu_properties::{props, CodePointSetData};
 use porffor_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
-    StaticRegExpCompilation,
-    TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
-    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
-    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
-    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE,
+    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT,
+    REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
+    REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_SPLIT,
+    REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
 };
 use std::sync::OnceLock;
 
@@ -262,13 +261,74 @@ impl RegExpProgramStaticKey {
     }
 }
 
+/// Word index of `source`'s interned payload in a runtime RegExp program table
+/// record.
+///
+/// # Why these are constants and not literals on each side
+///
+/// The record is written here by [`StringPool::append_runtime_regexp_program_table`]
+/// and read in `expressions.rs` by `emit_runtime_regexp_program_slots`. Those
+/// were the only two places that knew the layout, and each spelled it out
+/// independently: the writer as the *order* of an array literal, the reader as
+/// bare `16`/`24`/…/`64` offsets and a `72` stride. Nothing connected them, so
+/// adding, reordering or resizing a word compiled cleanly on both sides and
+/// produced garbage program slots at run time — the same silent wrong-answer
+/// class this table exists to remove.
+///
+/// Naming the words once fixes that in three ways, and all three are compile
+/// errors rather than test failures:
+///
+/// * the writer builds a `[u64; RUNTIME_REGEXP_RECORD_WORDS]` and assigns
+///   **through these indices**, so a word with no index cannot be written and an
+///   index with no word is an out-of-bounds `const` evaluation;
+/// * [`RUNTIME_REGEXP_RECORD_SIZE`] is derived from the word count rather than
+///   typed as `72`, so the reader's stride cannot fall behind the writer's row;
+/// * the reader's offsets come from [`runtime_regexp_record_offset`] applied to
+///   the same indices, so a reordering moves both sides at once.
+pub(crate) const RUNTIME_REGEXP_RECORD_SOURCE_WORD: usize = 0;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' interned payload.
+pub(crate) const RUNTIME_REGEXP_RECORD_FLAGS_WORD: usize = 1;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. Static pointer to the compiled
+/// program's instructions, or 0 for a non-`Program` row.
+pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD: usize = 2;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD: usize = 3;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD: usize = 4;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD: usize = 5;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD: usize = 6;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD: usize = 7;
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. The `RUNTIME_REGEXP_ENTRY_KIND_*`
+/// discriminant, i.e. which [`RuntimeRegExpEntry`] this row is.
+pub(crate) const RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD: usize = 8;
+
+/// Number of `u64` words in one runtime RegExp program table record.
+///
+/// Keep this the last word's index plus one: it is the length of the writer's
+/// array, so a word added without extending it fails to compile at the
+/// assignment rather than corrupting the next row.
+pub(crate) const RUNTIME_REGEXP_RECORD_WORDS: usize = RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD + 1;
+
+/// Byte stride between runtime RegExp program table records. **Derived**, never
+/// typed — see [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
+pub(crate) const RUNTIME_REGEXP_RECORD_SIZE: u64 = (RUNTIME_REGEXP_RECORD_WORDS * 8) as u64;
+
+/// Byte offset of a record word, for the emitter's `i64.load` memargs.
+pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
+    (word * 8) as u64
+}
+
 /// The `entry_kind` word of a runtime RegExp program table record.
 ///
-/// The record is 72 bytes: the eight words the emitter already read, plus this
-/// discriminant at offset 64. It is a word rather than a sentinel (`ptr == 0`,
-/// `instruction_count == 0`) on purpose — a sentinel is what the emitter used
-/// to be forced into, and it cannot tell "the compiler rejected this pattern"
-/// apart from "this row was never written".
+/// The record is [`RUNTIME_REGEXP_RECORD_SIZE`] bytes: the eight words the
+/// emitter already read, plus this discriminant at
+/// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`]. It is a word rather than a
+/// sentinel (`ptr == 0`, `instruction_count == 0`) on purpose — a sentinel is
+/// what the emitter used to be forced into, and it cannot tell "the compiler
+/// rejected this pattern" apart from "this row was never written".
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
 /// compile-time `RegExpProgram::compile` answered
@@ -4061,45 +4121,35 @@ impl StringPool {
         self.runtime_regexp_program_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
         self.runtime_regexp_program_count = self.runtime_regexp_programs.len() as u32;
         for (source, flags, entry) in &self.runtime_regexp_programs {
+            // Assigned through the shared word indices rather than as a
+            // positional array literal, so the writer's layout and the
+            // emitter's `i64.load` offsets are the same facts rather than two
+            // agreeing transcriptions. A non-`Program` row leaves the six
+            // program words at their zeroed initial value, which is exactly
+            // what a total miss leaves in the object's slots.
+            let mut record = [0u64; RUNTIME_REGEXP_RECORD_WORDS];
+            record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = self.payload(source) as u64;
+            record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = self.payload(flags) as u64;
             // Exhaustive on purpose. This is the site the `continue` used to
             // hide behind: a new entry kind must be given a record encoding
             // here, or this stops compiling.
-            let (
-                program_ptr,
-                instruction_count,
-                capture_count,
-                split_count,
-                repeatable_split_count,
-                named_group_table_ptr,
-                entry_kind,
-            ) = match entry {
-                RuntimeRegExpEntry::Program(program) => (
-                    program.ptr as u64,
-                    program.instruction_count as u64,
-                    program.capture_count as u64,
-                    program.split_count as u64,
-                    program.repeatable_split_count as u64,
-                    program.named_group_table_ptr as u64,
-                    RUNTIME_REGEXP_ENTRY_KIND_PROGRAM,
-                ),
-                RuntimeRegExpEntry::Rejected => {
-                    (0, 0, 0, 0, 0, 0, RUNTIME_REGEXP_ENTRY_KIND_REJECTED)
+            record[RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD] = match entry {
+                RuntimeRegExpEntry::Program(program) => {
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD] = program.ptr as u64;
+                    record[RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD] =
+                        program.instruction_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD] = program.capture_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD] = program.split_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD] =
+                        program.repeatable_split_count as u64;
+                    record[RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD] =
+                        program.named_group_table_ptr as u64;
+                    RUNTIME_REGEXP_ENTRY_KIND_PROGRAM
                 }
-                RuntimeRegExpEntry::Unsupported => {
-                    (0, 0, 0, 0, 0, 0, RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED)
-                }
+                RuntimeRegExpEntry::Rejected => RUNTIME_REGEXP_ENTRY_KIND_REJECTED,
+                RuntimeRegExpEntry::Unsupported => RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED,
             };
-            for value in [
-                self.payload(source) as u64,
-                self.payload(flags) as u64,
-                program_ptr,
-                instruction_count,
-                capture_count,
-                split_count,
-                repeatable_split_count,
-                named_group_table_ptr,
-                entry_kind,
-            ] {
+            for value in record {
                 self.bytes.extend_from_slice(&value.to_le_bytes());
             }
         }
