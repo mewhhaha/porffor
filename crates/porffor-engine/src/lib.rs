@@ -18004,20 +18004,121 @@ var reflected = Reflect.ownKeys(proxy);
     }
 
     #[test]
-    fn wasm_backend_rejects_const_update_precisely() {
-        let err = engine()
+    fn wasm_backend_throws_type_error_for_const_update() {
+        // Rewritten from `wasm_backend_rejects_const_update_precisely`, which
+        // pinned `unsupported in porffor wasm-aot first slice: update of const
+        // binding`. That refusal was wrong: 13.4.4.1 evaluates the operand,
+        // coerces it with ToNumeric, and only then reaches the PutValue that
+        // fails, so `const x = 1; x++` is a program that *runs* and throws a
+        // TypeError. The old string made
+        // `assert.throws(TypeError, function() { for (const i = 0; i < 1; i++) {} })`
+        // a NotImplemented instead of a pass. Deleting this test rather than
+        // rewriting it would have made the fix vacuous, so it now asserts the
+        // throw, that it is catchable, and that the binding is unchanged.
+        let outcome = engine()
             .run_script(
-                "const x = 1; x++;",
+                "let log = ''; const x = 1; try { x++; } catch (e) { log = (e instanceof TypeError) ? 'TypeError' : e.name; } log + '|' + x;",
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
                     ..RunOptions::default()
                 },
             )
-            .expect_err("const update should stay unsupported");
-        assert!(err
-            .message()
-            .contains("unsupported in porffor wasm-aot first slice: update of const binding"));
+            .expect("const update should compile and throw at run time");
+        assert!(
+            outcome.note.contains("string(TypeError|1)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_sequences_const_compound_assignment_operand_before_throw() {
+        // 13.15.2 step 1: the RHS is evaluated, and
+        // ApplyStringOrNumericBinaryOperator is applied, *before* PutValue
+        // fails. `immutable_binding_write` puts the applied result on the lhs
+        // of a `Comma` for exactly this; a bare RuntimeThrow would drop the
+        // `log = 'a'` and still pass a test that only checked the error.
+        let outcome = engine()
+            .run_script(
+                "let log = ''; const x = 0; try { x += (log = log + 'a', 1); } catch (e) { log = log + (e instanceof TypeError ? 'T' : e.name); } log + '|' + x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("const compound assignment should compile and throw at run time");
+        assert!(outcome.note.contains("string(aT|0)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_short_circuits_const_logical_assignment_without_throwing() {
+        // `||=` on a truthy const never reaches PutValue, so it is not an error
+        // at all; `&&=` on the same binding does. Both used to be refused by
+        // one `assignment to const binding` site, which is why this asserts the
+        // pair rather than only the throwing half.
+        let outcome = engine()
+            .run_script(
+                "const x = 1; let short = 'no'; x ||= 2; short = 'yes'; let threw = 'no'; try { x &&= 3; } catch (e) { threw = (e instanceof TypeError) ? 'yes' : e.name; } short + '|' + threw + '|' + x;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("logical assignment to a const should compile");
+        assert!(
+            outcome.note.contains("string(yes|yes|1)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_runs_zero_iterations_for_undefined_for_in_target() {
+        // 14.7.5.6 step 3.a: a nullish head is a break completion, so the loop
+        // runs zero times and nothing throws. This used to be
+        // `unsupported in porffor wasm-aot first slice: for-in non-enumerable
+        // target`, which is test262 `language/statements/for-in/S12.6.4_A1.js`.
+        let outcome = engine()
+            .run_script(
+                "let ran = 'no'; for (var key in undefined) { ran = 'yes'; } ran + '|' + key;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a for-in over undefined must compile");
+        assert!(
+            outcome.note.contains("string(no|undefined)"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn wasm_backend_runs_for_in_head_effects_for_a_nullish_target() {
+        // Anti-vacuity for the above: steps 1-2 of ForIn/OfHeadEvaluation still
+        // evaluate the head. Returning `StatementIr::Empty` instead of the
+        // lowered head would pass every test262 case in this family and lose
+        // `bump()`, so the effect is asserted here rather than nowhere.
+        let outcome = engine()
+            .run_script(
+                "let hits = 0; function bump() { hits = hits + 1; return 0; } let ran = 'no'; for (var k in (bump(), null)) { ran = 'yes'; } hits + '|' + ran + '|' + k;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a for-in over a statically null head must compile");
+        assert!(
+            outcome.note.contains("string(1|no|undefined)"),
+            "{}",
+            outcome.note
+        );
     }
 
     #[test]

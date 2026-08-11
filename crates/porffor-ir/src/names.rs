@@ -254,6 +254,7 @@ pub const WEAK_MAP_NAME: &str = "WeakMap";
 pub const WEAK_SET_NAME: &str = "WeakSet";
 pub const WEAK_REF_NAME: &str = "WeakRef";
 pub const FINALIZATION_REGISTRY_NAME: &str = "FinalizationRegistry";
+pub const ASYNC_DISPOSABLE_STACK_NAME: &str = "AsyncDisposableStack";
 pub const SET_NAME: &str = "Set";
 // The nine error intrinsic names are a closed domain owned by
 // `crate::native_error::NativeErrorKind`, which is the single spelling
@@ -1362,6 +1363,23 @@ pub const BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_REGISTER_FUNCTION_ID: &str =
     "$builtin.FinalizationRegistry.prototype.register";
 pub const BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID: &str =
     "$builtin.FinalizationRegistry.prototype.unregister";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID: &str = "$builtin.AsyncDisposableStack";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.use";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.adopt";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.defer";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.move";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.disposeAsync";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.disposed.get";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.disposeAsync.fulfilled";
+pub const BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID: &str =
+    "$builtin.AsyncDisposableStack.prototype.disposeAsync.rejected";
 pub const BUILTIN_SET_FUNCTION_ID: &str = "$builtin.Set";
 pub const BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID: &str = "$builtin.Set[Symbol.species].get";
 pub const BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID: &str = "$builtin.Set.prototype.add";

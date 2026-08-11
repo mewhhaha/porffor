@@ -9721,6 +9721,33 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 self.emit_finalization_registry_unregister(function)?;
             }
+            StandardBuiltinId::AsyncDisposableStackConstructor => {
+                self.emit_async_disposable_stack_constructor(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse => {
+                self.emit_async_disposable_stack_use(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => {
+                self.emit_async_disposable_stack_adopt(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer => {
+                self.emit_async_disposable_stack_defer(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeMove => {
+                self.emit_async_disposable_stack_move(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
+                self.emit_async_disposable_stack_dispose_async(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+                self.emit_async_disposable_stack_disposed_getter(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled => {
+                self.emit_async_disposable_stack_dispose_async_fulfilled(function)?;
+            }
+            StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
+                self.emit_async_disposable_stack_dispose_async_rejected(function)?;
+            }
             StandardBuiltinId::WeakMapPrototypeDelete => {
                 self.emit_weak_map_prototype_delete(function)?;
             }

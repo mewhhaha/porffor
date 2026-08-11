@@ -657,6 +657,7 @@ impl PatternParser<'_> {
                 None => {
                     if let Some(opening) = opening {
                         return Err(RegExpCompileError::invalid_syntax(
+                            SyntaxRule::UnclosedGroup,
                             opening,
                             "regular-expression capturing group is unclosed",
                         ));
@@ -666,6 +667,7 @@ impl PatternParser<'_> {
                 Some(b')') => {
                     if opening.is_none() {
                         return Err(RegExpCompileError::invalid_syntax(
+                            SyntaxRule::StrayClosingParenthesis,
                             self.offset,
                             "regular-expression closing parenthesis has no opening parenthesis",
                         ));
@@ -883,6 +885,7 @@ impl PatternParser<'_> {
         loop {
             let Some(&byte) = self.bytes.get(cursor) else {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedGroup,
                     group_offset,
                     "regular-expression modifier group is unclosed",
                 ));
@@ -894,6 +897,7 @@ impl PatternParser<'_> {
             if byte == b'-' {
                 if seen_dash {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::ModifierFlags,
                         cursor,
                         "regular-expression modifier group has a repeated `-`",
                     ));
@@ -908,6 +912,7 @@ impl PatternParser<'_> {
                 b's' => 1 << 2,
                 byte => {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::ModifierFlags,
                         cursor,
                         format!(
                             "invalid regular-expression modifier `{}`",
@@ -918,6 +923,7 @@ impl PatternParser<'_> {
             };
             if added & bit != 0 || removed & bit != 0 {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::ModifierFlags,
                     cursor,
                     format!("duplicate regular-expression modifier `{}`", byte as char),
                 ));
@@ -931,12 +937,14 @@ impl PatternParser<'_> {
         }
         if added == 0 && removed == 0 {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::ModifierFlags,
                 group_offset,
                 "regular-expression modifier group has no modifiers",
             ));
         }
         if seen_dash && removed == 0 {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::ModifierFlags,
                 group_offset,
                 "regular-expression modifier group has an empty removal list",
             ));
@@ -994,6 +1002,7 @@ fn parse_instruction_atom(
         }
         if bytes.get(atom_offset + 2) != Some(&b'<') {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::NamedBackreferenceSyntax,
                 atom_offset,
                 "malformed named backreference",
             ));
@@ -1021,10 +1030,7 @@ fn parse_instruction_atom(
     if !byte.is_ascii() {
         if unicode {
             let source = std::str::from_utf8(&bytes[atom_offset..]).map_err(|_| {
-                RegExpCompileError::invalid_syntax(
-                    atom_offset,
-                    "regular-expression source is not valid UTF-8",
-                )
+                RegExpCompileError::unsupported_feature(atom_offset, NON_BOUNDARY_SOURCE)
             })?;
             let ch = source.chars().next().expect("non-empty source");
             *offset += ch.len_utf8();
@@ -1033,10 +1039,7 @@ fn parse_instruction_atom(
             ));
         }
         let source = std::str::from_utf8(&bytes[atom_offset..]).map_err(|_| {
-            RegExpCompileError::invalid_syntax(
-                atom_offset,
-                "regular-expression source is not valid UTF-8",
-            )
+            RegExpCompileError::unsupported_feature(atom_offset, NON_BOUNDARY_SOURCE)
         })?;
         let ch = source.chars().next().expect("non-empty source");
         *offset += ch.len_utf8();
@@ -1067,12 +1070,14 @@ fn parse_instruction_atom(
             let mut probe = atom_offset;
             if parse_braced_quantifier(bytes, &mut probe)?.is_some() {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::QuantifierWithoutAtom,
                     atom_offset,
                     "regular-expression quantifier has no preceding atom",
                 ));
             }
             if unicode {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnescapedSyntaxCharacter,
                     atom_offset,
                     "unescaped regular-expression opening brace is invalid in Unicode mode",
                 ));
@@ -1104,6 +1109,7 @@ fn parse_instruction_atom(
         }
         b'*' | b'+' | b'?' => {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::QuantifierWithoutAtom,
                 atom_offset,
                 "regular-expression quantifier has no preceding atom",
             ));
@@ -1215,6 +1221,7 @@ fn named_groups(captures: &[NamedCapture]) -> Result<Vec<RegExpNamedGroup>, RegE
         {
             if !duplicate_names_diverge(prior, capture) {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::DuplicateGroupName,
                     capture.offset,
                     format!("duplicate named capture group `{}`", capture.name),
                 ));
@@ -1228,6 +1235,7 @@ fn named_groups(captures: &[NamedCapture]) -> Result<Vec<RegExpNamedGroup>, RegE
                     .any(|other| !duplicate_names_diverge(other, capture))
             {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::DuplicateGroupName,
                     capture.offset,
                     format!("duplicate named capture group `{}`", capture.name),
                 ));
@@ -1289,6 +1297,7 @@ fn parse_regexp_identifier_name(
     loop {
         let Some(&byte) = bytes.get(cursor) else {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::RegExpIdentifierName,
                 cursor,
                 format!("{description} identifier is unclosed"),
             ));
@@ -1296,6 +1305,7 @@ fn parse_regexp_identifier_name(
         if byte == b'>' {
             if name.is_empty() {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::RegExpIdentifierName,
                     cursor,
                     format!("{description} identifier is empty"),
                 ));
@@ -1307,6 +1317,7 @@ fn parse_regexp_identifier_name(
         let code_point = if byte == b'\\' {
             if bytes.get(cursor + 1) != Some(&b'u') {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::RegExpIdentifierName,
                     cursor,
                     format!("{description} contains a non-Unicode identifier escape"),
                 ));
@@ -1318,6 +1329,7 @@ fn parse_regexp_identifier_name(
                 cursor = digits_start;
                 if bytes.get(cursor) == Some(&b'}') {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::RegExpIdentifierName,
                         cursor,
                         format!("{description} contains an empty Unicode identifier escape"),
                     ));
@@ -1325,6 +1337,7 @@ fn parse_regexp_identifier_name(
                 loop {
                     let Some(&digit) = bytes.get(cursor) else {
                         return Err(RegExpCompileError::invalid_syntax(
+                            SyntaxRule::RegExpIdentifierName,
                             cursor,
                             format!("{description} contains an unclosed Unicode identifier escape"),
                         ));
@@ -1334,6 +1347,7 @@ fn parse_regexp_identifier_name(
                     }
                     let Some(digit) = ascii_hex_value(digit) else {
                         return Err(RegExpCompileError::invalid_syntax(
+                            SyntaxRule::RegExpIdentifierName,
                             cursor,
                             format!("{description} contains a malformed Unicode identifier escape"),
                         ));
@@ -1343,6 +1357,7 @@ fn parse_regexp_identifier_name(
                         .and_then(|value| value.checked_add(digit))
                         .ok_or_else(|| {
                             RegExpCompileError::invalid_syntax(
+                                SyntaxRule::RegExpIdentifierName,
                                 code_point_offset,
                                 format!("{description} Unicode identifier escape is out of range"),
                             )
@@ -1352,6 +1367,7 @@ fn parse_regexp_identifier_name(
                 cursor += 1;
                 char::from_u32(value).ok_or_else(|| {
                     RegExpCompileError::invalid_syntax(
+                        SyntaxRule::RegExpIdentifierName,
                         code_point_offset,
                         format!("{description} Unicode identifier escape is not a scalar value"),
                     )
@@ -1359,6 +1375,7 @@ fn parse_regexp_identifier_name(
             } else {
                 let digits = bytes.get(cursor + 2..cursor + 6).ok_or_else(|| {
                     RegExpCompileError::invalid_syntax(
+                        SyntaxRule::RegExpIdentifierName,
                         bytes.len(),
                         format!("{description} contains an incomplete Unicode identifier escape"),
                     )
@@ -1366,6 +1383,7 @@ fn parse_regexp_identifier_name(
                 let invalid_digit = digits.iter().position(|digit| !digit.is_ascii_hexdigit());
                 if let Some(invalid_digit) = invalid_digit {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::RegExpIdentifierName,
                         cursor + 2 + invalid_digit,
                         format!("{description} contains a malformed Unicode identifier escape"),
                     ));
@@ -1392,18 +1410,21 @@ fn parse_regexp_identifier_name(
                             char::from_u32(scalar).expect("paired surrogates form a scalar")
                         } else {
                             return Err(RegExpCompileError::invalid_syntax(
+                                SyntaxRule::RegExpIdentifierName,
                                 code_point_offset,
                                 format!("{description} contains an unpaired lead surrogate escape"),
                             ));
                         }
                     } else {
                         return Err(RegExpCompileError::invalid_syntax(
+                            SyntaxRule::RegExpIdentifierName,
                             code_point_offset,
                             format!("{description} contains an unpaired lead surrogate escape"),
                         ));
                     }
                 } else if (0xDC00..=0xDFFF).contains(&high) {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::RegExpIdentifierName,
                         code_point_offset,
                         format!("{description} contains an unpaired trail surrogate escape"),
                     ));
@@ -1413,10 +1434,7 @@ fn parse_regexp_identifier_name(
             }
         } else {
             let source = std::str::from_utf8(&bytes[cursor..]).map_err(|_| {
-                RegExpCompileError::invalid_syntax(
-                    cursor,
-                    format!("{description} is not valid UTF-8"),
-                )
+                RegExpCompileError::unsupported_feature(cursor, NON_BOUNDARY_SOURCE)
             })?;
             let code_point = source.chars().next().expect("source is non-empty");
             cursor += code_point.len_utf8();
@@ -1445,6 +1463,7 @@ fn parse_regexp_identifier_name(
                 "continuation"
             };
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::RegExpIdentifierName,
                 code_point_offset,
                 format!(
                     "{description} code point U+{:04X} is not valid in identifier {position}",
@@ -1463,6 +1482,7 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
     for (offset, byte) in flags.bytes().enumerate() {
         if !byte.is_ascii() {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::Flags,
                 offset,
                 "regular-expression flags must be ASCII",
             ));
@@ -1479,6 +1499,7 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
             b'y' => 1 << 7,
             byte => {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::Flags,
                     offset,
                     format!("unknown regular-expression flag `{}`", byte as char),
                 ));
@@ -1486,6 +1507,7 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
         };
         if seen_flags & flag_bit != 0 {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::Flags,
                 offset,
                 format!("duplicate regular-expression flag `{}`", byte as char),
             ));
@@ -1494,6 +1516,7 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
             || (byte == b'v' && seen_flags & (1 << 5) != 0)
         {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::Flags,
                 offset,
                 "regular-expression flags `u` and `v` are mutually exclusive",
             ));
@@ -1604,6 +1627,7 @@ fn parse_escaped_atom(
     let escape_offset = *offset;
     let Some(&escaped) = bytes.get(escape_offset + 1) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::CharacterEscape,
             escape_offset,
             "regular-expression escape is missing its escaped character",
         ));
@@ -1653,6 +1677,7 @@ fn parse_escaped_atom(
                 return Ok(RegExpInstruction::literal_ascii(b'x'));
             }
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::HexEscapeSequence,
                 escape_offset,
                 "malformed hexadecimal escape",
             ));
@@ -1735,6 +1760,7 @@ fn parse_escaped_atom(
     if !is_regex_metacharacter(escaped) {
         if unicode {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::IdentityEscape,
                 escape_offset,
                 format!(
                     "invalid regular-expression identity escape `\\{}`",
@@ -1763,6 +1789,7 @@ fn parse_unicode_property_ranges(
     let complement = bytes[escape_offset + 1] == b'P';
     if bytes.get(escape_offset + 2) != Some(&b'{') {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodePropertyEscape,
             escape_offset,
             "malformed Unicode property escape",
         ));
@@ -1770,16 +1797,17 @@ fn parse_unicode_property_ranges(
     let value_start = escape_offset + 3;
     let Some(relative_end) = bytes[value_start..].iter().position(|byte| *byte == b'}') else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodePropertyEscape,
             escape_offset,
             "malformed Unicode property escape",
         ));
     };
     let value_end = value_start + relative_end;
-    let value = std::str::from_utf8(&bytes[value_start..value_end]).map_err(|_| {
-        RegExpCompileError::invalid_syntax(escape_offset, "malformed Unicode property escape")
-    })?;
+    let value = std::str::from_utf8(&bytes[value_start..value_end])
+        .map_err(|_| RegExpCompileError::unsupported_feature(escape_offset, NON_BOUNDARY_SOURCE))?;
     if value.is_empty() {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodePropertyEscape,
             escape_offset,
             "malformed Unicode property escape",
         ));
@@ -1787,6 +1815,7 @@ fn parse_unicode_property_ranges(
 
     let Some(ranges) = unicode_property_ranges(value) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodePropertyName,
             escape_offset,
             format!("unknown Unicode property escape `{value}`"),
         ));
@@ -1942,15 +1971,23 @@ fn case_close_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
 fn parse_unicode_escape(bytes: &[u8], start: usize) -> Result<(u16, usize), RegExpCompileError> {
     if bytes.get(start..start + 2) != Some(b"\\u") {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodeEscapeSequence,
             start,
             "malformed Unicode escape",
         ));
     }
     let digits = bytes
         .get(start + 2..start + 6)
-        .ok_or_else(|| RegExpCompileError::invalid_syntax(start, "malformed Unicode escape"))?;
+        .ok_or_else(|| {
+            RegExpCompileError::invalid_syntax(
+                SyntaxRule::UnicodeEscapeSequence,
+                start,
+                "malformed Unicode escape",
+            )
+        })?;
     if digits.len() != 4 || !digits.iter().all(u8::is_ascii_hexdigit) {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodeEscapeSequence,
             start,
             "malformed Unicode escape",
         ));
@@ -2047,6 +2084,7 @@ fn parse_class(
     loop {
         let Some(&member) = bytes.get(cursor) else {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::UnclosedCharacterClass,
                 class_offset,
                 "regular-expression character class is unclosed",
             ));
@@ -2060,6 +2098,7 @@ fn parse_class(
             cursor += 1;
             if bytes.get(cursor).is_none() {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
                     class_offset,
                     "regular-expression character class is unclosed",
                 ));
@@ -2068,6 +2107,7 @@ fn parse_class(
             match (start, end) {
                 (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::ClassRangeOrder,
                         range_offset,
                         "regular-expression character class range is reversed",
                     ));
@@ -2078,6 +2118,7 @@ fn parse_class(
                 (start, end) if unicode => {
                     let _ = (start, end);
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::ClassRangeBound,
                         range_offset,
                         "regular-expression character class range bound is a class escape",
                     ));
@@ -2125,16 +2166,14 @@ fn parse_class_atom(
     let offset = *cursor;
     let Some(&member) = bytes.get(offset) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnclosedCharacterClass,
             offset,
             "regular-expression character class is unclosed",
         ));
     };
     if member != b'\\' {
         let source = std::str::from_utf8(&bytes[offset..]).map_err(|_| {
-            RegExpCompileError::invalid_syntax(
-                offset,
-                "regular-expression source is not valid UTF-8",
-            )
+            RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE)
         })?;
         let character = source.chars().next().expect("non-empty class source");
         *cursor += character.len_utf8();
@@ -2143,6 +2182,7 @@ fn parse_class_atom(
 
     let Some(&escaped) = bytes.get(offset + 1) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::CharacterEscape,
             offset,
             "regular-expression escape is missing its escaped character",
         ));
@@ -2214,6 +2254,7 @@ fn parse_class_atom(
             }
             if unicode {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::HexEscapeSequence,
                     offset,
                     "malformed hexadecimal escape",
                 ));
@@ -2265,10 +2306,7 @@ fn parse_class_atom(
         ),
         _ => {
             let source = std::str::from_utf8(&bytes[offset + 1..]).map_err(|_| {
-                RegExpCompileError::invalid_syntax(
-                    offset,
-                    "regular-expression source is not valid UTF-8",
-                )
+                RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE)
             })?;
             let character = source.chars().next().expect("non-empty escape source");
             *cursor = offset + 1 + character.len_utf8();
@@ -2310,6 +2348,7 @@ fn parse_class_set(
         match bytes.get(*cursor).copied() {
             None => {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
                     class_offset,
                     "regular-expression character class is unclosed",
                 ));
@@ -2371,6 +2410,7 @@ fn parse_class_set(
                     match (start, end) {
                         (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
                             return Err(RegExpCompileError::invalid_syntax(
+                                SyntaxRule::ClassRangeOrder,
                                 range_offset,
                                 "regular-expression character class range is reversed",
                             ));
@@ -2380,6 +2420,7 @@ fn parse_class_set(
                         }
                         _ => {
                             return Err(RegExpCompileError::invalid_syntax(
+                                SyntaxRule::ClassRangeBound,
                                 range_offset,
                                 "regular-expression character class range bound is a class escape",
                             ));
@@ -2418,6 +2459,7 @@ fn parse_braced_code_point_escape(
         }
         let Some(digit) = ascii_hex_value(byte) else {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::CodePointEscape,
                 escape_offset,
                 "malformed Unicode code-point escape",
             ));
@@ -2428,6 +2470,7 @@ fn parse_braced_code_point_escape(
             .filter(|value| *value <= 0x10ffff)
             .ok_or_else(|| {
                 RegExpCompileError::invalid_syntax(
+                    SyntaxRule::CodePointEscapeRange,
                     escape_offset,
                     "Unicode code-point escape is out of range",
                 )
@@ -2437,6 +2480,7 @@ fn parse_braced_code_point_escape(
     }
     if digits == 0 || bytes.get(cursor) != Some(&b'}') {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::CodePointEscape,
             escape_offset,
             "malformed Unicode code-point escape",
         ));
@@ -2459,6 +2503,7 @@ fn parse_ascii_class(
     let mut cursor = class_offset + 1;
     let Some(&first) = bytes.get(cursor) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnclosedCharacterClass,
             class_offset,
             "regular-expression character class is unclosed",
         ));
@@ -2471,6 +2516,7 @@ fn parse_ascii_class(
     loop {
         let Some(&member) = bytes.get(cursor) else {
             return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::UnclosedCharacterClass,
                 class_offset,
                 "regular-expression character class is unclosed",
             ));
@@ -2485,6 +2531,7 @@ fn parse_ascii_class(
             cursor += 1;
             if bytes.get(cursor).is_none() {
                 return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
                     class_offset,
                     "regular-expression character class is unclosed",
                 ));
@@ -2493,6 +2540,7 @@ fn parse_ascii_class(
             match (range_start.singleton, range_end.singleton) {
                 (Some(start), Some(end)) if end < start => {
                     return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::ClassRangeOrder,
                         range_offset,
                         "regular-expression character class range is reversed",
                     ));
@@ -2530,16 +2578,14 @@ fn parse_single_unicode_class(
         .position(|byte| *byte == b']')
     else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnclosedCharacterClass,
             class_offset,
             "regular-expression character class is unclosed",
         ));
     };
     let end = class_offset + 1 + relative_end;
     let source = std::str::from_utf8(&bytes[class_offset + 1..end]).map_err(|_| {
-        RegExpCompileError::invalid_syntax(
-            class_offset,
-            "regular-expression class source is not valid UTF-8",
-        )
+        RegExpCompileError::unsupported_feature(class_offset, NON_BOUNDARY_SOURCE)
     })?;
     let mut characters = source.chars();
     let Some(character) = characters.next() else {
@@ -2561,6 +2607,7 @@ fn parse_ascii_class_atom(
     let offset = *cursor;
     let Some(&member) = bytes.get(offset) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnclosedCharacterClass,
             offset,
             "regular-expression character class is unclosed",
         ));
@@ -2578,6 +2625,7 @@ fn parse_ascii_class_atom(
 
     let Some(&escaped) = bytes.get(offset + 1) else {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::CharacterEscape,
             offset,
             "regular-expression escape is missing its escaped character",
         ));
@@ -2729,6 +2777,7 @@ fn parse_postfix_quantifier(
     };
     if matches!(bytes.get(*offset), Some(b'?' | b'*' | b'+')) || repeated_brace {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::QuantifierAfterQuantifier,
             *offset,
             "regular-expression quantifier follows another quantifier",
         ));
@@ -2777,6 +2826,7 @@ fn parse_braced_quantifier(
     }
     if max.is_some_and(|max| max < min) {
         return Err(RegExpCompileError::invalid_syntax(
+            SyntaxRule::QuantifierBounds,
             start,
             "regular-expression quantifier bounds are reversed",
         ));
@@ -2955,6 +3005,7 @@ impl<'a> ProgramLowerer<'a> {
                     .position(|group| group.name == *name)
                     .ok_or_else(|| {
                         RegExpCompileError::invalid_syntax(
+                            SyntaxRule::UnknownGroupName,
                             *offset,
                             format!("unknown named backreference `{name}`"),
                         )

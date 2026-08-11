@@ -2568,6 +2568,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::WeakSetConstructor,
             StandardBuiltinId::WeakRefConstructor,
             StandardBuiltinId::FinalizationRegistryConstructor,
+            StandardBuiltinId::AsyncDisposableStackConstructor,
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
         ]

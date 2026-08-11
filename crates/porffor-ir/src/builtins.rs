@@ -87,6 +87,7 @@ use crate::{
     FunctionId, AGENT_BROADCAST_NAME, AGENT_GET_REPORT_NAME, AGENT_LEAVING_NAME,
     AGENT_MONOTONIC_NOW_NAME, AGENT_RECEIVE_BROADCAST_NAME, AGENT_REPORT_NAME, AGENT_SLEEP_NAME,
     AGENT_START_NAME, AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ASSERT_THROWS_NAME,
+    ASYNC_DISPOSABLE_STACK_NAME,
     BIGINT64_ARRAY_NAME, BIGINT_NAME, BIGUINT64_ARRAY_NAME, BOOLEAN_NAME,
     BUILTIN_AGGREGATE_ERROR_FUNCTION_ID, BUILTIN_ARRAY_BUFFER_FUNCTION_ID,
     BUILTIN_ARRAY_BUFFER_IS_VIEW_FUNCTION_ID,
@@ -125,7 +126,17 @@ use crate::{
     BUILTIN_ARRAY_PROTOTYPE_TO_REVERSED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_TO_SPLICED_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID,
     BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID, BUILTIN_ARRAY_PROTOTYPE_WITH_FUNCTION_ID,
-    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID, BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
+    BUILTIN_ARRAY_SPECIES_GETTER_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID,
+    BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID,
+    BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
     BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
     BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
     BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FULFILLED_FUNCTION_ID,
@@ -1400,6 +1411,15 @@ pub enum StandardBuiltinId {
     FinalizationRegistryConstructor,
     FinalizationRegistryPrototypeRegister,
     FinalizationRegistryPrototypeUnregister,
+    AsyncDisposableStackConstructor,
+    AsyncDisposableStackPrototypeUse,
+    AsyncDisposableStackPrototypeAdopt,
+    AsyncDisposableStackPrototypeDefer,
+    AsyncDisposableStackPrototypeMove,
+    AsyncDisposableStackPrototypeDisposeAsync,
+    AsyncDisposableStackPrototypeDisposedGetter,
+    AsyncDisposableStackDisposeAsyncFulfilled,
+    AsyncDisposableStackDisposeAsyncRejected,
     SetConstructor,
     SetSpeciesGetter,
     SetPrototypeAdd,
@@ -1511,6 +1531,15 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryConstructor => Some(FINALIZATION_REGISTRY_NAME),
             Self::FinalizationRegistryPrototypeRegister
             | Self::FinalizationRegistryPrototypeUnregister => None,
+            Self::AsyncDisposableStackConstructor => Some(ASYNC_DISPOSABLE_STACK_NAME),
+            Self::AsyncDisposableStackPrototypeUse
+            | Self::AsyncDisposableStackPrototypeAdopt
+            | Self::AsyncDisposableStackPrototypeDefer
+            | Self::AsyncDisposableStackPrototypeMove
+            | Self::AsyncDisposableStackPrototypeDisposeAsync
+            | Self::AsyncDisposableStackPrototypeDisposedGetter
+            | Self::AsyncDisposableStackDisposeAsyncFulfilled
+            | Self::AsyncDisposableStackDisposeAsyncRejected => None,
             Self::SetConstructor => Some(SET_NAME),
             Self::SetSpeciesGetter
             | Self::SetPrototypeAdd
@@ -3204,6 +3233,23 @@ impl StandardBuiltinId {
             }
             Self::FinalizationRegistryPrototypeUnregister => {
                 "FinalizationRegistry.prototype.unregister"
+            }
+            Self::AsyncDisposableStackConstructor => ASYNC_DISPOSABLE_STACK_NAME,
+            Self::AsyncDisposableStackPrototypeUse => "AsyncDisposableStack.prototype.use",
+            Self::AsyncDisposableStackPrototypeAdopt => "AsyncDisposableStack.prototype.adopt",
+            Self::AsyncDisposableStackPrototypeDefer => "AsyncDisposableStack.prototype.defer",
+            Self::AsyncDisposableStackPrototypeMove => "AsyncDisposableStack.prototype.move",
+            Self::AsyncDisposableStackPrototypeDisposeAsync => {
+                "AsyncDisposableStack.prototype.disposeAsync"
+            }
+            Self::AsyncDisposableStackPrototypeDisposedGetter => {
+                "get AsyncDisposableStack.prototype.disposed"
+            }
+            Self::AsyncDisposableStackDisposeAsyncFulfilled => {
+                "AsyncDisposableStack disposeAsync Fulfilled Function"
+            }
+            Self::AsyncDisposableStackDisposeAsyncRejected => {
+                "AsyncDisposableStack disposeAsync Rejected Function"
             }
             Self::SetConstructor => SET_NAME,
             Self::SetSpeciesGetter => "get Set [Symbol.species]",
@@ -4902,6 +4948,33 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryPrototypeUnregister => {
                 BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID.to_string()
             }
+            Self::AsyncDisposableStackConstructor => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeUse => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeAdopt => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeDefer => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeMove => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeDisposeAsync => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackPrototypeDisposedGetter => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackDisposeAsyncFulfilled => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID.to_string()
+            }
+            Self::AsyncDisposableStackDisposeAsyncRejected => {
+                BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID.to_string()
+            }
             Self::SetConstructor => BUILTIN_SET_FUNCTION_ID.to_string(),
             Self::SetSpeciesGetter => BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID.to_string(),
             Self::SetPrototypeAdd => BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID.to_string(),
@@ -6408,6 +6481,33 @@ impl StandardBuiltinId {
             BUILTIN_FINALIZATION_REGISTRY_PROTOTYPE_UNREGISTER_FUNCTION_ID => {
                 Some(Self::FinalizationRegistryPrototypeUnregister)
             }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackConstructor)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_USE_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeUse)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_ADOPT_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeAdopt)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DEFER_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeDefer)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_MOVE_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeMove)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeDisposeAsync)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSED_GETTER_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackPrototypeDisposedGetter)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_FULFILLED_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackDisposeAsyncFulfilled)
+            }
+            BUILTIN_ASYNC_DISPOSABLE_STACK_DISPOSE_ASYNC_REJECTED_FUNCTION_ID => {
+                Some(Self::AsyncDisposableStackDisposeAsyncRejected)
+            }
             BUILTIN_SET_FUNCTION_ID => Some(Self::SetConstructor),
             BUILTIN_SET_SPECIES_GETTER_FUNCTION_ID => Some(Self::SetSpeciesGetter),
             BUILTIN_SET_PROTOTYPE_ADD_FUNCTION_ID => Some(Self::SetPrototypeAdd),
@@ -6502,6 +6602,7 @@ impl StandardBuiltinId {
             Self::WeakSetConstructor,
             Self::WeakRefConstructor,
             Self::FinalizationRegistryConstructor,
+            Self::AsyncDisposableStackConstructor,
             Self::SetConstructor,
             Self::SymbolConstructor,
             Self::ErrorConstructor,
@@ -7250,6 +7351,15 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryConstructor,
             Self::FinalizationRegistryPrototypeRegister,
             Self::FinalizationRegistryPrototypeUnregister,
+            Self::AsyncDisposableStackConstructor,
+            Self::AsyncDisposableStackPrototypeUse,
+            Self::AsyncDisposableStackPrototypeAdopt,
+            Self::AsyncDisposableStackPrototypeDefer,
+            Self::AsyncDisposableStackPrototypeMove,
+            Self::AsyncDisposableStackPrototypeDisposeAsync,
+            Self::AsyncDisposableStackPrototypeDisposedGetter,
+            Self::AsyncDisposableStackDisposeAsyncFulfilled,
+            Self::AsyncDisposableStackDisposeAsyncRejected,
             Self::SetConstructor,
             Self::SetSpeciesGetter,
             Self::SetPrototypeAdd,
@@ -7324,6 +7434,7 @@ impl StandardBuiltinId {
                 | Self::WeakSetConstructor
                 | Self::WeakRefConstructor
                 | Self::FinalizationRegistryConstructor
+                | Self::AsyncDisposableStackConstructor
                 | Self::SetConstructor
                 | Self::BoundFunctionInvoker
                 | Self::ObjectConstructor
@@ -8279,6 +8390,15 @@ impl StandardBuiltinId {
             Self::FinalizationRegistryConstructor => Some(FINALIZATION_REGISTRY_NAME),
             Self::FinalizationRegistryPrototypeRegister => Some("register"),
             Self::FinalizationRegistryPrototypeUnregister => Some("unregister"),
+            Self::AsyncDisposableStackConstructor => Some(ASYNC_DISPOSABLE_STACK_NAME),
+            Self::AsyncDisposableStackPrototypeUse => Some("use"),
+            Self::AsyncDisposableStackPrototypeAdopt => Some("adopt"),
+            Self::AsyncDisposableStackPrototypeDefer => Some("defer"),
+            Self::AsyncDisposableStackPrototypeMove => Some("move"),
+            Self::AsyncDisposableStackPrototypeDisposeAsync => Some("disposeAsync"),
+            Self::AsyncDisposableStackPrototypeDisposedGetter => Some("get disposed"),
+            Self::AsyncDisposableStackDisposeAsyncFulfilled
+            | Self::AsyncDisposableStackDisposeAsyncRejected => Some(""),
             Self::SetConstructor => Some(SET_NAME),
             Self::SetSpeciesGetter => Some("get [Symbol.species]"),
             Self::SetPrototypeAdd => Some("add"),
@@ -8623,6 +8743,70 @@ mod tests {
         assert!(!StandardBuiltinId::FinalizationRegistryPrototypeUnregister.constructable());
         assert!(StandardBuiltinId::all_globals()
             .contains(&StandardBuiltinId::FinalizationRegistryConstructor));
+    }
+
+    /// Every `AsyncDisposableStack` member is reachable by its spec function id
+    /// and carries the `name` that `built-ins/AsyncDisposableStack/**/name.js`
+    /// asserts. The two settlement callbacks are anonymous (`""`), matching the
+    /// `AsyncIterator` `@@asyncDispose` pair they are copied from.
+    #[test]
+    fn async_disposable_stack_builtins_are_registered_with_spec_function_names() {
+        for (builtin, native_name) in [
+            (
+                StandardBuiltinId::AsyncDisposableStackConstructor,
+                "AsyncDisposableStack",
+            ),
+            (StandardBuiltinId::AsyncDisposableStackPrototypeUse, "use"),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeAdopt,
+                "adopt",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeDefer,
+                "defer",
+            ),
+            (StandardBuiltinId::AsyncDisposableStackPrototypeMove, "move"),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync,
+                "disposeAsync",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter,
+                "get disposed",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled,
+                "",
+            ),
+            (
+                StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected,
+                "",
+            ),
+        ] {
+            let function_id = builtin.function_id();
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&function_id),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(native_name));
+            assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        }
+
+        // `is-a-constructor.js` and every `prototype/*/not-a-constructor.js`
+        // must hold simultaneously: only the constructor is constructable.
+        assert!(StandardBuiltinId::AsyncDisposableStackConstructor.constructable());
+        for builtin in [
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse,
+            StandardBuiltinId::AsyncDisposableStackPrototypeAdopt,
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer,
+            StandardBuiltinId::AsyncDisposableStackPrototypeMove,
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync,
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter,
+        ] {
+            assert!(!builtin.constructable(), "{builtin:?} must not construct");
+        }
+        assert!(StandardBuiltinId::all_globals()
+            .contains(&StandardBuiltinId::AsyncDisposableStackConstructor));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 mod array;
 mod array_from_async;
+mod async_disposable_stack;
 mod async_iterator;
 mod binary_data;
 mod bootstrap;

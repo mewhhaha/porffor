@@ -250,6 +250,12 @@ pub(crate) const HEAP_WEAK_SET_ENTRY_SIZE: u64 = 24;
 pub(crate) const HEAP_WEAK_REF_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_SIZE: u64 = 56;
+/// `[[AsyncDisposableState]]` plus the `[[DisposeCapability]]`'s
+/// `[[DisposableResourceStack]]` (pointer, length, capacity).
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE: u64 = 32;
+/// One `DisposableResource` record: its kind, its `[[ResourceValue]]` and its
+/// `[[DisposeMethod]]`.
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE: u64 = 40;
 pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_SIZE: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE: u64 = 32;
@@ -874,6 +880,36 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET: u64 = 24;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET: u64 = 32;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET: u64 = 48;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET: u64 = 0;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET: u64 = 8;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET: u64 = 16;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET: u64 = 24;
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET: u64 = 32;
+/// `[[AsyncDisposableState]]` is a two-element domain, so it is stored as a
+/// flag rather than a string: `pending` is the value `AsyncDisposableStack()`
+/// installs, and `disposed` is what `disposeAsync` and `move` set. The
+/// `disposed` getter reads exactly this word, which is why
+/// `prototype/disposed/returns-true-when-disposed.js` observes the transition
+/// synchronously.
+pub(crate) const ASYNC_DISPOSABLE_STACK_STATE_PENDING: u64 = 0;
+pub(crate) const ASYNC_DISPOSABLE_STACK_STATE_DISPOSED: u64 = 1;
+/// A `use(V)` entry: `Call(method, V)` with no arguments.
+pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_USE: u64 = 0;
+/// An `adopt(V, onDisposeAsync)` entry: the spec's captured closure is
+/// `Call(onDisposeAsync, undefined, « V »)`, which is stored flat here instead
+/// of minting a builtin function object per call.
+pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_ADOPT: u64 = 1;
+/// A `defer(onDisposeAsync)` entry: `Call(onDisposeAsync, undefined, « »)`.
+pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_DEFER: u64 = 2;
+/// A `use(null)` / `use(undefined)` entry. CreateDisposableResource leaves both
+/// `[[ResourceValue]]` and `[[DisposeMethod]]` undefined, so disposal performs
+/// no call — but the entry is still on the stack, so `Dispose` still awaits,
+/// which is what `disposeAsync/explicit-await-for-null.js` measures.
+pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_EMPTY: u64 = 3;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_CAP_OFFSET: u64 = 16;
@@ -1257,6 +1293,11 @@ pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME: u64 = 35;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH: u64 = 36;
 pub(crate) const OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY: u64 = 37;
 pub(crate) const OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT: u64 = 38;
+/// The `[[AsyncDisposableState]]` brand. Every
+/// `prototype/*/this-does-not-have-internal-asyncdisposablestate-throws.js`
+/// case turns on this word being absent from an ordinary object, from
+/// `AsyncDisposableStack.prototype` itself, and from the constructor.
+pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 pub(crate) const GENERATOR_STATE_SUSPENDED_START: u64 = 0;
 pub(crate) const GENERATOR_STATE_EXECUTING: u64 = 1;
 pub(crate) const GENERATOR_STATE_COMPLETED: u64 = 2;
@@ -4023,6 +4064,81 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "state",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "entries_ptr",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "entries_len",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-record",
+        name: "entries_cap",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+
+/// Both the resource value and the dispose method are strongly reachable: an
+/// `AsyncDisposableStack` keeps every registered resource alive until disposal,
+/// which is the whole point of the type and the opposite of a
+/// `FinalizationRegistry` cell.
+#[allow(dead_code)]
+pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "kind",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "value_tag",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "value_payload",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "method_tag",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-disposable-stack-entry",
+        name: "method_payload",
+        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+#[allow(dead_code)]
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "map-iterator-record",
@@ -5486,6 +5602,8 @@ mod tests {
         assert_eq!(HEAP_WEAK_REF_RECORD_SIZE, 16);
         assert_eq!(HEAP_FINALIZATION_REGISTRY_RECORD_SIZE, 40);
         assert_eq!(HEAP_FINALIZATION_REGISTRY_CELL_SIZE, 56);
+        assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, 32);
+        assert_eq!(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE, 40);
         assert_eq!(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE, 48);
         assert_eq!(HEAP_MAP_ITERATOR_RECORD_SIZE, 32);
         assert_eq!(HEAP_SET_RECORD_SIZE, 32);
@@ -5556,6 +5674,14 @@ mod tests {
         assert_layout(
             HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT,
             HEAP_FINALIZATION_REGISTRY_CELL_SIZE,
+        );
+        assert_layout(
+            HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT,
+            HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE,
+        );
+        assert_layout(
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
         );
         assert_layout(
             HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
@@ -5645,6 +5771,8 @@ mod tests {
             .chain(HEAP_WEAK_REF_RECORD_LAYOUT.iter())
             .chain(HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT.iter())
             .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
+            .chain(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
+            .chain(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
             .chain(HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT.iter())

@@ -285,6 +285,19 @@ impl<'a> FunctionBuilder<'a> {
                 )?,
             StandardBuiltinId::FinalizationRegistryPrototypeRegister
             | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {}
+            StandardBuiltinId::AsyncDisposableStackConstructor => self
+                .install_async_disposable_stack_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {}
             StandardBuiltinId::SetConstructor => {
                 self.install_set_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -3655,6 +3668,21 @@ impl<'a> FunctionBuilder<'a> {
             HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
             function,
         );
+        // `%AsyncDisposableStack.prototype%` deliberately gets no
+        // `HEAP_REALM_INTRINSICS_*` slot. The only case that could observe one
+        // is `proto-from-ctor-realm.js`, which is a policy case
+        // (`Function constructor dynamic code generation`) and cannot pass on
+        // this backend; the constructor therefore falls back to the current
+        // realm's global (`NewTargetPrototypeFallback::CurrentGlobal`) and the
+        // 344-byte realm-intrinsics record does not move.
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+        ));
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -4471,6 +4499,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::WeakSetConstructor,
                 WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::AsyncDisposableStackConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::AsyncDisposableStackConstructor,
+                ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

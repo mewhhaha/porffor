@@ -2443,7 +2443,10 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::AsyncGeneratorPrototypeNext
             | StandardBuiltinId::AsyncGeneratorPrototypeReturn
             | StandardBuiltinId::AsyncGeneratorPrototypeThrow
-            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose => {
+            | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
                 self.standard_roots
                     .insert(StandardBuiltinId::PromiseConstructor);
                 self.standard_roots
@@ -2469,9 +2472,31 @@ impl RuntimeBootstrapPlan {
                         | StandardBuiltinId::AsyncGeneratorPrototypeReturn
                         | StandardBuiltinId::AsyncGeneratorPrototypeThrow
                         | StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose
+                        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected
                 ) {
                     self.standard_roots
                         .insert(StandardBuiltinId::PromiseCapabilityExecutor);
+                }
+                // `disposeAsync` reaches its two settlement callbacks only as
+                // function *values* parked in a promise reaction, never by a
+                // direct call, and all three need the constructor's intrinsic
+                // installer to have run for the prototype to exist at all.
+                if matches!(
+                    builtin,
+                    StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+                        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected
+                ) {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AsyncDisposableStackConstructor);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected);
+                    self.standard_roots
+                        .insert(StandardBuiltinId::SuppressedErrorConstructor);
                 }
                 if builtin == StandardBuiltinId::PromiseAll {
                     self.standard_roots
@@ -2566,6 +2591,19 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
                 self.standard_roots
                     .insert(StandardBuiltinId::FinalizationRegistryConstructor);
+            }
+            // Every prototype member roots the constructor, because the
+            // constructor's intrinsic installer is what puts the member on
+            // `AsyncDisposableStack.prototype` in the first place. `disposeAsync`
+            // and its two settlement callbacks are matched by the Promise arm
+            // above -- one arm per id, so they root the constructor there.
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::AsyncDisposableStackConstructor);
             }
             StandardBuiltinId::SetSpeciesGetter
             | StandardBuiltinId::SetPrototypeAdd
@@ -6297,6 +6335,18 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::EncodeUriComponent
         | StandardBuiltinId::DecodeUri
         | StandardBuiltinId::DecodeUriComponent => 1,
+        // Pinned by `built-ins/AsyncDisposableStack/**/length.js`, one file per
+        // row. The settlement callbacks are anonymous reaction handlers and take
+        // the settled value, like the `AsyncIterator` `@@asyncDispose` pair.
+        StandardBuiltinId::AsyncDisposableStackConstructor
+        | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => 0,
+        StandardBuiltinId::AsyncDisposableStackPrototypeUse
+        | StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+        | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => 1,
+        StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => 2,
     }
 }
 

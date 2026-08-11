@@ -9390,6 +9390,126 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn every_identifier_put_value_consumer_throws_the_same_immutable_binding_error() {
+        // The PutValue consumers that write through an *identifier* Reference —
+        // plain assignment, compound arithmetic assignment, compound bitwise
+        // assignment and update — all route through
+        // `immutable_binding_write`, so the class and the message are asserted
+        // once here, over every shape, rather than end to end in four places
+        // that can drift. Three of the four used to be `unsupported_expr`
+        // refusals of programs the spec says must run, which is why
+        // `is_wasm_supported` is part of the assertion and not an aside.
+        for source in [
+            "const x = 1; x = 2;",
+            "const x = 1; x += 2;",
+            "const x = 1; x &= 2;",
+            "const x = 1; x++;",
+            "const x = 1; --x;",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let StatementIr::Expression(expression) = &script.body.statements[1] else {
+                panic!("{source}: expected an expression statement");
+            };
+            let ExprIr::Comma { lhs, rhs } = &expression.expr else {
+                panic!(
+                    "{source}: expected the already-evaluated operand ahead of the throw, got {:?}",
+                    expression.expr
+                );
+            };
+            assert!(
+                !matches!(lhs.expr, ExprIr::RuntimeThrow { .. }),
+                "{source}: the operand must still be evaluated, not replaced by the throw"
+            );
+            let ExprIr::RuntimeThrow { name, message } = &rhs.expr else {
+                panic!("{source}: expected a runtime throw, got {:?}", rhs.expr);
+            };
+            assert_eq!(*name, NativeErrorKind::TypeError, "{source}");
+            assert_eq!(*message, "assignment to immutable binding", "{source}");
+        }
+    }
+
+    #[test]
+    fn lowers_const_update_operand_through_to_numeric_before_the_throw() {
+        // 13.4.4.1 step 2 coerces the old value with ToNumeric *before* the
+        // step-4 PutValue fails, so `const s = Symbol(); s++` must report
+        // ToNumeric's TypeError and `const o = { valueOf() { … } }; o++` must
+        // call `valueOf`. A bare identifier read on the `Comma`'s lhs would
+        // satisfy every test262 case in this family and do neither.
+        let program = lower_script("const x = 1; x++;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(expression) = &script.body.statements[1] else {
+            panic!("expected an update expression statement");
+        };
+        let ExprIr::Comma { lhs, .. } = &expression.expr else {
+            panic!("expected the coerced old value ahead of the throw");
+        };
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
+        } = &lhs.expr
+        else {
+            panic!("expected ToNumeric on the update operand, got {:?}", lhs.expr);
+        };
+        assert_eq!(*operation, SpecOperationIr::ToNumeric);
+        assert_eq!(operands.len(), 1);
+        assert!(
+            matches!(&operands[0].expr, ExprIr::Identifier(_)),
+            "{:?}",
+            operands[0].expr
+        );
+    }
+
+    #[test]
+    fn lowers_nullish_for_in_head_as_an_evaluated_head_with_zero_iterations() {
+        // 14.7.5.6 step 3.a. `StatementIr::Empty` would pass every test262 case
+        // in this family — none of the four has an effectful head — and would
+        // silently drop the head expression, so the shape is pinned here.
+        for source in [
+            "for (var k in null) { k; }",
+            "for (var k in undefined) { k; }",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let head = script
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::Expression(expression) => Some(expression),
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{source}: the head must survive as an evaluated expression statement: {:?}",
+                        script.body.statements
+                    )
+                });
+            assert!(
+                matches!(head.expr, ExprIr::Comma { .. }),
+                "{source}: {:?}",
+                head.expr
+            );
+            assert_eq!(
+                head.kind,
+                ValueKind::Undefined,
+                "{source}: a nullish for-in completes with undefined, not with the head's value"
+            );
+        }
+    }
+
+    #[test]
     fn preserves_sloppy_named_function_binding_assignment_through_a_capture() {
         let program = lower_script(
             "const outer = function named() {

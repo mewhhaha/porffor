@@ -937,6 +937,27 @@ impl StringPool {
             "FinalizationRegistry target and holdings must not be the same value",
             "FinalizationRegistry unregister token cannot be held weakly",
             "FinalizationRegistry method receiver does not have [[Cells]]",
+            // `AsyncDisposableStack`: the property keys its intrinsic installer
+            // defines, plus every message its emitters throw. A key or message
+            // spelled at an emitter and missing here is a compile-time panic in
+            // every full bootstrap (`string ... must exist in pool`), not a
+            // runtime miss.
+            "AsyncDisposableStack",
+            "use",
+            "adopt",
+            "defer",
+            "move",
+            "disposed",
+            "disposeAsync",
+            "AsyncDisposableStack constructor requires new",
+            "AsyncDisposableStack method receiver is not an object",
+            "AsyncDisposableStack method receiver does not have [[AsyncDisposableState]]",
+            "AsyncDisposableStack is already disposed",
+            "AsyncDisposableStack.prototype.use value is not an object",
+            "AsyncDisposableStack.prototype.use value is not disposable",
+            "AsyncDisposableStack.prototype.use dispose method is not callable",
+            "AsyncDisposableStack.prototype.adopt onDisposeAsync is not callable",
+            "AsyncDisposableStack.prototype.defer onDisposeAsync is not callable",
             "Object.groupBy items cannot be null or undefined",
             "Object.groupBy callback must be callable",
             "Object.groupBy iterator method must be callable",

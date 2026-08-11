@@ -10927,8 +10927,57 @@ impl<'a> ScriptLowerer<'a> {
             || Self::value_info_is_boxed_string(&target.value_info());
         let is_object_target = target.possible_kinds.contains(ValueKind::Object)
             || target.possible_kinds.contains(ValueKind::Function);
+        // 14.7.5.6 ForIn/OfHeadEvaluation step 3.a: when `exprValue` is
+        // `undefined` or `null`, return a **break completion**. The head is
+        // evaluated, the loop body runs zero times, and nothing throws — a
+        // well-formed statement, not a compiler gap. `for (key in undefined)`
+        // and `for (var x in null) ;` depend on exactly this, and refusing them
+        // was the opposite of the spec rather than an unimplemented corner.
+        //
+        // Only a *statically* nullish head moves here. A `Dynamic` target that
+        // happens to be nullish at run time already takes the ForInObject path,
+        // which performs the same test there — which is why this is a handful
+        // of cases and not a broad class.
+        //
+        // Steps 1-2 still evaluate the head for its effects, so this returns the
+        // lowered target rather than `StatementIr::Empty`; the `Comma` restores
+        // the `undefined` completion the break completion carries through
+        // UpdateEmpty, which a bare expression statement would replace with the
+        // head's own value.
+        //
+        // The `matches!` is not redundant with the subset test: an empty
+        // `possible_kinds` is a subset of everything, and a vacuous hit here
+        // would silently turn a loop that must iterate into one that cannot.
+        let is_nullish_target = matches!(target.kind, ValueKind::Undefined | ValueKind::Null)
+            && target.possible_kinds.is_subset_of(
+                KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null)),
+            );
+        if !is_dynamic_target && is_nullish_target {
+            let head_effects_only = TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::Comma {
+                    lhs: Box::new(target),
+                    rhs: Box::new(TypedExpr::undefined()),
+                },
+            );
+            // Annex B `for (var x = 1 in null)` still runs its initializer, so
+            // this takes the same `prepend_statement` exit the ordinary lowering
+            // does rather than dropping the prefix the way the refusal below
+            // can afford to.
+            return Self::prepend_statement(
+                initializer_prefix,
+                StatementIr::Expression(head_effects_only),
+                ValueKind::Undefined,
+            );
+        }
         if !is_dynamic_target && !is_array_target && !is_string_target && !is_object_target {
-            self.unsupported("for-in non-enumerable target");
+            // What is left is Number/Boolean/Symbol/BigInt: 14.7.5.6 step 3.b
+            // sends those through ToObject (7.1.18) and enumerates the wrapper's
+            // own enumerable properties, which is a separate and currently
+            // uncounted family. Named in the message so the next lane inherits
+            // an accurate diagnostic instead of "non-enumerable target", which
+            // was never true of any of them.
+            self.unsupported("for-in target requiring ToObject (number, boolean, symbol, bigint)");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
 
