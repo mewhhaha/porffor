@@ -47538,7 +47538,7 @@ impl<'a> FunctionBuilder<'a> {
                     value_payload_local,
                     flags_payload_local,
                     function,
-                );
+                )?;
                 function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
                 function.instruction(&Instruction::LocalSet(key_local));
                 function.instruction(&Instruction::F64Const(0.0.into()));

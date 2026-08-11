@@ -1673,7 +1673,7 @@ impl<'a> FunctionBuilder<'a> {
             source_payload_local,
             flags_payload_local,
             function,
-        );
+        )?;
 
         function.instruction(&Instruction::F64Const(0.0.into()));
         function.instruction(&Instruction::I64ReinterpretF64);
@@ -2179,7 +2179,7 @@ impl<'a> FunctionBuilder<'a> {
             pattern_payload_local,
             flags_payload_local,
             function,
-        );
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
         function.instruction(&Instruction::LocalSet(key_local));
@@ -2905,7 +2905,7 @@ impl<'a> FunctionBuilder<'a> {
             source_payload_local,
             new_flags_payload_local,
             function,
-        );
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -5551,7 +5551,7 @@ impl<'a> FunctionBuilder<'a> {
             source_payload_local,
             flags_payload_local,
             function,
-        );
+        )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -6679,7 +6679,7 @@ impl<'a> FunctionBuilder<'a> {
             pattern_payload_local,
             flags_payload_local,
             function,
-        );
+        )?;
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(rx_tag_local));
 
@@ -8127,7 +8127,7 @@ impl<'a> FunctionBuilder<'a> {
             source_payload_local,
             flags_payload_local,
             function,
-        );
+        )?;
 
         function.instruction(&Instruction::I64Const(self.strings.payload("source")));
         function.instruction(&Instruction::LocalSet(key_local));

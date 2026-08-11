@@ -2391,22 +2391,78 @@ impl<'a> FunctionBuilder<'a> {
         );
     }
 
+    /// Installs the compiled RegExp program for a `(source, flags)` pair that is
+    /// only known at run time, by looking the pair up **by string value** in the
+    /// AOT-built runtime program table.
+    ///
+    /// # The lookup is total, and that is the point
+    ///
+    /// Three outcomes, and all three are now reachable code:
+    ///
+    /// * **`Program` row** — install the six program slots. Unchanged.
+    /// * **`Rejected` row** — the compile-time RegExp compiler saw this exact
+    ///   pattern and refused it, so this is a spec SyntaxError
+    ///   (`RegExpAlloc`/`RegExpInitialize` step 3.b). Before batch 7 the row did
+    ///   not exist at all (`data.rs` `continue`d past rejected pairs), the loop
+    ///   below had no else arm, and the caller went on to publish a live RegExp
+    ///   whose `instruction_count` is 0 — `assert.throws(SyntaxError, () =>
+    ///   r.compile("(?<x>a)(?<x>b)"))` therefore measured *no throw at all*.
+    ///   That is the one Bug-outcome failure in the batch-7 sweep.
+    /// * **total miss** — the pair is genuinely not in the table, i.e. the
+    ///   pattern or the flags string was computed at run time and never named as
+    ///   a literal anywhere. The slots stay zeroed and the caller proceeds.
+    ///
+    /// # Why a total miss deliberately does *not* throw
+    ///
+    /// The obvious symmetry ("no row, no program, so throw") is wrong here, and
+    /// the reason is measured rather than argued. A zeroed program does not mean
+    /// `exec` silently answers `null`: `emit_regexp_prototype_exec_from_locals`
+    /// tries the compiled program first, then falls through to
+    /// `emit_regexp_exec_simple_from_locals` — a real fallback matcher covering
+    /// `.`, escapes, two-alternative patterns and the `g`/`i`/`y`/`u` flags —
+    /// and only if *that* declines does it throw
+    /// `TypeError: RegExp.prototype.exec unsupported pattern`. Measured on this
+    /// head: `new RegExp("(?<" + "y>c)")` builds an object with the right
+    /// `source` and its `test` call throws that TypeError; it does not answer
+    /// `false`. So throwing SyntaxError on every miss would convert answers the
+    /// fallback matcher gets *right* into spurious SyntaxErrors, including for
+    /// the common `new RegExp("a", computedFlags)` shape whose flags string is
+    /// simply not a script literal. That trade is a regression, not a fix.
+    ///
+    /// The half this closes is therefore stated exactly: **a pattern the
+    /// compiler has seen and rejected now throws**; a valid pattern the compiler
+    /// has never seen keeps today's behaviour. Widening the first half is a
+    /// candidate-collection problem (see `runtime_regexp_argument_literals`),
+    /// not an emitter problem, and that is where it was widened.
     pub(crate) fn emit_runtime_regexp_program_slots(
         &mut self,
         object_local: u32,
         source_payload_local: u32,
         flags_payload_local: u32,
         function: &mut Function,
-    ) {
+    ) -> Result<(), EmitError> {
         self.emit_regexp_program_slots(object_local, None, function);
         if self.strings.runtime_regexp_program_count == 0 {
-            return;
+            return Ok(());
         }
-        const REGEXP_PROGRAM_TABLE_RECORD_SIZE: u64 = 64;
+        // Eight program words plus the `entry_kind` discriminant written by
+        // `StringPool::append_runtime_regexp_program_table`. Both sides of this
+        // number live in exactly two places; changing one without the other is
+        // the reason the constant is named on both sides rather than inlined.
+        const REGEXP_PROGRAM_TABLE_RECORD_SIZE: u64 = 72;
+        const REGEXP_PROGRAM_TABLE_ENTRY_KIND_OFFSET: u64 = 64;
         let index_local = self.reserve_temp_local();
         let record_ptr_local = self.reserve_temp_local();
         let candidate_payload_local = self.reserve_temp_local();
+        let entry_kind_local = self.reserve_temp_local();
 
+        // `RUNTIME_REGEXP_ENTRY_KIND_PROGRAM` is 0 and is also what a total miss
+        // leaves behind, so the post-loop test asks only about `Rejected`. The
+        // two are deliberately not merged: see the doc comment.
+        function.instruction(&Instruction::I64Const(
+            RUNTIME_REGEXP_ENTRY_KIND_PROGRAM as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(entry_kind_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -2447,6 +2503,20 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::If(BlockType::Empty));
+        // The row matched. Read its discriminant BEFORE deciding what to do
+        // with it — this is the else arm the loop never had.
+        function.instruction(&Instruction::LocalGet(record_ptr_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            REGEXP_PROGRAM_TABLE_ENTRY_KIND_OFFSET,
+        )));
+        function.instruction(&Instruction::LocalSet(entry_kind_local));
+        function.instruction(&Instruction::LocalGet(entry_kind_local));
+        function.instruction(&Instruction::I64Const(
+            RUNTIME_REGEXP_ENTRY_KIND_PROGRAM as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
         for (record_offset, heap_offset) in [
             (16, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
             (24, HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET),
@@ -2466,6 +2536,11 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        function.instruction(&Instruction::End);
+        // Leaves the search with `entry_kind_local` holding this row's kind.
+        // Branch depth is unchanged from before the discriminant existed: at
+        // this point the enclosing labels are flags-If (0), source-If (1),
+        // Loop (2), Block (3).
         function.instruction(&Instruction::Br(3));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2477,9 +2552,30 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        // A `Rejected` row is the compile-time compiler's own verdict on this
+        // exact pattern, reaching run time. A total miss leaves the local at
+        // `RUNTIME_REGEXP_ENTRY_KIND_PROGRAM` and is deliberately not caught
+        // here; the doc comment says why.
+        function.instruction(&Instruction::LocalGet(entry_kind_local));
+        function.instruction(&Instruction::I64Const(
+            RUNTIME_REGEXP_ENTRY_KIND_REJECTED as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error_to_active_handler(
+            SYNTAX_ERROR_NAME,
+            "Invalid regular expression pattern",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(entry_kind_local);
         self.release_temp_local(candidate_payload_local);
         self.release_temp_local(record_ptr_local);
         self.release_temp_local(index_local);
+        Ok(())
     }
 
     fn compile_regexp_literal_payload(

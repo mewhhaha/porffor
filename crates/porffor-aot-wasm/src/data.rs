@@ -261,6 +261,53 @@ impl RegExpProgramStaticKey {
     }
 }
 
+/// The `entry_kind` word of a runtime RegExp program table record.
+///
+/// The record is 72 bytes: the eight words the emitter already read, plus this
+/// discriminant at offset 64. It is a word rather than a sentinel (`ptr == 0`,
+/// `instruction_count == 0`) on purpose — a sentinel is what the emitter used
+/// to be forced into, and it cannot tell "the compiler rejected this pattern"
+/// apart from "this row was never written".
+pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
+/// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
+/// compile-time `RegExpProgram::compile` **rejected** this `(source, flags)`
+/// pair, so constructing a RegExp from it at run time must throw a SyntaxError.
+pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
+
+/// What the AOT-built runtime RegExp program table says about one
+/// `(source, flags)` pair.
+///
+/// The table is looked up **by string value** at run time, so an absent row and
+/// an illegal pattern used to be the same observable state. `queue_runtime_regexp_programs`
+/// wrote rows with
+///
+/// ```ignore
+/// let Ok(program) = RegExpProgram::compile(compilation_source, flags) else {
+///     continue;
+/// };
+/// ```
+///
+/// so a pattern the compiler had *seen and rejected* left no trace at all, the
+/// emitted lookup fell out of its loop with no else arm, and
+/// `new RegExp("(?<x>a)(?<x>b)")` returned a live RegExp carrying
+/// `instruction_count == 0` instead of throwing SyntaxError. That is a
+/// wrong-answer class, not a missing feature.
+///
+/// Making the table's value a closed type is what stops it recurring: the
+/// writer below matches exhaustively, so a third outcome added later is
+/// `error[E0004]` at the table writer rather than one more silently skipped
+/// row. `Option<RegExpProgramRef>` would not do it — `unwrap_or`, `if let` and
+/// `continue` are all one keystroke away, and `continue` is exactly what was
+/// written here.
+#[derive(Debug, Clone, Copy)]
+enum RuntimeRegExpEntry {
+    /// `RegExpProgram::compile` accepted the pair; this is its static data.
+    Program(RegExpProgramRef),
+    /// `RegExpProgram::compile` rejected the pair. The emitted lookup turns a
+    /// hit on this row into a SyntaxError.
+    Rejected,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
@@ -268,9 +315,28 @@ pub(crate) struct StringPool {
     refs: BTreeMap<String, StringRef>,
     script_string_literals: BTreeSet<String>,
     runtime_regexp_candidate_literals: BTreeSet<String>,
+    /// Pattern strings the script names **directly at a RegExp construction
+    /// site** (`new RegExp("…")`, `RegExp("…")`, `r.compile("…")`).
+    ///
+    /// Separate from `runtime_regexp_candidate_literals` because that set has a
+    /// second job: when it is empty the candidate set falls back to *every*
+    /// script string literal. Folding construction-site arguments into it would
+    /// silently flip that fallback off for any script that has one, narrowing
+    /// the table instead of widening it. This set is always unioned in, so it
+    /// can only add rows.
+    ///
+    /// Measured motivation: `runtime_regexp_candidate_literals` is populated
+    /// from declaration initialisers, assignments and array literals — never
+    /// from call arguments. In
+    /// `annexB/built-ins/RegExp/prototype/compile/duplicate-named-capturing-groups-syntax.js`
+    /// the valid pattern reaches it through `let source = "(?<x>a)|(?<x>b)"`,
+    /// while the invalid `"(?<x>a)(?<x>b)"` appears only as a call argument, so
+    /// the set was non-empty, the fallback did not fire, and the pattern the
+    /// test is *about* was never offered to the compiler at all.
+    runtime_regexp_argument_literals: BTreeSet<String>,
     regexp_programs: BTreeMap<RegExpProgramStaticKey, RegExpProgramRef>,
     pending_regexp_programs: Vec<(RegExpProgramStaticKey, u32, u32, u32)>,
-    runtime_regexp_programs: Vec<(String, String, RegExpProgramRef)>,
+    runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
     pub(crate) runtime_regexp_program_table_ptr: u32,
     pub(crate) runtime_regexp_program_count: u32,
@@ -3472,6 +3538,18 @@ impl StringPool {
                         }))
                 {
                     self.needs_runtime_regexp_programs = true;
+                    // The pattern argument is the one string the script is
+                    // demonstrably asking the RegExp compiler about. Offer it
+                    // to the compile-time compiler even when it never appears
+                    // as a declaration initialiser — otherwise an *illegal*
+                    // pattern spelled inline is never compiled, never rejected,
+                    // and therefore has no row to throw from.
+                    if let Some(pattern) = args.first() {
+                        collect_finite_string_choices(
+                            pattern,
+                            &mut self.runtime_regexp_argument_literals,
+                        );
+                    }
                 }
                 if let Some(compilation) = static_regexp_compilation {
                     match compilation {
@@ -3509,6 +3587,15 @@ impl StringPool {
                         || callee.function_targets.contains(BUILTIN_REGEXP_FUNCTION_ID))
                 {
                     self.needs_runtime_regexp_programs = true;
+                    // Same reasoning as the `CallIndirect` arm above: `new
+                    // RegExp("(?<x>a)(?<x>b)")` must reach the compile-time
+                    // compiler so the rejection has somewhere to live.
+                    if let Some(pattern) = args.first() {
+                        collect_finite_string_choices(
+                            pattern,
+                            &mut self.runtime_regexp_argument_literals,
+                        );
+                    }
                 }
                 self.intern_string("prototype");
                 if let Some(compilation) = static_regexp_compilation {
@@ -3804,6 +3891,14 @@ impl StringPool {
             &self.runtime_regexp_candidate_literals
         };
         let mut literals = candidate_literals.iter().cloned().collect::<Vec<_>>();
+        // Unioned in, never substituted for `candidate_literals`: the
+        // empty/non-empty test above is the fallback switch, and this set must
+        // not be able to flip it. See the field's doc comment.
+        for literal in &self.runtime_regexp_argument_literals {
+            if !literals.iter().any(|source| source == literal) {
+                literals.push(literal.clone());
+            }
+        }
         if !literals.iter().any(|source| source == "(?:)") {
             literals.push("(?:)".to_string());
         }
@@ -3841,12 +3936,25 @@ impl StringPool {
                 normalized_source
             };
             for flags in &flags {
-                let Ok(program) = RegExpProgram::compile(compilation_source, flags) else {
-                    continue;
-                };
-                let key = RegExpProgramStaticKey::from_program(&program);
-                self.queue_regexp_program(&program);
-                candidates.push((normalized_source.to_string(), flags.clone(), key));
+                // Every candidate pair gets a row, including the rejected ones.
+                // The `else { continue }` that used to sit here is the whole
+                // defect: it made "seen and illegal" indistinguishable from
+                // "never seen", and the emitted lookup could then only fall out
+                // of its loop leaving a null program behind.
+                match RegExpProgram::compile(compilation_source, flags) {
+                    Ok(program) => {
+                        let key = RegExpProgramStaticKey::from_program(&program);
+                        self.queue_regexp_program(&program);
+                        candidates.push((
+                            normalized_source.to_string(),
+                            flags.clone(),
+                            Some(key),
+                        ));
+                    }
+                    Err(_) => {
+                        candidates.push((normalized_source.to_string(), flags.clone(), None));
+                    }
+                }
             }
         }
 
@@ -3854,11 +3962,16 @@ impl StringPool {
         self.runtime_regexp_programs = candidates
             .into_iter()
             .map(|(source, flags, key)| {
-                let program = *self
-                    .regexp_programs
-                    .get(&key)
-                    .expect("queued runtime RegExp program must have static data");
-                (source, flags, program)
+                let entry = match key {
+                    Some(key) => RuntimeRegExpEntry::Program(
+                        *self
+                            .regexp_programs
+                            .get(&key)
+                            .expect("queued runtime RegExp program must have static data"),
+                    ),
+                    None => RuntimeRegExpEntry::Rejected,
+                };
+                (source, flags, entry)
             })
             .collect();
         self.append_runtime_regexp_program_table();
@@ -3872,16 +3985,42 @@ impl StringPool {
         self.bytes.resize(self.bytes.len() + padding, 0);
         self.runtime_regexp_program_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
         self.runtime_regexp_program_count = self.runtime_regexp_programs.len() as u32;
-        for (source, flags, program) in &self.runtime_regexp_programs {
+        for (source, flags, entry) in &self.runtime_regexp_programs {
+            // Exhaustive on purpose. This is the site the `continue` used to
+            // hide behind: a new entry kind must be given a record encoding
+            // here, or this stops compiling.
+            let (
+                program_ptr,
+                instruction_count,
+                capture_count,
+                split_count,
+                repeatable_split_count,
+                named_group_table_ptr,
+                entry_kind,
+            ) = match entry {
+                RuntimeRegExpEntry::Program(program) => (
+                    program.ptr as u64,
+                    program.instruction_count as u64,
+                    program.capture_count as u64,
+                    program.split_count as u64,
+                    program.repeatable_split_count as u64,
+                    program.named_group_table_ptr as u64,
+                    RUNTIME_REGEXP_ENTRY_KIND_PROGRAM,
+                ),
+                RuntimeRegExpEntry::Rejected => {
+                    (0, 0, 0, 0, 0, 0, RUNTIME_REGEXP_ENTRY_KIND_REJECTED)
+                }
+            };
             for value in [
                 self.payload(source) as u64,
                 self.payload(flags) as u64,
-                program.ptr as u64,
-                program.instruction_count as u64,
-                program.capture_count as u64,
-                program.split_count as u64,
-                program.repeatable_split_count as u64,
-                program.named_group_table_ptr as u64,
+                program_ptr,
+                instruction_count,
+                capture_count,
+                split_count,
+                repeatable_split_count,
+                named_group_table_ptr,
+                entry_kind,
             ] {
                 self.bytes.extend_from_slice(&value.to_le_bytes());
             }
