@@ -50,6 +50,39 @@ check(compileTarget.test("b"), true, "the recompiled receiver matches");
 var simplePatterns = ["ab"];
 check("zzab".search(simplePatterns[0]), 2, "search compiles a computed pattern");
 
+// (b) RE-VERDICT (batch 8): a computed VALID pattern that the compile-time
+// RegExp compiler used to answer `InvalidSyntax` for.
+//
+// This is the half of the batch-7 runtime table that turns a compiler verdict
+// into a thrown SyntaxError. `RegExpCompileErrorKind::InvalidSyntax` becomes
+// `CandidateOutcome::Rejected`, becomes `RuntimeRegExpEntryKind::Rejected`,
+// whose `throws_syntax_error()` is true — so before the fix these two
+// constructions threw `SyntaxError` for perfectly legal patterns, and after it
+// they must build real programs.
+//
+//   `\/` under `u` — `IdentityEscape[+UnicodeMode] :: SyntaxCharacter | `/``.
+//                    The SOLIDUS alternative was missing from the atom parser.
+//   `\u{41}` under `u` — `RegExpUnicodeEscapeSequence[+UnicodeMode] ::
+//                    `u{` CodePoint `}``. Only the class parser had it.
+//
+// Both reach the table as computed values (element reads), and both literals
+// appear in array literals so `StringPool::collect` offers them to
+// `runtime_regexp_candidate_literals`. The flags literal `"u"` is what puts the
+// `u` column in the `|literals| x |flags|` table at all.
+var unicodePatterns = ["\\/", "\\u{41}"];
+var unicodeFlags = ["u"];
+
+var solidus = new RegExp(unicodePatterns[0], unicodeFlags[0]);
+check(solidus.source, unicodePatterns[0], "the escaped solidus keeps its source");
+check(solidus.flags, unicodeFlags[0], "the escaped solidus keeps its flags");
+check(solidus.test("/"), true, "an escaped solidus matches a solidus");
+check(solidus.test("x"), false, "an escaped solidus matches nothing else");
+
+var codePoint = new RegExp(unicodePatterns[1], unicodeFlags[0]);
+check(codePoint.source, unicodePatterns[1], "the braced code-point escape keeps its source");
+check(codePoint.test("A"), true, "a braced code-point escape matches its code point");
+check(codePoint.test("B"), false, "a braced code-point escape matches nothing else");
+
 // (c) A computed valid pattern whose string NEVER appears as a literal.
 //
 // `"(?<q1>x)"` is assembled at run time, so no row exists for it. The POLICY

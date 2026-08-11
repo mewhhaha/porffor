@@ -146,92 +146,68 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// This read 3 through batches 4 and 5, because the header in
 /// `known-failures.tsv` read `batch-4` and bumping the constant while the
 /// `unfilled` row is alive turns rung 1c red. The bump and the fill are ONE
-/// edit, and the fill needs a completed rung 1c.
+/// edit, and the fill needs a completed rung 1c. Batch 7 took the alternative
+/// the assertion names in its own message for the second time: the constant
+/// went to 7 and the header was extended to `batch-8`.
 ///
-/// # Batch 7: still not complete, and the reason has narrowed to one module
+/// # Batch 8: the set is complete, and the `unfilled` row is gone
 ///
-/// Every number here was re-measured at this head by the batch-7 RUNG1C write
-/// lane rather than carried forward. The lane could run no cargo command, so
-/// each figure states how it was obtained.
+/// The row's own text set the condition for deleting it rather than filling it:
+/// *"the moment `language`, `language_errors` and `language_numerics` all bank
+/// green"*. Batch 7's rung 5 met it, and this is how that was read rather than
+/// assumed (`docs/rust-rewrite/batch-findings/b7-runner-findings.md`, rung 5):
 ///
-/// - **15 of 20** chunks are banked and **422 of 611** executing tests have a
-///   verdict. Read out of `target/watched/rung1c-done` (15 rows) and
-///   `target/watched/rung1c-done-counts`, not estimated: the banked counts of
-///   those 15 sum to 431, minus `frontend`'s 8 `spec-exec-oracle` gates and
-///   `heap`'s one `#[ignore]`. It was 17/503 when the write lane counted; the
-///   integrator then invalidated `string` and `functions`, because batch 7's
-///   RE-RT lane changed `porffor-aot-wasm/src/{data,expressions}.rs` and a
-///   *compiler* change is invisible to a sidecar that only counts test
-///   sources. `language` is the one chunk that has never produced a verdict at
-///   any head across four batches.
-/// - The chunk denominator moved 18 → 20 in this batch, because `language::`
-///   OOMed as a single 105-test libtest process **three times** — SIGKILL at
-///   t+1200 s after 66, 75 and 75 tests, with `avail` falling *monotonically*
-///   from 8.5 GiB to 1.14 GiB — and `tests/cli/language.rs` was therefore split
-///   into `language` (45), `language_errors` (29) and `language_numerics` (31)
-///   so the same tests run as three separate processes. Cache tiers and
-///   `PORFFOR_CPU_PERCENT` were measured to be no lever and `--test-threads`
-///   below 3 is banned, so fewer tests per process was the lever this batch
-///   reached for. It was **not** the only lever, and saying so was a mistake
-///   worth correcting here rather than leaving for the next reader to inherit:
-///   those three are environment knobs, and the accumulation's mechanism is
-///   in-process retention —
-///   `porffor-engine`'s `WASM_MODULE_MEMORY_CACHE_ENTRIES`, an LRU of fully
-///   compiled Wasmtime modules bounded by entry count and by no byte ceiling.
-///   See `tests/cli/language.rs`'s header for the corrected sizing model, which
-///   counts cached modules rather than tests.
-/// - All 105 language tests **were** measured green at the batch-6 head, but by
-///   the UNION of a 75-test chunk attempt and a standalone 30-name tail. A
-///   union is not a banked verdict, and a banked verdict is this row's own
-///   standard, so the union does not license deleting it.
-/// - `regexp` is banked at 33 while `tests/cli/regexp.rs` now declares 35, and
-///   `date` is banked at 17 while `tests/cli/date.rs` now declares 18, so the
-///   counts sidecar re-runs **both** chunks. Three of the 611 are therefore
-///   unmeasured for a second, independent reason, and **eight** chunks — not
-///   three — actually execute on the next rung 1c: the three `language*`
-///   modules, the two the integrator invalidated (`string`, `functions`),
-///   these two, and `known_failures`, which `run_chunk` re-runs
-///   **unconditionally** (`scripts/rung1c-chunks.sh`, the `[ "$name" =
-///   "known_failures" ]` branch sets `rebank=1` and falls through with no
-///   `return 0`) precisely because it holds the 20/20/20 chunk/module
-///   partition check that this split just changed. "15 of 20 banked" is the
-///   banking state, not the amount of work the next run does.
-/// - Recount at the integrated head, exact-line `awk` over `tests/cli/*.rs`:
-///   **620** `#[test]` attributes, of which **8** are `spec-exec-oracle`-gated
-///   in `frontend.rs` and one is `#[ignore]`d in `heap.rs`, hence **612
-///   compiled / 611 executing**. Unlike every previous batch's figure the
-///   compiled count is **measured**, not derived: `cargo test -p porffor-cli
-///   --test cli -- --list | tail -1` printed `612 tests, 0 benchmarks` at
-///   integration, and 620 − 8 independently agrees. The write lane's 619/611/610
-///   was correct when it counted and went stale within the batch — the
-///   concurrent `date.rs` fixture test is the 620th — which is why this line
-///   says how it was obtained rather than only what it says.
-/// - The only declared non-pass outcome across the 422 is the `heap` ignore
-///   (T05), which already has its row. The surviving set is otherwise empty.
+/// - `language` **45**, `language_errors` **29**, `language_numerics` **31**,
+///   each `ok` with zero failures, each from ONE invocation. `language::` had
+///   never produced a single-invocation verdict at any head across four
+///   batches -- at 105 tests in one libtest process it OOM-SIGKILLed three
+///   times, and batch 6 could only reach 105/105 by the UNION of a chunk run
+///   and a tail run, which this row correctly refused to accept as a verdict.
+/// - `rung1c: all chunks done`. **All 20 chunks hold a verdict at that head**,
+///   and every one of the eight chunks that executed printed
+///   `ran + filtered_out = 612`, the compiled-test total, so no chunk silently
+///   selected a subset.
+/// - The only declared non-pass outcome across the suite is the `heap` ignore
+///   (T05), which has its own row. The surviving set is therefore empty, and an
+///   `unfilled` placeholder for it would now be a claim about nothing.
 ///
-/// So batch 7 takes the alternative the assertion names in its own message, for
-/// the second time and deliberately: the constant is bumped to the batch this
-/// checkout actually is, and the header is extended by one batch to `batch-8`.
-/// Both are visible one-line diffs, which is the point — an extension, not a
-/// slide.
+/// So batch 8 deleted the row. The three companion edits the row's recipe
+/// called for were made in the same patch, and are recorded here because their
+/// *absence* is what a later reader would misread:
 ///
-/// **The moment `language`, `language_errors` and `language_numerics` all bank
-/// green, DELETE the row rather than filling it**, because the surviving set is
-/// then empty. The complete recipe, in four steps, lives here rather than in a
-/// lane note under `target/` — that directory is gitignored, no other checkout
-/// has it, and this repository has already lost a cited file that way
-/// (`batch-workflow.md`, "Before adding any tracked data file"):
-///
-/// 1. Delete the single `unfilled` row from `known-failures.tsv`. Nothing else
-///    in that file moves; in particular do **not** touch the `heap` ignore row.
-/// 2. Do NOT delete the `# unfilled-allowed-until: batch-8` header line. Its
-///    absence is `MissingExpiryHeader` whether or not any `unfilled` row
-///    exists; with the row gone it simply goes inert without becoming wrong.
-/// 3. Leave `CURRENT_BATCH` at 7. No second bump is owed, and the deadline
+/// 1. The `# unfilled-allowed-until: batch-8` header STAYS. Its absence is
+///    `MissingExpiryHeader` whether or not an `unfilled` row exists; with no
+///    row it simply goes inert without becoming wrong.
+/// 2. `CURRENT_BATCH` STAYS at 7. No second bump is owed, and the deadline
 ///    check lives inside `if unfilled_rows > 0`, so with no `unfilled` row it
-///    is not merely satisfied but never evaluated.
-/// 4. Rewrite this doc comment to say the set is complete, instead of leaving
-///    a paragraph that describes a row which no longer exists.
+///    is not merely satisfied but never evaluated. Bumping it to 8 would make
+///    the surviving comparison `8 < 8` and turn rung 1c red for no reason.
+/// 3. The `heap` ignore row is untouched.
+///
+/// # If a later batch needs a placeholder again
+///
+/// Add a real row, never a second `unfilled` one. A `fail`/`hang` row names a
+/// real test and carries `should_panic` with a non-empty `expected`, so libtest
+/// enforces it in both delta directions; an `unfilled` row enforces nothing and
+/// only borrows time against the expiry header. If a genuinely unmeasured set
+/// reappears, extend the header in the same patch that adds the row, and write
+/// the delete condition into the row's own reason column the way the batch-3
+/// row did -- that one sentence is what let batch 8 close this without
+/// re-litigating what "done" meant.
+///
+/// # Counting, at the batch-8 write head
+///
+/// Recount rather than trusting this paragraph. Batch 7 recorded a figure that
+/// went stale INSIDE the batch because a concurrent lane landed a test in the
+/// same commit, and the same is true here: at the moment the RE-VERDICT lane
+/// counted, the exact-line `awk` over `tests/cli/*.rs` returned **622** -- 620
+/// at the batch-7 integration head, plus one from that lane
+/// (`regexp::run_wasm_backend_succeeds_for_regexp_identity_escape_solidus_fixture`,
+/// taking `regexp.rs` 35 -> 36) and one from a concurrent batch-8 lane. 8 stay
+/// behind `spec-exec-oracle` in `frontend.rs` and one is `#[ignore]`d in
+/// `heap.rs`. Settle the compiled/executing split with `--list`, never by
+/// arithmetic on this comment, and expect the `regexp` chunk to re-run on the
+/// counts guard.
 const CURRENT_BATCH: u32 = 7;
 
 /// Header line carrying the `unfilled` expiry, e.g.

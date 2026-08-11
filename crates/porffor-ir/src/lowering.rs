@@ -7609,6 +7609,61 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). The return shapes
+            // are deliberately `None`: the lane added no
+            // `async_disposable_stack_instance_shape()`, so the lowerer learns
+            // the kind and nothing else and every member access stays dynamic.
+            //
+            // The fourth member is `fresh_constructed_instance_info()`, NOT the
+            // `ValueInfo::undefined()` the lane note proposed. This builtin is
+            // in `constructable()` (`builtins.rs`), so both consumers of
+            // `constructor_instance` are reachable — `lower_class`'s
+            // `inherited_instance` for `class D extends AsyncDisposableStack {}`
+            // and `lower_new_expression`'s `null_heritage_return_path` else-arm
+            // for a direct `new AsyncDisposableStack()`. Spelling it
+            // `undefined` types the instance as nullish and makes
+            // `emit_method_call`'s statically-nullish shortcut emit no call at
+            // all; that is the measured batch-5 `IteratorConstructor` defect and
+            // the batch-7 `IntlDateTimeFormatConstructor` defect verbatim, whose
+            // arm 20 lines below is the precedent this copies (`Object`,
+            // `{Object}`, no return shape, fresh constructed instance).
+            StandardBuiltinId::AsyncDisposableStackConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                Self::fresh_constructed_instance_info(),
+            ),
+            // `use` and `adopt` both return their first argument unchanged.
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => (
+                ValueKind::Dynamic,
+                KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `move` returns a fresh stack; `disposeAsync` always returns a
+            // promise, including on every failure path.
+            StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::SetConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -26088,6 +26143,34 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ValueInfo::undefined())
             }
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            // `%AsyncDisposableStack%` (ERM-STACK, batch 8). Every arm is
+            // `Some`: `None` here is not "no static information", it is a
+            // refusal — the three consumers read it as "this call does not
+            // happen" and return `TypedExpr::undefined()` with the argument
+            // vector replaced by `Vec::new()` (see the `let Some(...) else`
+            // bindings at the `construct` and `call` sites). A `None` arm for a
+            // builtin that must actually run silently drops the call.
+            //
+            // The kinds match `standard_builtin_signature` above; the
+            // `IntlDateTimeFormatConstructor` arm is again the precedent for a
+            // constructor with no instance shape.
+            StandardBuiltinId::AsyncDisposableStackConstructor
+            | StandardBuiltinId::AsyncDisposableStackPrototypeMove
+            | StandardBuiltinId::AsyncDisposableStackPrototypeDisposeAsync => {
+                Some(ValueInfo::new(ValueKind::Object))
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeUse
+            | StandardBuiltinId::AsyncDisposableStackPrototypeAdopt => {
+                Some(ValueInfo::new(ValueKind::Dynamic))
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDefer
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled
+            | StandardBuiltinId::AsyncDisposableStackDisposeAsyncRejected => {
+                Some(ValueInfo::undefined())
+            }
+            StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::SetConstructor => Some(Self::value_info_from_shape(Some(
