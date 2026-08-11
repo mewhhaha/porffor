@@ -480,6 +480,216 @@ pub enum RegExpCompileErrorKind {
     UnsupportedFeature,
 }
 
+/// The ECMA-262 production or early-error clause an [`RegExpCompileErrorKind::InvalidSyntax`]
+/// rejection enforces.
+///
+/// # Why this exists, and why it is mandatory rather than advisory
+///
+/// The two verdicts are not symmetric. `InvalidSyntax` is a claim about
+/// **ECMAScript** — a conforming engine rejects this pattern, so Lila must throw
+/// a `SyntaxError` for it. `UnsupportedFeature` is a claim about **this
+/// compiler** — the pattern is legal and Lila cannot build a matcher program for
+/// it yet, so the runtime fallback gets its turn. Their costs differ by an order
+/// of magnitude: an over-eager `UnsupportedFeature` loses a fast path, while an
+/// over-eager `InvalidSyntax` invents a `SyntaxError` for a legal program. Since
+/// batch 7 it does so at run time too — `porffor-aot-wasm`'s runtime RegExp table
+/// maps `InvalidSyntax` to `RuntimeRegExpEntry::Rejected`, which throws.
+///
+/// Batch 8 found two sites that had made exactly that mistake (`/\//u` and the
+/// `v`-mode `ClassSetReservedPunctuator` escapes), so the citation is a
+/// **parameter** of [`RegExpCompileError::invalid_syntax`], not a comment: a
+/// rejection whose author cannot name the production it enforces does not
+/// compile, and `unsupported_feature` — which cites nothing, because it claims
+/// nothing about the spec — is the correct constructor for it.
+///
+/// [`SyntaxRule::ALL`] and the exhaustive `match` in [`SyntaxRule::citation`]
+/// are what keep the witness table in this module's tests total: a new variant
+/// forces an edit to both, and the table test fails until the new rule has a
+/// pinned `(pattern, flags)` witness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SyntaxRule {
+    /// `(` with no matching `)`.
+    UnclosedGroup,
+    /// `)` with no matching `(`.
+    StrayClosingParenthesis,
+    /// The modifier-group flag list `(?ims-ims: … )`.
+    ModifierFlags,
+    /// A quantifier with no atom in front of it.
+    QuantifierWithoutAtom,
+    /// A quantifier applied to another quantifier.
+    QuantifierAfterQuantifier,
+    /// `{n,m}` with `m` below `n`.
+    QuantifierBounds,
+    /// A `SyntaxCharacter` used unescaped where the grammar requires an escape.
+    UnescapedSyntaxCharacter,
+    /// `\k` not followed by a `GroupName`.
+    NamedBackreferenceSyntax,
+    /// `\k<name>` naming no group.
+    UnknownGroupName,
+    /// Two group specifiers that can match at the same position sharing a name.
+    DuplicateGroupName,
+    /// The identifier grammar shared by `(?<name>…)` and `\k<name>`.
+    RegExpIdentifierName,
+    /// The flag string: unknown, duplicated, non-ASCII, or `u` with `v`.
+    Flags,
+    /// A `\` with nothing, or nothing legal, after it.
+    CharacterEscape,
+    /// `IdentityEscape` in Unicode mode.
+    IdentityEscape,
+    /// `ClassEscape` / `ClassSetCharacter` inside a character class.
+    ClassEscape,
+    /// `\xHH`.
+    HexEscapeSequence,
+    /// `\uHHHH`.
+    UnicodeEscapeSequence,
+    /// `\u{…}`.
+    CodePointEscape,
+    /// `\u{…}` above `U+10FFFF`.
+    CodePointEscapeRange,
+    /// The shape of `\p{…}` / `\P{…}`.
+    UnicodePropertyEscape,
+    /// The property name or value inside `\p{…}`.
+    UnicodePropertyName,
+    /// `[` with no matching `]`.
+    UnclosedCharacterClass,
+    /// A class range whose bounds are the wrong way round.
+    ClassRangeOrder,
+    /// A class range bound that is a character class rather than a character.
+    ClassRangeBound,
+}
+
+impl SyntaxRule {
+    /// Every rule, for the witness table in this module's tests.
+    ///
+    /// Hand-maintained, and deliberately paired with the exhaustive `match` in
+    /// [`SyntaxRule::citation`]: adding a variant without extending that match
+    /// is a compile error, and `every_syntax_rule_has_a_pinned_witness` fails
+    /// for a variant that reaches this array with no witness. The array cannot
+    /// be derived, so `all_syntax_rules_are_listed_once` checks it is sorted
+    /// and duplicate-free — a copy-paste omission then shows up as a failing
+    /// test rather than as a silently unaudited rule.
+    pub const ALL: [SyntaxRule; 24] = [
+        SyntaxRule::UnclosedGroup,
+        SyntaxRule::StrayClosingParenthesis,
+        SyntaxRule::ModifierFlags,
+        SyntaxRule::QuantifierWithoutAtom,
+        SyntaxRule::QuantifierAfterQuantifier,
+        SyntaxRule::QuantifierBounds,
+        SyntaxRule::UnescapedSyntaxCharacter,
+        SyntaxRule::NamedBackreferenceSyntax,
+        SyntaxRule::UnknownGroupName,
+        SyntaxRule::DuplicateGroupName,
+        SyntaxRule::RegExpIdentifierName,
+        SyntaxRule::Flags,
+        SyntaxRule::CharacterEscape,
+        SyntaxRule::IdentityEscape,
+        SyntaxRule::ClassEscape,
+        SyntaxRule::HexEscapeSequence,
+        SyntaxRule::UnicodeEscapeSequence,
+        SyntaxRule::CodePointEscape,
+        SyntaxRule::CodePointEscapeRange,
+        SyntaxRule::UnicodePropertyEscape,
+        SyntaxRule::UnicodePropertyName,
+        SyntaxRule::UnclosedCharacterClass,
+        SyntaxRule::ClassRangeOrder,
+        SyntaxRule::ClassRangeBound,
+    ];
+
+    /// The production or early-error clause this rule enforces.
+    ///
+    /// Exhaustive, with no catch-all arm, per AGENTS.md.
+    pub const fn citation(self) -> &'static str {
+        match self {
+            SyntaxRule::UnclosedGroup => {
+                "22.2.1 Atom :: `(` GroupSpecifier? Disjunction `)`; the closing parenthesis is not optional"
+            }
+            SyntaxRule::StrayClosingParenthesis => {
+                "22.2.1 Disjunction; `)` is a SyntaxCharacter and is not a PatternCharacter"
+            }
+            SyntaxRule::ModifierFlags => {
+                "22.2.1 Atom :: `(` `?` RegularExpressionFlags `-`? RegularExpressionFlags? `:` Disjunction `)`, and its 22.2.1.1 early errors"
+            }
+            SyntaxRule::QuantifierWithoutAtom => {
+                "22.2.1 Term :: Atom Quantifier; a Quantifier requires a preceding Atom"
+            }
+            SyntaxRule::QuantifierAfterQuantifier => {
+                "22.2.1 Term :: Atom Quantifier; a Quantifier is not itself an Atom"
+            }
+            SyntaxRule::QuantifierBounds => {
+                "22.2.1.1: it is a Syntax Error if the MV of the first DecimalDigits of a QuantifierPrefix is larger than the MV of the second"
+            }
+            SyntaxRule::UnescapedSyntaxCharacter => {
+                "22.2.1 Atom :: PatternCharacter :: SourceCharacter but not SyntaxCharacter; Annex B ExtendedPatternCharacter does not apply in UnicodeMode"
+            }
+            SyntaxRule::NamedBackreferenceSyntax => {
+                "22.2.1 AtomEscape[+NamedCaptureGroups] :: `k` GroupName"
+            }
+            SyntaxRule::UnknownGroupName => {
+                "22.2.1.1: it is a Syntax Error if GroupSpecifiersThatMatch(GroupName) is empty"
+            }
+            SyntaxRule::DuplicateGroupName => {
+                "22.2.1.1 Pattern early error: it is a Syntax Error if MightBothParticipate is true for two GroupSpecifiers with the same name"
+            }
+            SyntaxRule::RegExpIdentifierName => {
+                "22.2.1 RegExpIdentifierName :: RegExpIdentifierStart RegExpIdentifierPart*, and its 22.2.1.1 early errors"
+            }
+            SyntaxRule::Flags => {
+                "22.2.3.1 RegExpInitialize: it is a Syntax Error if F contains a code unit outside `dgimsuvy`, repeats one, or contains both `u` and `v`"
+            }
+            SyntaxRule::CharacterEscape => {
+                "22.2.1 AtomEscape :: CharacterEscape and ClassEscape :: CharacterEscape; `\\` must be followed by an escape"
+            }
+            SyntaxRule::IdentityEscape => {
+                "22.2.1 IdentityEscape[+UnicodeMode] :: SyntaxCharacter | `/`"
+            }
+            SyntaxRule::ClassEscape => {
+                "22.2.1 ClassEscape[+UnicodeMode] :: `b` | `-` | CharacterClassEscape | CharacterEscape, extended in UnicodeSetsMode by ClassSetCharacter :: `\\` ClassSetReservedPunctuator"
+            }
+            SyntaxRule::HexEscapeSequence => {
+                "22.2.1 CharacterEscape :: HexEscapeSequence :: `x` HexDigit HexDigit"
+            }
+            SyntaxRule::UnicodeEscapeSequence => {
+                "22.2.1 RegExpUnicodeEscapeSequence[+UnicodeMode] :: `u` Hex4Digits"
+            }
+            SyntaxRule::CodePointEscape => {
+                "22.2.1 RegExpUnicodeEscapeSequence[+UnicodeMode] :: `u{` CodePoint `}`"
+            }
+            SyntaxRule::CodePointEscapeRange => {
+                "22.2.1 CodePoint early error: it is a Syntax Error if the MV of HexDigits is greater than 0x10FFFF"
+            }
+            SyntaxRule::UnicodePropertyEscape => {
+                "22.2.1 CharacterClassEscape :: `p{` UnicodePropertyValueExpression `}`"
+            }
+            SyntaxRule::UnicodePropertyName => {
+                "22.2.1.1: it is a Syntax Error if UnicodeMatchProperty / UnicodeMatchPropertyValue does not resolve against tables 69-72"
+            }
+            SyntaxRule::UnclosedCharacterClass => {
+                "22.2.1 CharacterClass :: `[` ClassContents `]`"
+            }
+            SyntaxRule::ClassRangeOrder => {
+                "22.2.1.1 NonemptyClassRanges early error: it is a Syntax Error if the CharacterValue of the first ClassAtom is strictly greater than that of the second"
+            }
+            SyntaxRule::ClassRangeBound => {
+                "22.2.1.1: it is a Syntax Error if IsCharacterClass of either ClassAtom of a range is true"
+            }
+        }
+    }
+}
+
+/// The message every `&str`-boundary decode failure inside this parser reports.
+///
+/// [`RegExpProgram::compile`] takes `&str`, so the byte slice these parsers walk
+/// is always well-formed UTF-8 and `std::str::from_utf8` can only fail if the
+/// cursor reached a position that is not a character boundary. That is a defect
+/// in *this compiler*, never in the pattern, so none of those sites can cite an
+/// ECMA-262 production and none of them may answer `InvalidSyntax`. They were
+/// `InvalidSyntax` until batch 8; `UnsupportedFeature` is the honest verdict of
+/// the two this error type has. Making the state unrepresentable — decoding from
+/// the `&str` rather than re-decoding a `&[u8]` — is filed as follow-up in
+/// `target/lane-notes/re-verdict-b8-integration.md`.
+const NON_BOUNDARY_SOURCE: &str =
+    "regular-expression source could not be decoded at a character boundary";
+
 /// A compile failure with the byte offset in the pattern or flag string supplied
 /// to [`RegExpProgram::compile`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -487,22 +697,36 @@ pub struct RegExpCompileError {
     pub kind: RegExpCompileErrorKind,
     pub offset: usize,
     pub message: String,
+    /// The rule an `InvalidSyntax` rejection enforces.
+    ///
+    /// `None` exactly when `kind` is `UnsupportedFeature`, which is a claim
+    /// about this compiler and cites nothing. Carried on the error rather than
+    /// only passed to the constructor so that a test can pin *which* site
+    /// answered, not merely that some site did.
+    pub rule: Option<SyntaxRule>,
 }
 
 impl RegExpCompileError {
-    fn invalid_syntax(offset: usize, message: impl Into<String>) -> Self {
+    /// A claim that a conforming engine rejects this pattern.
+    ///
+    /// `rule` is mandatory. See [`SyntaxRule`] for why.
+    fn invalid_syntax(rule: SyntaxRule, offset: usize, message: impl Into<String>) -> Self {
         Self {
             kind: RegExpCompileErrorKind::InvalidSyntax,
             offset,
             message: message.into(),
+            rule: Some(rule),
         }
     }
 
+    /// A claim about this compiler only: the pattern is legal and Lila cannot
+    /// build a matcher program for it. Cites nothing, by construction.
     fn unsupported_feature(offset: usize, message: impl Into<String>) -> Self {
         Self {
             kind: RegExpCompileErrorKind::UnsupportedFeature,
             offset,
             message: message.into(),
+            rule: None,
         }
     }
 }
