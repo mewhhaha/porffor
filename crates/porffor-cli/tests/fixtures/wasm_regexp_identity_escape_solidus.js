@@ -58,4 +58,19 @@ check(/[\u{41}]/u.test("A"), true, "the class position agrees");
 // braced branch is gated on the `{` and must not swallow this one.
 check(/\u0041/u.test("A"), true, "the four-digit alternative still works");
 
+// The ASTRAL half, which is where the braced alternative has its real blast
+// radius. `\u{41}` above exercises only the BMP path, which ends in
+// `literal_ascii`; a supplementary-plane code point ends in
+// `literal_code_point`, and `\u{1F600}` is the ordinary way to write one.
+//
+// Only the PARSE of the braced form is new here: `parse_escaped_atom`'s
+// surrogate-pair branch already emits the same `literal_code_point` for a
+// pattern written as an explicit pair, and
+// `wasm_regexp_exec_unicode_property_program.js` already runs that
+// instruction through the matcher end to end. The subject is written as a
+// surrogate pair rather than as a braced string escape so that a failure
+// here can only be the regexp, never the string-literal grammar.
+check(/\u{1F600}/u.test("\uD83D\uDE00"), true, "an astral braced escape matches");
+check(/\u{1F600}/u.test("A"), false, "an astral braced escape matches nothing else");
+
 true;

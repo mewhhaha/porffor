@@ -124,3 +124,285 @@ Warning set is **identical to `target/lane-notes/b4-baseline-xc.log`**, same six
 | `lowering_helpers.rs` `StaticStringGeneratorLoopBody` never used | 3 | 3 |
 
 Zero new warnings.
+
+## 3. Lane 2 — ERM-STACK: `cargo check -p porffor-aot-wasm`
+
+**Zero errors on first check**, for ~1,650 blind lines. Because that is exactly
+the result a lane which merely *compiles* would also produce, the wiring was
+verified rather than inferred — an emitter with no call site compiles clean and
+raises no dead-code warning when it is `pub(crate)`, which `AGENTS.md` names as a
+shape this repository has shipped before:
+
+| link | evidence |
+|---|---|
+| module | `builtins/mod.rs:3` `mod async_disposable_stack;` |
+| compile dispatch | `builtins/standard.rs:9724-9750`, 9 arms, each calling a distinct `emit_async_disposable_stack_*` |
+| intrinsic install | `bootstrap.rs:288` -> `install_async_disposable_stack_constructor_intrinsics` (`intrinsics/collections.rs:477`) |
+| bootstrap gate | `bootstrap.rs:4507` `should_initialize_standard_builtin(AsyncDisposableStackConstructor)` |
+| emitters | 9 `pub(crate) fn` in the new file, all named by the dispatch |
+
+Warnings: `porffor-aot-wasm` lib **25**, lib-test **20** — identical to the
+batch-7 head. Nothing the lane added is unreachable.
+
+### The strengthening: two closed domains that were bare `u64`
+
+This is the one place the lane left a genuine type weakness, and it is the
+`AGENTS.md` newtype/exhaustive-match rule twice over.
+
+**(a) Two domains sharing a type *and a value*.** `heap.rs` defined
+`ASYNC_DISPOSABLE_STACK_STATE_{PENDING,DISPOSED}` and
+`ASYNC_DISPOSABLE_STACK_ENTRY_KIND_{USE,ADOPT,DEFER,EMPTY}` as six `u64`
+constants. `..._STATE_DISPOSED` and `..._ENTRY_KIND_ADOPT` are **both `1`**, and
+they index different words of different records, so every emitter site accepted
+either one silently. Replaced with `AsyncDisposableStackState` and
+`AsyncDisposableStackEntryKind`, each with a `const fn word()`; all 14 use sites
+converted, and the `as i64` casts now hang off `.word()`.
+
+**(b) The disposal walk's dispatch had a silent fallthrough.** The emitted chain
+is `kind != Empty ? (kind == Use ? … : (kind == Adopt ? … : <defer>))`. Its last
+arm is an emitted `Else`, so a fifth entry kind would have been **disposed as a
+`defer`** — called with an undefined receiver and no arguments — with nothing to
+notice. That is precisely the class `data.rs`'s `RuntimeRegExpEntryKind` was
+introduced for in batch 7, one record over, and its doc says so in as many words.
+
+So the dispatch is now *derived*, following that precedent exactly: the policy is
+stated once as `AsyncDisposableStackEntryKind::dispose_call() ->
+Option<AsyncDisposableStackDisposeCall>`, and the emitter builds its comparison
+chain by iterating `ALL`. "No call at all" is the `Option`'s `None`, not a
+variant, so the emitter's match over call shapes has no arm it must prove
+unreachable and needs no `unreachable!`.
+
+**The emitted bytes are unchanged for today's domain**, derived instruction by
+instruction rather than assumed — this matters because rung G is unavailable to
+this role and the lane is otherwise unverified. With
+`ALL = [Use, Adopt, Defer, Empty]`, `no_call_kinds = [Empty]` and
+`calling_kinds = [Use, Adopt, Defer]` (`last = 2`):
+
+| emitted | derived | hand-written original |
+|---|---|---|
+| guard | `LocalGet, I64Const(3), I64Ne, If` | identical |
+| i=0 `Use` | `LocalGet, I64Const(0), I64Eq, If`, call(method, resource receiver, `[]`), `Else` | identical |
+| i=1 `Adopt` | `LocalGet, I64Const(1), I64Eq, If`, call(method, undefined, `[V]`), `Else` | identical |
+| i=2 `Defer` | call(method, undefined, `[]`), no `Else` | identical |
+| close | 2 `End` (chain) + 1 `End` (guard) = **3** | 3 |
+
+Temp-local discipline is untouched: each `emit_function_or_proxy_call_leave_throw_completion`
+reserves and releases internally, and the loop calls it the same three times.
+
+## 4. Lane 3 — ASYNC-FROM-SYNC-CLOSE
+
+Landed in the same commit as ERM-STACK and covered by the same
+`cargo check -p porffor-aot-wasm`: **zero errors, zero new warnings**. The lane
+edited `promise.rs` only, and — correctly — left `control_flow.rs` and `ir.rs`
+alone after showing the lane spec's location premise was wrong (all six failing
+cases are `yield*`, not `for await`).
+
+### Its one cross-file request, applied
+
+`crates/porffor-cli/tests/fixtures/wasm_async_from_sync_iterator_close_on_rejection.js`
+was **unreferenced** — verified by grep across `crates/porffor-cli/tests/`, zero
+hits. An orphan fixture is the "no call site" shape again: it costs nothing to
+compile and proves nothing.
+
+Wired as `iterator::run_wasm_backend_closes_the_sync_iterator_when_an_async_from_sync_value_rejects`,
+pasted from §5.1 of the lane note, with the per-term meaning of the marker
+recorded at the test so a future reader does not delete a term to make it green.
+The fixture's own `print` was checked to emit exactly the asserted marker, and
+its `record()` order (`a,b,c,d,e,f,h`) to match the asserted `|` order.
+
+Every `N` in `a=A/1|b=B/1|c=C|d=D|e=E/1|f=F/0|h=H/1` is a **count**, so a double
+close fails as loudly as a missing one. `h` is the only oracle in the tree for
+the guard's pending-kind term.
+
+Distinguish this from carried item (D): `wasm_async_for_of_closure_capture.js` is
+**deliberately** unreferenced until it lands green and was left alone.
+
+## 5. Lane 4 — RE-VERDICT
+
+`cargo xc` covers it; zero errors, zero new warnings. The lane found a third
+over-eager site the batch task did not predict (`\u{…}` is not an atom escape at
+all, so **every astral pattern written the ordinary way was a `SyntaxError`**),
+which is likely the largest single contributor in the RegExp delta run and is the
+thing to look at first there.
+
+### The ledger hygiene invariants, re-verified statically
+
+The lane deleted the `UNFILLED` row. `known_failures::*` are runtime tests this
+role cannot run, so they were re-implemented over the actual files:
+
+```
+ledger data rows            : 4   (heap ignore + 3 perf ignores)
+sorted (OutOfOrder check)   : True
+`const _: fn()` assertions  : 1, resolving to a real test that carries #[ignore]
+every #[ignore] declared    : 4/4  (1 in tests/cli/heap.rs, 3 in tests/perf.rs)
+unfilled rows remaining     : 0
+attribute-on-one-line       : no violations across tests/cli/*.rs
+should_panic rows           : none remain in the tree
+```
+
+Worth stating because it changes what rung 1c can detect: with **no
+`should_panic` row left**, the drift table's "declared failure starts passing"
+and "fails for a different reason" rows currently have no travellers. The ledger
+is now purely an `#[ignore]` register. That is the correct state, not a gap — but
+it means rung 1c's gate value now rests entirely on ordinary red tests and the
+hygiene checks.
+
+`cargo fmt --all` rewrapped four files; the one-physical-line rule for `#[…]`
+attributes, which `known_failures::scan_source` enforces and which a rewrap could
+plausibly have broken, was re-checked afterwards and holds.
+
+### Rung 1c chunk partition — still valid
+
+```
+chunks 20   stems 20   mods 20   three-way identical: True
+overlap: `array` must --skip `typed_array` -> present   OK
+sh -n scripts/rung1c-chunks.sh : OK
+```
+
+## 6. Counts, recounted (do not cite, recount)
+
+`#[test]` attributes in `crates/porffor-cli/tests/cli/*.rs`, exact-line `awk`
+form (never the substring grep):
+
+```
+623
+```
+
+620 at the b7 head, +1 ERM-STACK (`object.rs`), +1 RE-VERDICT (`regexp.rs`),
++1 this session (`iterator.rs`). RE-VERDICT's note counted 622 mid-batch and
+correctly said it would move again.
+
+Per-module, for the chunks whose count sidecar will re-trigger:
+
+| module | b7 banked | now |
+|---|---|---|
+| `regexp` | 35 | **36** |
+| `object` | 35 | **36** |
+| `iterator` | 30 | **31** |
+| `date` | 18 | 18 |
+
+The compiled/executing split (`612`/`611` at b7) was **not** re-measured — that
+needs `--list`, which is a build. 623 − 8 `spec-exec-oracle` gates − 1 `heap`
+`#[ignore]` predicts 614/613, but treat that as arithmetic, not a measurement.
+
+## 7. Gate status
+
+| gate | result |
+|---|---|
+| `cargo check -p porffor-ir --all-targets` | **EXIT 0** |
+| `cargo check -p porffor-aot-wasm --all-targets` | **EXIT 0** |
+| `cargo xc` (`check --workspace --all-targets`) | **EXIT 0**, 0 errors |
+| new warnings | **none.** 31 unique `crates/porffor*` warning sites, every one present in `b4-baseline-xc.log`. Per-crate totals differ from b4 only by the single warning batch 7 removed (`porffor-aot-wasm` 26→25 lib, 21→20 lib-test). |
+| `cargo fmt --all -- --check` | **clean** (exit 0) after one `cargo fmt --all` |
+
+`porffor-ir` lib-test reads "5 warnings (4 duplicates)" on one run and
+"(5 duplicates)" on another. Same six sites both times; it is only which unit
+reports a shared site first. b7 recorded the same flip.
+
+## 8. What remains unverified, and by whose rule
+
+Everything below rung 0 — this role is `cargo check`/`xc` only.
+
+* **No test, no build, no test262.** Not one behavioural claim in any of the four
+  lane notes has been measured. In particular ERM-STACK's own honest framing
+  stands: the claim is "the intrinsic is implemented", never a pass count.
+* **Rung G does not apply** to lanes 2-4 (feature work changes bytes by design).
+  It *would* have applied to my dispatch rewrite, which is why byte-identity was
+  derived by hand in §3 instead of asserted.
+* **Item B, the RegExp delta**, is still owed and is the highest-value run:
+  `built-ins/RegExp/prototype` (487) as a delta against the baseline snapshot.
+  RE-VERDICT's DEFECT 3 (`\u{…}`) makes `built-ins/RegExp` (488) and
+  `unicodeSets` (114) at least as interesting.
+* **The three new/changed CLI tests** are the cheapest real signal:
+  `object::…async_disposable_stack_surface…`, `iterator::…async_from_sync…`,
+  `regexp::…identity_escape_solidus…`. None has ever run.
+* Sweep-paused chunks: `language_*` and unconditionally `date::` (11.48 GiB).
+
+## 9. Filed forward (analysed here, deliberately not changed)
+
+**The two immutable-binding messages.** Both IR-TRUTH (§ "Filed for batch 9",
+item 3) and ERM-STACK reach for this and neither owned both files.
+`const x = 1; x = 2;` throws `assignment to immutable binding`
+(`lowering.rs:31898`) while `const x = 1; [x] = [2];` throws
+`assignment to immutable destructuring target` (`data.rs:161`,
+`control_flow.rs:8289`) — one spec error, two messages.
+
+The safety analysis a batch-9 lane would otherwise redo, done here:
+
+* it is a **two-site** edit, not one — the pool literal and the throw site must
+  move together or the `must exist in pool` panic class fires at run time;
+* `RUNTIME_ERROR_MESSAGE_LITERALS` must stay sorted and unique
+  (`the_runtime_error_message_table_is_sorted_and_unique`, which also asserts
+  `len() >= 125`). A rename keeps the length, and
+  `"assignment to immutable binding" < "assignment to unresolvable reference"`,
+  so sortedness survives;
+* a duplicate against the lowering path's own message costs nothing —
+  `intern_string` returns early on a hit, as the table's doc states;
+* **nothing asserts the destructuring text** (grepped `crates/` over `.rs`,
+  `.js`, `.tsv`: four hits, all the definition/throw sites plus `lib.rs:9433`
+  asserting the *identifier* message).
+
+Not done here because it is a user-visible behavioural change that `cargo check`
+cannot gate, in a session with no test access, and both lanes deliberately
+deferred it. The deeper fix the table's own doc names — one
+`RUNTIME_ERROR_MESSAGES` domain the emitters index into, making "forgot to
+intern" a compile error — is ~1,120 call sites and belongs to a lane of its own.
+
+## 10. Sweep restarted — and the duplicate nearly recurred
+
+**A concurrent agent restarted the sweep while I was in the gates**, so by the
+time I went to honour the restart I owed, supervisor `9752` was already up. My
+own `setsid` restart therefore made it two again — the exact hazard I had just
+cleaned up. Killed mine, kept the incumbent:
+
+```
+supervisor count : 1   (pid 9752)
+worker count     : 1   (pid 9755, --threads 2 --jobs 2 --resume, same snapshot)
+MemAvailable     : 7 GiB
+```
+
+The lesson is worth more than the incident: **`report-all --resume` is not
+self-interlocking.** Nothing in the supervisor or in `report-all` detects a second
+process on the same `--snapshot-name`/`--snapshot-dir`; two writers share one
+resume journal and one aggregate silently. This has now happened twice in two
+batches (IR-TRUTH's handover, and again here), and both times a human had to
+notice it in `ps`. Always `ps` for `[s]weep-supervisor.sh` *before* starting one,
+and count after. A pidfile or an `O_EXCL` lock beside the snapshot is the real
+fix and belongs to whichever lane next owns the sweep tooling.
+
+### What the pause cost the journal: nothing
+
+Killing the workers charged **29** `was in flight when a previous process died`
+strikes. That is the journal working as designed, and it was checked rather than
+assumed that they did not turn into quarantines — a case at 2 strikes is recorded
+as an outcome-`Crash` failure **without being run**, which would have silently
+corrupted the node:
+
+```
+strike-1 lines charged : 29
+quarantines            : 0
+live strikes map       : {}      # …built-ins_Atomics-….attempts — empty, i.e. all retired
+```
+
+So every charged case was re-run and completed. The standing risk is real though:
+**a second kill while the same cases are in flight takes them to strike 2**, so do
+not pause and resume repeatedly inside one node.
+
+### Sweep health at handover — do not misread the quiet log
+
+The log had not grown for 45 s at handover, which `batch-workflow.md` says to
+treat as suspicious. It is not a stall here, and the distinction was measured
+rather than waited out:
+
+```
+worker CPU time : 00:31:58 -> 00:33:11 over 30 s wall   (~2.4 cores, both threads busy)
+state           : Sl
+node in flight  : built-ins/Atomics/wait/{negative-timeout-agent,nan-for-timeout}.js
+```
+
+`report-all` prints a checkpoint only every 10 cases, so a slow node is
+indistinguishable from a hung one by log growth alone over short windows. **CPU
+time delta on the worker pid is the cheap discriminator** and belongs next to the
+"judge by whether the log is growing" rule. Note the node: `Atomics/wait` is T17's
+old hang, closed in batch 6 — it is now merely slow, and it is the node the
+`--stall 900` headroom exists for.

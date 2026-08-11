@@ -1126,8 +1126,18 @@ impl PatternParser<'_> {
         let mut seen_dash = false;
         loop {
             let Some(&byte) = self.bytes.get(cursor) else {
+                // `ModifierFlags`, not `UnclosedGroup`: what ran out here is the
+                // modifier prefix of `(?` RegularExpressionFlags `:`, so
+                // `UnclosedGroup`'s citation ("Atom :: `(` GroupSpecifier?
+                // Disjunction `)`") names a production this pattern does not
+                // violate — and since `Display` puts `citation()` on the product
+                // path, `/(?i/` would throw a `SyntaxError` naming the wrong
+                // rule. The five sibling rejections in this function all cite
+                // `ModifierFlags`. `every_syntax_rule_has_a_pinned_witness` is
+                // per-RULE, not per-SITE, so it cannot catch a wrong variant at a
+                // non-witness site; this is one such site.
                 return Err(RegExpCompileError::invalid_syntax(
-                    SyntaxRule::UnclosedGroup,
+                    SyntaxRule::ModifierFlags,
                     group_offset,
                     "regular-expression modifier group is unclosed",
                 ));
@@ -1336,26 +1346,21 @@ fn parse_instruction_atom(
             RegExpInstruction::literal_ascii(byte)
         }
         b'[' if unicode_sets => parse_unicode_sets_class(bytes, offset, modifiers, pool)?,
+        // The mode is a literal at both sites and not a reconstruction from the
+        // two booleans: the `unicode_sets` arm above already consumed every
+        // `v`-mode class, so this arm is `u` and the unguarded one below is
+        // neither. A `ClassMode::from_flags(unicode, unicode_sets)` here could
+        // only ever answer `Unicode` / `Legacy` respectively, which made its
+        // `UnicodeSets` arm unreachable — the same "compiles clean, no call
+        // site" shape this file just deleted `first_unsupported` for.
         b'[' if unicode => {
             if let Some(instruction) = parse_single_unicode_class(bytes, offset)? {
                 instruction
             } else {
-                parse_class(
-                    bytes,
-                    offset,
-                    ClassMode::from_flags(unicode, unicode_sets),
-                    modifiers,
-                    pool,
-                )?
+                parse_class(bytes, offset, ClassMode::Unicode, modifiers, pool)?
             }
         }
-        b'[' => parse_class(
-            bytes,
-            offset,
-            ClassMode::from_flags(unicode, unicode_sets),
-            modifiers,
-            pool,
-        )?,
+        b'[' => parse_class(bytes, offset, ClassMode::Legacy, modifiers, pool)?,
         b'\\' => parse_escaped_atom(bytes, offset, unicode, modifiers, pool)?,
         b'.' => {
             *offset += 1;
@@ -2301,15 +2306,13 @@ fn parse_unicode_escape(bytes: &[u8], start: usize) -> Result<(u16, usize), RegE
             "malformed Unicode escape",
         ));
     }
-    let digits = bytes
-        .get(start + 2..start + 6)
-        .ok_or_else(|| {
-            RegExpCompileError::invalid_syntax(
-                SyntaxRule::UnicodeEscapeSequence,
-                start,
-                "malformed Unicode escape",
-            )
-        })?;
+    let digits = bytes.get(start + 2..start + 6).ok_or_else(|| {
+        RegExpCompileError::invalid_syntax(
+            SyntaxRule::UnicodeEscapeSequence,
+            start,
+            "malformed Unicode escape",
+        )
+    })?;
     if digits.len() != 4 || !digits.iter().all(u8::is_ascii_hexdigit) {
         return Err(RegExpCompileError::invalid_syntax(
             SyntaxRule::UnicodeEscapeSequence,
@@ -2499,9 +2502,8 @@ fn parse_class_atom(
         ));
     };
     if member != b'\\' {
-        let source = std::str::from_utf8(&bytes[offset..]).map_err(|_| {
-            RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE)
-        })?;
+        let source = std::str::from_utf8(&bytes[offset..])
+            .map_err(|_| RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE))?;
         let character = source.chars().next().expect("non-empty class source");
         *cursor += character.len_utf8();
         return Ok(ClassAtom::CodePoint(character as u32));
@@ -2807,21 +2809,6 @@ enum ClassMode {
 }
 
 impl ClassMode {
-    /// Reconstructs the mode from the two booleans the parser threads.
-    ///
-    /// `unicode` is `flags.unicode || flags.unicode_sets` at every call site, so
-    /// `unicode_sets` wins: `(false, true)` is `v` with the union already folded
-    /// in rather than an impossible state. `u` and `v` are mutually exclusive
-    /// flags (22.2.3.1), rejected in [`parse_flags`], so `(true, true)` cannot
-    /// reach here from a real flag string and folds to `v` if it ever does.
-    fn from_flags(unicode: bool, unicode_sets: bool) -> Self {
-        match (unicode, unicode_sets) {
-            (_, true) => ClassMode::UnicodeSets,
-            (true, false) => ClassMode::Unicode,
-            (false, false) => ClassMode::Legacy,
-        }
-    }
-
     /// Whether the Unicode-mode restrictions apply — exactly what the old
     /// `unicode: bool` parameter meant, and nothing more.
     fn is_unicode_mode(self) -> bool {
@@ -2858,7 +2845,13 @@ impl ClassMode {
 /// what identified DEFECT 1 as a missing alternative rather than a design
 /// choice.
 fn is_class_identity_escape(escaped: u8) -> bool {
-    is_syntax_character(escaped) || matches!(escaped, b'-' | b'/')
+    // Delegates rather than re-spelling `SyntaxCharacter | `/``. Written out
+    // independently, `IdentityEscape[+UnicodeMode]` lived in two predicates and
+    // the next correction to that production would have had to be made twice —
+    // getting it right in only one of them is exactly the atom/class divergence
+    // that made DEFECT 1 detectable. As delegation, this reads as the spec does:
+    // the `u`-mode identity escape, plus `-` from `ClassEscape` itself.
+    is_unicode_identity_escape(escaped) || escaped == b'-'
 }
 
 /// ``ClassSetReservedPunctuator :: one of & - ! # % , : ; < = > @ ` ~`` (22.2.1).
@@ -3022,9 +3015,8 @@ fn parse_single_unicode_class(
         ));
     };
     let end = class_offset + 1 + relative_end;
-    let source = std::str::from_utf8(&bytes[class_offset + 1..end]).map_err(|_| {
-        RegExpCompileError::unsupported_feature(class_offset, NON_BOUNDARY_SOURCE)
-    })?;
+    let source = std::str::from_utf8(&bytes[class_offset + 1..end])
+        .map_err(|_| RegExpCompileError::unsupported_feature(class_offset, NON_BOUNDARY_SOURCE))?;
     let mut characters = source.chars();
     let Some(character) = characters.next() else {
         return Ok(None);
@@ -4567,8 +4559,13 @@ mod tests {
         assert_eq!(error.offset, 4);
     }
 
+    /// No "unsupported" category any more: the `first_unsupported` arm this test
+    /// was named for was deleted with the rest of the flag-verdict audit, and
+    /// `parse_flags` can now only answer `InvalidSyntax`. The test stayed green
+    /// through that deletion because it never asserted the third category — which
+    /// is why the *name* was the only thing left claiming it exists.
     #[test]
-    fn distinguishes_duplicate_unknown_and_unsupported_flags() {
+    fn distinguishes_duplicate_and_unknown_flags() {
         for flags in ["gg", "yy", "ii", "igi"] {
             let error = RegExpProgram::compile("a", flags).expect_err("flags should be invalid");
             assert_eq!(error.kind, RegExpCompileErrorKind::InvalidSyntax);
@@ -4790,7 +4787,22 @@ mod tests {
 
         // The class path always had the rule right. Its continued agreement is
         // what identified the atom path as the defect, so it is pinned too.
-        assert!(RegExpProgram::compile(r"[\/]", "u").is_ok());
+        //
+        // The `A` is load-bearing and not decoration.
+        // `class_needs_code_point_ranges` sends a class down `parse_class` only
+        // when it contains one of `p P u x w W D S` after a backslash, or a
+        // non-ASCII byte. A bare `[\/]` therefore goes to `parse_ascii_class`,
+        // whose `parse_ascii_class_atom` takes no `ClassMode` and accepts every
+        // escaped byte unconditionally — green whatever
+        // `is_class_identity_escape` does, i.e. pinning nothing. A plain `A` is
+        // not a trigger either — the second assertion below says so, because
+        // that is the mistake this comment exists to stop — so the class carries
+        // a `\w` and the `parse_class` / `parse_class_atom(_, _,
+        // ClassMode::Unicode)` path is actually consulted.
+        assert!(!class_needs_code_point_ranges(br"[\/]", 0));
+        assert!(!class_needs_code_point_ranges(br"[\/A]", 0));
+        assert!(class_needs_code_point_ranges(br"[\/\w]", 0));
+        assert!(RegExpProgram::compile(r"[\/\w]", "u").is_ok());
 
         // The guard against the WRONG fix. Adding `/` to `is_syntax_character`
         // would satisfy the assertions above and simultaneously turn the bare
@@ -4843,11 +4855,24 @@ mod tests {
         }
         // `-` is the fourteenth alternative and is legal in `u` mode too, which
         // is why it was the one punctuator HEAD already accepted.
+        //
+        // Under `v` a bare `[\-]` reaches `parse_unicode_sets_class`
+        // unconditionally, so it exercises the rule. Under `u` it does NOT: a
+        // class with no `p P u x w W D S` escape and no non-ASCII byte is
+        // handled by `parse_ascii_class`, which has no `ClassMode` and accepts
+        // every escaped byte, so the `u` leg needs the trailing `\w` to force
+        // the code-point path and reach `is_class_identity_escape` at all. The
+        // same trap as the `[\/]` assertion in
+        // `unicode_mode_accepts_solidus_identity_escape`.
+        assert!(!class_needs_code_point_ranges(br"[\-]", 0));
+        assert!(class_needs_code_point_ranges(br"[\-\w]", 0));
         for flags in ["u", "v"] {
-            assert!(
-                RegExpProgram::compile(r"[\-]", flags).is_ok(),
-                "the `-` alternative must not regress under `{flags}`"
-            );
+            for pattern in [r"[\-]", r"[\-\w]"] {
+                assert!(
+                    RegExpProgram::compile(pattern, flags).is_ok(),
+                    "the `-` alternative must not regress for `{pattern}` under `{flags}`"
+                );
+            }
         }
 
         // `u` mode is unchanged: these are NOT `u`-mode class escapes, and
@@ -4911,9 +4936,19 @@ mod tests {
     /// witness. A site that cannot produce one is not an `InvalidSyntax` site.
     ///
     /// Each witness is asserted to produce its OWN rule, not merely some
-    /// `InvalidSyntax`. That is what makes the table a site map: a pattern that
-    /// starts being answered by a different site fails here rather than being
-    /// silently absorbed by a neighbouring rule.
+    /// `InvalidSyntax`, so a witness pattern that starts being answered by a
+    /// different rule fails here rather than being silently absorbed.
+    ///
+    /// **This is per-RULE, not per-SITE, and it is not a site map.** 66
+    /// `invalid_syntax` call sites map onto 24 rules and 24 witnesses:
+    /// `RegExpIdentifierName` alone has 14 sites sharing one witness,
+    /// `UnclosedCharacterClass` has 9, `CharacterEscape` has 3. A site given the
+    /// WRONG variant is invisible to this test whenever some other site already
+    /// witnesses both rules — which is exactly how `parse_modifier_group_prefix`
+    /// shipped an `UnclosedGroup` citation on a `ModifierFlags` violation. Since
+    /// `Display` puts `citation()` on the product path, that class of error is
+    /// user-visible; a message-versus-citation read of each site is the only
+    /// thing that catches it.
     #[test]
     fn every_syntax_rule_has_a_pinned_witness() {
         // (rule, pattern, flags). Written as one table rather than one test per
@@ -5045,9 +5080,26 @@ mod tests {
             r"\{", r"\}", r"\|", r"\-", r"\b", r"\d", r"a-f", "abc",
         ];
         for body in bodies {
+            // The premise the test's NAME rests on, asserted rather than
+            // assumed: the two spellings must reach two different parsers.
+            // `class_needs_code_point_ranges` is what routes them, and adding
+            // any of `d`, `b`, `/` or `-` to its trigger set — a plausible edit,
+            // since `\d` is already modelled differently by the two parsers —
+            // would send BOTH forms to `parse_class` and leave every assertion
+            // below green while compiling one parser twice.
+            let bitmap_source = format!("[{body}]");
+            let ranges_source = format!("[{body}\\u0041]");
+            assert!(
+                !class_needs_code_point_ranges(bitmap_source.as_bytes(), 0),
+                "`{bitmap_source}` must take the ASCII bitmap parser"
+            );
+            assert!(
+                class_needs_code_point_ranges(ranges_source.as_bytes(), 0),
+                "`{ranges_source}` must take the code-point range parser"
+            );
             for flags in ["", "u"] {
-                let bitmap = RegExpProgram::compile(&format!("[{body}]"), flags);
-                let ranges = RegExpProgram::compile(&format!("[{body}\\u0041]"), flags);
+                let bitmap = RegExpProgram::compile(&bitmap_source, flags);
+                let ranges = RegExpProgram::compile(&ranges_source, flags);
                 assert!(
                     bitmap.is_ok(),
                     "`[{body}]` under `{flags}` must compile: {:?}",

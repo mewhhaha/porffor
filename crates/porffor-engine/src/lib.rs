@@ -18122,6 +18122,35 @@ var reflected = Reflect.ownKeys(proxy);
     }
 
     #[test]
+    fn wasm_backend_does_not_type_a_zero_iteration_for_in_key_as_a_string() {
+        // Anti-vacuity for the two tests above. Both read the loop variable
+        // through a string concatenation, which is tag-dispatched at run time,
+        // so they pass whether or not the key is correctly TYPED. Arithmetic is
+        // not tag-dispatched: `infer_var_binding_info_from_statement`'s
+        // `ForInLoop` arm published a proven `String` for any `var` named as a
+        // for-in key, `seed_script_global_var_properties` installed that as the
+        // script global's `proven_present` info, and `combine_arithmetic`'s
+        // `lhs_proves_string` test then lowered `key + 1` to
+        // `ExprIr::StringConcat`. The program answered `"undefined1"` where the
+        // spec requires `NaN`.
+        //
+        // `r !== r` is the oracle rather than `typeof`: it is true for exactly
+        // `NaN` and false for every string, so neither answer can be reached by
+        // accident.
+        let outcome = engine()
+            .run_script(
+                "for (var key in null) { key; } var r = key + 1; r !== r;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("a for-in over null followed by arithmetic on the key must compile");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
     fn wasm_backend_supports_label_on_non_loop_statement() {
         let outcome = engine()
             .run_script(

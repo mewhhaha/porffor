@@ -505,8 +505,14 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::LocalSet(prototype_local));
         for (name, builtin) in [
-            ("adopt", StandardBuiltinId::AsyncDisposableStackPrototypeAdopt),
-            ("defer", StandardBuiltinId::AsyncDisposableStackPrototypeDefer),
+            (
+                "adopt",
+                StandardBuiltinId::AsyncDisposableStackPrototypeAdopt,
+            ),
+            (
+                "defer",
+                StandardBuiltinId::AsyncDisposableStackPrototypeDefer,
+            ),
             ("move", StandardBuiltinId::AsyncDisposableStackPrototypeMove),
             ("use", StandardBuiltinId::AsyncDisposableStackPrototypeUse),
         ] {

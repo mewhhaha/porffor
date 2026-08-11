@@ -9455,7 +9455,10 @@ target[Symbol.iterator];"#,
             operands,
         } = &lhs.expr
         else {
-            panic!("expected ToNumeric on the update operand, got {:?}", lhs.expr);
+            panic!(
+                "expected ToNumeric on the update operand, got {:?}",
+                lhs.expr
+            );
         };
         assert_eq!(*operation, SpecOperationIr::ToNumeric);
         assert_eq!(operands.len(), 1);
@@ -9505,6 +9508,45 @@ target[Symbol.iterator];"#,
                 head.kind,
                 ValueKind::Undefined,
                 "{source}: a nullish for-in completes with undefined, not with the head's value"
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_prove_a_for_in_key_is_a_string() {
+        // `infer_var_binding_info_from_statement`'s `ForInLoop` arm used to
+        // publish a proven `String` for any `var` named as a `for-in` key,
+        // regardless of the head. A loop that runs zero times assigns nothing,
+        // so the hoisted `var` is still `undefined`, and `k + 1` must lower to a
+        // numeric addition (`NaN`) rather than to `ExprIr::StringConcat`, which
+        // stringifies both operands and yields `"undefined1"`.
+        //
+        // Both heads below run zero times: `null` takes 14.7.5.6 step 3.a's
+        // break completion, and `{}` has no enumerable own properties. The
+        // second one is the case that was wrong before the nullish head was
+        // supported at all, so it is not a regression test for that lane alone.
+        for source in [
+            "for (var k in null) { k; } k + 1;",
+            "for (var k in ({})) { k; } k + 1;",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script ir should exist");
+            let concat = script.body.statements.iter().find(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::Expression(expression)
+                        if matches!(expression.expr, ExprIr::StringConcat { .. })
+                )
+            });
+            assert!(
+                concat.is_none(),
+                "{source}: `k + 1` must not lower to a string concatenation: {:?}",
+                script.body.statements
             );
         }
     }

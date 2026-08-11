@@ -895,21 +895,114 @@ pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET: u64 = 
 /// `disposed` getter reads exactly this word, which is why
 /// `prototype/disposed/returns-true-when-disposed.js` observes the transition
 /// synchronously.
-pub(crate) const ASYNC_DISPOSABLE_STACK_STATE_PENDING: u64 = 0;
-pub(crate) const ASYNC_DISPOSABLE_STACK_STATE_DISPOSED: u64 = 1;
-/// A `use(V)` entry: `Call(method, V)` with no arguments.
-pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_USE: u64 = 0;
-/// An `adopt(V, onDisposeAsync)` entry: the spec's captured closure is
-/// `Call(onDisposeAsync, undefined, « V »)`, which is stored flat here instead
-/// of minting a builtin function object per call.
-pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_ADOPT: u64 = 1;
-/// A `defer(onDisposeAsync)` entry: `Call(onDisposeAsync, undefined, « »)`.
-pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_DEFER: u64 = 2;
-/// A `use(null)` / `use(undefined)` entry. CreateDisposableResource leaves both
-/// `[[ResourceValue]]` and `[[DisposeMethod]]` undefined, so disposal performs
-/// no call — but the entry is still on the stack, so `Dispose` still awaits,
-/// which is what `disposeAsync/explicit-await-for-null.js` measures.
-pub(crate) const ASYNC_DISPOSABLE_STACK_ENTRY_KIND_EMPTY: u64 = 3;
+///
+/// This is an enum rather than the pair of `u64` constants it started as
+/// because those constants shared a type — and a *value* — with the entry-kind
+/// words below: `..._STATE_DISPOSED` and `..._ENTRY_KIND_ADOPT` were both
+/// `u64 = 1`, so every emitter site accepted either one. The two domains index
+/// different words of different records and are never interchangeable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableStackState {
+    Pending,
+    Disposed,
+}
+
+impl AsyncDisposableStackState {
+    /// The word stored at [`HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET`].
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Pending => 0,
+            Self::Disposed => 1,
+        }
+    }
+}
+
+/// The closed domain of `[[DisposableResourceStack]]` entry shapes, stored at
+/// [`HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET`].
+///
+/// # Why this is an enum and not four `u64` constants
+///
+/// The disposal walk in `builtins/async_disposable_stack.rs` dispatches on this
+/// word by emitting a comparison chain, and the chain's **last arm is an
+/// emitted `Else`**. A fifth `..._ENTRY_KIND_FOO: u64 = 4` would have compiled
+/// cleanly next to its siblings and then been disposed *as a `Defer`* — called
+/// with an undefined receiver and no arguments — with nothing to notice. That
+/// is the same silent-fallthrough class [`crate::data::RuntimeRegExpEntryKind`]
+/// was introduced for in batch 7, one record over.
+///
+/// So the decision the emitter makes is stated here once, as the exhaustive
+/// [`Self::dispose_call`], and the emitter builds its comparison chain by
+/// iterating [`Self::ALL`]. Adding a variant is then an `error[E0004]` here and
+/// the emitted chain extends itself.
+///
+/// Residual, stated rather than papered over: [`Self::ALL`] is hand-written,
+/// because stable Rust cannot enumerate an enum's variants. The trigger to
+/// extend it is the `error[E0004]` a new variant produces at the two matches
+/// below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableStackEntryKind {
+    /// A `use(V)` entry: `Call(method, V)` with no arguments.
+    Use,
+    /// An `adopt(V, onDisposeAsync)` entry: the spec's captured closure is
+    /// `Call(onDisposeAsync, undefined, « V »)`, which is stored flat here
+    /// instead of minting a builtin function object per call.
+    Adopt,
+    /// A `defer(onDisposeAsync)` entry: `Call(onDisposeAsync, undefined, « »)`.
+    Defer,
+    /// A `use(null)` / `use(undefined)` entry. CreateDisposableResource leaves
+    /// both `[[ResourceValue]]` and `[[DisposeMethod]]` undefined, so disposal
+    /// performs no call — but the entry is still on the stack, so `Dispose`
+    /// still awaits, which is what
+    /// `disposeAsync/explicit-await-for-null.js` measures.
+    Empty,
+}
+
+/// How the disposal walk calls one entry.
+///
+/// "No call at all" is spelled as the `None` of the [`Option`] returned by
+/// [`AsyncDisposableStackEntryKind::dispose_call`], not as a variant here, so
+/// the emitter's match over the shapes has no arm it must prove unreachable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AsyncDisposableStackDisposeCall {
+    /// `Call(method, V)` — the resource is the receiver, no arguments.
+    ResourceReceiver,
+    /// `Call(onDisposeAsync, undefined, « V »)` — the resource is the sole
+    /// argument.
+    UndefinedReceiverWithResourceArgument,
+    /// `Call(onDisposeAsync, undefined, « »)`.
+    UndefinedReceiverNoArguments,
+}
+
+impl AsyncDisposableStackEntryKind {
+    /// Every kind, in the order the emitted comparison chain tests them. See
+    /// the type's doc for why this is hand-written and what keeps it honest.
+    pub(crate) const ALL: [Self; 4] = [Self::Use, Self::Adopt, Self::Defer, Self::Empty];
+
+    /// The word stored at
+    /// [`HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET`].
+    pub(crate) const fn word(self) -> u64 {
+        match self {
+            Self::Use => 0,
+            Self::Adopt => 1,
+            Self::Defer => 2,
+            Self::Empty => 3,
+        }
+    }
+
+    /// What disposal does with an entry of this kind, or `None` when the entry
+    /// carries no dispose method and the walk only awaits. This is the whole
+    /// dispatch policy; the emitter transcribes nothing.
+    pub(crate) const fn dispose_call(self) -> Option<AsyncDisposableStackDisposeCall> {
+        match self {
+            Self::Use => Some(AsyncDisposableStackDisposeCall::ResourceReceiver),
+            Self::Adopt => {
+                Some(AsyncDisposableStackDisposeCall::UndefinedReceiverWithResourceArgument)
+            }
+            Self::Defer => Some(AsyncDisposableStackDisposeCall::UndefinedReceiverNoArguments),
+            Self::Empty => None,
+        }
+    }
+}
 pub(crate) const HEAP_WEAK_SET_ENTRIES_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_WEAK_SET_ENTRIES_CAP_OFFSET: u64 = 16;

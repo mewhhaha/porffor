@@ -115,7 +115,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             stack_record_local,
             HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ASYNC_DISPOSABLE_STACK_STATE_PENDING,
+            AsyncDisposableStackState::Pending.word(),
             function,
         );
         self.store_i64_local_at_offset(
@@ -181,7 +181,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
 
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_EMPTY as i64,
+            AsyncDisposableStackEntryKind::Empty.word() as i64,
         ));
         function.instruction(&Instruction::LocalSet(kind_local));
         function.instruction(&Instruction::I64Const(0));
@@ -250,7 +250,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_USE as i64,
+            AsyncDisposableStackEntryKind::Use.word() as i64,
         ));
         function.instruction(&Instruction::LocalSet(kind_local));
         function.instruction(&Instruction::End);
@@ -310,7 +310,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_ADOPT as i64,
+            AsyncDisposableStackEntryKind::Adopt.word() as i64,
         ));
         function.instruction(&Instruction::LocalSet(kind_local));
         self.emit_async_disposable_stack_push_entry(
@@ -366,7 +366,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_DEFER as i64,
+            AsyncDisposableStackEntryKind::Defer.word() as i64,
         ));
         function.instruction(&Instruction::LocalSet(kind_local));
         self.emit_async_disposable_stack_push_entry(
@@ -423,7 +423,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             moved_record_local,
             HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ASYNC_DISPOSABLE_STACK_STATE_PENDING,
+            AsyncDisposableStackState::Pending.word(),
             function,
         );
         for offset in [
@@ -476,7 +476,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             stack_record_local,
             HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ASYNC_DISPOSABLE_STACK_STATE_DISPOSED,
+            AsyncDisposableStackState::Disposed.word(),
             function,
         );
 
@@ -510,7 +510,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_STATE_DISPOSED as i64,
+            AsyncDisposableStackState::Disposed.word() as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I64ExtendI32U);
@@ -632,7 +632,7 @@ impl<'a> FunctionBuilder<'a> {
         // `does-not-reinvoke-disposers-if-dispose-already-started.js`.
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_STATE_DISPOSED as i64,
+            AsyncDisposableStackState::Disposed.word() as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -650,7 +650,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             stack_record_local,
             HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-            ASYNC_DISPOSABLE_STACK_STATE_DISPOSED,
+            AsyncDisposableStackState::Disposed.word(),
             function,
         );
 
@@ -906,59 +906,108 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(undefined_tag_local));
 
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_EMPTY as i64,
-        ));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_USE as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            value_payload_local,
-            value_tag_local,
-            &[],
-            awaited_payload_local,
-            awaited_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_ENTRY_KIND_ADOPT as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[(value_payload_local, value_tag_local)],
-            awaited_payload_local,
-            awaited_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            method_payload_local,
-            method_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            &[],
-            awaited_payload_local,
-            awaited_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        // The dispatch is DERIVED from `AsyncDisposableStackEntryKind::ALL`,
+        // not transcribed. The chain's last arm is an emitted `Else`, so a
+        // fifth entry kind added to a transcribed chain would have been
+        // disposed silently as a `defer`; here it extends the chain instead,
+        // and `dispose_call` makes forgetting its shape an `error[E0004]`.
+        //
+        // Emitted shape for the four kinds of today — instruction for
+        // instruction what the hand-written chain emitted:
+        //
+        //   kind != Empty ; If                      // the no-call kinds
+        //     kind == Use ; If   <call: resource receiver, no args>
+        //     Else
+        //       kind == Adopt ; If  <call: undefined receiver, « V »>
+        //       Else                <call: undefined receiver, « »>
+        //       End
+        //     End
+        //   End
+        let mut no_call_kinds = Vec::new();
+        let mut calling_kinds = Vec::new();
+        for kind in AsyncDisposableStackEntryKind::ALL {
+            match kind.dispose_call() {
+                None => no_call_kinds.push(kind),
+                Some(call) => calling_kinds.push((kind, call)),
+            }
+        }
+
+        // The throw test after the chain reads `completion_local`
+        // UNCONDITIONALLY, but the call that writes it is inside the guard
+        // below. An `EMPTY` entry — `use(null)` / `use(undefined)`, i.e.
+        // `explicit-await-for-null.js` and `explicit-await-for-undefined.js` —
+        // performs no call and would otherwise test whatever the previous
+        // emitter happened to leave there. Every producer reachable today
+        // leaves `Normal` (`emit_new_promise_capability` and
+        // `emit_intrinsic_await_reactions` both end with it, and the
+        // synchronous-throw arm resets before its `Br`), so this is latent
+        // rather than live — but that is a property of every helper this file
+        // happens to call, not of this walk. Establishing it here makes the
+        // no-call path structural.
+        self.set_completion_kind(CompletionKind::Normal, function);
+
+        // Guard: skip the whole chain for any kind that performs no call. With
+        // more than one such kind the tests fold with `I32And`; `I64Ne` already
+        // yields i32.
+        for (index, kind) in no_call_kinds.iter().enumerate() {
+            function.instruction(&Instruction::LocalGet(kind_local));
+            function.instruction(&Instruction::I64Const(kind.word() as i64));
+            function.instruction(&Instruction::I64Ne);
+            if index > 0 {
+                function.instruction(&Instruction::I32And);
+            }
+        }
+        let has_no_call_guard = !no_call_kinds.is_empty();
+        if has_no_call_guard {
+            function.instruction(&Instruction::If(BlockType::Empty));
+        }
+
+        let no_arguments: [(u32, u32); 0] = [];
+        let resource_argument = [(value_payload_local, value_tag_local)];
+        let last_calling_index = calling_kinds.len().saturating_sub(1);
+        for (index, (kind, call)) in calling_kinds.iter().enumerate() {
+            // Every kind but the last gets an explicit comparison; the last is
+            // the `Else` the preceding one opened.
+            if index < last_calling_index {
+                function.instruction(&Instruction::LocalGet(kind_local));
+                function.instruction(&Instruction::I64Const(kind.word() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+            }
+            let (this_payload_local, this_tag_local, arguments): (u32, u32, &[(u32, u32)]) =
+                match call {
+                    AsyncDisposableStackDisposeCall::ResourceReceiver => {
+                        (value_payload_local, value_tag_local, &no_arguments)
+                    }
+                    AsyncDisposableStackDisposeCall::UndefinedReceiverWithResourceArgument => (
+                        undefined_payload_local,
+                        undefined_tag_local,
+                        &resource_argument,
+                    ),
+                    AsyncDisposableStackDisposeCall::UndefinedReceiverNoArguments => {
+                        (undefined_payload_local, undefined_tag_local, &no_arguments)
+                    }
+                };
+            self.emit_function_or_proxy_call_leave_throw_completion(
+                method_payload_local,
+                method_tag_local,
+                this_payload_local,
+                this_tag_local,
+                arguments,
+                awaited_payload_local,
+                awaited_tag_local,
+                function,
+            )?;
+            if index < last_calling_index {
+                function.instruction(&Instruction::Else);
+            }
+        }
+        for _ in 0..last_calling_index {
+            function.instruction(&Instruction::End);
+        }
+        if has_no_call_guard {
+            function.instruction(&Instruction::End);
+        }
 
         // A synchronous throw is folded into the threaded completion and the
         // walk continues with the next entry, without awaiting.
@@ -1499,7 +1548,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(
-            ASYNC_DISPOSABLE_STACK_STATE_DISPOSED as i64,
+            AsyncDisposableStackState::Disposed.word() as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));

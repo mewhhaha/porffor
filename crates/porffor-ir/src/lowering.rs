@@ -11003,6 +11003,19 @@ impl<'a> ScriptLowerer<'a> {
         // The `matches!` is not redundant with the subset test: an empty
         // `possible_kinds` is a subset of everything, and a vacuous hit here
         // would silently turn a loop that must iterate into one that cannot.
+        //
+        // The tradeoff to know about: this returns **before the body is lowered
+        // at all**, so an unsupported construct inside the body of a statically
+        // nullish `for-in` is now accepted rather than refused. That is
+        // spec-correct — the body never runs — but it means a test262 case can
+        // move to green because its body was skipped rather than because the
+        // body compiles. `language/statements/for-in/let-block-with-newline.js`
+        // and `let-identifier-with-newline.js` are exactly that: both bodies
+        // read the undeclared identifier `let`, and neither is evidence that
+        // `let`-as-identifier lowering works. `S12.6.4_A1/A2` are *not* — they
+        // depend on `var` hoisting out of the skipped body, which survives,
+        // because `hoist_statement`'s `ForInLoop` arm recurses into
+        // `for_in.body()` in a pass that runs before this one.
         let is_nullish_target = matches!(target.kind, ValueKind::Undefined | ValueKind::Null)
             && target.possible_kinds.is_subset_of(
                 KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null)),
@@ -31352,6 +31365,16 @@ impl<'a> ScriptLowerer<'a> {
                     };
                     let lhs_read =
                         TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
+                    // `combine_arithmetic` has refusals of its own: an operand
+                    // that is neither statically coercible nor PRIMITIVE_ONLY
+                    // (`const x = {}; x -= 1`) still reaches
+                    // `unsupported_expr("string or coercive `+`")` or the
+                    // non-primitive `Sub | Mul | Div | Mod` fallback. So this arm
+                    // does not make *every* const compound assignment compile —
+                    // it makes the ones whose arithmetic is representable
+                    // compile, and moves the rest to a message that no longer
+                    // names `const`. Do not read the const refusal's
+                    // disappearance from the grep as those programs working.
                     let applied = self.combine_arithmetic(arithmetic, lhs_read, value);
                     return self.immutable_binding_write(&storage_name, applied);
                 }
@@ -31463,15 +31486,18 @@ impl<'a> ScriptLowerer<'a> {
                 // ApplyStringOrNumericBinaryOperator, assign the result back.
                 let needs_general_form = (!string_add && value.kind != ValueKind::Number)
                     || match &binding {
+                        // No `binding.mode != BindingMode::Const` conjunct: a
+                        // `const` target returned at `const_target` above, so it
+                        // was trivially true here and read as though the const
+                        // case were still live.
                         Some(binding) => {
-                            binding.mode != BindingMode::Const
-                                && if string_add {
-                                    !binding_known_string
-                                        && !rhs_may_string
-                                        && !binding_allows_string_add
-                                } else {
-                                    binding.kind != ValueKind::Number
-                                }
+                            if string_add {
+                                !binding_known_string
+                                    && !rhs_may_string
+                                    && !binding_allows_string_add
+                            } else {
+                                binding.kind != ValueKind::Number
+                            }
                         }
                         None => {
                             self.global_property_is_proven_present(&name)
@@ -31876,6 +31902,35 @@ impl<'a> ScriptLowerer<'a> {
     /// effects — and its own possible throws, which outrank this one — ahead of
     /// the immutability `TypeError`. A bare `RuntimeThrow` would drop them, and
     /// no test262 case in the three this unblocks would notice.
+    /// The single spelling of "this write hits an immutable binding".
+    ///
+    /// Two things a reader needs, neither of which the compiler enforces yet:
+    ///
+    /// 1. **It is not the only one.** Destructuring assignment takes another
+    ///    route entirely — `DestructuringTargetIr::AssignmentIdentifier {
+    ///    immutable: bool }` and the backend's `"assignment to immutable
+    ///    destructuring target"` literal — so `const x = 1; x = 2;` and
+    ///    `const x = 1; [x] = [2];` still throw TypeErrors with different
+    ///    messages. `immutable: bool` type-checks whatever the message is, so
+    ///    the divergence stays invisible to `cargo check`. Making the error
+    ///    constructible exactly once (a variant that carries the constructed
+    ///    error rather than a bool) is the fix; it is a two-site edit through
+    ///    `RUNTIME_ERROR_MESSAGE_LITERALS`, which must stay sorted and unique.
+    ///
+    /// 2. **Reaching here is a claim about the source, and it is unmeasured for
+    ///    five of the six callers.** Across all 174 snapshots under
+    ///    `target/test262-scratch/`, `update of const binding` has hits and
+    ///    `assignment to const binding` has zero, so only the update site has
+    ///    test262 evidence behind its conversion from a refusal to this
+    ///    spec-shaped TypeError. The premise the other five rest on is that
+    ///    every `BindingMode::Const` reaching them is a *user* `const` /
+    ///    class-name / function-self binding. That premise has been false here
+    ///    before: `test262/snapshots/latest-5052292535410439978.json` attributes
+    ///    90 `assignment to const binding` refusals to `built-ins/Array/fromAsync`,
+    ///    whose 95 files contain no compound assignment at all — i.e. a
+    ///    compiler-synthesized write to a synthesized const binding. Under a
+    ///    refusal that was an honest `NotImplemented`; under this it is a silent
+    ///    wrong answer.
     fn immutable_binding_write(
         &self,
         storage_name: &str,
@@ -38044,7 +38099,33 @@ impl<'a> ScriptLowerer<'a> {
                     _ => None,
                 };
                 if loop_key_name.as_deref() == Some(name) {
-                    return Some(ValueInfo::new(ValueKind::String));
+                    // A `for-in` loop variable is a String only if the loop body
+                    // runs at least once, and nothing here can prove that: the
+                    // head is an arbitrary expression this pre-pass never
+                    // evaluates, `{}` has no enumerable keys, and a statically
+                    // nullish head takes 14.7.5.6 step 3.a's break completion and
+                    // assigns nothing at all. A hoisted `var` is `undefined` in
+                    // every one of those cases, so the honest static type is
+                    // `String | Undefined`.
+                    //
+                    // This also matches what the lowering pass itself concludes:
+                    // `lower_for_in_loop` merges the pre-loop bindings with the
+                    // post-body ones (`merge_var_bindings` / `merge_global_properties`),
+                    // which unions `Undefined` with `String`. Publishing a proven
+                    // `String` here made the seeded *global* disagree with the
+                    // merged *local* for the same source program, and the seed
+                    // won, because it is already in `before_globals` when the
+                    // merge runs. `for (var k in null) {} k + 1` then lowered to
+                    // a `StringConcat` and produced `"undefined1"` where the spec
+                    // requires `NaN`.
+                    let key_kinds = KindSet::from_kind(ValueKind::String)
+                        .union(KindSet::from_kind(ValueKind::Undefined));
+                    return Some(ValueInfo {
+                        kind: key_kinds.as_value_kind(),
+                        possible_kinds: key_kinds,
+                        heap_shape: None,
+                        function_targets: BTreeSet::new(),
+                    });
                 }
                 self.infer_var_binding_info_from_statement(for_in.body(), name)
             }
