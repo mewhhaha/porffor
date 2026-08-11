@@ -1,8 +1,16 @@
 // `class S extends Intl.DateTimeFormat {}` — a subclass with NO explicit
 // constructor. That is the shape whose static instance type is taken from the
 // heritage builtin's `constructor_instance`, the fourth member of the tuple in
-// `standard_builtin_signature` (`porffor-ir/src/lowering.rs`), consumed by the
-// single `inherited_instance` binding in `lower_class`.
+// `standard_builtin_signature` (`porffor-ir/src/lowering.rs`).
+//
+// That tuple member has TWO consumers, not the one the lane spec named. The
+// `inherited_instance` binding in `lower_class` is the subclass path. The other
+// is `lower_new_expression`, whose `else` arm reads
+// `signature.constructor_instance` for any direct `new Callee(...)` — and
+// `standard_builtin_signature` hard-codes `class_heritage_kind::None`, so that
+// arm is taken for a plain `new Intl.DateTimeFormat()` too. The direct
+// construction below covers it; without those lines the change is exercised
+// only through the subclass.
 //
 // # The defect this fixture exists for, MEASURED before it was written
 //
@@ -145,6 +153,32 @@ if (typeof dtfOptions !== "object") throw "dtf resolvedOptions is not an object"
 if (dtfOptions === null) throw "dtf resolvedOptions is null";
 if (typeof dtfOptions.timeZone !== "string") throw "dtf resolvedOptions timeZone is not a string";
 if (typeof dtfOptions.locale !== "string") throw "dtf resolvedOptions locale is not a string";
+
+// ------------------------------------------- the SECOND constructor_instance
+//
+// A direct `new Intl.DateTimeFormat()` — no subclass, so `lower_class` and its
+// `inherited_instance` binding are not involved at all. This is the other
+// consumer of the same tuple member (`lower_new_expression`'s
+// `null_heritage_return_path` else arm), and the patch narrows its static type
+// from `{Undefined, Object}` to `{Object}` with an empty-object heap shape
+// attached. Argument list deliberately empty, matching the implicit `super()`
+// in `new S()` above, so this adds a lowering path and not an options-parsing
+// dependency. Green on both sides — it is a regression guard for the new shape,
+// not the discriminator.
+
+const d = new Intl.DateTimeFormat();
+if (typeof d !== "object") throw "direct dtf instance is not an object";
+if (d === null) throw "direct dtf instance is null";
+if (!(d instanceof Intl.DateTimeFormat)) throw "direct dtf instance is not an Intl.DateTimeFormat";
+if (typeof d.format !== "function") throw "direct dtf format is not a function";
+if (typeof d.format(0) !== "string") throw "direct dtf format(0) is not a string";
+if (d.format(0).length === 0) throw "direct dtf format(0) is empty";
+
+const directOptions = d.resolvedOptions();
+if (typeof directOptions !== "object") throw "direct dtf resolvedOptions is not an object";
+if (directOptions === null) throw "direct dtf resolvedOptions is null";
+if (typeof directOptions.timeZone !== "string")
+  throw "direct dtf resolvedOptions timeZone is not a string";
 
 // ---------------------------------------- Intl.Locale instance negative control
 

@@ -519,9 +519,10 @@ run_chunk array             array:: --skip typed_array::
 # 22:43Z / 23:29Z / 00:30Z): SIGKILL at t+1200 s after 66, 75 and 75 tests, with
 # `avail` falling MONOTONICALLY 8.5 GiB at ~7 tests -> 3.56 GiB at ~49 ->
 # 1.14 GiB two minutes before the kill. Monotonic, not a plateau: that is
-# cumulative growth across the process, so it is not the three-in-flight working
-# set that `frontend_test262_subset`'s flat 5.55 GiB is. Every runner-level knob
-# was tried and measured:
+# cumulative growth across the process, rather than a three-in-flight working
+# set. (`frontend_test262_subset`'s flat 5.55 GiB used to be cited as the
+# contrast; it is a CHILD process's RSS and is not evidence about a libtest
+# process at all -- see below.) Every runner-level knob was tried and measured:
 #
 #   * per-tier cache limits at 256/64/64 MiB -- NO EFFECT, same trajectory. They
 #     bound bytes on disk (`porffor-engine/src/cache.rs`), not RSS.
@@ -531,14 +532,40 @@ run_chunk array             array:: --skip typed_array::
 #
 # That list is three ENVIRONMENT knobs, and an earlier version of this comment
 # called the split "the only remaining lever" on the strength of it. It is not:
-# the list never examined in-process retention, and the accumulation has a named
-# mechanism there. `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs`)
+# the list never examined in-process retention, and there is a named CANDIDATE
+# mechanism there. `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs:74`)
 # bounds an LRU of fully compiled Wasmtime modules BY ENTRY COUNT AND BY NOTHING
 # ELSE -- 64 entries, no byte ceiling -- and the in-process path these tests take
 # retains into it, i.e. one native module per distinct fixture. That is why the
-# three disk knobs did nothing, and why the ONE-test
-# `frontend_test262_subset` is flat. `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` now
-# overrides that bound; bounding it by bytes is the standing follow-up.
+# three DISK knobs did nothing.
+#
+# It is a hypothesis, and it does NOT survive the banked chunks. Counted from
+# `target/watched/rung1c-done-counts` plus the current sources:
+#
+#   array       banked 84, ProcessCommand 0, .arg("run") 84, 77 distinct
+#               fixtures, mean 1,945 B  -- pins the 64-entry LRU at its cap
+#   typed_array banked 58, ProcessCommand 0, .arg("run") 58, 48 distinct
+#               fixtures, mean 2,716 B  -- sits INSIDE the 53/62/62 band
+#   language    never banked, 33 distinct fixtures, mean 1,285 B
+#
+# Both of the first two banked, with LARGER sources. So retained-entry count
+# does not explain the `language` OOM, and the ~0.118 GiB/test line below does
+# not either (it projects `array` at ~9.9 GiB). The real variable is
+# unidentified; per-fixture BYTES of native code is the obvious suspect and is
+# exactly what an entry-count LRU does not bound.
+#
+# Two figures the earlier version reasoned from are also wrong. 53 / 62 / 62 is
+# `tests_done - 13`, which assumes one distinct fixture per test -- the 105
+# tests reference 81 distinct fixtures, so those are over-counts, not
+# measurements. And `frontend_test262_subset`'s flatness is not evidence about
+# an in-process LRU: its single call is `ProcessCommand::new(...)`
+# (`frontend_test262_subset.rs:123`), a real child, so the 5.55 GiB plateau is
+# the child's RSS across hundreds of test262 cases.
+#
+# `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` now overrides the bound; bounding it by
+# bytes is the standing follow-up, and `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES=8`
+# on one `language*` chunk is the cheap experiment that would settle the
+# paragraph above. Until it runs, do not justify a sizing decision by it.
 #
 # Fewer tests per process is still the lever this split reaches for, and the
 # split has to be by MODULE FILE rather than by filter:
@@ -546,23 +573,22 @@ run_chunk array             array:: --skip typed_array::
 # exactly `<name>::` and that anything further is `--skip <other>::`, so an
 # `--exact` name list is rejected at rung 0.
 #
-# Sized from the measurements. 75 tests in 1200 s is 16.0 s/test and the
-# standalone 30-name tail did 30 in 498.2 s (16.6 s/test), so per-test cost is
-# uniform enough to size by count.
+# Sizing rests on ONE direct measurement: the standalone 30-name tail COMPLETED
+# in a fresh process (30 in 498.2 s, 16.6 s/test) where 75 tests in 1200 s
+# (16.0 s/test) did not. ~30 heavy tests per process is therefore a size that
+# has been observed to finish, which is why there are three chunks. The `avail`
+# trajectory (~0.118 GiB/test) agrees but does not support it, per the
+# counterevidence above.
 #
-# The `avail` trajectory reads ~0.118 GiB/test, but do NOT re-derive the sizing
-# by extrapolating that line: growth is capped at 64 cached modules, so `avail`
-# plateaus rather than falling forever, and the right unit is CACHED MODULES,
-# not tests. Twelve of `language`'s 13 "cheap" tests cache nothing at all --
-# every `build_wasm_succeeds_for_*` and `inspect_reports_phase_*` runs
-# `Command::new(env!("CARGO_BIN_EXE_porf"))`, a child process -- so only
-# `in_process_module_reuse` counts among them. In those units the three fatal
-# runs reached 53 / 62 / 62 cached modules, just short of the cap; a TWO-way
-# split at ~52 heavy tests lands at ~52, INSIDE that fatal band; the three-way
-# split lands at roughly 33 / 29 / 31, about half of it. `language` keeps the 13
-# cheap tests because they are free, not merely cheap. The only DIRECT
-# measurement of a language sub-run -- the 30-test tail -- completed in a fresh
-# process.
+# `language` also keeps its 13 "cheap" tests, but NOT because they run out of
+# process: only `build_wasm_succeeds_for_dynamic_fractional_exponentiation_fixture`
+# uses `ProcessCommand`. The other five `build_wasm_*` and all six `inspect_*`
+# call `crate::Command`, which dispatches in-process
+# (`tests/cli/main.rs:186-215`). They are cheap because `build wasm` and
+# `inspect` never reach `WasmModuleMemoryCachePolicy::Retain` -- that is on the
+# `run` path only -- so they add no cache entry, though they do add transient
+# RSS. Distinct fixtures per module, the unit an entry-count LRU would care
+# about, are 32 / 21 / 28, not the 45 / 29 / 31 test counts.
 #
 # NO `--skip` IS NEEDED AND NONE MAY BE ADDED. The overlap rule fires only when
 # `format!("{other}::").ends_with(&format!("{chunk}::"))`, and

@@ -6461,7 +6461,7 @@ target[Symbol.iterator];"#,
         //
         // The last two are not that: they never miscompiled, they are refused.
         // What batch 7 changed is only the *reason* each is given — see
-        // `AsyncForOfBindingForm` in `lowering_helpers.rs`.
+        // `AsyncForOfArrayWalkForm` in `lowering_helpers.rs`.
         for (source, message) in [
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",

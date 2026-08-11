@@ -9,8 +9,9 @@
 //! t+1200 s after 66, 75 and 75 tests, with `avail` falling MONOTONICALLY from
 //! 8.5 GiB at ~7 tests to 3.56 GiB at ~49 and 1.14 GiB two minutes before the
 //! kill. That trajectory is cumulative growth across the process, not a
-//! three-in-flight plateau (contrast `frontend_test262_subset`, whose 5.55 GiB
-//! is flat), so fewer tests per process was the lever this split reached for:
+//! three-in-flight plateau, so fewer tests per process was the lever this split
+//! reached for. (Do **not** reach for `frontend_test262_subset`'s flat 5.55 GiB
+//! as the contrast — that plateau belongs to a child process, see below.)
 //!
 //!   * per-tier cache limits at 256/64/64 MiB were tried and changed nothing —
 //!     they bound bytes on disk, not RSS (`porffor-engine/src/cache.rs`);
@@ -21,35 +22,69 @@
 //!     cannot route on the per-test name, and all ~600 tests fall back to
 //!     spawning a cold `porf` child.
 //!
-//! # What the growth actually is, and why "the only lever" was the wrong claim
+//! # What the growth might be — a hypothesis, and the counterevidence
 //!
 //! An earlier version of this comment called the split "the only lever left".
 //! That list is three *environment knobs*; it never examined in-process
-//! retention, and the accumulation has a named mechanism there:
-//! `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs`) bounds a
+//! retention, and there is a named candidate mechanism there:
+//! `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`porffor-engine/src/lib.rs:74`) bounds a
 //! `VecDeque` LRU of fully compiled Wasmtime modules **by entry count and by
 //! nothing else** — 64 entries, no byte ceiling. The in-process path these
-//! tests take retains into it (`WasmModuleMemoryCachePolicy::Retain`), so it
-//! holds one native module per distinct fixture. That is why the three disk
-//! knobs did nothing, and it is why `frontend_test262_subset` is flat: it is
-//! ONE test, so it caches ONE module.
+//! tests take retains into it (`WasmModuleMemoryCachePolicy::Retain`,
+//! `porffor-engine/src/lib.rs`), so it holds one native module per distinct
+//! fixture, which is at least why the three *disk* knobs did nothing.
 //!
-//! It also corrects the sizing model below. Growth is capped at 64 entries, so
-//! `avail` cannot fall linearly forever — it plateaus, and the right unit is
-//! cached modules, not tests. Twelve of the 13 "cheap" tests kept here cache
-//! nothing at all: every `build_wasm_succeeds_for_*` and
-//! `inspect_reports_phase_*` runs `Command::new(env!("CARGO_BIN_EXE_porf"))`, a
-//! CHILD process, so it touches neither this process's RSS nor its module
-//! cache. Only `in_process_module_reuse_*` does. In those units the three fatal
-//! runs reached 53, 62 and 62 cached modules — just short of the 64 cap — a
-//! two-way split at ~52 heavy tests would land at ~52 cached modules, i.e.
-//! INSIDE that fatal band, and this three-way split lands at roughly 33/29/31,
-//! about half of it. The linear extrapolation below reaches the same answer,
-//! but for a reason that is wrong in the only regime that matters.
+//! That is where the confidence stops, and the entry-count story does **not**
+//! survive the banked chunks. Counted, not estimated, from
+//! `target/watched/rung1c-done-counts` and the current sources:
+//!
+//! | chunk | banked | `ProcessCommand::new` | `.arg("run")` | distinct fixtures | mean fixture bytes |
+//! |---|---|---|---|---|---|
+//! | `array` | 84 | 0 | 84 | 77 | 1,945 |
+//! | `typed_array` | 58 | 0 | 58 | 48 | 2,716 |
+//! | `language` (pre-split) | never | 1 | 32 | 33 | 1,285 |
+//!
+//! `array` is 84 in-process `run` invocations over 77 distinct fixtures, i.e.
+//! it pins the 64-entry LRU at its cap with sources half again as large as
+//! `language`'s, and it **banked**. `typed_array` sits at 48 retained modules —
+//! inside the 53/62/62 band the fatal `language` runs reached — and banked too.
+//! So retained-entry count does not explain the `language` OOM, and neither
+//! does the linear `~0.118 GiB/test` model below, which would project `array`
+//! at ~9.9 GiB. Whatever the real variable is (per-fixture *bytes* of native
+//! code is the obvious suspect, and it is exactly what an entry-count LRU does
+//! not bound), it is unidentified.
+//!
+//! Two further corrections to the earlier version of this paragraph, because it
+//! reasoned from both:
+//!
+//! * the 53/62/62 figures are `tests_done - 13`, which silently assumes one
+//!   distinct fixture per test. The 105 tests reference 81 distinct fixtures,
+//!   so those are over-counts of retained modules, not measurements of them.
+//! * `frontend_test262_subset`'s flatness is **not** evidence about this
+//!   process's LRU. Its single call is a real child
+//!   (`ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))`,
+//!   `frontend_test262_subset.rs:123` — `grep -c 'ProcessCommand::new'` is 1),
+//!   so its 5.55 GiB plateau is the *child's* RSS across hundreds of test262
+//!   cases and the libtest process's module cache never sees it.
+//!
+//! Likewise the "cheap" tests kept here do **not** run as child processes: only
+//! `build_wasm_succeeds_for_dynamic_fractional_exponentiation_fixture` uses
+//! `ProcessCommand`. The other five `build_wasm_*` and all six `inspect_*` call
+//! `crate::Command`, whose `output()` (`main.rs:186-215`) dispatches
+//! `ExecutionPath::InProcess` to `porffor_cli::run_cli_capture` on a worker
+//! thread of *this* process; the `program` field is unused on that path, so
+//! `env!("CARGO_BIN_EXE_porf")` there is decoration. They are cheap for a
+//! different reason: `build wasm` and `inspect` never reach
+//! `WasmModuleMemoryCachePolicy::Retain`, which is on the `run` path only
+//! (`porffor-engine/src/lib.rs`), so they add no cache entry — they do add
+//! transient RSS.
 //!
 //! `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` now overrides that bound, so a
 //! memory-constrained run has a lever that needs no code change; bounding the
 //! deque by bytes, as the disk tiers already are, is the standing follow-up.
+//! It is also the cheap experiment that would settle the paragraph above:
+//! `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES=8` on one `language*` chunk. Until that
+//! runs, do not justify a sizing decision by the entry-count model.
 //!
 //! Splitting by libtest FILTER is not available either:
 //! `known_failures::rung_1c_chunks` asserts each chunk's second argument is
@@ -60,14 +95,20 @@
 //! file, which is what [`crate::language_errors`] and [`crate::language_numerics`]
 //! are.
 //!
-//! Sizing came from the measurements, not from taste. 75 tests in 1200 s is
-//! 16.0 s/test and the standalone 30-test tail did 30 in 498.2 s (16.6 s/test),
-//! so per-test cost is uniform enough to size by count; the `avail` trajectory
-//! (8.5 GiB @ ~7 tests, 3.56 @ ~49, 1.14 @ ~67) is ~0.118 GiB/test. Thirty-odd
-//! heavy tests lands near 5 GiB `avail`; a two-way split at ~52 heavy tests
-//! lands near 3.2 GiB, past where the third attempt was already in trouble.
-//! Hence three, at 32 / 29 / 31 heavy tests. This module keeps the 13 cheap
-//! ones (`in_process_module_reuse_*`, six `inspect_reports_phase_*`, six
+//! Sizing rests on ONE direct measurement, and it is deliberately not the
+//! extrapolations. The standalone 30-name tail **completed** in a fresh process
+//! (30 in 498.2 s, 16.6 s/test) where 75 tests in 1200 s (16.0 s/test) did not,
+//! so ~30 heavy tests per process is a size that has actually been observed to
+//! finish. Hence three chunks, at 32 / 29 / 31 heavy tests.
+//!
+//! The `avail` trajectory (8.5 GiB @ ~7 tests, 3.56 @ ~49, 1.14 @ ~67) reads
+//! ~0.118 GiB/test and reaches the same answer, but see the counterevidence
+//! above: `array` banked 84 in-process runs, which that line projects at
+//! ~9.9 GiB. Treat it as consistent, not as support. Per-module *distinct*
+//! fixtures — the unit an entry-count LRU would care about — are 32 / 21 / 28,
+//! not the test counts; `language_errors` shares 8 of its fixtures across its
+//! 29 tests. This module keeps the 13 cheap ones
+//! (`in_process_module_reuse_*`, six `inspect_reports_phase_*`, six
 //! `build_wasm_succeeds_for_*`) as well, since they cost almost nothing.
 //!
 //! THE THREE STEMS MUST NOT BECOME `::`-SUFFIXES OF ONE ANOTHER. The overlap

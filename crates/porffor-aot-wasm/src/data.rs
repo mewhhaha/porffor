@@ -4502,6 +4502,40 @@ fn callee_names_regexp_compile(callee: &TypedExpr) -> bool {
     }
 }
 
+/// Every string this expression can *statically* evaluate to, when that set is
+/// finite and readable off the IR shape alone.
+///
+/// # The catch-all is deliberate, and it is the safe direction
+///
+/// The trailing `_ => {}` is not an oversight and must not be replaced by an
+/// exhaustive match over [`ExprIr`]. This is a heuristic over an open,
+/// hundreds-of-variants expression domain, and the two directions are not
+/// symmetric:
+///
+/// * a shape this function **does not** recognise contributes no candidate, the
+///   `(source, flags)` pair gets no row, and the runtime lookup falls through to
+///   exactly the behaviour it had before the table existed — the fallback
+///   matcher, and `TypeError: RegExp.prototype.exec unsupported pattern` if it
+///   declines. Missing a shape costs coverage, never correctness;
+/// * a shape it **does** recognise reaches `RegExpProgram::compile`, and an
+///   `InvalidSyntax` verdict there becomes a
+///   [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`] row, which **throws SyntaxError** at
+///   every one of the seven `emit_runtime_regexp_program_slots` call sites for
+///   any runtime pattern whose bytes equal that literal.
+///
+/// So adding an arm here is not "collect a few more literals": it widens the set
+/// of patterns this compiler will refuse at run time, keyed by string value
+/// rather than by syntactic origin. Read
+/// [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`]'s doc — which records that
+/// `porffor-ir/src/regexp.rs`'s ~20 `invalid_syntax(` sites have never been
+/// audited against the grammar — before widening, and measure
+/// `built-ins/RegExp/prototype` as a delta afterwards.
+///
+/// Concatenation is the arm most obviously "missing": `new RegExp(a + b)` where
+/// both halves are literals is a known open case (RE-RT probe 6, no throw
+/// today). It is left out on purpose rather than by oversight, because closing
+/// it is the widening this doc is warning about and it needs its own measured
+/// gate.
 fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String>) {
     match &expr.expr {
         ExprIr::String(value) => {

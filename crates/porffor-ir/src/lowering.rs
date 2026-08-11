@@ -6503,6 +6503,26 @@ impl<'a> ScriptLowerer<'a> {
             // `receiver_needs_dynamic_helper_dispatch`. Fixture:
             // `crates/porffor-cli/tests/fixtures/wasm_intl_date_time_format_subclass.js`.
             //
+            // THE SECOND CONSUMER, which the lane spec and its note both missed
+            // by calling `inherited_instance` in `lower_class` the only one.
+            // `lower_new_expression` also reads `signature.constructor_instance`
+            // — the `else` arm of `null_heritage_return_path` — and
+            // `standard_builtin_signature` hard-codes `class_heritage_kind:
+            // ClassHeritageKind::None`, so that flag is false here and the arm
+            // IS taken for a *direct* `new Intl.DateTimeFormat("en")`, not only
+            // for a subclass. That path changes from `{Undefined, Object}` to
+            // `{Object}`, and the pre-merge value (Object plus
+            // `empty_object_shape()`) is what `merge_function_this_info`
+            // receives.
+            //
+            // Traced, and benign: `merge_value_infos` takes its equal-kind
+            // branch and `merge_heap_shapes` answers `None` when only one side
+            // carries a shape, so the empty shape never escapes and the
+            // narrowing is a strict improvement. The `merge_function_this_info`
+            // argument is the one edge that was not separately measured. The
+            // fixture covers this path directly as well as through the
+            // subclass, so the `date::` chunk exercises both.
+            //
             // `fresh_constructed_instance_info()` rather than a layered
             // prototype: there is no `intl_date_time_format_*_shape` in this
             // file, DTF's own `return_shape` is `None`, and the
@@ -13410,45 +13430,43 @@ impl<'a> ScriptLowerer<'a> {
         element_info: &ValueInfo,
         body: StatementIr,
         body_kind: ValueKind,
-        binding_form: AsyncForOfBindingForm,
+        head_form: AsyncForOfArrayWalkForm,
         entry_state: Option<u32>,
         head_environment: Option<ForInOfEnvironmentIr>,
     ) -> ForOfLoweringIr {
-        // Four premises, five messages — the binding form contributes three of
-        // the five, one per [`AsyncForOfBindingForm`] variant. They used to be
-        // one `&&`/`||` chain behind one string — "requires an array iterable
-        // and a plain binding" — which was reported for
-        // `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`, whose head
-        // is `for (const v of [array literal])`, i.e. a case where both named
-        // premises hold. A rejection reason that names the wrong premise is
-        // worse than none: it routes triage away from the defect.
+        // Four premises, five messages — [`AsyncForOfArrayWalkForm`] carries
+        // four of the five, one per rejecting variant, and the entry state is
+        // the fifth. They used to be one `&&`/`||` chain behind one string —
+        // "requires an array iterable and a plain binding" — which was reported
+        // for `built-ins/Array/fromAsync/asyncitems-*-not-callable.js`, whose
+        // head is `for (const v of [array literal])`, i.e. a case where both
+        // named premises hold. A rejection reason that names the wrong premise
+        // is worse than none: it routes triage away from the defect.
         //
-        // ORDER IS LOAD-BEARING, and it is typing first. Two of the binding-form
-        // messages end "the iterable type and the binding form are both fine",
-        // which is a claim about a premise this function has not tested yet —
-        // and `for (const c of "ab") { f = () => c; await 0; }` is both captured
-        // AND non-array, so under the old structural-first order the compiler
-        // certified a String iterable as fine. That is precisely the
-        // wrong-reason class the split exists to remove, one level down. Testing
-        // the cheaper, more universal premise first makes every message true
-        // without weakening any of them: the measured `fromAsync` family is an
-        // array literal, so it passes this test and still lands on its
-        // binding-form answer.
-        if !iterable
-            .possible_kinds
-            .is_subset_of(KindSet::from_kind(ValueKind::Array))
-        {
-            self.unsupported(
-                "async for-of with a body await requires an array iterable, and this one \
-                 can be something else; every other iterable keeps the @@iterator protocol, \
-                 whose own suspension points this index walk does not have",
-            );
-            return ForOfLoweringIr::no_iteration();
-        }
-        if let Some(message) = binding_form.rejection() {
+        // The order the messages depend on (typing, then binding shape, then
+        // captured environment) lives inside `classify` rather than here, so a
+        // second call site cannot get it wrong. See the type's doc.
+        if let Some(message) = head_form.rejection() {
             self.unsupported(message);
             return ForOfLoweringIr::no_iteration();
         }
+        // A SAFETY NET, not a fifth diagnostic family — do not count it among
+        // the messages this split delivers, and do not expect it in a sweep
+        // family map. Reaching it requires `plain_async_entry_state()` to answer
+        // `Some` when `plain_async_await_body` is computed and `None` when it is
+        // re-read just before the body is lowered, and only one transition can
+        // do that: neither `current_async_resume_state` nor
+        // `current_generator_resume_state` is ever assigned `None` after the
+        // lowerer is constructed (every assignment in this file is `Some(..)`,
+        // and the `lowerer.*` ones belong to nested lowerers), so the sole route
+        // is `current_generator_resume_state` going `None -> Some` while the
+        // *head* is lowered. The window is head-only: the iterable is already
+        // known to contain no `await`, and the re-read happens before
+        // `lower_loop_body`. That transition has not been shown to be reachable
+        // and has not been shown to be impossible either, which is exactly why
+        // the arm stays: falling through with no entry state would emit a
+        // straight-line loop holding a suspension, i.e. a miscompile, and this
+        // returns a diagnostic instead.
         let Some(entry_state) = entry_state else {
             self.unsupported(
                 "async for-of with a body await requires a plain async function body with a \
@@ -13897,6 +13915,9 @@ impl<'a> ScriptLowerer<'a> {
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
         if plain_async_await_body {
+            let iterable_is_array = iterable
+                .possible_kinds
+                .is_subset_of(KindSet::from_kind(ValueKind::Array));
             return self.lower_async_for_of_array_with_body_await(
                 mode,
                 &storage_name,
@@ -13906,9 +13927,11 @@ impl<'a> ScriptLowerer<'a> {
                 body_kind,
                 // One closed reason instead of the four-premise boolean that
                 // used to be OR-ed together here. See
-                // `AsyncForOfBindingForm`'s doc comment for the measurement
-                // that forced the split.
-                AsyncForOfBindingForm::classify(
+                // `AsyncForOfArrayWalkForm`'s doc comment for the measurement
+                // that forced the split, and for why the iterable's type is an
+                // argument rather than a separate test inside the callee.
+                AsyncForOfArrayWalkForm::classify(
+                    iterable_is_array,
                     lexical_environment.as_ref(),
                     pattern_initializer.is_some()
                         || assignment_pattern_initializer.is_some()

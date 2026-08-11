@@ -1636,9 +1636,9 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
     loop_statement.visit_with(&mut visitor).is_break()
 }
 
-/// What the head of a `for`-`of` binds, as far as
-/// `lower_async_for_of_array_with_body_await` is concerned: either one plain
-/// storage name it can reproduce, or the one specific thing it cannot.
+/// Whether a `for`-`of` head can take the resumable array-index walk
+/// (`ScriptLowerer::lower_async_for_of_array_with_body_await`), and if not, the
+/// one premise that failed.
 ///
 /// # Why this is a closed type and not the `bool` it replaces
 ///
@@ -1710,10 +1710,32 @@ fn generator_loop_has_unsupported_construct<N: VisitWith + ?Sized>(
 /// environment pointer to live in the activation record and be re-attached on
 /// re-entry. Hoisting the binding into one activation slot instead would give
 /// every closure the *same* cell and silently break per-iteration semantics.
+/// # Why the iterable's type is a variant here and not a test at the call site
+///
+/// Two of the messages below assert that the *iterable type* is fine, which was
+/// once a premise this type could not see: it was tested separately at the sole
+/// call site, and the doc here carried a prose "caller obligation" saying that
+/// site must test typing **first**. That is exactly the substitution AGENTS.md's
+/// "Code Invariants Before Test Invariants" warns against — a second call site
+/// would have compiled cleanly while emitting a message asserting a premise it
+/// never checked, in a type whose entire thesis is that a wrong reason routes
+/// triage away from the defect.
+///
+/// So the premise moved into the type. [`Self::NonArrayIterable`] is tested
+/// first inside [`Self::classify`], which makes the load-bearing order
+/// unrepresentable-wrong rather than documented: `for (const c of "ab") { f = ()
+/// => c; await 0; }` is captured **and** non-array at once, and answering
+/// "captured" for it would certify a String iterable as fine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AsyncForOfBindingForm {
-    /// One plain storage name, and no runtime environment record to reproduce.
+pub(crate) enum AsyncForOfArrayWalkForm {
+    /// One plain storage name over an array iterable, and no runtime
+    /// environment record to reproduce.
     PlainStorageOnly,
+    /// The iterable can be something other than an array, so the walk would
+    /// have to be the `@@iterator` protocol instead of an index walk. Tested
+    /// first, because it is the cheapest and most universal premise and because
+    /// the two "captured" messages below claim it holds.
+    NonArrayIterable,
     /// The head destructures, or assigns into a property/member target, so the
     /// per-iteration value is not one storage name.
     DestructuringOrPropertyTarget,
@@ -1727,15 +1749,27 @@ pub(crate) enum AsyncForOfBindingForm {
     CapturedTdzBinding,
 }
 
-impl AsyncForOfBindingForm {
-    /// The only constructor. `binds_pattern_or_property_target` is the
+impl AsyncForOfArrayWalkForm {
+    /// The only constructor.
+    ///
+    /// `iterable_is_array` is the `KindSet` subset test on the iterable, passed
+    /// in rather than assumed — see the type's doc for why it is a parameter and
+    /// not a caller obligation. `binds_pattern_or_property_target` is the
     /// disjunction of the head's three non-identifier initializer forms
     /// (`pattern_initializer`, `assignment_pattern_initializer`,
     /// `access_initializer`).
+    ///
+    /// The arm order is the message order: typing, then binding shape, then
+    /// captured environments. Do not reorder — [`Self::rejection`]'s last two
+    /// messages state that the premises above them hold.
     pub(crate) fn classify(
+        iterable_is_array: bool,
         environment: Option<&ForInOfEnvironmentIr>,
         binds_pattern_or_property_target: bool,
     ) -> Self {
+        if !iterable_is_array {
+            return Self::NonArrayIterable;
+        }
         if binds_pattern_or_property_target {
             return Self::DestructuringOrPropertyTarget;
         }
@@ -1752,23 +1786,17 @@ impl AsyncForOfBindingForm {
     }
 
     /// `None` when the head is reproducible; otherwise the one premise that
-    /// failed, spelled so that the reader is not sent to check the two that
-    /// held.
-    ///
-    /// # Caller obligation
-    ///
-    /// Two of these messages end "the iterable type and the binding form are
-    /// both fine", which is a claim about a premise **this type cannot see**.
-    /// The sole caller
-    /// (`Lowering::lower_async_for_of_array_with_body_await`) therefore tests
-    /// the array-typing premise *before* calling this, and that order is not
-    /// stylistic: `for (const c of "ab") { f = () => c; await 0; }` is captured
-    /// and non-array at once, and the other order certifies a String iterable
-    /// as fine. If a second call site ever appears, it owes the same order or
-    /// it owes these two messages a rewrite.
+    /// failed, spelled so that the reader is not sent to check the ones that
+    /// held. Every premise these messages name is one [`Self::classify`] has
+    /// already tested, so none of them is a claim this type cannot back.
     pub(crate) fn rejection(self) -> Option<&'static str> {
         match self {
             Self::PlainStorageOnly => None,
+            Self::NonArrayIterable => Some(
+                "async for-of with a body await requires an array iterable, and this one \
+                 can be something else; every other iterable keeps the @@iterator protocol, \
+                 whose own suspension points this index walk does not have",
+            ),
             Self::DestructuringOrPropertyTarget => Some(
                 "async for-of with a body await requires a plain single-name binding, \
                  and this head destructures or assigns into a property target",
@@ -1776,12 +1804,12 @@ impl AsyncForOfBindingForm {
             Self::CapturedPerIterationBinding => Some(
                 "async for-of with a body await cannot give the loop binding a fresh \
                  per-iteration environment record, and a closure in the body captures it; \
-                 the iterable type and the binding form are both fine",
+                 the iterable is an array and the head binds one plain name",
             ),
             Self::CapturedTdzBinding => Some(
                 "async for-of with a body await cannot materialize the head's TDZ \
                  environment record, and a closure captures a name the head puts in TDZ; \
-                 the iterable type and the binding form are both fine",
+                 the iterable is an array and the head binds one plain name",
             ),
         }
     }

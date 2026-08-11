@@ -98,7 +98,12 @@
 //!   landed the 620th test in the same commit. That is the reason this file
 //!   records how each number was obtained rather than only what it is — a
 //!   number here can be wrong without anyone editing the line it sits on.
-//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`: 605 total.
+//! - 3 more in `tests/perf.rs` and 1 in `tests/async_generator.rs`. Do not
+//!   restate the crate-wide total here as a literal: it read `605` across at
+//!   least three batches while the true figure moved 621 -> 624, because no
+//!   assertion reads it (the only floor is [`MINIMUM_SCANNED_TESTS`] = 500) so
+//!   nothing ever caught it. Recount instead, with the same exact-line `awk`
+//!   over `crates/porffor-cli/tests/cli/*.rs crates/porffor-cli/tests/*.rs`.
 //! - 4 ignore attributes: `heap.rs` (1) and `perf.rs` (3).
 //! - **0** `should_panic` attributes. It was 0 before this module existed and 2
 //!   after it; the batch-3 T24 row was retired in batch 4 and the batch-5 T17
@@ -182,11 +187,15 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// - `regexp` is banked at 33 while `tests/cli/regexp.rs` now declares 35, and
 ///   `date` is banked at 17 while `tests/cli/date.rs` now declares 18, so the
 ///   counts sidecar re-runs **both** chunks. Three of the 611 are therefore
-///   unmeasured for a second, independent reason, and **seven** chunks — not
+///   unmeasured for a second, independent reason, and **eight** chunks — not
 ///   three — actually execute on the next rung 1c: the three `language*`
-///   modules, the two the integrator invalidated (`string`, `functions`), and
-///   these two. "15 of 20 banked" is the banking state, not the amount of work
-///   the next run does.
+///   modules, the two the integrator invalidated (`string`, `functions`),
+///   these two, and `known_failures`, which `run_chunk` re-runs
+///   **unconditionally** (`scripts/rung1c-chunks.sh`, the `[ "$name" =
+///   "known_failures" ]` branch sets `rebank=1` and falls through with no
+///   `return 0`) precisely because it holds the 20/20/20 chunk/module
+///   partition check that this split just changed. "15 of 20 banked" is the
+///   banking state, not the amount of work the next run does.
 /// - Recount at the integrated head, exact-line `awk` over `tests/cli/*.rs`:
 ///   **620** `#[test]` attributes, of which **8** are `spec-exec-oracle`-gated
 ///   in `frontend.rs` and one is `#[ignore]`d in `heap.rs`, hence **612
