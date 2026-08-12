@@ -1,6 +1,6 @@
 # T29 — Migrate Rust identifiers from Porffor to Lila
 
-**Status:** In progress — coordinated cutover, boundary guard, and persisted producer schema landed; required verification remains
+**Status:** Complete — coordinated cutover and required verification are green as of 2026-08-13
 
 **Parallel group:** Repository identity
 **Depends on:** T28
@@ -21,8 +21,11 @@ Current snapshots and matrix caches use schema version 6 with the closed
 `ArtifactProducer::Lila` identity. Version-4 and version-5 artifacts enter only
 through a typed read-only decoder: they cannot be resumed, merged, rewritten or
 published as current Lila evidence. The persisted-cache fixture covers the
-Lila root, retired cache, sibling data and the global Wasmtime cache; its
-execution remains part of final verification.
+Lila root, retired cache, sibling data and the global Wasmtime cache; its exact
+integration test is green. The schema-v6 producer, version-4/version-5
+read-only decoder, fresh-start journal behavior, CLI help/smoke, fake suites,
+focused real-suite path, identity guard, workspace checks, and the complete
+engine/CLI inventories are green in the final verification batch.
 
 The pre-migration inventory is frozen against commit
 `7ac4ee8a80e4e58b3dfb1adfece974f9f0a19e27` in
@@ -57,11 +60,10 @@ leaving mixed names indefinitely.
    scripts, persisted data, documentation, and automation in dependency order.
 5. **Complete.** Add exact boundary checks that reject newly introduced transitional names
    while allowing only explicitly documented temporary aliases.
-6. **Implementation complete; verification pending.** The mapped version-6
+6. **Complete.** The mapped version-6
    Lila producer contract and typed read-only decoder for version-4/version-5
-   Test262 snapshots are implemented. Complete the required compile/runtime
-   checks, then finish with no unowned transitional identifiers in current
-   product surfaces.
+   Test262 snapshots are implemented and verified, with no unowned
+   transitional identifiers in current product surfaces.
 
 ## Out of scope
 

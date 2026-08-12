@@ -28,8 +28,8 @@ that run is oracle triage; the Wasm-AOT run is the requirement.
 
 | State | Tasks | Repository evidence |
 |---|---|---|
-| Complete | T00, T28 | Repository contracts are enforced and the legacy JavaScript product is retired at its recorded Git recovery commit |
-| In progress | T01-T12, T14-T25, T27, T29 | Substantial implementation exists; the Lila product cutover and T23's deterministic Intl architecture are live, but each task retains unmet acceptance criteria described in its current-state section |
+| Complete | T00, T27-T29 | Repository contracts are enforced, the interpreter is quarantined from the product, the legacy JavaScript product is retired, and the Lila identity cutover is verified |
+| In progress | T01-T12, T14-T25 | Substantial implementation exists; T23's deterministic Intl architecture is live, but each task retains unmet acceptance criteria described in its current-state section |
 | Policy and typed accounting implemented; static subsets open | T13 | Generic runtime dynamic source stays explicit Wasm-AOT unsupported; `eval`, all Function-family constructors and realm `evalScript` now carry closed compiler diagnostics into conformance accounting, while sound static subsets remain open |
 | Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
 
@@ -121,7 +121,7 @@ not forbid focused work when its required interface already exists.
 | ID | Task | Depends on |
 |---|---|---|
 | [T25](25-differential-fuzzing-performance.md) | Differential testing, fuzzing, timeout and code-size work | T01-T04; runs continuously |
-| [T27](27-interpreter-quarantine-and-product-default.md) | Interpreter quarantine and Wasm-AOT product default | T02, T03; labeling/dependency work can start immediately |
+| [T27](27-interpreter-quarantine-and-product-default.md) | Interpreter quarantine and Wasm-AOT product default | T02, T03; complete |
 | [T26](26-zero-failure-conformance-closure.md) | Full pinned suite closure and release gate | All applicable tasks, including T27 |
 
 ### Repository ownership and identity
@@ -129,7 +129,7 @@ not forbid focused work when its required interface already exists.
 | ID | Task | Depends on |
 |---|---|---|
 | [T28](28-retire-legacy-js.md) | Retire the legacy JavaScript product and enforce the Rust-only boundary | T00; complete |
-| [T29](29-lila-identifier-migration.md) | Coordinated Rust identifier migration to Lila; product cutover, version-6 Lila producer, and read-only version-4/version-5 decoder live; final verification remains | T28 |
+| [T29](29-lila-identifier-migration.md) | Coordinated Rust identifier migration to Lila; product cutover, version-6 Lila producer, and read-only version-4/version-5 decoder verified | T28; complete |
 
 ## Merge-conflict policy
 

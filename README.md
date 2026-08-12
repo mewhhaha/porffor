@@ -46,14 +46,14 @@ above stays conservative until a full pinned real-suite publish is refreshed.
 
 ## Implementation Progress
 
-As of `2026-08-12`, the Rust rewrite has 30 epic-level tasks:
+As of `2026-08-13`, the Rust rewrite has 30 epic-level tasks:
 
-- `2` complete: the repository operating contract (`T00`) and retirement of
-  the legacy JavaScript product (`T28`);
-- `26` in progress with substantial implementation but unmet closure criteria,
+- `4` complete: the repository operating contract (`T00`), interpreter
+  quarantine and Wasm-AOT product default (`T27`), retirement of the legacy
+  JavaScript product (`T28`), and the verified Lila identity cutover (`T29`);
+- `24` in progress with substantial implementation but unmet closure criteria,
   including the deterministic Intl architecture plus its first consumed,
-  provider-backed locale canonicalization operation (`T23`) and the
-  implemented-but-not-yet-fully-verified Lila identity cutover (`T29`);
+  provider-backed locale canonicalization operation (`T23`);
 - `1` with policy selected and implementation/accounting still open: dynamic
   source evaluation (`T13`);
 - `1` blocked final gate: zero-failure current-pin Wasm-AOT conformance (`T26`).

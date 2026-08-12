@@ -1,6 +1,6 @@
 # T27 — Interpreter quarantine and Wasm-AOT product default
 
-**Status:** In progress — all product-boundary implementation landed; final batch verification remains
+**Status:** Complete — product boundary and required verification are green as of 2026-08-13
 
 **Parallel group:** Validation/closure  
 **Blocks:** T26 release gate and any truthful "no interpreter" claim
@@ -17,8 +17,13 @@ fallback in the default product path. Publication now accepts only the closed
 oracle publication request before writing status. The CI-wired product-artifact
 test proves representative Wasm contains compiled user semantics, no embedded
 source marker and no evaluator import, and it is green in the current batch.
-Only the final combined repository/CLI verification remains before this task's
-status can be closed.
+The complete 684-test engine inventory is green in resource-bounded shards, and
+the complete 620-test default CLI integration inventory is green across the
+tracked 20-chunk runner. The package's library, binary, cache,
+`async_generator`, performance-test (ignored by contract), and doctest targets
+are also green. The dependency quarantine, product-artifact audit, flag-free
+fake-suite smoke, developer-oracle regression, and representative real-suite
+default-backend checks are green in the same final batch.
 
 ## Objective
 
