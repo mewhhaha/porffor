@@ -13021,93 +13021,6 @@ __func.slice = String.prototype.slice;
 __lilaCheck(__func.slice(null, 5) === "gnull", "function-like receiver slice");
 "#
         )),
-        "S15.5.4.13_A1_T8.js" => Some(format!(
-            r#"{prelude}var __obj = {{
-  toString: function() {{}}
-}};
-var __str = String(__obj);
-
-__lilaCheck(__str.slice(-4, void 0) === "ined", "object ToString receiver");
-"#
-        )),
-        "S15.5.4.13_A1_T9.js" => Some(format!(
-            r#"{prelude}var __obj = {{
-  valueOf: function() {{}},
-  toString: void 0
-}};
-
-__lilaCheck(new String(__obj).slice(undefined, __obj) === "", "object end coerces to NaN");
-"#
-        )),
-        "S15.5.4.13_A1_T10.js" => Some(format!(
-            r#"{prelude}var __obj = {{
-  valueOf: function() {{
-    return 2;
-  }}
-}};
-var __str = "\u0035ABBBABAB";
-
-__lilaCheck(__str.slice(__obj, __str.slice(0, 1)) === "BBB", "object start and string end");
-"#
-        )),
-        "S15.5.4.13_A1_T11.js" => Some(format!(
-            r#"{prelude}try {{
-  "ABB\u0041BABAB".slice({{
-    valueOf: function() {{
-      throw "instart";
-    }}
-  }}, {{
-    valueOf: function() {{
-      throw "inend";
-    }}
-  }});
-  __lilaCheck(false, "start valueOf throw did not propagate");
-}} catch (error) {{
-  __lilaCheck(error === "instart", "start valueOf throw");
-}}
-"#
-        )),
-        "S15.5.4.13_A1_T12.js" => Some(format!(
-            r#"{prelude}var __str = new String("ABB\u0041BABAB");
-try {{
-  __str.slice({{
-    valueOf: function() {{
-      return {{}};
-    }},
-    toString: function() {{
-      throw "instart";
-    }}
-  }}, {{
-    valueOf: function() {{
-      throw "inend";
-    }}
-  }});
-  __lilaCheck(false, "start toString throw did not propagate");
-}} catch (error) {{
-  __lilaCheck(error === "instart", "start toString throw");
-}}
-"#
-        )),
-        "S15.5.4.13_A1_T13.js" => Some(format!(
-            r#"{prelude}try {{
-  "ABB\u0041BABAB\u0031BBAA".slice({{
-    valueOf: function() {{
-      return {{}};
-    }},
-    toString: function() {{
-      return 1;
-    }}
-  }}, {{
-    toString: function() {{
-      throw "inend";
-    }}
-  }});
-  __lilaCheck(false, "end toString throw did not propagate");
-}} catch (error) {{
-  __lilaCheck(error === "inend", "end toString throw");
-}}
-"#
-        )),
         _ => None,
     }
 }
@@ -13167,259 +13080,6 @@ try {
 
 if ((this.toString === Object.prototype.toString) && (match("bj")[0] !== "bj")) {
   throw new Test262Error('#1: match = String.prototype.match.bind(this); match("bj")[0] === "bj". Actual: ' + match("bj")[0]);
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T1.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __string = "1234567890";
-var __match = __string.match(3);
-
-if (__match[0] !== "3") {
-  throw new Test262Error('#1: __string = "1234567890"; __string.match(3)[0]=== "3". Actual: ' + __match[0]);
-}
-
-if (__match.length !== 1) {
-  throw new Test262Error('#2: __string = "1234567890"; __string.match(3).length ===1. Actual: ' + __match.length);
-}
-
-if (__match.index !== 2) {
-  throw new Test262Error('#3: __string = "1234567890"; __string.match(3).index ===2. Actual: ' + __match.index);
-}
-
-if (__match.input !== __string) {
-  throw new Test262Error('#4: __string = "1234567890"; __string.match(3).input ===__string. Actual: ' + __match.input);
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T6.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __string = "Boston, Mass. 02134";
-var __match = __string.match(/([\d]{5})([-\ ]?[\d]{4})?$/);
-
-if (__match[0] !== "02134") {
-  throw new Test262Error('#1: __match[0] === "02134". Actual: ' + __match[0]);
-}
-
-if (__match[1] !== "02134") {
-  throw new Test262Error('#2: __match[1] === "02134". Actual: ' + __match[1]);
-}
-
-if (__match[2] !== void 0) {
-  throw new Test262Error('#3: __match[2] === void 0. Actual: ' + __match[2]);
-}
-
-if (__match.length !== 3) {
-  throw new Test262Error('#4: __match.length === 3. Actual: ' + __match.length);
-}
-
-if (__match.index !== 14) {
-  throw new Test262Error('#5: __match.index === 14. Actual: ' + __match.index);
-}
-
-if (__match.input !== __string) {
-  throw new Test262Error('#6: __match.input === __string. Actual: ' + __match.input);
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T7.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __matches = ["02134"];
-var __string = "Boston, Mass. 02134";
-var __match = __string.match(/([\d]{5})([-\ ]?[\d]{4})?$/g);
-
-if (__match.length !== 1) {
-  throw new Test262Error('#1: __match.length === 1. Actual: ' + __match.length);
-}
-
-if (__match[0] !== __matches[0]) {
-  throw new Test262Error('#2: __match[0] === __matches[0]. Actual: ' + __match[0]);
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T8.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __matches = ["02134", "02134", undefined];
-var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
-__re.lastIndex = 0;
-var __string = "Boston, MA 02134";
-var __match = __string.match(__re);
-
-if (__match.length !== 3) {
-  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
-}
-
-if (__match.index !== __string.lastIndexOf("0")) {
-  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
-}
-
-for (var mi = 0; mi < __matches.length; mi++) {
-  if (__match[mi] !== __matches[mi]) {
-    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
-  }
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T9.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __string = "Boston, MA 02134";
-var __matches = ["02134", "02134", undefined];
-var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
-__re.lastIndex = __string.length;
-var __match = __string.match(__re);
-
-if (__match.length !== 3) {
-  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
-}
-
-if (__match.index !== __string.lastIndexOf("0")) {
-  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
-}
-
-for (var mi = 0; mi < __matches.length; mi++) {
-  if (__match[mi] !== __matches[mi]) {
-    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
-  }
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T10.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __string = "Boston, MA 02134";
-var __matches = ["02134", "02134", undefined];
-var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
-__re.lastIndex = __string.lastIndexOf("0");
-var __match = __string.match(__re);
-
-if (__match.length !== 3) {
-  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
-}
-
-if (__match.index !== __string.lastIndexOf("0")) {
-  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
-}
-
-for (var mi = 0; mi < __matches.length; mi++) {
-  if (__match[mi] !== __matches[mi]) {
-    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
-  }
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T11.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __string = "Boston, MA 02134";
-var __matches = ["02134", "02134", undefined];
-var __re = /([\d]{5})([-\ ]?[\d]{4})?$/;
-__re.lastIndex = __string.lastIndexOf("0") + 1;
-var __match = __string.match(__re);
-
-if (__match.length !== 3) {
-  throw new Test262Error('#1: __match.length === 3. Actual: ' + __match.length);
-}
-
-if (__match.index !== __string.lastIndexOf("0")) {
-  throw new Test262Error('#2: __match.index === __string.lastIndexOf("0"). Actual: ' + __match.index);
-}
-
-for (var mi = 0; mi < __matches.length; mi++) {
-  if (__match[mi] !== __matches[mi]) {
-    throw new Test262Error('#3.' + mi + ': __match[' + mi + '] === __matches[' + mi + ']. Actual: ' + __match[mi]);
-  }
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T17.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __re = /0./;
-var __num = 10203040506070809000;
-Number.prototype.match = String.prototype.match;
-var __match = __num.match(__re);
-
-if (__match[0] !== "02") {
-  throw new Test262Error('#1: __match[0] === "02". Actual: ' + __match[0]);
-}
-
-if (__match.length !== 1) {
-  throw new Test262Error('#2: __match.length === 1. Actual: ' + __match.length);
-}
-
-if (__match.index !== 1) {
-  throw new Test262Error('#3: __match.index === 1. Actual: ' + __match.index);
-}
-
-if (__match.input !== String(__num)) {
-  throw new Test262Error('#4: __match.input === String(__num). Actual: ' + __match.input);
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/match/S15.5.4.10_A2_T18.js") {
-        return Some(
-            r#"function Test262Error(message) {}
-
-var __re = /0./;
-__re.lastIndex = 0;
-var __num = 10203040506070809000;
-Number.prototype.match = String.prototype.match;
-var __match = __num.match(__re);
-
-if (__match[0] !== "02") {
-  throw new Test262Error('#1: __match[0] === "02". Actual: ' + __match[0]);
-}
-
-if (__match.length !== 1) {
-  throw new Test262Error('#2: __match.length === 1. Actual: ' + __match.length);
-}
-
-if (__match.index !== 1) {
-  throw new Test262Error('#3: __match.index === 1. Actual: ' + __match.index);
-}
-
-if (__match.input !== String(__num)) {
-  throw new Test262Error('#4: __match.input === String(__num). Actual: ' + __match.input);
 }
 "#
             .to_string(),
@@ -29264,67 +28924,23 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_remaining_string_slice_legacy_cases_use_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "assert.js".to_string(),
-            "function assert() { throw 'assert used'; }\n".to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
+    fn materialize_string_slice_dynamic_source_case_uses_static_wasm_aot_rewrite() {
+        let store = PreludeStore::default();
+        let mut case = synthetic_case("built-ins/String/prototype/slice/S15.5.4.13_A1_T5.js");
+        case.original_source =
+            "Function.prototype.slice = String.prototype.slice;\nFunction().slice(__func, 5);"
+                .to_string();
 
-        for (file, original, expected_fragment) in [
-            (
-                "S15.5.4.13_A1_T5.js",
-                "Function.prototype.slice = String.prototype.slice;\nFunction().slice(__func, 5);",
-                "__func.slice(null, 5)",
-            ),
-            (
-                "S15.5.4.13_A1_T8.js",
-                "var __obj = { toString: function() {} };",
-                "__str.slice(-4, void 0)",
-            ),
-            (
-                "S15.5.4.13_A1_T9.js",
-                "var __obj = { valueOf: function() {}, toString: void 0 };",
-                "new String(__obj).slice(undefined, __obj)",
-            ),
-            (
-                "S15.5.4.13_A1_T10.js",
-                "var __obj = { valueOf: function() { return 2; } };",
-                "__str.slice(__obj, __str.slice(0, 1))",
-            ),
-            (
-                "S15.5.4.13_A1_T11.js",
-                "throw new Test262Error('original T11');",
-                "error === \"instart\"",
-            ),
-            (
-                "S15.5.4.13_A1_T12.js",
-                "throw new Test262Error('original T12');",
-                "start toString throw",
-            ),
-            (
-                "S15.5.4.13_A1_T13.js",
-                "throw new Test262Error('original T13');",
-                "end toString throw",
-            ),
-        ] {
-            let mut case = synthetic_case(&format!("built-ins/String/prototype/slice/{file}"));
-            case.original_source = original.to_string();
+        let materialized = materialize_test(&case, &store).expect("materialization should work");
 
-            let materialized =
-                materialize_test(&case, &store).expect("materialization should work");
-
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("assert used"));
-            assert!(!materialized.source.contains("Function().slice"));
-            assert!(materialized.source.contains("function Test262Error"));
-            assert!(materialized.source.contains(expected_fragment));
-        }
+        assert!(materialized.used_preludes.is_empty());
+        assert!(!materialized.source.contains("Function().slice"));
+        assert!(materialized.source.contains("function Test262Error"));
+        assert!(materialized.source.contains("__func.slice(null, 5)"));
     }
 
     #[test]
-    fn materialize_retired_string_slice_rewrites_preserve_pinned_sources() {
+    fn materialize_retired_static_string_legacy_rewrites_preserve_pinned_sources() {
         let preamble = "function Test262Error(message) { this.message = message || ''; }\n";
         let mut store = PreludeStore::default();
         store.insert(
@@ -29339,34 +28955,48 @@ assert.sameValue(descriptor.configurable, true);
         );
         let test_root = repo_root().join("test262/vendor/test262/test");
 
-        for file in [
-            "S15.5.4.13_A1_T1.js",
-            "S15.5.4.13_A1_T2.js",
-            "S15.5.4.13_A1_T4.js",
-            "S15.5.4.13_A1_T6.js",
-            "S15.5.4.13_A1_T7.js",
-            "S15.5.4.13_A1_T14.js",
-            "S15.5.4.13_A1_T15.js",
+        for path in [
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T1.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T2.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T4.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T6.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T7.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T8.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T9.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T10.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T11.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T12.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T13.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T14.js",
+            "built-ins/String/prototype/slice/S15.5.4.13_A1_T15.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T1.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T6.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T7.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T8.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T9.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T10.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T11.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T17.js",
+            "built-ins/String/prototype/match/S15.5.4.10_A2_T18.js",
         ] {
-            let path = format!("built-ins/String/prototype/slice/{file}");
-            let source_path = test_root.join(&path);
+            let source_path = test_root.join(path);
             let original_source = fs::read_to_string(&source_path)
-                .expect("pinned String.prototype.slice case should read");
-            let case = parse_test_case(path.clone(), source_path, original_source.clone());
+                .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
+            let case = parse_test_case(path.to_string(), source_path, original_source.clone());
 
             assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
-            let materialized =
-                materialize_test(&case, &store).expect("pinned slice case should materialize");
+            let materialized = materialize_test(&case, &store)
+                .expect("pinned String legacy case should materialize");
 
             assert_eq!(
                 materialized.used_preludes,
                 vec![("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged)],
-                "{path}"
+                "{path}",
             );
             assert_eq!(
                 materialized.source,
                 format!("{preamble}{original_source}"),
-                "{path}"
+                "{path}",
             );
         }
     }
@@ -29423,32 +29053,7 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_string_match_legacy_case_uses_static_wasm_aot_rewrite() {
-        let mut store = PreludeStore::default();
-        store.insert(
-            "sta.js".to_string(),
-            "function Test262Error(message) { throw 'sta used'; }\n".to_string(),
-            PreludeOrigin::LocalMerged,
-        );
-
-        let mut case = synthetic_case("built-ins/String/prototype/match/S15.5.4.10_A2_T1.js");
-        case.original_source =
-            "if (__string.match(3)[0] !== \"3\") throw new Test262Error();".to_string();
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized.used_preludes.is_empty());
-        assert!(!materialized.source.contains("sta used"));
-        assert!(materialized
-            .source
-            .contains("var __match = __string.match(3);"));
-        assert!(materialized.source.contains("__match.index !== 2"));
-        assert!(materialized.source.contains("__match.input !== __string"));
-        assert_eq!(wasm_aot_unsupported_feature(&case), None);
-    }
-
-    #[test]
-    fn materialize_string_match_legacy_eval_and_repeated_calls() {
+    fn materialize_string_match_dynamic_source_case_uses_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
             "sta.js".to_string(),
@@ -29465,27 +29070,6 @@ assert.sameValue(descriptor.configurable, true);
         assert!(!materialized.source.contains("eval("));
         assert!(materialized.source.contains("match(\"bj\")"));
         assert_eq!(wasm_aot_unsupported_feature(&eval_case), None);
-
-        for path in [
-            "built-ins/String/prototype/match/S15.5.4.10_A2_T10.js",
-            "built-ins/String/prototype/match/S15.5.4.10_A2_T11.js",
-        ] {
-            let mut case = synthetic_case(path);
-            case.original_source =
-                "if (__string.match(__re).length !== 3) throw new Test262Error();".to_string();
-
-            let materialized =
-                materialize_test(&case, &store).expect("materialization should work");
-
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("sta used"));
-            assert!(materialized
-                .source
-                .contains("var __match = __string.match(__re);"));
-            assert!(!materialized.source.contains("__string.match(__re).length"));
-            assert!(materialized.source.contains("__match.length !== 3"));
-            assert_eq!(wasm_aot_unsupported_feature(&case), None);
-        }
     }
 
     #[test]

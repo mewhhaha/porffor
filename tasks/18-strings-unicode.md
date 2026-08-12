@@ -21,7 +21,7 @@ The metadata cases for `String.prototype.at`, `charAt`, `charCodeAt`,
 `trimStart`, `trimEnd`, `toString`, `valueOf`, `isWellFormed` and
 `toWellFormed` now run their pinned sources through the shared Wasm-AOT
 `propertyHelper.js` and general builtin metadata path; their path-specific
-rewrites have been removed. The exact shortcut inventory now assigns 33
+rewrites have been removed. The exact shortcut inventory now assigns 24
 remaining observations to T18. Those are legacy, helper-reduction, coercion,
 cross-realm and other semantic rewrites rather than the metadata leaves above.
 The two non-`eval` Sputnik `charAt` receiver cases, the direct `charAt`
@@ -32,15 +32,20 @@ encode those same receiver, conversion and assertion contracts. The remaining
 explicit until the T13 policy permits a static-source replacement or the
 pinned cases are classified unsupported.
 
-Seven direct Sputnik `String.prototype.slice` cases
-(`S15.5.4.13_A1_T1`, `T2`, `T4`, `T6`, `T7`, `T14` and `T15`) now also run
-their pinned sources with only the shared `sta-preamble.js` definition required
-by their `Test262Error` assertions. The remaining slice rewrites are limited to
-`T5`, whose pinned body constructs source dynamically through `Function()`, and
-`T8` through `T13`, whose custom receiver/coercion and abrupt-completion paths
-remain explicit until the general compiler path proves them. The source and
-harness-preservation contract is statically green; exact execution of the seven
-restored leaves remains queued behind the active current-pin matrix.
+All thirteen non-dynamic Sputnik `String.prototype.slice` cases covered by the
+legacy materializer (`S15.5.4.13_A1_T1`, `T2`, `T4`, `T6` through `T15`) now
+run their pinned sources with only the shared `sta-preamble.js` definition
+required by their `Test262Error` assertions. The only remaining slice rewrite
+is `T5`, whose pinned body constructs source dynamically through `Function()`.
+
+Nine non-`eval` Sputnik `String.prototype.match` cases (`S15.5.4.10_A2_T1`,
+`T6` through `T11`, `T17` and `T18`) likewise run their pinned bodies rather
+than materializations that cached a single match result. The remaining
+`S15.5.4.10_A1_T3` rewrite substitutes its dynamic `eval` input and stays
+explicit until T13 permits the pinned source or classifies it unsupported. The
+source and harness-preservation contract for these fifteen newly restored
+leaves is dry-written; its focused Rust, CLI and exact Test262 execution gates
+remain queued behind the active current-pin matrix.
 
 The direct `String.fromCharCode` lowering now consumes the shared exact
 `ToUint32` residue emitter before selecting the low 16 bits. It no longer
