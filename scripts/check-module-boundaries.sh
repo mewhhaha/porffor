@@ -204,7 +204,7 @@ for module in abi control_flow data emit environments expressions functions heap
   require_module_decl "$wasm_lib" "$module"
 done
 
-for module in array binary_data bootstrap date errors host iterators json math object proxy reflect standard string symbol; do
+for module in array bigint binary_data bootstrap date errors host iterators json math object proxy reflect standard string symbol; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
@@ -215,16 +215,27 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math and Symbol builtin body boundaries. The exhaustive
+# T02's Object, Proxy, Math, Symbol and BigInt builtin body boundaries. The exhaustive
 # StandardBuiltinId dispatch remains in standard.rs, but family bodies are
 # one-line delegates so unrelated builtin work no longer collides with ~11k
 # lines of Object descriptor/prototype implementation, the Proxy lifecycle,
-# the Math emitter family or Symbol's registry/prototype implementation.
+# the Math emitter family, Symbol's registry/prototype implementation or
+# BigInt's constructor, fixed-width and prototype implementation.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after Symbol extraction: 36,313 raw lines. This keeps
-# roughly the same small dispatch-only margin as the prior 37,000-line cap;
+# Measured immediately after BigInt extraction: 35,647 raw lines. This keeps
+# roughly the same small dispatch-only margin as the prior 36,500-line cap;
 # substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 36500
+check_raw_line_budget "$wasm_standard_builtins" 35850
+
+wasm_bigint_builtins="crates/lila-aot-wasm/src/builtins/bigint.rs"
+check_no_inline_legacy_includes "$wasm_bigint_builtins"
+if ! grep -q '^pub(super) enum BigIntBuiltin' "$wasm_bigint_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_bigint_builtins"; then
+  fail "$wasm_bigint_builtins must dispatch through the closed BigIntBuiltin domain"
+fi
+# Measured immediately after extraction: 708 raw lines. The narrow margin is
+# for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_bigint_builtins" 750
 
 wasm_symbol_builtins="crates/lila-aot-wasm/src/builtins/symbol.rs"
 check_no_inline_legacy_includes "$wasm_symbol_builtins"
