@@ -16,7 +16,27 @@ closed repository `TaskId` domain and a closed debt-category domain;
 `T26-unclassified` is a separate typed closure bucket rather than an invented
 task identifier. One `BacklogOwnership` enum owns the pair, so a concrete task
 cannot be paired with the unclassified category and the unclassified bucket
-cannot masquerade as classified debt. This task is not complete because the
+cannot masquerade as classified debt.
+
+Complete aggregate loading is also an integrity boundary rather than a
+filename check. It freshly discovers the pinned suite, proves that the cached
+matrix assigns every case to exactly one uniquely named node, validates every
+aggregate entry against that matrix, reconciles all totals, kinds, outcomes and
+origins, then joins every entry to a complete node snapshot whose completed and
+failed case sets agree exactly. Matrix-node snapshot identity is derived in one
+place from the unique node ID; sibling chunks may share a discovery filter
+without sharing or losing resumable evidence. Generated text backlogs include
+the same task, feature-tag, failure-hash and slow-subtree groupings as the JSON
+artifact.
+
+One provenance field remains deliberately outside the current snapshot schema:
+snapshots record the Lila producer/schema, backend, pins, matrix strategy and
+manifest hashes, but not the compiler source commit or executable digest. Until
+a separately designed schema migration makes those fields mandatory, record
+`git rev-parse HEAD` and `sha256sum "$LILA_BIN"` alongside the publication log;
+do not add optional metadata that older writers can silently omit.
+
+This task is not complete because the
 README still reports that the current pinned Wasm-AOT aggregate has not been
 fully republished, and there is no checked-in current-pin generated Wasm-AOT
 backlog artifact.
@@ -53,11 +73,15 @@ The current README explicitly says the last complete real-suite publication is s
 - Normalize unstable data such as absolute paths and wall-clock timestamps before comparison.
 - Classify by the earliest trustworthy boundary. A backend message containing a runtime symptom must not overwrite a known parser or lowering origin.
 - Add a checked-in ownership mapping from stable feature/subtree prefixes to task IDs; unknown cases go to `T26-unclassified`, never to an ignored bucket.
+- Keep writer, resume, verification and backlog lookup on the shared matrix-node
+  manifest identity function. A chunk's filter is not its identity.
 
 ## Integrity requirements
 
 - Totals across outcomes, failure kinds, origins, entries, and completed paths must reconcile exactly.
 - A matrix is publishable only when all planned nodes are present and every case in the manifest appears once.
+- Aggregate publication reopens every node snapshot and reconciles its exact
+  completed/failure sets and classification counts with the aggregate entry.
 - Resuming must not duplicate or drop cases.
 - `passed == total` is the only green aggregate. Unsupported cases remain in the denominator.
 - Fake-suite data may be included as a separate section but must never be merged into real-suite totals.

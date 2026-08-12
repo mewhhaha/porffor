@@ -40,9 +40,12 @@ explicit blocker, not a claim that the current linear weak records have weak
 semantics.
 
 The central feature-enabled CLI compile covers both `lila-aot-wasm` and
-`lila-engine`. The focused engine execution that instantiates an emitted module
-and runs the typed strong-edge/ABI probe under the explicit DRC policy has not
-run, so runtime use of that anchor remains unverified.
+`lila-engine`. The complete resource-bounded engine inventory and the complete
+620-test default CLI inventory instantiate and execute product modules through
+the shared main prologue under the explicit DRC policy, so the typed
+strong-edge/ABI probe is runtime-verified. This proves the lower-bound feature
+and schema edge, not semantic heap migration, cycle collection or weak
+reachability.
 
 ## Landed foundation
 

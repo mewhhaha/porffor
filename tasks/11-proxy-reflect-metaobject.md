@@ -25,9 +25,10 @@ Ordinary object-literal lowering deliberately retains its former five-name
 heuristic so methods merely named `apply`, `construct`, or `set` are not
 misclassified as traps. This removes the former raw-string match and its
 catch-all, which silently discarded eight valid trap signatures. The seam is
-covered by the green central feature-enabled CLI compile; focused Proxy
-execution remains unverified. It is an inference invariant, not a claim that
-the runtime implementations or full Proxy/Reflect trees are complete.
+covered by the green central feature-enabled CLI compile and by the complete
+620-test default CLI inventory, including focused apply, construct,
+defineProperty and set behavior. It is an inference invariant, not a claim
+that the runtime implementations or full Proxy/Reflect trees are complete.
 
 ## Objective
 

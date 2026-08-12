@@ -190,6 +190,12 @@ enum SnapshotUse {
     ReadOnlyEvidence,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AggregateEvidenceRequirement {
+    Envelope,
+    Complete,
+}
+
 #[derive(Debug)]
 struct CapturingTest262Output {
     lines: Arc<Mutex<Vec<String>>>,
@@ -19231,11 +19237,7 @@ fn load_resume_matrix_node_summary_for_node(
     expected_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
 ) -> Result<Option<TopLevelRunSummary>, String> {
-    let manifest_hash = hash_manifest_case_paths(
-        expected_pinned,
-        &node.case_paths,
-        Some(node.filter.as_str()),
-    );
+    let manifest_hash = matrix_node_manifest_hash(expected_pinned, node);
     let entry = TopLevelRunSummary {
         node_id: node.node_id.clone(),
         node_kind: node.node_kind,
@@ -19324,17 +19326,30 @@ fn load_resume_matrix_node_summary(
             file.pinned_revisions.test262
         ));
     }
-    let is_complete_case_checkpoint =
-        file.run_kind == "resume-case-checkpoint" && file.completed_paths.len() == entry.total;
+    let is_complete_case_checkpoint = file.run_kind == "resume-case-checkpoint"
+        && file.total == entry.total
+        && file.completed_paths.len() == file.total;
     if !is_complete_case_checkpoint && file.run_kind == "resume-case-checkpoint" {
         return Ok(None);
     }
-    if !is_complete_case_checkpoint && !file.run_kind.starts_with("matrix-") {
-        return Err(format!(
-            "resume node snapshot mismatch for run_kind in {}: expected matrix-* found {}",
-            path.display(),
-            file.run_kind
-        ));
+    if !is_complete_case_checkpoint {
+        let expected_run_kind = format!("matrix-{}", entry.node_kind.as_str());
+        if file.run_kind != expected_run_kind {
+            return Err(format!(
+                "resume node snapshot mismatch for run_kind in {}: expected {}, found {}",
+                path.display(),
+                expected_run_kind,
+                file.run_kind
+            ));
+        }
+        if file.matrix_path != entry.matrix_path {
+            return Err(format!(
+                "resume node snapshot mismatch for matrix_path in {}: expected [{}], found [{}]",
+                path.display(),
+                entry.matrix_path.join(", "),
+                file.matrix_path.join(", ")
+            ));
+        }
     }
 
     let Some(snapshot) = snapshot_from_file(file) else {
@@ -19411,14 +19426,27 @@ fn validate_resume_node_snapshot(
             file.pinned_revisions.test262
         ));
     }
-    let is_complete_case_checkpoint =
-        file.completed_paths.len() == file.total && file.total == entry.total;
-    if !is_complete_case_checkpoint && !file.run_kind.starts_with("matrix-") {
-        return Err(format!(
-            "resume node snapshot mismatch for run_kind in {}: expected matrix-* found {}",
-            path.display(),
-            file.run_kind
-        ));
+    let is_complete_case_checkpoint = file.run_kind == "resume-case-checkpoint"
+        && file.completed_paths.len() == file.total
+        && file.total == entry.total;
+    if !is_complete_case_checkpoint {
+        let expected_run_kind = format!("matrix-{}", entry.node_kind.as_str());
+        if file.run_kind != expected_run_kind {
+            return Err(format!(
+                "resume node snapshot mismatch for run_kind in {}: expected {}, found {}",
+                path.display(),
+                expected_run_kind,
+                file.run_kind
+            ));
+        }
+        if file.matrix_path != entry.matrix_path {
+            return Err(format!(
+                "resume node snapshot mismatch for matrix_path in {}: expected [{}], found [{}]",
+                path.display(),
+                entry.matrix_path.join(", "),
+                file.matrix_path.join(", ")
+            ));
+        }
     }
     Ok(())
 }
@@ -21138,6 +21166,10 @@ fn classify_negative_phase(negative: &NegativeExpectation) -> FailureKind {
     NegativePhase::of(negative).failure_kind()
 }
 
+fn failure_is_timeout(failure: &FailureRecord) -> bool {
+    failure.detail.contains("timeout exceeded")
+}
+
 fn summarize_results(results: &[TestResult]) -> RunSummary {
     let mut counts = BTreeMap::new();
     for kind in FailureKind::ALL {
@@ -21166,7 +21198,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
             TestStatus::Failed(failure) => {
                 *counts.entry(failure.kind).or_insert(0) += 1;
                 *outcome_counts.entry(failure.outcome).or_insert(0) += 1;
-                if failure.detail.contains("timeout exceeded") {
+                if failure_is_timeout(failure) {
                     timeouts.push(failure.test_path.clone());
                 }
                 let mut failure = failure.clone();
@@ -21214,11 +21246,7 @@ fn execute_matrix_node(
 
     let node_manifest = SuiteManifest {
         pinned_revisions: manifest.pinned_revisions.clone(),
-        manifest_hash: hash_manifest(
-            &manifest.pinned_revisions,
-            &cases,
-            Some(node.node_id.as_str()),
-        ),
+        manifest_hash: matrix_node_manifest_hash(&manifest.pinned_revisions, node),
         filter: Some(node.filter.clone()),
         cases: cases.clone(),
     };
@@ -22589,6 +22617,8 @@ fn resolve_aggregate_snapshot(
     execution_backend: ExecutionBackend,
     expected_pinned: &PinnedRevisions,
     snapshot_use: SnapshotUse,
+    nodes: &[RunMatrixNode],
+    evidence_requirement: AggregateEvidenceRequirement,
 ) -> Result<ResolvedAggregateSnapshot, String> {
     let exact_paths = aggregate_snapshot_paths(config, snapshot_name, manifest_hash);
     if exact_paths.json_path.exists() {
@@ -22633,7 +22663,7 @@ fn resolve_aggregate_snapshot(
             incompatible.push(candidate_name);
             continue;
         };
-        match validate_resume_aggregate_snapshot(
+        let envelope = validate_resume_aggregate_snapshot(
             config,
             &file,
             &candidate_paths.json_path,
@@ -22641,12 +22671,25 @@ fn resolve_aggregate_snapshot(
             execution_backend,
             expected_pinned,
             snapshot_use,
-        ) {
-            Ok(()) => compatible.push(ResolvedAggregateSnapshot {
-                snapshot_name: candidate_name,
-                snapshot_paths: candidate_paths,
-                file,
-            }),
+        );
+        let candidate = ResolvedAggregateSnapshot {
+            snapshot_name: candidate_name.clone(),
+            snapshot_paths: candidate_paths,
+            file,
+        };
+        let evidence = envelope.and_then(|()| {
+            if evidence_requirement == AggregateEvidenceRequirement::Complete {
+                load_and_validate_resolved_aggregate_evidence(
+                    config,
+                    &candidate,
+                    nodes,
+                    execution_backend,
+                )?;
+            }
+            Ok(())
+        });
+        match evidence {
+            Ok(()) => compatible.push(candidate),
             Err(_) => incompatible.push(candidate_name),
         }
     }
@@ -22683,6 +22726,506 @@ fn resolve_aggregate_snapshot(
                 .join(", ")
         )),
     }
+}
+
+fn checked_count_sum<'a>(
+    counts: impl IntoIterator<Item = &'a usize>,
+    context: &str,
+) -> Result<usize, String> {
+    counts.into_iter().try_fold(0usize, |total, count| {
+        total
+            .checked_add(*count)
+            .ok_or_else(|| format!("{context} count overflow"))
+    })
+}
+
+fn validate_summary_count_contract(
+    context: &str,
+    total: usize,
+    passed: usize,
+    failed: usize,
+    counts_per_kind: &BTreeMap<FailureKind, usize>,
+    counts_per_outcome: &BTreeMap<OutcomeKind, usize>,
+    counts_per_origin: &BTreeMap<FailureOrigin, usize>,
+) -> Result<(), String> {
+    if passed > total || failed != total - passed {
+        return Err(format!(
+            "{context} has inconsistent total/passed/failed counts: total={total} passed={passed} failed={failed}"
+        ));
+    }
+
+    let kind_total = checked_count_sum(counts_per_kind.values(), context)?;
+    if kind_total != failed {
+        return Err(format!(
+            "{context} failure-kind counts sum to {kind_total}, expected {failed}"
+        ));
+    }
+
+    let outcome_total = checked_count_sum(counts_per_outcome.values(), context)?;
+    let success = counts_per_outcome
+        .get(&OutcomeKind::Success)
+        .copied()
+        .unwrap_or(0);
+    if outcome_total != total || success != passed {
+        return Err(format!(
+            "{context} outcome counts do not reconcile: sum={outcome_total} Success={success}, expected total={total} passed={passed}"
+        ));
+    }
+
+    let origin_total = checked_count_sum(counts_per_origin.values(), context)?;
+    if origin_total != failed {
+        return Err(format!(
+            "{context} failure-origin counts sum to {origin_total}, expected {failed}"
+        ));
+    }
+    Ok(())
+}
+
+/// Prove that the persisted matrix itself covers the discovered suite once.
+///
+/// A cache key proves which pin and strategy produced a cache file; it does
+/// not prove that the file was not truncated or hand-edited afterward. The
+/// publication boundary therefore compares the matrix case union with a fresh
+/// discovery before trusting an aggregate built from that matrix.
+fn validate_run_matrix_contract(
+    nodes: &[RunMatrixNode],
+    suite_case_paths: &[String],
+) -> Result<(), String> {
+    let mut node_ids = BTreeSet::new();
+    let mut matrix_paths = BTreeSet::new();
+    for node in nodes {
+        if !node_ids.insert(node.node_id.as_str()) {
+            return Err(format!("run matrix has duplicate node id {}", node.node_id));
+        }
+        if node.total_cases != node.case_paths.len() {
+            return Err(format!(
+                "run matrix node {} declares {} cases but contains {} paths",
+                node.node_id,
+                node.total_cases,
+                node.case_paths.len()
+            ));
+        }
+        let mut node_paths = BTreeSet::new();
+        for case_path in &node.case_paths {
+            if !node_paths.insert(case_path.as_str()) {
+                return Err(format!(
+                    "run matrix node {} contains duplicate case {}",
+                    node.node_id, case_path
+                ));
+            }
+            if !matrix_paths.insert(case_path.as_str()) {
+                return Err(format!(
+                    "run matrix assigns case {} to more than one node",
+                    case_path
+                ));
+            }
+        }
+    }
+
+    let suite_paths = suite_case_paths
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if suite_paths.len() != suite_case_paths.len() {
+        return Err("discovered Test262 manifest contains duplicate case paths".to_string());
+    }
+    if matrix_paths != suite_paths {
+        let missing = suite_paths
+            .difference(&matrix_paths)
+            .take(5)
+            .copied()
+            .collect::<Vec<_>>();
+        let extra = matrix_paths
+            .difference(&suite_paths)
+            .take(5)
+            .copied()
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "run matrix does not cover the discovered Test262 manifest exactly: matrix={} suite={} missing=[{}] extra=[{}]",
+            matrix_paths.len(),
+            suite_paths.len(),
+            missing.join(", "),
+            extra.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+fn validate_complete_aggregate_contract(
+    snapshot: &ProgressSnapshot,
+    nodes: &[RunMatrixNode],
+    current_artifact: bool,
+    snapshot_path: &Path,
+) -> Result<(), String> {
+    let context = format!(
+        "aggregate snapshot integrity failure in {}",
+        snapshot_path.display()
+    );
+    if snapshot.matrix_path.len() != 1 || snapshot.matrix_path[0] != "top-level" {
+        return Err(format!(
+            "{context}: matrix_path must be exactly [top-level], found [{}]",
+            snapshot.matrix_path.join(", ")
+        ));
+    }
+    if !snapshot.failures.is_empty()
+        || !snapshot.completed_paths.is_empty()
+        || !snapshot.slowest_tests.is_empty()
+        || !snapshot.timeout_list.is_empty()
+    {
+        return Err(format!(
+            "{context}: aggregate-only snapshot fields must be empty"
+        ));
+    }
+
+    let expected_nodes = nodes
+        .iter()
+        .map(|node| (node.node_id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+    let completed_nodes = snapshot
+        .completed_nodes
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if completed_nodes.len() != snapshot.completed_nodes.len() {
+        return Err(format!("{context}: completed_nodes contains duplicates"));
+    }
+    let expected_node_ids = expected_nodes.keys().copied().collect::<BTreeSet<_>>();
+    if completed_nodes != expected_node_ids {
+        let missing = expected_node_ids
+            .difference(&completed_nodes)
+            .take(5)
+            .copied()
+            .collect::<Vec<_>>();
+        let extra = completed_nodes
+            .difference(&expected_node_ids)
+            .take(5)
+            .copied()
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "aggregate snapshot incomplete in {}: completed {} of {} matrix nodes; missing [{}]; extra [{}]",
+            snapshot_path.display(),
+            completed_nodes.len(),
+            expected_node_ids.len(),
+            missing.join(", "),
+            extra.join(", ")
+        ));
+    }
+
+    let mut entries = BTreeMap::new();
+    for entry in &snapshot.aggregate_entries {
+        if entries.insert(entry.node_id.as_str(), entry).is_some() {
+            return Err(format!(
+                "{context}: duplicate aggregate entry for node {}",
+                entry.node_id
+            ));
+        }
+        let Some(node) = expected_nodes.get(entry.node_id.as_str()) else {
+            return Err(format!(
+                "{context}: aggregate entry names unknown node {}",
+                entry.node_id
+            ));
+        };
+        if entry.node_kind != node.node_kind
+            || entry.filter != node.filter
+            || entry.matrix_path != node.matrix_path
+            || entry.total != node.total_cases
+        {
+            return Err(format!(
+                "{context}: aggregate entry metadata does not match current matrix node {}",
+                entry.node_id
+            ));
+        }
+        if current_artifact {
+            let expected_hash = matrix_node_manifest_hash(&snapshot.pinned_revisions, node);
+            if entry.manifest_hash != expected_hash {
+                return Err(format!(
+                    "{context}: aggregate entry {} has manifest hash {}, expected {}",
+                    entry.node_id, entry.manifest_hash, expected_hash
+                ));
+            }
+        }
+        validate_summary_count_contract(
+            &format!("{context}: node {}", entry.node_id),
+            entry.total,
+            entry.passed,
+            entry.failed,
+            &entry.counts_per_kind,
+            &entry.counts_per_outcome,
+            &entry.counts_per_origin,
+        )?;
+    }
+    if entries.keys().copied().collect::<BTreeSet<_>>() != expected_node_ids {
+        return Err(format!(
+            "{context}: aggregate entries do not cover every completed matrix node"
+        ));
+    }
+
+    let rebuilt = aggregate_from_entries(&snapshot.aggregate_entries);
+    if snapshot.total != rebuilt.total
+        || snapshot.passed != rebuilt.passed
+        || snapshot.counts_per_kind != rebuilt.counts_per_kind
+        || snapshot.counts_per_outcome != rebuilt.counts_per_outcome
+        || snapshot.aggregate_counts_so_far != rebuilt.counts_per_kind
+    {
+        return Err(format!(
+            "{context}: aggregate totals do not equal the sum of its node entries"
+        ));
+    }
+    validate_summary_count_contract(
+        &context,
+        rebuilt.total,
+        rebuilt.passed,
+        rebuilt.failed,
+        &rebuilt.counts_per_kind,
+        &rebuilt.counts_per_outcome,
+        &rebuilt.counts_per_origin,
+    )
+}
+
+fn validate_complete_node_contract(
+    snapshot: &ProgressSnapshot,
+    node: &RunMatrixNode,
+    entry: &TopLevelRunSummary,
+    snapshot_path: &Path,
+) -> Result<(), String> {
+    let context = format!(
+        "matrix node snapshot integrity failure in {}",
+        snapshot_path.display()
+    );
+    if snapshot.total != node.total_cases || snapshot.completed_paths.len() != node.total_cases {
+        return Err(format!(
+            "{context}: node {} expected {} completed cases, found total={} completed_paths={}",
+            node.node_id,
+            node.total_cases,
+            snapshot.total,
+            snapshot.completed_paths.len()
+        ));
+    }
+    let is_complete_case_checkpoint = snapshot.run_kind == "resume-case-checkpoint"
+        && snapshot.completed_paths.len() == snapshot.total
+        && snapshot.total == node.total_cases;
+    if !is_complete_case_checkpoint {
+        let expected_run_kind = format!("matrix-{}", node.node_kind.as_str());
+        if snapshot.run_kind != expected_run_kind {
+            return Err(format!(
+                "{context}: expected run_kind {expected_run_kind}, found {}",
+                snapshot.run_kind
+            ));
+        }
+        if snapshot.matrix_path != node.matrix_path {
+            return Err(format!(
+                "{context}: matrix_path does not match node {}",
+                node.node_id
+            ));
+        }
+    }
+    if !snapshot.completed_nodes.is_empty()
+        || !snapshot.aggregate_entries.is_empty()
+        || snapshot
+            .aggregate_counts_so_far
+            .values()
+            .any(|count| *count != 0)
+    {
+        return Err(format!(
+            "{context}: node snapshot contains aggregate-only fields"
+        ));
+    }
+
+    let expected_paths = node
+        .case_paths
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let completed_paths = snapshot
+        .completed_paths
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if completed_paths.len() != snapshot.completed_paths.len() || completed_paths != expected_paths
+    {
+        return Err(format!(
+            "{context}: completed_paths do not contain each node case exactly once"
+        ));
+    }
+
+    let mut failure_paths = BTreeSet::new();
+    let mut counts_per_kind = FailureKind::ALL
+        .into_iter()
+        .map(|kind| (kind, 0usize))
+        .collect::<BTreeMap<_, _>>();
+    let mut counts_per_outcome = empty_outcome_counts();
+    counts_per_outcome.insert(OutcomeKind::Success, snapshot.passed);
+    let mut counts_per_origin = FailureOrigin::ALL
+        .into_iter()
+        .map(|origin| (origin, 0usize))
+        .collect::<BTreeMap<_, _>>();
+    for failure in &snapshot.failures {
+        if !completed_paths.contains(failure.test_path.as_str()) {
+            return Err(format!(
+                "{context}: failure names case outside node: {}",
+                failure.test_path
+            ));
+        }
+        if !failure_paths.insert(failure.test_path.as_str()) {
+            return Err(format!(
+                "{context}: duplicate failure record for {}",
+                failure.test_path
+            ));
+        }
+        *counts_per_kind.entry(failure.kind).or_insert(0) += 1;
+        *counts_per_outcome.entry(failure.outcome).or_insert(0) += 1;
+        *counts_per_origin.entry(failure.origin).or_insert(0) += 1;
+    }
+    let failed = snapshot.total.checked_sub(snapshot.passed).ok_or_else(|| {
+        format!(
+            "{context}: passed count {} exceeds total {}",
+            snapshot.passed, snapshot.total
+        )
+    })?;
+    if snapshot.failures.len() != failed
+        || snapshot.counts_per_kind != counts_per_kind
+        || snapshot.counts_per_outcome != counts_per_outcome
+    {
+        return Err(format!(
+            "{context}: totals and classifications do not equal the recorded case results"
+        ));
+    }
+
+    let timeout_paths = snapshot
+        .timeout_list
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let expected_timeout_paths = snapshot
+        .failures
+        .iter()
+        .filter(|failure| failure_is_timeout(failure))
+        .map(|failure| failure.test_path.as_str())
+        .collect::<BTreeSet<_>>();
+    if timeout_paths.len() != snapshot.timeout_list.len() || timeout_paths != expected_timeout_paths
+    {
+        return Err(format!(
+            "{context}: timeout_list must equal the failures classified as timeout"
+        ));
+    }
+    let slowest_paths = snapshot
+        .slowest_tests
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect::<BTreeSet<_>>();
+    if slowest_paths.len() != snapshot.slowest_tests.len()
+        || !slowest_paths.is_subset(&completed_paths)
+    {
+        return Err(format!(
+            "{context}: slowest_tests must contain unique completed cases only"
+        ));
+    }
+
+    if entry.total != snapshot.total
+        || entry.passed != snapshot.passed
+        || entry.failed != snapshot.failures.len()
+        || entry.counts_per_kind != counts_per_kind
+        || entry.counts_per_outcome != counts_per_outcome
+        || entry.counts_per_origin != counts_per_origin
+    {
+        return Err(format!(
+            "{context}: aggregate entry {} does not equal its node evidence",
+            entry.node_id
+        ));
+    }
+    validate_summary_count_contract(
+        &context,
+        entry.total,
+        entry.passed,
+        entry.failed,
+        &entry.counts_per_kind,
+        &entry.counts_per_outcome,
+        &entry.counts_per_origin,
+    )
+}
+
+fn validate_complete_aggregate_evidence(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    snapshot_path: &Path,
+    snapshot: &ProgressSnapshot,
+    nodes: &[RunMatrixNode],
+    execution_backend: ExecutionBackend,
+    current_artifact: bool,
+) -> Result<(), String> {
+    let suite_case_paths = discover_suite(config, None)?
+        .cases
+        .into_iter()
+        .map(|case| case.path)
+        .collect::<Vec<_>>();
+    validate_run_matrix_contract(nodes, &suite_case_paths)?;
+    validate_complete_aggregate_contract(snapshot, nodes, current_artifact, snapshot_path)?;
+
+    let entries = snapshot
+        .aggregate_entries
+        .iter()
+        .map(|entry| (entry.node_id.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    for node in nodes {
+        let entry = entries
+            .get(node.node_id.as_str())
+            .expect("aggregate contract proved one entry per node");
+        let Some((node_path, file)) = locate_node_snapshot(
+            config,
+            snapshot_name,
+            node,
+            execution_backend,
+            entry.manifest_hash,
+        )?
+        else {
+            return Err(format!(
+                "aggregate snapshot integrity failure in {}: missing node evidence for {}",
+                snapshot_path.display(),
+                node.node_id
+            ));
+        };
+        let node_snapshot = snapshot_from_file(file)
+            .ok_or_else(|| format!("unsupported snapshot version in {}", node_path.display()))?;
+        validate_complete_node_contract(&node_snapshot, node, entry, &node_path)?;
+    }
+    Ok(())
+}
+
+fn load_and_validate_resolved_aggregate_evidence(
+    config: &SuiteConfig,
+    resolved: &ResolvedAggregateSnapshot,
+    nodes: &[RunMatrixNode],
+    execution_backend: ExecutionBackend,
+) -> Result<ProgressSnapshot, String> {
+    let artifact_kind = resolved
+        .file
+        .artifact_kind()
+        .expect("resolved snapshots have already passed schema validation");
+    let mut snapshot = snapshot_from_file(resolved.file.clone()).ok_or_else(|| {
+        format!(
+            "unsupported snapshot version in {}",
+            resolved.snapshot_paths.json_path.display()
+        )
+    })?;
+    if artifact_kind.needs_legacy_outcome_migration() {
+        migrate_legacy_aggregate_outcome_counts(
+            config,
+            &mut snapshot,
+            &resolved.snapshot_name,
+            execution_backend,
+            nodes,
+        )?;
+    }
+    validate_complete_aggregate_evidence(
+        config,
+        &resolved.snapshot_name,
+        &resolved.snapshot_paths.json_path,
+        &snapshot,
+        nodes,
+        execution_backend,
+        artifact_kind.is_current(),
+    )?;
+    Ok(snapshot)
 }
 
 /// Loads a complete aggregate for read-only evidence workflows.
@@ -22729,10 +23272,6 @@ fn load_verified_aggregate_summary_for_use(
     snapshot_use: SnapshotUse,
 ) -> Result<VerifiedAggregateSummary, String> {
     let nodes = load_or_build_run_matrix(config, execution_backend)?;
-    let expected_node_ids = nodes
-        .iter()
-        .map(|node| node.node_id.clone())
-        .collect::<BTreeSet<_>>();
     let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
     let expected_pinned = pinned_revisions(config);
     let resolved = resolve_aggregate_snapshot(
@@ -22742,56 +23281,19 @@ fn load_verified_aggregate_summary_for_use(
         execution_backend,
         &expected_pinned,
         snapshot_use,
+        &nodes,
+        AggregateEvidenceRequirement::Complete,
     )?;
     let recorded_pinned = PinnedRevisions {
         ecma262: resolved.file.pinned_revisions.ecma262.clone(),
         test262: resolved.file.pinned_revisions.test262.clone(),
     };
-    let needs_legacy_outcome_migration = resolved
-        .file
-        .artifact_kind()
-        .expect("resolved snapshots have already passed schema validation")
-        .needs_legacy_outcome_migration();
-    let mut snapshot = snapshot_from_file(resolved.file).ok_or_else(|| {
-        format!(
-            "unsupported snapshot version in {}",
-            resolved.snapshot_paths.json_path.display()
-        )
-    })?;
-    if needs_legacy_outcome_migration {
-        migrate_legacy_aggregate_outcome_counts(
-            config,
-            &mut snapshot,
-            &resolved.snapshot_name,
-            execution_backend,
-            &nodes,
-        )?;
-    }
-    let completed_node_ids = snapshot
-        .completed_nodes
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if completed_node_ids != expected_node_ids {
-        let missing = expected_node_ids
-            .difference(&completed_node_ids)
-            .take(5)
-            .cloned()
-            .collect::<Vec<_>>();
-        let extra = completed_node_ids
-            .difference(&expected_node_ids)
-            .take(5)
-            .cloned()
-            .collect::<Vec<_>>();
-        return Err(format!(
-            "aggregate snapshot incomplete in {}: completed {} of {} matrix nodes; missing [{}]; extra [{}]",
-            resolved.snapshot_paths.json_path.display(),
-            completed_node_ids.len(),
-            expected_node_ids.len(),
-            missing.join(", "),
-            extra.join(", "),
-        ));
-    }
+    let snapshot = load_and_validate_resolved_aggregate_evidence(
+        config,
+        &resolved,
+        &nodes,
+        execution_backend,
+    )?;
     Ok(VerifiedAggregateSummary {
         pinned_revisions: expected_pinned,
         recorded_pinned_revisions: recorded_pinned,
@@ -22822,6 +23324,8 @@ pub fn load_aggregate_progress_summary(
         execution_backend,
         &expected_pinned,
         SnapshotUse::ReadOnlyEvidence,
+        &nodes,
+        AggregateEvidenceRequirement::Envelope,
     )?;
     let recorded_pinned = PinnedRevisions {
         ecma262: resolved.file.pinned_revisions.ecma262.clone(),
@@ -22932,6 +23436,8 @@ pub fn load_matrix_failure_details(
         execution_backend,
         &expected_pinned,
         SnapshotUse::ReadOnlyEvidence,
+        &nodes,
+        AggregateEvidenceRequirement::Envelope,
     )?;
     let node_manifest_hash = resolved
         .file
@@ -23434,11 +23940,7 @@ fn locate_node_snapshot(
         ecma262: file.pinned_revisions.ecma262.clone(),
         test262: file.pinned_revisions.test262.clone(),
     };
-    let recomputed_hash = hash_manifest_case_paths(
-        &recorded_pinned,
-        &node.case_paths,
-        Some(node.filter.as_str()),
-    );
+    let recomputed_hash = matrix_node_manifest_hash(&recorded_pinned, node);
     // The recompute proof only holds for snapshots written by the current
     // code: legacy snapshot versions may predate changes to the manifest hash
     // inputs, so for them the join relies on the aggregate-recorded hash plus
@@ -23733,6 +24235,10 @@ fn render_backlog_summary(artifact: &BacklogArtifact) -> String {
     writeln!(&mut out, "by_task:").unwrap();
     for (task, count) in &artifact.summary_by_task {
         writeln!(&mut out, "  {task}: {count}").unwrap();
+    }
+    writeln!(&mut out, "by_feature:").unwrap();
+    for (feature, count) in &artifact.summary_by_feature {
+        writeln!(&mut out, "  {feature}: {count}").unwrap();
     }
     writeln!(&mut out, "top_failure_hashes:").unwrap();
     for (hash, count) in artifact.summary_by_failure_hash.iter().take(25) {
@@ -24492,6 +24998,20 @@ fn hash_manifest_case_paths(
         case_path.as_ref().hash(&mut hasher);
     }
     hasher.finish()
+}
+
+/// The one identity function for a matrix leaf's persisted snapshot.
+///
+/// A chunk leaf shares its discovery filter with every sibling chunk, so the
+/// filter is not a node identity. Keeping the node id here prevents writers,
+/// resumable readers, and backlog readers from silently deriving different
+/// hashes for the same chunk.
+fn matrix_node_manifest_hash(pinned_revisions: &PinnedRevisions, node: &RunMatrixNode) -> u64 {
+    hash_manifest_case_paths(
+        pinned_revisions,
+        &node.case_paths,
+        Some(node.node_id.as_str()),
+    )
 }
 
 /// The identity of a failure detail: the detail text with every value that is
@@ -35580,6 +36100,131 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn chunk_snapshot_identity_uses_unique_node_id_not_shared_filter() {
+        let pinned = PinnedRevisions {
+            ecma262: "ecma262-current-draft".to_string(),
+            test262: "test262-pin".to_string(),
+        };
+        let node = RunMatrixNode {
+            node_id: "built-ins/Array/prototype@chunk-0001-of-0002".to_string(),
+            node_kind: MatrixNodeKind::ChunkLeaf,
+            filter: "built-ins/Array/prototype".to_string(),
+            matrix_path: vec!["built-ins".to_string(), "Array".to_string()],
+            total_cases: 2,
+            case_paths: vec!["a.js".to_string(), "b.js".to_string()],
+        };
+
+        let writer_hash = matrix_node_manifest_hash(&pinned, &node);
+        assert_eq!(
+            writer_hash,
+            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.node_id.as_str()))
+        );
+        assert_ne!(
+            writer_hash,
+            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.filter.as_str())),
+            "siblings share a filter, so the filter cannot identify persisted chunk evidence"
+        );
+    }
+
+    #[test]
+    fn aggregate_integrity_contract_rejects_duplicate_entries_and_bad_totals() {
+        let node = RunMatrixNode {
+            node_id: "language".to_string(),
+            node_kind: MatrixNodeKind::FilterLeaf,
+            filter: "language".to_string(),
+            matrix_path: vec!["language".to_string()],
+            total_cases: 1,
+            case_paths: vec!["language/pass.js".to_string()],
+        };
+        let pinned = PinnedRevisions {
+            ecma262: "ecma262-current-draft".to_string(),
+            test262: "test262-pin".to_string(),
+        };
+        let mut kinds = FailureKind::ALL
+            .into_iter()
+            .map(|kind| (kind, 0))
+            .collect::<BTreeMap<_, _>>();
+        let origins = FailureOrigin::ALL
+            .into_iter()
+            .map(|origin| (origin, 0))
+            .collect::<BTreeMap<_, _>>();
+        let entry = TopLevelRunSummary {
+            node_id: node.node_id.clone(),
+            node_kind: node.node_kind,
+            filter: node.filter.clone(),
+            matrix_path: node.matrix_path.clone(),
+            total: 1,
+            passed: 1,
+            failed: 0,
+            counts_per_kind: kinds.clone(),
+            counts_per_outcome: BTreeMap::from([
+                (OutcomeKind::Success, 1),
+                (OutcomeKind::NotImplemented, 0),
+                (OutcomeKind::Crash, 0),
+                (OutcomeKind::Bug, 0),
+            ]),
+            counts_per_origin: origins.clone(),
+            manifest_hash: matrix_node_manifest_hash(&pinned, &node),
+        };
+        let summary = aggregate_from_entries(std::slice::from_ref(&entry));
+        let snapshot = aggregate_snapshot(
+            &pinned,
+            hash_matrix_nodes(std::slice::from_ref(&node), ExecutionBackend::WasmAot),
+            &summary,
+            ExecutionBackend::WasmAot,
+            "aggregate-matrix",
+            vec!["top-level".to_string()],
+            vec![node.node_id.clone()],
+        );
+        validate_complete_aggregate_contract(
+            &snapshot,
+            std::slice::from_ref(&node),
+            true,
+            Path::new("aggregate.json"),
+        )
+        .expect("coherent aggregate should validate");
+
+        let mut duplicate = snapshot.clone();
+        duplicate.aggregate_entries.push(entry);
+        let err = validate_complete_aggregate_contract(
+            &duplicate,
+            std::slice::from_ref(&node),
+            true,
+            Path::new("aggregate.json"),
+        )
+        .expect_err("duplicate entries must be rejected");
+        assert!(err.contains("duplicate aggregate entry"));
+
+        let mut bad_total = snapshot;
+        bad_total.total += 1;
+        let err = validate_complete_aggregate_contract(
+            &bad_total,
+            std::slice::from_ref(&node),
+            true,
+            Path::new("aggregate.json"),
+        )
+        .expect_err("aggregate totals must equal node evidence");
+        assert!(err.contains("aggregate totals"));
+
+        kinds.insert(FailureKind::Runtime, 1);
+        assert!(validate_summary_count_contract(
+            "synthetic node",
+            1,
+            1,
+            0,
+            &kinds,
+            &BTreeMap::from([
+                (OutcomeKind::Success, 1),
+                (OutcomeKind::NotImplemented, 0),
+                (OutcomeKind::Crash, 0),
+                (OutcomeKind::Bug, 0),
+            ]),
+            &origins,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn aggregate_resume_rejects_stale_matrix_strategy_snapshot() {
         let config = fixture_config();
         let nodes = build_run_matrix(&config).expect("matrix should build");
@@ -35746,6 +36391,172 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         }
     }
 
+    fn intentional_failure_node_snapshot(
+        config: &SuiteConfig,
+        snapshot_name: &str,
+    ) -> (RunMatrixNode, PathBuf, SnapshotFile) {
+        let node = build_run_matrix(config)
+            .expect("tiny run matrix should build")
+            .into_iter()
+            .find(|node| {
+                node.case_paths
+                    .iter()
+                    .any(|path| path == "built-ins/Array/intentional-failure.js")
+            })
+            .expect("tiny run matrix should contain the intentional failure");
+        let manifest_hash = matrix_node_manifest_hash(&pinned_revisions(config), &node);
+        let path = config.snapshot_dir.join(format!(
+            "{}-{}-{}.json",
+            snapshot_name,
+            sanitize_filter_for_snapshot(&node.node_id),
+            manifest_hash
+        ));
+        let file = read_snapshot_file(&path).expect("node snapshot should parse");
+        (node, path, file)
+    }
+
+    fn write_snapshot_file_for_test(path: &Path, file: &SnapshotFile) {
+        fs::write(
+            path,
+            serde_json::to_string_pretty(file).expect("snapshot json should serialize"),
+        )
+        .expect("snapshot should write");
+    }
+
+    #[test]
+    fn verified_aggregate_rejects_tampered_node_evidence_end_to_end() {
+        let config = tiny_failing_suite_config("verified-node-evidence");
+        let run_config = RunConfig {
+            snapshot_name: "verified-node-evidence".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        let (node, node_path, original) =
+            intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
+
+        let mut wrong_path = original.clone();
+        wrong_path.completed_paths[0] = "built-ins/Array/not-in-node.js".to_string();
+        write_snapshot_file_for_test(&node_path, &wrong_path);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("wrong completed path must be rejected");
+        assert!(err.contains("completed_paths"));
+
+        let mut wrong_run_kind = original.clone();
+        wrong_run_kind.run_kind = format!("matrix-{}-extra", node.node_kind.as_str());
+        write_snapshot_file_for_test(&node_path, &wrong_run_kind);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("non-exact matrix run kind must be rejected");
+        assert!(err.contains("run_kind"));
+
+        let mut checkpoint_lookalike = original.clone();
+        checkpoint_lookalike.run_kind = "resume-case-checkpoint-extra".to_string();
+        checkpoint_lookalike.matrix_path.clear();
+        write_snapshot_file_for_test(&node_path, &checkpoint_lookalike);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("checkpoint lookalike must not get the checkpoint exception");
+        assert!(err.contains("run_kind"));
+
+        let mut wrong_matrix_path = original.clone();
+        wrong_matrix_path.matrix_path = vec!["wrong".to_string()];
+        write_snapshot_file_for_test(&node_path, &wrong_matrix_path);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("wrong matrix path must be rejected");
+        assert!(err.contains("matrix_path"));
+
+        let mut duplicate_failure = original.clone();
+        duplicate_failure
+            .failures
+            .push(original.failures[0].clone());
+        write_snapshot_file_for_test(&node_path, &duplicate_failure);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("duplicate failure evidence must be rejected");
+        assert!(err.contains("duplicate failure record"));
+
+        let mut extra_timeout = original.clone();
+        extra_timeout
+            .timeout_list
+            .push(original.failures[0].test_path.clone());
+        write_snapshot_file_for_test(&node_path, &extra_timeout);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("non-timeout failure must not appear in timeout_list");
+        assert!(err.contains("failures classified as timeout"));
+
+        let mut missing_timeout = original.clone();
+        missing_timeout.failures[0]
+            .detail
+            .push_str(": timeout exceeded");
+        write_snapshot_file_for_test(&node_path, &missing_timeout);
+        let err = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect_err("timeout failure must appear in timeout_list");
+        assert!(err.contains("failures classified as timeout"));
+
+        write_snapshot_file_for_test(&node_path, &original);
+        load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("restored evidence should verify");
+    }
+
+    #[test]
+    fn verified_fallback_resolution_ignores_envelope_valid_corrupt_candidate() {
+        let config = tiny_failing_suite_config("verified-fallback-evidence");
+        let valid = RunConfig {
+            snapshot_name: "verified-fallback-valid".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        let corrupt = RunConfig {
+            snapshot_name: "verified-fallback-corrupt".to_string(),
+            ..valid.clone()
+        };
+        run_top_level_matrix(&config, valid.clone()).expect("valid matrix should run");
+        run_top_level_matrix(&config, corrupt.clone()).expect("corrupt candidate should first run");
+
+        let (_, corrupt_node_path, mut corrupt_node) =
+            intentional_failure_node_snapshot(&config, &corrupt.snapshot_name);
+        corrupt_node.completed_paths[0] = "built-ins/Array/not-in-node.js".to_string();
+        write_snapshot_file_for_test(&corrupt_node_path, &corrupt_node);
+
+        let resolved = load_verified_aggregate_summary(
+            &config,
+            "verified-fallback-probe",
+            ExecutionBackend::SpecExec,
+        )
+        .expect("only the candidate with complete coherent evidence should resolve");
+        assert_eq!(resolved.resolved_snapshot_name, valid.snapshot_name);
+    }
+
     #[test]
     fn generate_backlog_writes_deterministic_failure_inventory() {
         let config = tiny_failing_suite_config("backlog-inventory");
@@ -35847,8 +36658,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             })
             .expect("matrix should include failing node");
         let pinned = pinned_revisions(&config);
-        let manifest_hash =
-            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.filter.as_str()));
+        let manifest_hash = matrix_node_manifest_hash(&pinned, node);
         let candidate_node_path = config.snapshot_dir.join(format!(
             "{}-{}-{}.json",
             candidate_run.snapshot_name,
@@ -36326,8 +37136,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             })
             .expect("matrix should include failing node");
         let pinned = pinned_revisions(&config);
-        let manifest_hash =
-            hash_manifest_case_paths(&pinned, &node.case_paths, Some(node.filter.as_str()));
+        let manifest_hash = matrix_node_manifest_hash(&pinned, node);
         let node_file_name = format!(
             "{{}}-{}-{}.json",
             sanitize_filter_for_snapshot(&node.node_id),

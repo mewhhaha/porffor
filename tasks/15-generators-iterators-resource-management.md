@@ -22,9 +22,11 @@ obligations and to the sync/async delegation emitter family. The parser-facing
 delegation boolean is converted exactly once where `StatementIr` is built;
 backend consumers match the closed form exhaustively. This seam is covered by
 the green central feature-enabled CLI compile without changing
-`generator_delegation.rs`; focused yield execution remains unverified, and
-this is not a claim that the broader generator or iterator-close acceptance
-criteria are complete.
+`generator_delegation.rs`, and the final 620-test CLI inventory includes the
+sync suspension-reference regression plus all five async `yield*` wrapper,
+initialization and `next`/`return`/`throw` validation fixtures. This is not a
+claim that the broader generator or iterator-close acceptance criteria are
+complete.
 
 Call-argument spread now has the same compile-enforced boundary:
 `ExprIr::SpreadArgument` carries a `SpreadArgumentIr`, whose required
@@ -34,8 +36,9 @@ emitter performs (`GetIterator`, `IteratorStep`, `IteratorValue`) and records
 the no-`IteratorClose` path as an implementation fact. Adding a new spread IR
 construction without that protocol is therefore a build error; the backend
 does not branch on the witness, so evaluation order and emitted control flow
-are unchanged. The central feature-enabled CLI compile covers this seam;
-focused spread execution remains unverified.
+are unchanged. The central feature-enabled CLI compile and the exact
+`run_wasm_backend_uses_iterators_for_call_argument_spread` contract are green
+in the complete 620-test CLI inventory.
 
 Array-literal spread remains a separate correctness gap. The intended closed
 decision is `ArraySpreadStrategy::{ProvenDense, GeneralIterator}`, but the
