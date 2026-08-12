@@ -22,6 +22,18 @@ Supported statically known subsets have not been implemented. Keep this task
 focused on capability reporting and general compilation paths rather than
 treating the permitted unsupported result as a pass.
 
+The 2026-08-13 current-pin Wasm-AOT run supplies the first concrete static
+subset owner: its first 17 failures are all typed `$262.evalScript`
+target-realm-environment gaps, with no timeout or crash. These are not a
+declaration-free literal cluster. Sixteen exercise descriptor-sensitive
+global/Annex-B declaration instantiation, and the remaining lexical-collision
+case requires a deferred `SyntaxError` with no partial `var` mutation.
+`docs/rust-rewrite/contracts/precompiled-realm-scripts.md` therefore fixes the
+implementation boundary before code changes: one syntax-proven precompiled
+Script registry, deferred parse/early-error results, runtime
+GlobalDeclarationInstantiation and must-use realm-context restoration. Source
+splicing and a declaration-free harness shortcut are explicitly excluded.
+
 ## Objective
 
 Resolve dynamic JavaScript source evaluation without violating the project ban on shipping an interpreter/VM inside emitted Wasm. Implement every compliant subset that can remain direct compilation, and report the rest explicitly unless a later architecture decision approves a host-compiler design.

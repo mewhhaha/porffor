@@ -88,6 +88,12 @@ debt.
 
 ## Static-subset prerequisites
 
+`precompiled-realm-scripts.md` defines the implementation contract for
+AOT-proven Script source. In particular, static realm evaluation means a
+separate precompiled Script thunk, deferred ECMAScript parse/early errors and
+runtime GlobalDeclarationInstantiation. It never means splicing statements
+into the caller or manufacturing a declaration-free host result.
+
 Direct eval additionally needs an eval parse goal, delayed parse/early errors,
 runtime `%eval%` identity checking, caller variable and lexical environments,
 strictness, `this`, `new.target`, private environment, declaration
