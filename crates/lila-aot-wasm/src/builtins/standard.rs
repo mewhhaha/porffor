@@ -31472,29 +31472,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(number_payload_local));
                 self.emit_return_current_completion_if_throw(function);
 
-                function.instruction(&Instruction::LocalGet(number_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(number_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::LocalGet(number_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Abs);
-                function.instruction(&Instruction::F64Const(f64::MAX.into()));
-                function.instruction(&Instruction::F64Gt);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(code_unit_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(number_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::I64TruncSatF64S);
-                function.instruction(&Instruction::I64Const(0xffff));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::LocalSet(code_unit_local));
-                function.instruction(&Instruction::End);
+                self.emit_to_uint16_i64_from_number_payload(
+                    number_payload_local,
+                    code_unit_local,
+                    function,
+                );
                 self.emit_store_utf8_codepoint(
                     output_position_local,
                     code_unit_local,

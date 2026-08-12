@@ -4170,6 +4170,25 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(out_local));
     }
 
+    /// Emits ECMA-262 ToUint16 steps 2-5 for a Number payload.
+    ///
+    /// ToUint16 is exactly the low half of ToUint32. Routing through the
+    /// binary64 modulo authority above is important for magnitudes outside
+    /// `i64`: truncating to an integer first would saturate and lose the low
+    /// bits that String.fromCharCode and the integer conversion require.
+    pub(crate) fn emit_to_uint16_i64_from_number_payload(
+        &mut self,
+        number_payload_local: u32,
+        out_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_to_uint32_i64_from_number_payload(number_payload_local, out_local, function);
+        function.instruction(&Instruction::LocalGet(out_local));
+        function.instruction(&Instruction::I64Const(0xffff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(out_local));
+    }
+
     pub(crate) fn compile_coercive_binary_number_to_locals(
         &mut self,
         op: ArithmeticBinaryOp,
