@@ -29275,48 +29275,11 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(byte_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(byte_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MIN as f64)));
-                function.instruction(&Instruction::F64Lt);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MAX as f64)));
-                function.instruction(&Instruction::F64Gt);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(byte_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::I64TruncF64S);
-                function.instruction(&Instruction::LocalSet(byte_value_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
+                self.emit_to_uint32_i64_from_number_payload(
+                    value_payload_local,
+                    byte_value_local,
+                    function,
+                );
                 function.instruction(&Instruction::LocalGet(data_ptr_local));
                 function.instruction(&Instruction::LocalGet(byte_offset_local));
                 function.instruction(&Instruction::I64Add);
@@ -29441,50 +29404,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MIN as f64)));
-                function.instruction(&Instruction::F64Lt);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MAX as f64)));
-                function.instruction(&Instruction::F64Gt);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::I64TruncF64S);
-                function.instruction(&Instruction::I64Const(0xFFFF));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
+                self.emit_to_uint32_i64_from_number_payload(
+                    value_payload_local,
+                    word_value_local,
+                    function,
+                );
 
                 function.instruction(&Instruction::LocalGet(word_value_local));
                 function.instruction(&Instruction::I64Const(0xFF));
@@ -29651,50 +29575,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
 
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-                function.instruction(&Instruction::F64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MIN as f64)));
-                function.instruction(&Instruction::F64Lt);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(i64::MAX as f64)));
-                function.instruction(&Instruction::F64Gt);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::I64TruncF64S);
-                function.instruction(&Instruction::I64Const(0xFFFF_FFFF));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::LocalSet(word_value_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
+                self.emit_to_uint32_i64_from_number_payload(
+                    value_payload_local,
+                    word_value_local,
+                    function,
+                );
 
                 function.instruction(&Instruction::LocalGet(word_value_local));
                 function.instruction(&Instruction::I64Const(0xFF));

@@ -21,12 +21,19 @@ the operand is evaluated once and crosses one ToNumeric boundary, the Number
 arm consumes the shared exact modulo-2^32 emitter, and the BigInt arm applies
 the existing arbitrary-precision XOR representation to `-1n`. Literal folding
 uses the same mathematical identity without narrowing. Remaining
-conversion/builtin integrations are still open. The Number side uses the same
-exact modulo-2^32 emitter across unary and binary bitwise operators, Array
-length conversion, String split limits and `String.fromCharCode`'s `ToUint16`
-projection, replacing the saturate-before-modulo path that miscompiled positive
-infinity and magnitudes at or above 2^63. The
-Math.random product path uses a realm-owned
+conversion/builtin integrations are still open. The Number side now has one
+backend authority for exact modulo-2^32 conversion across unary and binary
+bitwise operators, Array length conversion, String split limits,
+`String.fromCharCode`'s `ToUint16` projection, `Math.imul`, `Math.clz32`, every
+integer typed-array and Atomics store, and every integer DataView setter. The
+emitter keeps the modulo in binary64 before its non-trapping unsigned
+conversion, so NaN and infinities become zero while finite magnitudes at and
+above 2^63 retain their low bits; signed consumers interpret those same low 32
+bits only after conversion. A registered dynamic CLI fixture covers the large
+positive and negative residues plus observable evaluation/coercion order. Its
+focused Wasm product-path test has not yet been executed in this batch while
+the repository-wide conformance matrix owns the verifier. The Math.random
+product path uses a realm-owned
 `HostRandom` capability: the only provider result type validates the exact
 finite `[0, 1)` domain, the production provider maps 53 operating-system
 entropy bits to binary64, and the builtin catalog alone decides whether the

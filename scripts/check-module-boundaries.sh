@@ -32,6 +32,17 @@ require_pub_use() {
   fi
 }
 
+require_fixed_string_count() {
+  file="$1"
+  needle="$2"
+  expected="$3"
+  description="$4"
+  count="$(grep -Fc "$needle" "$file" || true)"
+  if [ "$count" -ne "$expected" ]; then
+    fail "$file must contain $expected $description sites (found $count)"
+  fi
+}
+
 # Non-test CODE lines: everything before the crate's `#[cfg(test)]` block, minus
 # blank lines and minus whole-line comments (`//`, `///`, `//!` and lines inside
 # a whole-line `/* ... */` block).
@@ -279,6 +290,40 @@ require_pub_use "$wasm_lib" '^pub use emit::emit;' 'the Wasm emit entry point'
 check_orchestration_surface "$wasm_lib" 180
 check_no_inline_legacy_includes "$wasm_lib"
 check_no_inline_legacy_includes "$wasm_builtins_mod"
+
+# T20's Number-to-32-bit residue boundary. The binary64 modulo must remain in
+# one backend emitter: integer typed arrays, DataView setters and Math methods
+# previously grew local conversions that trapped or discarded finite values at
+# and above 2^63. Exact call counts make removing one route a static failure;
+# adding a new consumer intentionally requires reviewing this inventory.
+wasm_uint32_authority="crates/lila-aot-wasm/src/operations.rs"
+uint32_modulus='Instruction::F64Const(Ieee64::from(4_294_967_296.0))'
+uint32_modulus_files="$(grep -RFl --include='*.rs' "$uint32_modulus" crates/lila-aot-wasm/src || true)"
+if [ "$uint32_modulus_files" != "$wasm_uint32_authority" ]; then
+  fail "the exact modulo-2^32 implementation must exist only in $wasm_uint32_authority (found: ${uint32_modulus_files:-none})"
+fi
+require_fixed_string_count "$wasm_uint32_authority" "$uint32_modulus" 2 'modulo-2^32 constant'
+
+uint32_call='self.emit_to_uint32_i64_from_number_payload('
+uint32_consumer_files="$(grep -RFl --include='*.rs' "$uint32_call" crates/lila-aot-wasm/src | sort || true)"
+expected_uint32_consumer_files="$(printf '%s\n' \
+  crates/lila-aot-wasm/src/builtins/array.rs \
+  crates/lila-aot-wasm/src/builtins/math.rs \
+  crates/lila-aot-wasm/src/builtins/standard.rs \
+  crates/lila-aot-wasm/src/builtins/string.rs \
+  crates/lila-aot-wasm/src/expressions.rs \
+  crates/lila-aot-wasm/src/objects.rs \
+  crates/lila-aot-wasm/src/operations.rs | sort)"
+if [ "$uint32_consumer_files" != "$expected_uint32_consumer_files" ]; then
+  fail "the reviewed modulo-2^32 consumer inventory changed"
+fi
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/array.rs "$uint32_call" 1 'ToUint32 authority call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/math.rs "$uint32_call" 3 'ToUint32 authority call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/standard.rs "$uint32_call" 3 'ToUint32 authority call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/string.rs "$uint32_call" 1 'ToUint32 authority call'
+require_fixed_string_count crates/lila-aot-wasm/src/expressions.rs "$uint32_call" 1 'ToUint32 authority call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$uint32_call" 1 'ToUint32 authority call'
+require_fixed_string_count crates/lila-aot-wasm/src/operations.rs "$uint32_call" 4 'ToUint32 authority call'
 
 if [ "$failures" -ne 0 ]; then
   exit 1

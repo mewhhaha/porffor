@@ -8,7 +8,7 @@
 //! refuted runner knobs, and why the split has to be by module file rather than
 //! by libtest filter.
 //!
-//! 32 tests, all heavy. Its chunk is `run_chunk language_numerics
+//! 33 tests, all heavy. Its chunk is `run_chunk language_numerics
 //! language_numerics::` in `scripts/rung1c-chunks.sh`, and it needs BOTH that
 //! line and `mod language_numerics;` in `main.rs`: a module with a chunk but no
 //! `mod` line is not compiled, its filter selects nothing, libtest exits 0 on
@@ -521,6 +521,26 @@ fn run_wasm_backend_succeeds_for_bigint_bitwise_fixture() {
         .expect("run command should run");
 
     assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn run_wasm_backend_preserves_exact_number_int32_conversions() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_number_int32_conversion_core.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));

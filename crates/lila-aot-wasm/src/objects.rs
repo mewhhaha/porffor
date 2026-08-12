@@ -7705,48 +7705,14 @@ impl<'a> FunctionBuilder<'a> {
         number_payload_local: u32,
         function: &mut Function,
     ) {
-        let truncated_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-            function.instruction(&Instruction::LocalGet(number_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-            function.instruction(&Instruction::F64Eq);
-            function.instruction(&Instruction::I32Or);
-        }
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(truncated_local));
-        function.instruction(&Instruction::LocalGet(truncated_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(truncated_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(4_294_967_296.0)));
-        function.instruction(&Instruction::F64Div);
-        function.instruction(&Instruction::F64Floor);
-        function.instruction(&Instruction::F64Const(Ieee64::from(4_294_967_296.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::F64Sub);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncSatF64U);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(remainder_local);
-        self.release_temp_local(truncated_local);
+        let uint32_local = self.reserve_temp_local();
+        self.emit_to_uint32_i64_from_number_payload(
+            number_payload_local,
+            uint32_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(uint32_local));
+        self.release_temp_local(uint32_local);
     }
 
     pub(crate) fn emit_store_number_payload_to_typed_array_address_by_kind(

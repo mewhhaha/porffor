@@ -4399,12 +4399,14 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Emits ECMA-262 ToUint32 steps 2-5 for a Number payload.
     ///
-    /// The destination may alias the payload. Keeping the modulo in binary64
-    /// is essential: converting to `i64` first saturates every magnitude at or
-    /// above 2^63 and loses its low 32 bits. Division by the power-of-two
-    /// modulus is exact; once binary64 spacing reaches 2^32 the input is
-    /// already a multiple of the modulus. NaN and infinities reach a NaN
-    /// subtraction, which `i64.trunc_sat_f64_u` maps to zero as required.
+    /// This is the sole backend authority for Number-to-32-bit integer
+    /// residues. Consumers interpret the low bits as signed only after this
+    /// conversion. The destination may alias the payload. Keeping the modulo
+    /// in binary64 is essential: converting to `i64` first saturates every
+    /// magnitude at or above 2^63 and loses its low 32 bits. Division by the
+    /// power-of-two modulus is exact; once binary64 spacing reaches 2^32 the
+    /// input is already a multiple of the modulus. NaN and infinities reach a
+    /// NaN subtraction, which `i64.trunc_sat_f64_u` maps to zero as required.
     pub(crate) fn emit_to_uint32_i64_from_number_payload(
         &mut self,
         number_payload_local: u32,

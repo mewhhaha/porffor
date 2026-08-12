@@ -303,26 +303,32 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(y_payload_local);
             }
             MathBuiltin::Imul => {
-                let lhs_i64_local = self.reserve_temp_local();
+                let lhs_uint32_local = self.reserve_temp_local();
                 self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
                 self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::I64TruncF64S);
-                function.instruction(&Instruction::LocalSet(lhs_i64_local));
+                function.instruction(&Instruction::LocalSet(lhs_uint32_local));
+                self.emit_to_uint32_i64_from_number_payload(
+                    lhs_uint32_local,
+                    lhs_uint32_local,
+                    function,
+                );
                 self.emit_builtin_arg_to_locals(1, arg_payload_local, arg_tag_local, function);
                 self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(arg_payload_local));
+                self.emit_to_uint32_i64_from_number_payload(
+                    arg_payload_local,
+                    arg_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(arg_payload_local));
                 function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::LocalGet(lhs_i64_local));
+                function.instruction(&Instruction::LocalGet(lhs_uint32_local));
                 function.instruction(&Instruction::I32WrapI64);
                 function.instruction(&Instruction::I32Mul);
                 function.instruction(&Instruction::F64ConvertI32S);
                 function.instruction(&Instruction::I64ReinterpretF64);
                 function.instruction(&Instruction::LocalSet(self.result_local));
-                self.release_temp_local(lhs_i64_local);
+                self.release_temp_local(lhs_uint32_local);
             }
             MathBuiltin::Min => self.emit_math_extremum_builtin(
                 MathExtremum::Minimum,
@@ -448,43 +454,17 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
                     MathBuiltin::Clz32 => {
-                        function.instruction(&Instruction::LocalGet(self.result_local));
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function.instruction(&Instruction::LocalGet(self.result_local));
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function.instruction(&Instruction::F64Ne);
-                        function.instruction(&Instruction::LocalGet(self.result_local));
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function.instruction(&Instruction::F64Abs);
-                        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-                        function.instruction(&Instruction::F64Eq);
-                        function.instruction(&Instruction::I32Or);
+                        self.emit_to_uint32_i64_from_number_payload(
+                            arg_payload_local,
+                            arg_payload_local,
+                            function,
+                        );
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function
-                            .instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-                        function.instruction(&Instruction::F64Eq);
-                        function.instruction(&Instruction::I32Or);
-                        function.instruction(&Instruction::LocalGet(arg_payload_local));
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function.instruction(&Instruction::F64Abs);
-                        function
-                            .instruction(&Instruction::F64Const(Ieee64::from(4503599627370496.0)));
-                        function.instruction(&Instruction::F64Ge);
-                        function.instruction(&Instruction::I32Or);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        function.instruction(&Instruction::F64Const(Ieee64::from(32.0)));
-                        function.instruction(&Instruction::I64ReinterpretF64);
-                        function.instruction(&Instruction::LocalSet(self.result_local));
-                        function.instruction(&Instruction::Else);
-                        function.instruction(&Instruction::LocalGet(self.result_local));
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function.instruction(&Instruction::I32TruncF64U);
+                        function.instruction(&Instruction::I32WrapI64);
                         function.instruction(&Instruction::I32Clz);
                         function.instruction(&Instruction::F64ConvertI32U);
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
-                        function.instruction(&Instruction::End);
                     }
                     MathBuiltin::Exp => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
