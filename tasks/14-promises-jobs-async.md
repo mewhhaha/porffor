@@ -15,6 +15,43 @@ async generators, async iteration, module jobs and `waitAsync` share unfinished
 boundaries with T12/T15/T17. The complete Promise/async filters have not met the
 zero-failure acceptance gate for the current pin.
 
+The AOT pending-job record now has one closed Rust `PromiseJobKind` domain for
+the two job shapes the product path actually enqueues: Promise reactions and
+thenable resolution. Both producers encode that type, and the main-export drain
+derives its comparison chain from the domain before selecting a handler through
+an exhaustive match. An unknown word traps instead of silently running as a
+thenable job. A private payload-bearing `PromiseJobToEnqueue` now requires each
+producer to supply its argument and realm policy before the sole FIFO append;
+new job shapes cannot grow a second queue-order implementation.
+The job and reaction-callback enum, ordered `ALL` set and stable wire word now
+come from the same macro row, with a const dense-range proof; there is no second
+hand-written variant list that can omit a new row.
+
+Promise reaction callback words are also one closed six-variant Rust domain.
+Reaction construction writes that typed word once, rather than initializing a
+default and repairing internal async continuations afterward, and the runner's
+ordered comparison chain selects behavior through an exhaustive match. Default
+reaction jobs derive `GetFunctionRealm(handler)` at enqueue time or carry the
+specification's null realm for an empty handler; internal async continuations
+carry their captured realm. Thenable jobs derive the `then` callback realm.
+Both callback lookups select the enqueue-time current realm for a revoked Proxy,
+and the drain maps a null job realm to its saved host-checkpoint realm instead
+of installing zero or leaking the preceding job's realm.
+
+This closes the current record/ordering/realm-source boundary; it does not yet
+provide the broader realm/agent-owned host queue contract. Async continuations
+still ride on reaction records, while module and finalization-cleanup jobs
+remain outside this two-kind queue. Full execution-context switching and
+realm-correct allocation across the complete builtin surface also remain T06
+work, so this is not a claim of complete cross-realm Promise conformance.
+
+The central feature-enabled CLI compile covers the consolidated job machinery.
+The typed callback-word/realm policy's durable layout contract is green, as are
+the engine contracts proving that reaction jobs run after synchronous code in
+registration order and that thenable-resolution jobs are asynchronous and
+settle once. Those checks are not a substitute for the full Promise/async
+Test262 filters.
+
 ## Objective
 
 Implement the ECMAScript job model, complete Promise semantics, async functions and async iteration with deterministic host integration suitable for Test262 and embedders.
@@ -117,10 +154,10 @@ variants.
 ## Required tests
 
 ```sh
-cargo test -p porffor-runtime job_ --quiet
-cargo test -p porffor-aot-wasm promise_ --quiet
-cargo test -p porffor-cli wasm_async --quiet
-./target/debug/porf test262 run built-ins/Promise --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-runtime job_ --quiet
+cargo test -p lila-aot-wasm promise_ --quiet
+cargo test -p lila-cli wasm_async --quiet
+./target/debug/lila test262 run built-ins/Promise --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
 Also run async function, `await`, `for-await-of`, async iterator and top-level-await filters, plus intentionally hanging/duplicate `$DONE` harness tests.

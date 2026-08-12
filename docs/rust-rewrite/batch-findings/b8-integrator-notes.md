@@ -45,7 +45,7 @@ in the working tree.
 
 So this session is application-by-verification plus fixes, not a first apply.
 
-## 2. Lane 1 — IR-TRUTH: `cargo check -p porffor-ir --all-targets`
+## 2. Lane 1 — IR-TRUTH: `cargo check -p lila-ir --all-targets`
 
 ### Two E0004s, both from ERM-STACK's cross-lane row, one of them undeclared
 
@@ -108,11 +108,11 @@ with the trap written down at the site.
 ### Gate
 
 ```
-cargo check -p porffor-ir --all-targets   EXIT 0
+cargo check -p lila-ir --all-targets   EXIT 0
 ```
 
 Warning set is **identical to `target/lane-notes/b4-baseline-xc.log`**, same six
-`porffor-ir` sites, line numbers shifted only:
+`lila-ir` sites, line numbers shifted only:
 
 | site | b4 line | now |
 |---|---|---|
@@ -125,7 +125,7 @@ Warning set is **identical to `target/lane-notes/b4-baseline-xc.log`**, same six
 
 Zero new warnings.
 
-## 3. Lane 2 — ERM-STACK: `cargo check -p porffor-aot-wasm`
+## 3. Lane 2 — ERM-STACK: `cargo check -p lila-aot-wasm`
 
 **Zero errors on first check**, for ~1,650 blind lines. Because that is exactly
 the result a lane which merely *compiles* would also produce, the wiring was
@@ -141,7 +141,7 @@ shape this repository has shipped before:
 | bootstrap gate | `bootstrap.rs:4507` `should_initialize_standard_builtin(AsyncDisposableStackConstructor)` |
 | emitters | 9 `pub(crate) fn` in the new file, all named by the dispatch |
 
-Warnings: `porffor-aot-wasm` lib **25**, lib-test **20** — identical to the
+Warnings: `lila-aot-wasm` lib **25**, lib-test **20** — identical to the
 batch-7 head. Nothing the lane added is unreachable.
 
 ### The strengthening: two closed domains that were bare `u64`
@@ -192,15 +192,15 @@ reserves and releases internally, and the loop calls it the same three times.
 ## 4. Lane 3 — ASYNC-FROM-SYNC-CLOSE
 
 Landed in the same commit as ERM-STACK and covered by the same
-`cargo check -p porffor-aot-wasm`: **zero errors, zero new warnings**. The lane
+`cargo check -p lila-aot-wasm`: **zero errors, zero new warnings**. The lane
 edited `promise.rs` only, and — correctly — left `control_flow.rs` and `ir.rs`
 alone after showing the lane spec's location premise was wrong (all six failing
 cases are `yield*`, not `for await`).
 
 ### Its one cross-file request, applied
 
-`crates/porffor-cli/tests/fixtures/wasm_async_from_sync_iterator_close_on_rejection.js`
-was **unreferenced** — verified by grep across `crates/porffor-cli/tests/`, zero
+`crates/lila-cli/tests/fixtures/wasm_async_from_sync_iterator_close_on_rejection.js`
+was **unreferenced** — verified by grep across `crates/lila-cli/tests/`, zero
 hits. An orphan fixture is the "no call site" shape again: it costs nothing to
 compile and proves nothing.
 
@@ -261,7 +261,7 @@ sh -n scripts/rung1c-chunks.sh : OK
 
 ## 6. Counts, recounted (do not cite, recount)
 
-`#[test]` attributes in `crates/porffor-cli/tests/cli/*.rs`, exact-line `awk`
+`#[test]` attributes in `crates/lila-cli/tests/cli/*.rs`, exact-line `awk`
 form (never the substring grep):
 
 ```
@@ -289,13 +289,13 @@ needs `--list`, which is a build. 623 − 8 `spec-exec-oracle` gates − 1 `heap
 
 | gate | result |
 |---|---|
-| `cargo check -p porffor-ir --all-targets` | **EXIT 0** |
-| `cargo check -p porffor-aot-wasm --all-targets` | **EXIT 0** |
+| `cargo check -p lila-ir --all-targets` | **EXIT 0** |
+| `cargo check -p lila-aot-wasm --all-targets` | **EXIT 0** |
 | `cargo xc` (`check --workspace --all-targets`) | **EXIT 0**, 0 errors |
-| new warnings | **none.** 31 unique `crates/porffor*` warning sites, every one present in `b4-baseline-xc.log`. Per-crate totals differ from b4 only by the single warning batch 7 removed (`porffor-aot-wasm` 26→25 lib, 21→20 lib-test). |
+| new warnings | **none.** 31 unique `crates/lila*` warning sites, every one present in `b4-baseline-xc.log`. Per-crate totals differ from b4 only by the single warning batch 7 removed (`lila-aot-wasm` 26→25 lib, 21→20 lib-test). |
 | `cargo fmt --all -- --check` | **clean** (exit 0) after one `cargo fmt --all` |
 
-`porffor-ir` lib-test reads "5 warnings (4 duplicates)" on one run and
+`lila-ir` lib-test reads "5 warnings (4 duplicates)" on one run and
 "(5 duplicates)" on another. Same six sites both times; it is only which unit
 reports a shared site first. b7 recorded the same flip.
 

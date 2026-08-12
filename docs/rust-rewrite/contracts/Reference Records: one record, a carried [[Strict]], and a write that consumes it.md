@@ -300,7 +300,7 @@ ToNumeric, and PutValue on that one record.
 
 ## 2. Type mapping
 
-New module: **`crates/porffor-ir/src/reference.rs`** (this lane's exclusive
+New module: **`crates/lila-ir/src/reference.rs`** (this lane's exclusive
 file). Everything in §2.1–§2.6 lives there unless stated otherwise.
 
 ### 2.1 `Strictness` — invariant I1
@@ -764,6 +764,59 @@ why a type cannot carry the invariant.
 | **L7** | `ToPropertyKey` on a computed key runs *after* the RHS on the plain-assignment path (C5, corrected). | `PropertyKeyIr::StringExpr` conflates the key operand with the property key, so the IR cannot record that the coercion is owed; the typed fix changes a shared enum matched across the whole backend. | Open, and **pre-existing** — not a regression of this landing. Corpus entry 6's second half is the oracle. Follow-up lane with build access; see C5. |
 | **L8** | The runtime strictness guard's block depth and the `Br` immediates emitted inside it. | Wasm label depths are `u32` immediates computed against a control stack the raw `If`/`Else` instructions in these guards are not on. No type distinguishes "depth relative to the guard" from "depth relative to the frame". | `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` and `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` are named once in `objects.rs` and added at every branch inside the guard, so the two arms of one helper cannot disagree — which is how the defect arose. The behavioural oracle is the fixture pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`; a wrong depth is a wasm validation failure or a throw caught by the wrong handler. |
 
+### T08 suspended ordinary-property Reference amendment
+
+`lhs = yield rhs` evaluates the LeftHandSideExpression before the yielded RHS
+and performs PutValue only after a normal resume. The existing synchronous
+generator implementation already follows the temporal half of that rule: its
+activation stores the evaluated target payload/tag and normalized key
+payload/tag before compiling `rhs`, and the resume branch reloads those words.
+It nevertheless erased one of 6.2.5's fields in IR:
+`GeneratorResumeModeIr::AssignProperty { target, key }` had no `[[Strict]]`.
+The two resume consumers then invoked raw `emit_object_write`, bypassing the
+Reference strictness guard used by ordinary `ExprIr::PropertyWrite`.
+
+The bounded replacement is:
+
+```rust
+pub struct SuspendedPropertyReferenceIr { /* private */ }
+
+pub enum SuspendedPropertyReferenceUse<'a> {
+    Ordinary {
+        base_and_receiver: &'a TypedExpr,
+        key: &'a PropertyKeyIr,
+        strictness: Strictness,
+    },
+}
+
+pub enum GeneratorResumeModeIr {
+    // ...
+    AssignProperty(SuspendedPropertyReferenceIr),
+}
+```
+
+The single constructor is crate-private. `base_and_receiver` is one value on
+purpose: for an ordinary property Reference, 6.2.5.3 returns `[[Base]]` as the
+receiver. Storing two expressions for that case would make a disagreement
+representable. A future Super Reference, whose `[[Base]]` and
+`[[ThisValue]]` differ, must add another use-view variant; every AOT match then
+fails exhaustiveness until it persists and consumes the distinct receiver.
+
+A single backend helper matches that view to perform both halves of the
+suspension protocol. On the suspend state it evaluates base, applies
+ToPropertyKey, and stores the existing activation words. On normal resume it
+reloads those words and calls `emit_object_write` inside
+`with_reference_strictness(strictness, ...)`. Plain `yield` and `yield*` call
+the same helper rather than spelling raw slot access twice. Throw/return resume
+dispatch still precedes PutValue, so an abrupt resume never writes.
+
+No asynchronous claim is made. Async-generator property assignment is already
+rejected before emission and the async activation has no corresponding four
+slots. Supporting it requires an async-generator ABI/layout change and changes
+to both plain-yield and delegation dispatch; it remains an explicit T08/T15
+gap. Private and super assignment targets at a yield remain explicit lowering
+gaps too.
+
 **L5, closed.** At ENCODER stage the field was read for six of the nine variants:
 `GlobalPropertyUpdate` and `GlobalPropertyCompoundAssign` bound `strictness: _`
 with an explanatory comment, and their write-back called the *unchecked*
@@ -840,17 +893,17 @@ S5  SuperPropertyWrite gains this_value.              MC4b
 S5 is separable and may be deferred to a follow-up lane; S1–S4 are one landing,
 because S2 without S3 is ledger item L5's decoration.
 
-### 4.2 Construction sites in `porffor-ir` — E0063
+### 4.2 Construction sites in `lila-ir` — E0063
 
 `ExprIr::` occurrences of the nine assignment-shaped variants, counted at
 `84e782506`:
 
 | File | Sites | With `..` (unaffected) | Without `..` |
 |---|---|---|---|
-| `crates/porffor-ir/src/lowering.rs` | 36 | 9 | **27** (26 constructions → E0063; 1 pattern at `12332` → E0027) |
-| `crates/porffor-ir/src/ir.rs` | 9 | 7 | **2** (both patterns, in the AST-stat visitor: `2957`, `3294`) |
-| `crates/porffor-ir/src/early_errors.rs` | 9 | 9 | **0** |
-| `crates/porffor-ir/src/lib.rs` | 10 | 10 | **0** |
+| `crates/lila-ir/src/lowering.rs` | 36 | 9 | **27** (26 constructions → E0063; 1 pattern at `12332` → E0027) |
+| `crates/lila-ir/src/ir.rs` | 9 | 7 | **2** (both patterns, in the AST-stat visitor: `2957`, `3294`) |
+| `crates/lila-ir/src/early_errors.rs` | 9 | 9 | **0** |
+| `crates/lila-ir/src/lib.rs` | 10 | 10 | **0** |
 
 The 26 `lowering.rs` construction sites, by line:
 `9799`, `13126`, `16538`, `16605`, `16635`, `18113`, `30502`, `30625`, `30749`,
@@ -879,14 +932,14 @@ Two facts worth recording because they are cheap to assume and wrong:
 
 ### 4.3 Backend match arms — E0027
 
-All `ExprIr` occurrences in `porffor-aot-wasm` are **patterns**; the backend
+All `ExprIr` occurrences in `lila-aot-wasm` are **patterns**; the backend
 never constructs IR. Counted over the same nine variants:
 
 | File | Arms | With `..` | Without `..` → **E0027** |
 |---|---|---|---|
-| `crates/porffor-aot-wasm/src/planning.rs` | 59 | 48 | **11** — `2834`, `2903`, `3241`, `3289`, `3466`, `4747`, `4846`, `6612`, `6812`, `7476`, `7974` |
-| `crates/porffor-aot-wasm/src/expressions.rs` | 19 | 5 | **14** — `292`, `344`, `347`, `366`, `383`, `458`, `565`, `633`, `1445`, `2654`, `2717`, `2727`, `2745`, `2862` |
-| `crates/porffor-aot-wasm/src/data.rs` | 9 | 6 | **3** — `2936`, `2955`, `3337` |
+| `crates/lila-aot-wasm/src/planning.rs` | 59 | 48 | **11** — `2834`, `2903`, `3241`, `3289`, `3466`, `4747`, `4846`, `6612`, `6812`, `7476`, `7974` |
+| `crates/lila-aot-wasm/src/expressions.rs` | 19 | 5 | **14** — `292`, `344`, `347`, `366`, `383`, `458`, `565`, `633`, `1445`, `2654`, `2717`, `2727`, `2745`, `2862` |
+| `crates/lila-aot-wasm/src/data.rs` | 9 | 6 | **3** — `2936`, `2955`, `3337` |
 
 Under §5.1, the arms binding only `AssignIdentifier` /
 `CompoundAssignIdentifier` / `UpdateIdentifier` fields (`planning.rs:3241`;
@@ -914,9 +967,9 @@ Stating the boundary is what makes it auditable later.
 | The Proxy `[[Set]]` trap result | runtime. This contract fixes *whether a `false` result is observable*, not what produces it. |
 | Whether a write **succeeds** | out of scope by construction; only observability of failure is in scope. |
 | `ExprIr::OptionalPropertyChain` (`ir.rs:1388`) | read-only, never a PutValue target. |
-| `crates/porffor-ir/src/lowering_helpers.rs` | **listed in the brief's `files_owned`, but it contains zero `ExprIr::` references and its only `Reference` hit is `PropertyDefinition::IdentifierReference` at line 1911, an unrelated AST shape.** No edit. |
-| `crates/porffor-aot-wasm/src/objects.rs` — *as a match site* | its only reference to these variants is a doc comment at `objects.rs:6094`. The brief is right about that. It is **not** right that objects.rs needs no edit at all; see §4.5. |
-| `crates/porffor-aot-wasm/src/builtins/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs` | batch 2 concurrency hold. None contains a reference to these variants. |
+| `crates/lila-ir/src/lowering_helpers.rs` | **listed in the brief's `files_owned`, but it contains zero `ExprIr::` references and its only `Reference` hit is `PropertyDefinition::IdentifierReference` at line 1911, an unrelated AST shape.** No edit. |
+| `crates/lila-aot-wasm/src/objects.rs` — *as a match site* | its only reference to these variants is a doc comment at `objects.rs:6094`. The brief is right about that. It is **not** right that objects.rs needs no edit at all; see §4.5. |
+| `crates/lila-aot-wasm/src/builtins/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs` | batch 2 concurrency hold. None contains a reference to these variants. |
 
 ### 4.5 The scope extension S3 requires, stated so it can be refused
 
@@ -989,9 +1042,9 @@ Fixed by naming the quantity once: `RUNTIME_STRICT_GUARD_BLOCK_DEPTH` (and
 `NON_EXTENSIBLE_THROW_EXTRA_DEPTH` for the bare `5` written twice) in
 `objects.rs`, added at **every** branch emitted inside the guard. Ledger **L8**.
 The behavioural oracle is a new fixture pair,
-`crates/porffor-cli/tests/fixtures/wasm_reference_strictness_putvalue_{strict,sloppy}.js`,
+`crates/lila-cli/tests/fixtures/wasm_reference_strictness_putvalue_{strict,sloppy}.js`,
 whose failing writes sit inside a **top-level** `try` — the shape that makes the
-`extra_depth` live — with tests in `crates/porffor-cli/tests/cli/language.rs`.
+`extra_depth` live — with tests in `crates/lila-cli/tests/cli/language.rs`.
 This is the one item in this area that can produce invalid or mis-branching Wasm,
 so it is the first thing to verify with an actual build.
 
@@ -1070,7 +1123,7 @@ know it is one binding-pattern away from needing a file it does not own.
 ## 6. Dry-run corpus, with corrected traces
 
 Every path below was confirmed to exist under
-`/home/user/porffor/test262/vendor/test262/`.
+`/home/user/lila/test262/vendor/test262/`.
 
 | # | Case | Class | Trace, corrected |
 |---|---|---|---|
@@ -1097,11 +1150,11 @@ Every path below was confirmed to exist under
 The encoder's work is done when all of the following hold. Each is checkable
 without running the conformance suite except where noted.
 
-1. `crates/porffor-ir/src/reference.rs` exists and defines exactly the items of
+1. `crates/lila-ir/src/reference.rs` exists and defines exactly the items of
    §2, with no `_` arm over `ReferenceBase`, `Composition`, `UnsupportedTarget`
    or `ExprIr` (in `carried_strictness`).
 2. `grep -rn "is_current_owner_strict" crates/` returns **0**.
-3. `grep -rn "strict: bool" crates/porffor-ir/src/ir.rs` returns **0**.
+3. `grep -rn "strict: bool" crates/lila-ir/src/ir.rs` returns **0**.
 4. `grep -rn "PropertyReference" crates/` returns **0** — the enum at
    `lowering.rs:71`, its `read_ir` at `88`, and `build_property_reference_write`
    at `32357` are all deleted, not wrapped.
@@ -1115,22 +1168,22 @@ without running the conformance suite except where noted.
 8. `ReferenceRecord`, `ReferencePins` and `PendingReferenceWrite` derive neither
    `Clone` nor `Copy`, and `PendingReferenceWrite` has no public field, no
    `Deref` and no `Into<TypedExpr>`.
-9. `cargo check -p porffor-ir && cargo check -p porffor-aot-wasm` is clean
+9. `cargo check -p lila-ir && cargo check -p lila-aot-wasm` is clean
    (rung 0; 1–5 s and 15–40 s per `batch-workflow.md`).
 10. **Behavioural, and therefore last and elsewhere:** corpus 11 throws, corpus
     12 does not, corpus 13 (as corrected) throws, corpus 14 reports `n === 1`.
     These four are the tests ledger entries L1, L4 and L5 leave load-bearing;
     nothing in the type system can replace them.
 11. **Added at DISCREPANCY-FIXER stage, and the highest priority of the ten:**
-    `cargo test -p porffor-cli --test cli language::` passes the new fixture
+    `cargo test -p lila-cli --test cli language::` passes the new fixture
     pair `wasm_reference_strictness_putvalue_{strict,sloppy}.js`. They put a
     failing strict property write inside a **top-level** `try`, which is the only
     shape that exercises the runtime strictness guard's `Br` immediate (§4.5.1,
     ledger L8) — the one item in this area that can emit invalid Wasm.
-12. `grep -rn "base_mut\|ReferencePins::none\|derive(Debug, Default)] *$" crates/porffor-ir/src/reference.rs`
+12. `grep -rn "base_mut\|ReferencePins::none\|derive(Debug, Default)] *$" crates/lila-ir/src/reference.rs`
     returns **0**: the empty pin chain and the whole-base mutable accessor are
     both gone (§2.2, §2.4).
-13. `grep -rn "strict: bool" crates/porffor-aot-wasm/src/{environments,objects}.rs`
+13. `grep -rn "strict: bool" crates/lila-aot-wasm/src/{environments,objects}.rs`
     returns **0** for the three Reference-consuming emitters of MC2.
 
 Rung G (`emit_golden` + `diff -r`) is **not** applicable: this is feature work

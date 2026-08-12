@@ -49,7 +49,7 @@ counted: `RUN_CHUNK_OPENER` is `"run_chunk "` **with the trailing space**.
 Counts recounted with the exact-line `awk` form, not a substring grep:
 
 ```
-620  #[test] attributes across crates/porffor-cli/tests/cli/*.rs
+620  #[test] attributes across crates/lila-cli/tests/cli/*.rs
 ```
 
 which agrees with the `612 compiled / 611 executing` already written into
@@ -111,7 +111,7 @@ that still have an `If` open around the call.
 
 ## 3. The one change this session made
 
-`crates/porffor-aot-wasm/src/data.rs` — a doc comment on
+`crates/lila-aot-wasm/src/data.rs` — a doc comment on
 `collect_finite_string_choices`, which had none.
 
 It is the only new item in the RegExp path with a `_ => {}` over an open domain,
@@ -121,7 +121,7 @@ reaches `RegExpProgram::compile`, and an `InvalidSyntax` verdict becomes a
 call sites for any runtime pattern with the same bytes. The doc states the
 asymmetry (an unrecognised shape costs coverage only; a recognised one widens
 what the compiler refuses at run time), points at
-`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`'s own warning that `porffor-ir`'s ~20
+`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`'s own warning that `lila-ir`'s ~20
 `invalid_syntax(` sites are unaudited, and records that the missing
 concatenation arm (`new RegExp(a + b)`, RE-RT probe 6) is **deliberate**, not an
 oversight — closing it is exactly the widening the doc warns about and needs its
@@ -143,12 +143,12 @@ rejected on the "does a plausible mistake become a compile error?" test:
 
 | gate | result |
 |---|---|
-| `cargo check -p porffor-aot-wasm` | **EXIT 0** |
+| `cargo check -p lila-aot-wasm` | **EXIT 0** |
 | `cargo xc` (`check --workspace --all-targets`) | **EXIT 0**, 0 errors |
-| new warnings | **none**. Workspace warning set is identical to `target/lane-notes/b4-baseline-xc.log` **minus one**: `porffor-aot-wasm` lib 26 → 25 and lib-test 21 → 20, the dropped one being `functions.rs: unused variable: receiver_is_array`. `porffor-ir` 6 lib / 5 lib-test unchanged, same six sites. |
+| new warnings | **none**. Workspace warning set is identical to `target/lane-notes/b4-baseline-xc.log` **minus one**: `lila-aot-wasm` lib 26 → 25 and lib-test 21 → 20, the dropped one being `functions.rs: unused variable: receiver_is_array`. `lila-ir` 6 lib / 5 lib-test unchanged, same six sites. |
 | `cargo fmt --all -- --check` | **clean** (exit 0), before and after the edit |
 
-The `porffor-ir` lib-test line reads "5 warnings (4 duplicates)" where b4 read
+The `lila-ir` lib-test line reads "5 warnings (4 duplicates)" where b4 read
 "(5 duplicates)". That is not a new warning: the same six sites are reported, and
 `lowering.rs:124` (`GeneratedFunctionOutput`'s dead fields) is merely emitted
 first under the lib-test unit this time.

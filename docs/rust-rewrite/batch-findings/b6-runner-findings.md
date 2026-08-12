@@ -2,11 +2,11 @@
 
 Start 2026-08-10 17:15 UTC. HEAD `e708f1f22` ("WIP checkpoint: batch 6 fix stage") + the fixer's
 uncommitted working tree (11 modified files). Branch `claude/test-driven-rust-opus-pp6giw`.
-4 CPU / 16 GiB. `PORFFOR_CPU_PERCENT=100` throughout.
+4 CPU / 16 GiB. `LILA_CPU_PERCENT=100` throughout.
 
 ## State harvested on arrival (nothing re-derived)
 
-- Sweep **was alive**: supervisor pid 4128, `porf test262 report-all --snapshot-name
+- Sweep **was alive**: supervisor pid 4128, `lila test262 report-all --snapshot-name
   baseline-wasm-aot-b2 --threads 2 --jobs 2 --resume` pid 4131, 231 % CPU, 4.4 GiB RSS, up 2 h 38 m.
 - `target/test262-scratch/baseline/` held **22 node `.json` snapshots**, log at `80/250` inside the
   23rd node (`built-ins/Array/prototype` chunk 10 of 12).
@@ -18,19 +18,19 @@ uncommitted working tree (11 modified files). Branch `claude/test-driven-rust-op
 ## Rung 0 — `cargo xc`  [EXIT=0, 15 s]
 
 `target/watched/b6r-xc.log`. Warnings by target, counted from the `generated N warnings` lines:
-`porffor-ir` lib **6** / lib-test **5**; `porffor-aot-wasm` lib **25** / lib-test **20**;
-`porffor-test262` lib-test **1**. **Identical to the b5 baseline and to the integrator's and
+`lila-ir` lib **6** / lib-test **5**; `lila-aot-wasm` lib **25** / lib-test **20**;
+`lila-test262` lib-test **1**. **Identical to the b5 baseline and to the integrator's and
 fixer's reports.**
 
 ## Rung 0b — the debug binary WAS stale, again (third batch running)
 
-`find crates -name '*.rs' -newer target/debug/porf` = **21** files on arrival (binary 09:28Z,
-150,251,488 B). Rebuilt: `cargo build -p porffor-cli --bin porf` -> **75 s**, 150,288,056 B.
+`find crates -name '*.rs' -newer target/debug/lila` = **21** files on arrival (binary 09:28Z,
+150,251,488 B). Rebuilt: `cargo build -p lila-cli --bin lila` -> **75 s**, 150,288,056 B.
 Rebuilt a second time after the data.rs fix below -> 150,288,760 B at 17:43Z.
 
 ## Counts recounted at this head (exact-line `awk`, not a substring grep)
 
-`awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++}' crates/porffor-cli/tests/cli/*.rs` = **617**.
+`awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++}' crates/lila-cli/tests/cli/*.rs` = **617**.
 `frontend.rs` carries **8** `spec-exec-oracle` gates (`frontend_test262_subset.rs` carries 0), so
 **609 compile** and **608 execute** (one `#[ignore]` in `heap.rs`). `batch-workflow.md:38` already
 says exactly this — the fixer's F17 edit is correct at this head.
@@ -74,13 +74,13 @@ two would be a false positive for lead A** — they were killed by me, not by a 
 
 # BLOCKER FOUND AND FIXED — batch 6 shipped a compile-time panic in every full bootstrap
 
-## `cargo test -p porffor-aot-wasm --lib` -> **245 passed / 24 FAILED / 1 ignored**, 740.5 s
+## `cargo test -p lila-aot-wasm --lib` -> **245 passed / 24 FAILED / 1 ignored**, 740.5 s
 
 `target/watched/b6r-aotunit.log`. This target was **not run by the fixer or the integrator** (neither
 ran any test), and b5 never ran it either. Every one of the 24 carries the same panic:
 
 ```
-thread '...' panicked at crates/porffor-aot-wasm/src/data.rs:3975:32:
+thread '...' panicked at crates/lila-aot-wasm/src/data.rs:3975:32:
 string `Temporal.ZonedDateTime until and since require the same calendar` must exist in pool
 ```
 
@@ -126,7 +126,7 @@ intern block. The three sibling families already have theirs, together, at `data
 the AGENTS.md "code invariants before test invariants" list, and I have recorded it as such below
 rather than pretending the fix closes it.
 
-### Fix applied (`crates/porffor-aot-wasm/src/data.rs`, after the `TemporalZonedDateTimeFrom` block)
+### Fix applied (`crates/lila-aot-wasm/src/data.rs`, after the `TemporalZonedDateTimeFrom` block)
 
 A gated block in the established shape, keyed on the two builtins that emit the messages:
 
@@ -209,7 +209,7 @@ before/after is per-test rather than per-total:
 | `…_for_each_…`, `…_flat_map_…`, `…_drop_…`, `…_to_array_…` (control group) | ok | **ok** |
 | `…_propagates_abrupt_completions_from_helper_dispatch` | (did not exist) | **ok** |
 
-The control group is the one that mattered: the integrator flagged that the `porffor-ir`
+The control group is the one that mattered: the integrator flagged that the `lila-ir`
 `constructor_instance` fix makes `forEach` on these receivers lower to `CallMethod` for the first
 time, so `…_for_each_…` was the test that would catch a bad reroute. It is green.
 
@@ -224,7 +224,7 @@ was `uncaught throw: wasm-aot completion: string(callback throw)` / `string(redu
 
 The b5 characterisation was that `.some()` on a `class X extends Iterator` with **no explicit
 constructor** returned `0`/number with **zero** callback invocations. I re-ran that exact
-discriminator directly (`porf run --execution-backend wasm`, top-level statements, no wrapping
+discriminator directly (`lila run --execution-backend wasm`, top-level statements, no wrapping
 function — b5's frame caveat), and every b5 symptom is gone:
 
 ```
@@ -242,7 +242,7 @@ produced them, not merely on the fixtures.
 
 ## Lane 1's new unit target
 
-`cargo test -p porffor-aot-wasm --test iterator_helper_dispatch` -> **3 passed, 0 filtered out**,
+`cargo test -p lila-aot-wasm --test iterator_helper_dispatch` -> **3 passed, 0 filtered out**,
 85.2 s. The third test warns past 60 s and finishes at 85 s. The byte-slack assertions the
 integrator flagged as "calibrated but not verified post-repair" hold at this head.
 
@@ -250,7 +250,7 @@ integrator flagged as "calibrated but not verified post-repair" hold at this hea
 
 # LANE 2 — ZDT era-boundary quartet: ALL FOUR GREEN
 
-`./target/debug/porf test262 run intl402/Temporal/ZonedDateTime/prototype/<m>/era-boundary-gregory.js
+`./target/debug/lila test262 run intl402/Temporal/ZonedDateTime/prototype/<m>/era-boundary-gregory.js
 --execution-backend wasm`, one process per case, sequential:
 
 | case | b5 | b6 |
@@ -270,7 +270,7 @@ The brief predicted the other 24 era-boundary files carry the same `value is not
 different handles. With the quartet green that premise no longer describes the head, so the live
 question became "do the other 24 also pass" — a conformance-breadth question, not a lane gate.
 
-I started it (`porf test262 run intl402/…/<m>/era-boundary` per directory, 7 cases per process) and
+I started it (`lila test262 run intl402/…/<m>/era-boundary` per directory, 7 cases per process) and
 **killed it after 9 m 22 s on the first directory**, measured reasons:
 
 - the prefix form holds **6.2 GiB RSS** at 196 % CPU in one process and prints **nothing** until the
@@ -299,8 +299,8 @@ Recorded as REMAINING with an owner, not silently dropped.
 Full child command line, read from `ps`, so the flag is observed rather than assumed:
 
 ```
-porf test262 run language/wasm/pass --suite-root …/fake_test262/vendor/test262
-  --snapshot-dir /tmp/porffor-cli-test262-2525 --snapshot-name cli-wasm-fixture
+lila test262 run language/wasm/pass --suite-root …/fake_test262/vendor/test262
+  --snapshot-dir /tmp/lila-cli-test262-2525 --snapshot-name cli-wasm-fixture
   --execution-backend wasm --threads 2
 ```
 
@@ -393,7 +393,7 @@ moved out, the remainder is a 4.5-minute chunk that banks first try.
 
 Start 2026-08-10 21:36 UTC. HEAD `a0f411eaf` ("WIP checkpoint: batch 6 runner final rungs")
 + the FINDINGS-FIXER's uncommitted tree (**10** modified files). 4 CPU / 15.7 GiB,
-`PORFFOR_CPU_PERCENT=100`.
+`LILA_CPU_PERCENT=100`.
 
 ## State harvested on arrival (nothing re-derived)
 
@@ -406,7 +406,7 @@ Start 2026-08-10 21:36 UTC. HEAD `a0f411eaf` ("WIP checkpoint: batch 6 runner fi
   because its assertions read three inputs its own `#[test]` count cannot see). Read out of both
   `rung1c-done` and `rung1c-done-counts`; the counts sidecar still holds `known_failures 5`, which
   the script ignores for a chunk with no done-row.
-- Debug binary was **stale**: `find crates -name '*.rs' -newer target/debug/porf` = **14** files
+- Debug binary was **stale**: `find crates -name '*.rs' -newer target/debug/lila` = **14** files
   (binary 17:43Z). Fourth batch running. Rebuilt below.
 
 ## What the fixer actually changed, read as a diff rather than from the report
@@ -416,9 +416,9 @@ Start 2026-08-10 21:36 UTC. HEAD `a0f411eaf` ("WIP checkpoint: batch 6 runner fi
 
 | file | change | byte-neutrality argument |
 |---|---|---|
-| `porffor-ir/src/lowering.rs` | -43: four `properties.insert` literals (`equals`, `toInstant`, `withTimeZone`, `toPlainDateTime`) deleted, folded into the shared table loop | `properties` is a `BTreeMap`, so insertion order is not observable in the shape |
-| `porffor-ir/src/names.rs` | +41: those four prepended to `TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`, **ahead of** batch 6's five | install order preserved exactly (`equals, toInstant, withTimeZone, toPlainDateTime`, then the five) |
-| `porffor-aot-wasm/src/intrinsics/temporal.rs` | -88/+~25: four hand-written `emit_object_define_function_data` blocks deleted, the loop now covers all nine | same order, same emitter, same args |
+| `lila-ir/src/lowering.rs` | -43: four `properties.insert` literals (`equals`, `toInstant`, `withTimeZone`, `toPlainDateTime`) deleted, folded into the shared table loop | `properties` is a `BTreeMap`, so insertion order is not observable in the shape |
+| `lila-ir/src/names.rs` | +41: those four prepended to `TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS`, **ahead of** batch 6's five | install order preserved exactly (`equals, toInstant, withTimeZone, toPlainDateTime`, then the five) |
+| `lila-aot-wasm/src/intrinsics/temporal.rs` | -88/+~25: four hand-written `emit_object_define_function_data` blocks deleted, the loop now covers all nine | same order, same emitter, same args |
 | `data.rs` +15, `builtins.rs` +18 | comments only | — |
 | `iterator_helper_dispatch.rs` +85 | new negative-control test + 4 renames | test-only |
 | `rung1c-chunks.sh` +78, `check-module-boundaries.sh` +37 | script logic | not emission |
@@ -431,16 +431,16 @@ which is evidence about behaviour and not about bytes.
 ## Rung 0 — `cargo xc`  [EXIT=0, 15 s]  `target/watched/b6r2-xc.log`
 
 `grep -c '^error'` = **0**. Warnings by target, from the `generated N warnings` lines:
-`porffor-ir` lib **6** / lib-test **5**; `porffor-aot-wasm` lib **25** / lib-test **20**;
-`porffor-test262` lib-test **1**. **Identical to session 1, to b5, and to the fixer's report.**
+`lila-ir` lib **6** / lib-test **5**; `lila-aot-wasm` lib **25** / lib-test **20**;
+`lila-test262` lib-test **1**. **Identical to session 1, to b5, and to the fixer's report.**
 
 ## Rung 0b — debug binary rebuilt
 
-`cargo build -p porffor-cli --bin porf` -> 90 s, EXIT=0, 150,286,880 B at 21:39Z
+`cargo build -p lila-cli --bin lila` -> 90 s, EXIT=0, 150,286,880 B at 21:39Z
 (was 150,288,760 B at 17:43Z; the 1,880-byte shrink is the four deleted literal install blocks in
 `intrinsics/temporal.rs`, i.e. Rust code size, not emitted Wasm).
 
-## `cargo test -p porffor-aot-wasm --test iterator_helper_dispatch` — **4 passed / 0 failed**, 96.6 s
+## `cargo test -p lila-aot-wasm --test iterator_helper_dispatch` — **4 passed / 0 failed**, 96.6 s
 
 `target/watched/b6r2-iterdispatch.log`. `0 filtered out`, so the target really is 4 tests now.
 
@@ -459,9 +459,9 @@ contain `iterator_helper`, so `-- iterator` selects **4 of 4** instead of 0 of 3
 
 ## Blast radius of the fixer's tree, established by reading the diff (this drives what I re-ran)
 
-`git diff crates/porffor-aot-wasm/src/functions.rs | grep -vE '^[-+]\s*//'` (after dropping the
+`git diff crates/lila-aot-wasm/src/functions.rs | grep -vE '^[-+]\s*//'` (after dropping the
 `+++/---` header lines) is **empty** — lane 1's file moved by **comments only**. Same for `data.rs`
-and `porffor-ir/src/builtins.rs`. So the ONLY behavioural surface the fixer touched is
+and `lila-ir/src/builtins.rs`. So the ONLY behavioural surface the fixer touched is
 `Temporal.ZonedDateTime.prototype` install + shape (`names.rs` table membership,
 `lowering.rs` shape fold, `intrinsics/temporal.rs` installer loop).
 
@@ -470,7 +470,7 @@ Consequences I acted on rather than assumed:
 - the `iterator` / `iterator_helpers` chunks banked by session 1 are **not** compiler-stale in any
   behavioural sense, so I did not spend 640 s re-running them;
 - the `date` chunk **is** the targeted revalidation of the fold and I re-ran it (below);
-- `crates/porffor-cli/tests/fixtures/wasm_temporal_zoned_date_time_arithmetic.js` also changed, but
+- `crates/lila-cli/tests/fixtures/wasm_temporal_zoned_date_time_arithmetic.js` also changed, but
   its diff is a 20-line comment block retracting a vacuous ordering claim. **No JS statement moved.**
 
 ### Coverage gap the fold opens, counted rather than asserted
@@ -493,7 +493,7 @@ rung 1c. That is not a claim the fold is wrong — the diff preserves install or
 would have been caught. It is a claim that the ledger's evidence for three of the nine members is
 test262, which I did not run for them. **REMAINING, owner T09/ZDT lane.**
 
-## `cargo test -p porffor-aot-wasm --lib` — **269 passed / 0 failed / 1 ignored**, 691.0 s
+## `cargo test -p lila-aot-wasm --lib` — **269 passed / 0 failed / 1 ignored**, 691.0 s
 
 `target/watched/b6r2-aotlib.log`, `0 filtered out`. Session 1 measured **245 passed / 24 FAILED /
 1 ignored** on this target and fixed the cause (the two uninterned ZonedDateTime guard strings in
@@ -606,7 +606,7 @@ measured against an uncommitted tree is measured against this head. 4 CPU / 15.7
 
 ## State harvested on arrival (read, not re-derived)
 
-- **Sweep DOWN.** `ps` shows zero `porf` / `cargo` / `sweep-supervisor` / `report-all` processes.
+- **Sweep DOWN.** `ps` shows zero `lila` / `cargo` / `sweep-supervisor` / `report-all` processes.
   Down since session 1 killed it at 17:16Z, i.e. ~5 h 26 m. Restarting it is my last step.
 - `target/watched/rung1c-done` = **16** banked chunks. Remaining: **`language`, `binary_data`** only.
   (`known_failures` IS in the file now — session 2 banked it — but the script deletes its row every run.)
@@ -614,14 +614,14 @@ measured against an uncommitted tree is measured against this head. 4 CPU / 15.7
   session 2's driver was taken by the container restart mid-`language`, the **second** time that chunk
   has been cut off (19:52Z and 22:06Z). `rung1c-language.log` (22:21Z) shows it had printed a long run
   of `ok` lines with three tests concurrently past 60 s — no `failures:` block, no verdict.
-- Debug binary **CURRENT**: `find crates -name '*.rs' -newer target/debug/porf` = **0**
+- Debug binary **CURRENT**: `find crates -name '*.rs' -newer target/debug/lila` = **0**
   (150,286,880 B, 21:39Z, built after the fixer's edits). No rebuild this session — first session in
   four batches where step 2 is a no-op.
 
 ## Rung 0 — `cargo xc` at `adf35046f`  [EXIT=0, 15 s]  `target/watched/b6r3-xc.log`
 
-`grep -c '^error'` = **0**. Warnings by target: `porffor-ir` lib **6** / lib-test **5**;
-`porffor-aot-wasm` lib **25** / lib-test **20**; `porffor-test262` lib-test **1**.
+`grep -c '^error'` = **0**. Warnings by target: `lila-ir` lib **6** / lib-test **5**;
+`lila-aot-wasm` lib **25** / lib-test **20**; `lila-test262` lib-test **1**.
 **Identical to sessions 1 and 2, to b5, and to the fixer's report** — the commit of the fixer tree
 moved nothing.
 
@@ -647,10 +647,10 @@ hold at the committed head.
 
 ## Counts and partition re-verified at `adf35046f` (pure `awk`/`grep`, no CPU)
 
-`awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++}' crates/porffor-cli/tests/cli/*.rs` = **617**;
+`awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++}' crates/lila-cli/tests/cli/*.rs` = **617**;
 `frontend.rs` carries **8** `spec-exec-oracle` gates -> **609 compile**, **608 execute** (one
 `#[ignore]` in `heap.rs`). `grep -c '^run_chunk ' scripts/rung1c-chunks.sh` = **18** =
-`grep -c '^mod ' crates/porffor-cli/tests/cli/main.rs`. Unchanged from session 1.
+`grep -c '^mod ' crates/lila-cli/tests/cli/main.rs`. Unchanged from session 1.
 
 Banked-chunk arithmetic, so the resume is auditable rather than a single opaque total:
 `known_failures 5 + frontend_test262_subset 1 + throw_propagation 2 + dynamic 11 + heap 12 (11 exec)
@@ -677,7 +677,7 @@ session 2 were both taken by the container restart mid-chunk). This run got 105 
 **66 printed `ok`** before the child was **SIGKILLed** at t+1200 s:
 
 ```
-error: test failed, to rerun pass `-p porffor-cli --test cli`
+error: test failed, to rerun pass `-p lila-cli --test cli`
   process didn't exit successfully: `.../cli-986abd5f02521ed6 --test-threads=3 'language::'`
   (signal: 9, SIGKILL: kill)
 ```
@@ -694,8 +694,8 @@ not fit beside anything else, and the b5 scheduling law holds for a third chunk.
 test language::run_wasm_backend_succeeds_for_aggregateerror_iterable_to_list_fixture ... FAILED
 ```
 
-`crates/porffor-cli/tests/cli/language.rs:1369`. It runs
-`porf run --execution-backend wasm crates/porffor-cli/tests/fixtures/wasm_aggregateerror_iterable_to_list.js`
+`crates/lila-cli/tests/cli/language.rs:1369`. It runs
+`lila run --execution-backend wasm crates/lila-cli/tests/fixtures/wasm_aggregateerror_iterable_to_list.js`
 and asserts three things: `status.success()`, `stdout` contains `backend_used: WasmAot`, and `stdout`
 contains `number(123`. **The message is not recoverable from this log** — libtest prints captured
 output in the `failures:` block at the end, and the SIGKILL came first. Its immediate neighbours
@@ -709,12 +709,12 @@ compile is exactly what killed `language`. Reproduction is queued behind it.
 ## The `language` red DIAGNOSED to a one-token stale fixture — the compiler is the correct party
 
 Reproduced directly, one process:
-`./target/debug/porf run --execution-backend wasm crates/porffor-cli/tests/fixtures/wasm_aggregateerror_iterable_to_list.js`
+`./target/debug/lila run --execution-backend wasm crates/lila-cli/tests/fixtures/wasm_aggregateerror_iterable_to_list.js`
 -> `uncaught throw: wasm-aot completion: string(iterator getter wrong value)`, RC=1. That is the
 fixture's own `assertThrowsValue(..., "iterator getter")` guard: it caught *an* error whose value was
 not the string `"iterator getter"`.
 
-Two probes named the mechanism (`scratchpad/probe1.js`, `probe2.js`, both `porf run --execution-backend wasm`):
+Two probes named the mechanism (`scratchpad/probe1.js`, `probe2.js`, both `lila run --execution-backend wasm`):
 
 | form | result |
 |---|---|
@@ -726,11 +726,11 @@ Two probes named the mechanism (`scratchpad/probe1.js`, `probe2.js`, both `porf 
 
 So the string `"Symbol.iterator"` is no longer an alias for the well-known symbol, and that is
 **spec-correct**: a string-keyed property of that name is not @@iterator, so `AggregateError` must
-throw a TypeError. The fixture encodes the old Porffor-ism. Under AGENTS.md ("old JavaScript code can
+throw a TypeError. The fixture encodes the old Lila-ism. Under AGENTS.md ("old JavaScript code can
 be a reference and oracle, but it is not a constraint") the fixture is the stale party, not the
 compiler.
 
-**Fixed** (`crates/porffor-cli/tests/fixtures/wasm_aggregateerror_iterable_to_list.js`): the key is now
+**Fixed** (`crates/lila-cli/tests/fixtures/wasm_aggregateerror_iterable_to_list.js`): the key is now
 `Symbol.iterator` rather than `"Symbol.iterator"`, with the measurement recorded in a comment beside
 it. Re-run of the whole 127-line fixture: `wasm-aot completion: number(123)`, **RC=0** — which is
 exactly the `stdout.contains("number(123")` the test asserts, so the corrected form exercises the
@@ -749,7 +749,7 @@ and a new red there costs a 25-minute chunk. **REMAINING, owner: language/T-fron
 | attempt | env | tests `ok` before death | reds | death |
 |---|---|---|---|---|
 | 22:43Z | default caches | 66 | 1 (`aggregateerror_iterable_to_list`) | SIGKILL at t+1200 s |
-| 23:29Z | `PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES` = 256/64/64 MiB | **75** | **0** | SIGKILL at t+1200 s |
+| 23:29Z | `LILA_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES` = 256/64/64 MiB | **75** | **0** | SIGKILL at t+1200 s |
 
 The second run is the brief's **D2** item actually executed — per-tier cache limits set for the CLI
 test children for the first time. **It did not save the chunk.** `avail` fell 8.5 -> 3.6 GiB by
@@ -759,9 +759,9 @@ for `language`; it should not be re-tried as a memory fix, and b5's "the 8.7 GiB
 sizing" hypothesis is disconfirmed for this chunk. (It was never tested against
 `frontend_test262_subset`, which was solved by `--threads 2` inside the test instead.)
 
-`PORFFOR_CPU_PERCENT` is not a lever here: it is consumed by `scripts/capped.sh` as a CPU *share*,
-and `rung1c-chunks.sh:381` hardcodes `PORFFOR_CPU_PERCENT=100` inside `run_chunk`, so an outer export
-is overridden. There is no `--jobs` equivalent for `porf run`.
+`LILA_CPU_PERCENT` is not a lever here: it is consumed by `scripts/capped.sh` as a CPU *share*,
+and `rung1c-chunks.sh:381` hardcodes `LILA_CPU_PERCENT=100` inside `run_chunk`, so an outer export
+is overridden. There is no `--jobs` equivalent for `lila run`.
 
 Both deaths land at the same alphabetical frontier (`lexical_super_home_object` / `spec_get_v`), which
 is not a single poison test — the second run simply got 9 further.
@@ -770,7 +770,7 @@ is not a single poison test — the second run simply got 9 further.
 
 `comm` of the 75 `ok` names against the 105 `fn` names in `tests/cli/language.rs` leaves **30**
 un-measured, all in the `o…v` tail. libtest accepts multiple filters, verified with `--list`:
-`cargo test -p porffor-cli --test cli -- <30 names> --list` selects **exactly 30 tests**. Running that
+`cargo test -p lila-cli --test cli -- <30 names> --list` selects **exactly 30 tests**. Running that
 set alone is a legitimate rung-1b measurement of the remainder; it is NOT a banked chunk and I have
 not written one.
 
@@ -783,7 +783,7 @@ chunks; `language` is the only chunk that has never banked at any head in four b
 
 ## `language` COMPLETE by union, 105/105, zero failures
 
-`cargo test -p porffor-cli --test cli -- --test-threads=3 <the 30 tail names>` (log
+`cargo test -p lila-cli --test cli -- --test-threads=3 <the 30 tail names>` (log
 `target/watched/b6r3-language-tail.log`) -> **`test result: ok. 30 passed; 0 failed; 579 filtered
 out`**, 498.2 s. `30 + 579 = 609`, the compiled total, so the filter selected what it claimed.
 
@@ -803,7 +803,7 @@ script banks verdicts rather than exit codes. First `binary_data` verdict at any
 
 ```
 ---- binary_data::run_wasm_backend_succeeds_for_atomics_wait_core_fixture stdout ----
-note: test did not panic as expected at crates/porffor-cli/tests/cli/binary_data.rs:550:15
+note: test did not panic as expected at crates/lila-cli/tests/cli/binary_data.rs:550:15
 ```
 
 That is drift row 2 of `batch-workflow.md`'s table — **a declared failure has started passing.** The
@@ -816,10 +816,10 @@ guarded child returns, and the test's asserts (`status.success()`, `backend_used
 The test's own doc comment specified the close ("the day it does … delete the ledger row, the
 attribute and this comment together"). Done:
 
-1. `crates/porffor-cli/tests/known-failures.tsv` — the `hang`/T17 row deleted (73 -> 72 lines).
-2. `crates/porffor-cli/tests/cli/binary_data.rs:548` — `#[should_panic(expected = "porf run
+1. `crates/lila-cli/tests/known-failures.tsv` — the `hang`/T17 row deleted (73 -> 72 lines).
+2. `crates/lila-cli/tests/cli/binary_data.rs:548` — `#[should_panic(expected = "lila run
    exceeded")]` removed, `pub(crate) fn` -> `fn`, doc comment rewritten to record the measurement.
-3. `crates/porffor-cli/tests/cli/known_failures.rs:638` — the `const _: fn() = …atomics_wait_core…`
+3. `crates/lila-cli/tests/cli/known_failures.rs:638` — the `const _: fn() = …atomics_wait_core…`
    existence assertion removed (`ledger_is_well_formed` rejects an assertion with no row).
 4. the module doc's "**1** `should_panic` attribute" -> **0**.
 
@@ -850,7 +850,7 @@ Re-verified after all five edits:
 Session 1 measured these four green at `e708f1f22` + the *iterator/ZDT lanes'* tree. The
 FINDINGS-FIXER then folded four ZDT prototype members (`equals`, `toInstant`, `withTimeZone`,
 `toPlainDateTime`) out of hand-written installer blocks into the shared table
-(`porffor-ir/{lowering,names}.rs`, `intrinsics/temporal.rs`), and session 2 re-ran only the `date::`
+(`lila-ir/{lowering,names}.rs`, `intrinsics/temporal.rs`), and session 2 re-ran only the `date::`
 CLI chunk against it. This is the test262-level re-run at `adf35046f`, one process per case
 (`target/watched/b6r3-zdt.log`):
 
@@ -878,7 +878,7 @@ Third attempt (00:30Z driver, default caches again since the tier limits made no
 `language EXIT=101 ran=105 filtered_out=0 sum=105`, **75 `ok`, 0 FAILED**, SIGKILL. `free` showed
 `avail` at **1.14 GiB** two minutes before the kill. Three attempts, three OOMs, two of them at
 exactly 75 completed tests — this is a reproducible capacity limit, not a flake, and no runner-level
-knob moves it (cache tiers: no effect, measured; `PORFFOR_CPU_PERCENT`: overridden inside
+knob moves it (cache tiers: no effect, measured; `LILA_CPU_PERCENT`: overridden inside
 `run_chunk`; `--test-threads`: banned by property 1).
 
 The third attempt also re-confirms the fixture repair: the run that previously carried
@@ -905,7 +905,7 @@ produced a verdict at any head" have both now produced one; `binary_data` banked
 Killed by session 1 at 17:16Z, down **8 h 04 m**. Relaunched verbatim
 (`setsid nohup target/test262-scratch/sweep-supervisor.sh … & disown`, marker
 `=== b6r3 sweep restart … ===` appended to `baseline-sweep.log`). Alive: supervisor + one
-`porf test262 report-all --snapshot-name baseline-wasm-aot-b2 --snapshot-dir
+`lila test262 report-all --snapshot-name baseline-wasm-aot-b2 --snapshot-dir
 target/test262-scratch/baseline --threads 2 --jobs 2 --resume`, 77 % CPU.
 
 State at restart, so before/after is checkable rather than remembered:

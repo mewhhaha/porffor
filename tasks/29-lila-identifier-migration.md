@@ -1,6 +1,6 @@
 # T29 — Migrate Rust identifiers from Porffor to Lila
 
-**Status:** Open
+**Status:** In progress — coordinated cutover, boundary guard, and persisted producer schema landed; required verification remains
 
 **Parallel group:** Repository identity
 **Depends on:** T28
@@ -10,12 +10,26 @@ This identity cleanup does not block Test262 work or the T26 conformance gate.
 
 ## Current repository state
 
-The public project is Lila and the legacy JavaScript implementation is gone,
-but the Rust workspace deliberately retains transitional identifiers:
-`porffor-*` crate and package names, the `porf` executable, `PORFFOR_*`
-environment variables, cache namespaces, diagnostics, internal ABI symbols,
-and Test262 artifact fields. They form a connected compatibility surface and
-must not be renamed piecemeal.
+The public project is Lila and the legacy JavaScript implementation is gone.
+The coordinated clean-break rename has moved all workspace crates, Rust
+imports, the `lila` executable, environment/config/cache names, diagnostics,
+generated helper namespaces and the Wasm host ABI. CI runs
+`scripts/check-lila-identity.sh`, which rejects reintroduction of the retired
+names outside the documented mapping/history/external-locator scopes.
+
+Current snapshots and matrix caches use schema version 6 with the closed
+`ArtifactProducer::Lila` identity. Version-4 and version-5 artifacts enter only
+through a typed read-only decoder: they cannot be resumed, merged, rewritten or
+published as current Lila evidence. The persisted-cache fixture covers the
+Lila root, retired cache, sibling data and the global Wasmtime cache; its
+execution remains part of final verification.
+
+The pre-migration inventory is frozen against commit
+`7ac4ee8a80e4e58b3dfb1adfece974f9f0a19e27` in
+`docs/rust-rewrite/lila-identity-migration.md`. Its machine-readable mapping is
+`docs/rust-rewrite/lila-identity-map.tsv`. The mapping includes the less-visible
+`__porf*` generated JavaScript namespace, `$Porffor*` IR property keys,
+`$porffor$module$*` linker names and `porf_host` Wasm import ABI.
 
 ## Objective
 
@@ -26,21 +40,28 @@ leaving mixed names indefinitely.
 
 ## Work items
 
-1. Inventory every public and persisted identifier: Cargo packages and crate
+1. **Complete.** Inventory every public and persisted identifier: Cargo packages and crate
    imports, binary names, library exports, environment variables, cache paths
    and keys, host ABI symbols, snapshot schemas, diagnostics, docs, scripts,
    workflows, and release artifacts.
-2. Select collision-free canonical Lila names and document the mapping before
+2. **Complete.** Select collision-free canonical Lila names and document the mapping before
    code changes begin.
-3. Decide which public or persisted surfaces require a bounded migration path.
+3. **Complete.** Decide which public or persisted surfaces require a bounded migration path.
    Before 1.0, prefer clean breaks; retain an alias only when it prevents real
    user data loss or enables a deliberately staged distribution transition.
-4. Rename foundation crates and shared types first, then consumers, CLI and
+   The only bounded compatibility path is a typed read-only decoder for
+   Porffor-era Test262 snapshots; it cannot resume, merge or publish them and
+   expires after the first verified full pinned Lila aggregate, no later than
+   1.0. External repository/DNS locators are retained resources, not aliases.
+4. **Complete.** Rename foundation crates and shared types first, then consumers, CLI and
    scripts, persisted data, documentation, and automation in dependency order.
-5. Add exact boundary checks that reject newly introduced transitional names
+5. **Complete.** Add exact boundary checks that reject newly introduced transitional names
    while allowing only explicitly documented temporary aliases.
-6. Remove each temporary alias on its recorded deadline and finish with no
-   unowned Porffor identifiers in current product surfaces.
+6. **Implementation complete; verification pending.** The mapped version-6
+   Lila producer contract and typed read-only decoder for version-4/version-5
+   Test262 snapshots are implemented. Complete the required compile/runtime
+   checks, then finish with no unowned transitional identifiers in current
+   product surfaces.
 
 ## Out of scope
 

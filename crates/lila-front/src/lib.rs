@@ -1,0 +1,1132 @@
+use boa_ast::{scope::Scope, Module, Script};
+use boa_interner::Interner;
+use boa_parser::{Parser, Source};
+use std::ops::Deref;
+use std::panic::{self, AssertUnwindSafe};
+use std::rc::Rc;
+
+// The closed domain of pre-evaluation rejection codes and the one table that
+// classifies boa's static-semantics messages into it. See
+// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
+mod early_error_code;
+
+pub use early_error_code::{
+    classify_parse_failure, EarlyErrorCode, ParseClassified, NO_EARLY_ERROR_CODE,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseGoal {
+    Script,
+    Module,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseOptions {
+    pub goal: ParseGoal,
+    pub filename: Option<String>,
+}
+
+impl ParseOptions {
+    pub fn script() -> Self {
+        Self {
+            goal: ParseGoal::Script,
+            filename: None,
+        }
+    }
+
+    pub fn module() -> Self {
+        Self {
+            goal: ParseGoal::Module,
+            filename: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceUnit {
+    pub goal: ParseGoal,
+    pub filename: Option<String>,
+    pub source_text: String,
+}
+
+/// A successfully parsed Script compilation unit.
+///
+/// The syntax tree and its interner are one allocation and cannot be separated
+/// or replaced. That relationship matters: every `Sym` in Boa's tree belongs
+/// to precisely this interner. Compiler stages can only borrow the pair through
+/// [`ParsedScript::with_compiler_session`], so neither half can escape with a
+/// longer lifetime than the other.
+#[derive(Clone)]
+pub struct ParsedScript {
+    source: SourceUnit,
+    syntax: Rc<ScriptSyntax>,
+}
+
+struct ScriptSyntax {
+    ast: Script,
+    interner: Interner,
+}
+
+/// A successfully parsed Module compilation unit.
+///
+/// Like [`ParsedScript`], this owns the AST and the exact interner that produced
+/// it. A module record therefore consumes parsed syntax rather than source text
+/// that it could accidentally parse a second time.
+#[derive(Clone)]
+pub struct ParsedModule {
+    source: SourceUnit,
+    syntax: Rc<ModuleSyntax>,
+}
+
+struct ModuleSyntax {
+    ast: Module,
+    interner: Interner,
+}
+
+/// The closed result of a successful parse.
+///
+/// Keeping the parse goal in the variant makes passing Script syntax to a
+/// Module-only static-semantics operation a type error after the variant is
+/// selected. Raw [`SourceUnit`] metadata is deliberately a different type and
+/// is not accepted by the IR lowerer.
+#[derive(Clone)]
+pub enum ParsedSource {
+    Script(ParsedScript),
+    Module(ParsedModule),
+}
+
+impl ParsedSource {
+    #[must_use]
+    pub const fn source(&self) -> &SourceUnit {
+        match self {
+            Self::Script(source) => source.source(),
+            Self::Module(source) => source.source(),
+        }
+    }
+
+    #[must_use]
+    pub const fn goal(&self) -> ParseGoal {
+        match self {
+            Self::Script(_) => ParseGoal::Script,
+            Self::Module(_) => ParseGoal::Module,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_script(&self) -> Option<&ParsedScript> {
+        match self {
+            Self::Script(source) => Some(source),
+            Self::Module(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_module(&self) -> Option<&ParsedModule> {
+        match self {
+            Self::Module(source) => Some(source),
+            Self::Script(_) => None,
+        }
+    }
+}
+
+impl ParsedScript {
+    #[must_use]
+    pub const fn source(&self) -> &SourceUnit {
+        &self.source
+    }
+
+    /// Borrows Boa's syntax implementation as one non-escaping compiler
+    /// session.
+    ///
+    /// This is an internal workspace seam, not Lila's syntax or IR contract.
+    /// Boa types are intentionally absent from every stored public field and
+    /// from all returned Lila IR. Keeping the callback here makes an AST and
+    /// the wrong interner impossible to pair and gives a future parser swap one
+    /// narrow adapter to replace.
+    #[doc(hidden)]
+    pub fn with_compiler_session<R>(
+        &self,
+        consume: impl for<'syntax> FnOnce(&'syntax Script, &'syntax Interner) -> R,
+    ) -> R {
+        consume(&self.syntax.ast, &self.syntax.interner)
+    }
+}
+
+impl ParsedModule {
+    #[must_use]
+    pub const fn source(&self) -> &SourceUnit {
+        &self.source
+    }
+
+    /// Module counterpart of [`ParsedScript::with_compiler_session`].
+    #[doc(hidden)]
+    pub fn with_compiler_session<R>(
+        &self,
+        consume: impl for<'syntax> FnOnce(&'syntax Module, &'syntax Interner) -> R,
+    ) -> R {
+        consume(&self.syntax.ast, &self.syntax.interner)
+    }
+}
+
+impl Deref for ParsedScript {
+    type Target = SourceUnit;
+
+    fn deref(&self) -> &Self::Target {
+        self.source()
+    }
+}
+
+impl Deref for ParsedModule {
+    type Target = SourceUnit;
+
+    fn deref(&self) -> &Self::Target {
+        self.source()
+    }
+}
+
+impl core::fmt::Debug for ParsedScript {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ParsedScript").field(&self.source).finish()
+    }
+}
+
+impl core::fmt::Debug for ParsedModule {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ParsedModule").field(&self.source).finish()
+    }
+}
+
+impl core::fmt::Debug for ParsedSource {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Script(source) => source.fmt(f),
+            Self::Module(source) => source.fmt(f),
+        }
+    }
+}
+
+impl PartialEq for ParsedScript {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+    }
+}
+
+impl Eq for ParsedScript {}
+
+impl PartialEq for ParsedModule {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+    }
+}
+
+impl Eq for ParsedModule {}
+
+impl PartialEq for ParsedSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Script(left), Self::Script(right)) => left == right,
+            (Self::Module(left), Self::Module(right)) => left == right,
+            (Self::Script(_), Self::Module(_)) | (Self::Module(_), Self::Script(_)) => false,
+        }
+    }
+}
+
+impl Eq for ParsedSource {}
+
+/// What sort of thing the front end rejected. A **return type**, not a field:
+/// it is a function of [`ParseCode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseDiagnosticKind {
+    MalformedJavaScript,
+    UnsupportedParserFeature,
+}
+
+/// When the rejection was decided. A **return type**, not a field.
+///
+/// 16.1.4 `ParseScript` and 16.2.1.6.1 `ParseModule` fix the reporting phase per
+/// producing operation; clause 17 makes it a property of *where* the rejection
+/// comes from, never a free parameter of a call site. Storing it as a field was
+/// the opportunity for one condition to be reported under two phases depending
+/// on which path found it, and that had already happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseDiagnosticPhase {
+    Parse,
+    Early,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Everything [`parse`] can report, as one closed domain.
+///
+/// The two `P_...` codes are **compiler-gap** codes, not spec rejections, and
+/// keeping them out of [`EarlyErrorCode`] is deliberate: an `EarlyErrorCode`
+/// must always name a program that ECMAScript rejects. A source boa could not
+/// read, or a parse that aborted, is a fact about this front end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseCode {
+    /// Boa rejected the source and we do not model the wording.
+    Malformed,
+    /// Boa's parser aborted; the panic was caught in [`parse`].
+    UnsupportedParserFeature,
+    /// A modelled spec rejection, classified by
+    /// [`classify_parse_failure`] — the same table the dependency-module path
+    /// uses, so one source cannot report under two codes depending on whether it
+    /// was the entry file or an import.
+    ///
+    /// The payload is [`ParseClassified`], not a bare [`EarlyErrorCode`]: this
+    /// variant reports at [`ParseDiagnosticPhase::Early`], and a link-only code
+    /// reported there is one condition under two phases from two paths. The
+    /// witness makes that `error[E0308]` at the call site rather than a
+    /// convention the table's assertion P7 can only state for the table.
+    Early(ParseClassified),
+}
+
+impl ParseCode {
+    /// The single spelling authority for the two `P_...` codes; an early code
+    /// delegates to [`EarlyErrorCode::wire_name`], which owns all eighteen of
+    /// the `E_...` spellings.
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Malformed => "P_PARSE_MALFORMED",
+            Self::UnsupportedParserFeature => "P_PARSE_UNSUPPORTED",
+            Self::Early(code) => code.code().wire_name(),
+        }
+    }
+
+    #[must_use]
+    pub const fn kind(self) -> ParseDiagnosticKind {
+        match self {
+            Self::Malformed | Self::Early(_) => ParseDiagnosticKind::MalformedJavaScript,
+            Self::UnsupportedParserFeature => ParseDiagnosticKind::UnsupportedParserFeature,
+        }
+    }
+
+    #[must_use]
+    pub const fn phase(self) -> ParseDiagnosticPhase {
+        match self {
+            Self::Early(_) => ParseDiagnosticPhase::Early,
+            Self::Malformed | Self::UnsupportedParserFeature => ParseDiagnosticPhase::Parse,
+        }
+    }
+
+    /// The error the program would have thrown, if the spec says it throws one.
+    ///
+    /// The one `"SyntaxError"` literal in this crate. 16.1.4 and 16.2.1.6.1
+    /// both return "a List of **SyntaxError** objects", and every
+    /// `parse`/`resolution` negative in the pinned test262 suite is a
+    /// `SyntaxError` — there is no second inhabitant to choose between. It
+    /// cannot be `lila_ir::NativeErrorKind` because that type lives in a
+    /// crate this one is *below*; closing that requires moving
+    /// `NativeErrorKind` down and is another lane's file (ledger L2).
+    ///
+    /// **`UnsupportedParserFeature` returns `None`, and that is a fix.** It is
+    /// the caught-panic case ([`parse`]: "parser aborted while handling
+    /// source") — a compiler gap, not a program ECMAScript rejects. Returning
+    /// `"SyntaxError"` for it made `compile_negative_error_matches` score a
+    /// **pass** for any `parse`/`SyntaxError` negative whose source merely
+    /// crashed boa's parser, because `phase()` is already `Parse`. Clause 17:
+    /// an implementation "must not treat other kinds of error as early errors".
+    /// This is the same shape `lila_ir::IrDiagnosticKind::error_type`
+    /// already has, and what `module_parse_failure_diagnostic`'s doc comment
+    /// forbids in words.
+    #[must_use]
+    pub const fn error_type(self) -> Option<&'static str> {
+        match self {
+            // boa read the source and rejected it: a real syntax error, whether
+            // or not the fragment table models its wording.
+            Self::Malformed | Self::Early(_) => Some("SyntaxError"),
+            Self::UnsupportedParserFeature => None,
+        }
+    }
+}
+
+/// A front-end rejection: one closed code, plus payload.
+///
+/// `kind`, `phase` and `error_type` used to be independent fields beside
+/// `code`; they are now accessors derived from `code`, so no call site can pair
+/// them inconsistently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseDiagnostic {
+    pub code: ParseCode,
+    pub span: Option<SourceSpan>,
+    pub message: String,
+}
+
+impl ParseDiagnostic {
+    #[must_use]
+    pub const fn kind(&self) -> ParseDiagnosticKind {
+        self.code.kind()
+    }
+
+    #[must_use]
+    pub const fn phase(&self) -> ParseDiagnosticPhase {
+        self.code.phase()
+    }
+
+    #[must_use]
+    pub const fn error_type(&self) -> Option<&'static str> {
+        self.code.error_type()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError {
+    diagnostic: ParseDiagnostic,
+    message: String,
+}
+
+impl ParseError {
+    pub fn malformed(message: impl Into<String>, span: Option<SourceSpan>) -> Self {
+        Self::new(ParseCode::Malformed, message, span)
+    }
+
+    pub fn unsupported_parser_feature(
+        message: impl Into<String>,
+        span: Option<SourceSpan>,
+    ) -> Self {
+        Self::new(ParseCode::UnsupportedParserFeature, message, span)
+    }
+
+    /// A modelled spec rejection. The `error_type` parameter is gone: passing
+    /// `"SyntaxError"` here was never a choice, and passing anything else was
+    /// never correct.
+    ///
+    /// The code parameter is a [`ParseClassified`], not a bare
+    /// [`EarlyErrorCode`]: this constructor reports at
+    /// [`ParseDiagnosticPhase::Early`], so it must not be able to name a
+    /// link-only condition. Obtain one from [`classify_parse_failure`], or —
+    /// for a producer that names its code directly — from
+    /// [`ParseClassified::from_parse_table`] in a `const` initializer.
+    pub fn early_error(
+        code: ParseClassified,
+        message: impl Into<String>,
+        span: Option<SourceSpan>,
+    ) -> Self {
+        Self::new(ParseCode::Early(code), message, span)
+    }
+
+    fn new(code: ParseCode, message: impl Into<String>, span: Option<SourceSpan>) -> Self {
+        let message = message.into();
+        Self {
+            diagnostic: ParseDiagnostic {
+                code,
+                span,
+                message: message.clone(),
+            },
+            message,
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn diagnostic(&self) -> &ParseDiagnostic {
+        &self.diagnostic
+    }
+}
+
+impl core::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+pub fn parse(
+    source_text: impl Into<String>,
+    options: ParseOptions,
+) -> Result<ParsedSource, ParseError> {
+    let source_text = source_text.into();
+    if source_text.contains('\0') {
+        return Err(ParseError::malformed(
+            "source contains NUL byte, front-end rejects this input",
+            first_nul_span(&source_text),
+        ));
+    }
+
+    let mut interner = Interner::default();
+    let scope = Scope::new_global();
+    let source = if let Some(filename) = &options.filename {
+        Source::from_bytes(source_text.as_bytes()).with_path(std::path::Path::new(filename))
+    } else {
+        Source::from_bytes(source_text.as_bytes())
+    };
+
+    let parsed = panic::catch_unwind(AssertUnwindSafe(|| match options.goal {
+        ParseGoal::Script => Parser::new(source)
+            .parse_script(&scope, &mut interner)
+            .map(ParsedAst::Script),
+        ParseGoal::Module => Parser::new(source)
+            .parse_module(&scope, &mut interner)
+            .map(ParsedAst::Module),
+    }));
+
+    let ast = match parsed {
+        Ok(Ok(ast)) => ast,
+        Ok(Err(err)) => {
+            let err = err.to_string();
+            let message = format!("parse error: {err}");
+            let span = parse_error_span_from_message(&source_text, &err);
+            // `&err` is Boa's bare message. Classify before adding presentation
+            // context so the taxonomy depends only on the parser's wording.
+            return if let Some(code) = classify_parse_failure(&err) {
+                Err(ParseError::early_error(code, message, span))
+            } else {
+                Err(ParseError::malformed(message, span))
+            };
+        }
+        Err(payload) => {
+            return Err(ParseError::unsupported_parser_feature(
+                format!(
+                "parse unsupported by current frontend: parser aborted while handling source ({})",
+                parser_abort_message(&payload)
+            ),
+                None,
+            ));
+        }
+    };
+
+    let source = SourceUnit {
+        goal: options.goal,
+        filename: options.filename,
+        source_text,
+    };
+    Ok(match ast {
+        ParsedAst::Script(ast) => ParsedSource::Script(ParsedScript {
+            source,
+            syntax: Rc::new(ScriptSyntax { ast, interner }),
+        }),
+        ParsedAst::Module(ast) => ParsedSource::Module(ParsedModule {
+            source,
+            syntax: Rc::new(ModuleSyntax { ast, interner }),
+        }),
+    })
+}
+
+enum ParsedAst {
+    Script(Script),
+    Module(Module),
+}
+
+fn first_nul_span(source_text: &str) -> Option<SourceSpan> {
+    source_text.find('\0').map(|start| SourceSpan {
+        start,
+        end: start + 1,
+    })
+}
+
+fn parse_error_span_from_message(source_text: &str, message: &str) -> Option<SourceSpan> {
+    let (_, after_colon) = message.split_once(" at line ")?;
+    let (line_text, after_line) = after_colon.split_once(", col ")?;
+    let line = line_text.parse::<usize>().ok()?;
+    let col_text = after_line
+        .split(|ch: char| !ch.is_ascii_digit())
+        .next()
+        .unwrap_or_default();
+    let col = col_text.parse::<usize>().ok()?;
+
+    let start = byte_offset_for_line_col(source_text, line, col)?;
+    let width = source_text[start..]
+        .chars()
+        .next()
+        .map(char::len_utf8)
+        .unwrap_or_default();
+    Some(SourceSpan {
+        start,
+        end: start + width,
+    })
+}
+
+fn byte_offset_for_line_col(source_text: &str, line: usize, col: usize) -> Option<usize> {
+    let target_line = line.checked_sub(1)?;
+    let target_col = col.checked_sub(1)?;
+    let mut current_line = 0usize;
+    let mut line_start = 0usize;
+
+    for (idx, ch) in source_text.char_indices() {
+        if current_line == target_line {
+            let mut col_count = 0usize;
+            for (relative_idx, _) in source_text[line_start..].char_indices() {
+                if col_count == target_col {
+                    return Some(line_start + relative_idx);
+                }
+                col_count += 1;
+            }
+            return if col_count == target_col {
+                Some(source_text.len())
+            } else {
+                None
+            };
+        }
+        if ch == '\n' {
+            current_line += 1;
+            line_start = idx + ch.len_utf8();
+        }
+    }
+
+    if current_line == target_line {
+        let mut col_count = 0usize;
+        for (relative_idx, _) in source_text[line_start..].char_indices() {
+            if col_count == target_col {
+                return Some(line_start + relative_idx);
+            }
+            col_count += 1;
+        }
+        if col_count == target_col {
+            return Some(source_text.len());
+        }
+    }
+    None
+}
+
+fn parser_abort_message(payload: &Box<dyn core::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string abort payload".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boa_ast::operations::{annex_b_function_declarations, annex_b_function_declarations_names};
+    use boa_ast::{Declaration, StatementListItem};
+
+    /// The expected `ParseCode` for a modelled rejection.
+    ///
+    /// Goes through `ParseClassified::from_parse_table`, so a test that names a
+    /// link-only code panics here instead of asserting against a `ParseCode`
+    /// the product path cannot construct.
+    fn early(code: EarlyErrorCode) -> ParseCode {
+        ParseCode::Early(ParseClassified::from_parse_table(code))
+    }
+
+    #[test]
+    fn script_rejects_module_syntax() {
+        let err = parse("export const value = 1;", ParseOptions::script())
+            .expect_err("script goal should reject export");
+        assert!(err.message().contains("parse error"));
+        assert_eq!(
+            err.diagnostic().kind(),
+            ParseDiagnosticKind::MalformedJavaScript
+        );
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+    }
+
+    #[test]
+    fn parser_rejects_obvious_function_syntax_error() {
+        let err = parse("function {", ParseOptions::script())
+            .expect_err("broken function syntax should fail");
+        assert!(err.message().contains("parse error"));
+        assert_eq!(
+            err.diagnostic().kind(),
+            ParseDiagnosticKind::MalformedJavaScript
+        );
+    }
+
+    #[test]
+    fn syntax_error_reports_structured_diagnostic_with_byte_span_when_available() {
+        let err =
+            parse("let x = ;", ParseOptions::script()).expect_err("broken initializer should fail");
+        assert_eq!(
+            err.diagnostic().kind(),
+            ParseDiagnosticKind::MalformedJavaScript
+        );
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+        assert!(
+            err.diagnostic().span.is_some(),
+            "diagnostic should carry Boa's source position when available: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parser_static_semantics_error_reports_early_phase() {
+        let err = parse(
+            "({ __proto__: null, __proto__: {} });",
+            ParseOptions::script(),
+        )
+        .expect_err("duplicate __proto__ prototype setters should fail");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ObjectDuplicateProto)
+        );
+        assert!(
+            err.diagnostic().span.is_some(),
+            "diagnostic should carry Boa's source position when available: {err:?}"
+        );
+    }
+
+    #[test]
+    fn parser_label_static_semantics_errors_report_early_phase() {
+        let err = parse("break;", ParseOptions::script())
+            .expect_err("unlabelled break outside breakable statement should fail");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().code, early(EarlyErrorCode::IllegalBreak));
+
+        let err = parse("continue missing;", ParseOptions::script())
+            .expect_err("labelled continue outside iteration should fail");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::IllegalContinue)
+        );
+
+        let err = parse(
+            "while (false) { continue missing; }",
+            ParseOptions::script(),
+        )
+        .expect_err("continue to undefined label should fail");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::UndefinedContinueTarget)
+        );
+    }
+
+    #[test]
+    fn parser_duplicate_lexical_declaration_reports_early_phase() {
+        let err = parse("let x; let x;", ParseOptions::script())
+            .expect_err("duplicate lexical declaration should fail");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::DuplicateLexicalDeclaration)
+        );
+    }
+
+    /// Drift B3, closed.
+    ///
+    /// `ModuleParser::parse` words this one ``lexical name `x` declared
+    /// multiple times`` — with an interpolated identifier and no `names`. The
+    /// front end's old loose alternative required the literal substring
+    /// `names`, so a module-goal lexical redeclaration classified as
+    /// `P_PARSE_MALFORMED` here while the identical source classified as
+    /// `E_DUPLICATE_LEXICAL_DECLARATION` when it arrived as a *dependency*
+    /// module. One table, one answer.
+    #[test]
+    fn module_goal_duplicate_lexical_declaration_is_an_early_error_not_malformed() {
+        let err = parse("let x; const x = 1;", ParseOptions::module())
+            .expect_err("duplicate lexical declaration should fail in module goal");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::DuplicateLexicalDeclaration),
+            "{err:?}"
+        );
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+    }
+
+    /// The two goals agree on the *same* source, which is the property the two
+    /// deleted tables could only promise in a doc comment.
+    #[test]
+    fn both_goals_classify_one_source_identically() {
+        for source in [
+            "({ __proto__: null, __proto__: {} });",
+            "let x; const x = 1;",
+            "break;",
+        ] {
+            let script = parse(source, ParseOptions::script())
+                .expect_err("source is rejected in script goal");
+            let module = parse(source, ParseOptions::module())
+                .expect_err("source is rejected in module goal");
+            assert_eq!(
+                script.diagnostic().code,
+                module.diagnostic().code,
+                "goals disagree on {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_rejects_unbalanced_delimiters() {
+        let err = parse("if (true {", ParseOptions::script())
+            .expect_err("unbalanced delimiters should fail");
+        assert!(err.message().contains("parse error"));
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Parse);
+    }
+
+    #[test]
+    fn nul_byte_reports_structured_malformed_diagnostic_with_span() {
+        let err = parse("let x = 0;\0", ParseOptions::script())
+            .expect_err("NUL byte should be rejected before Boa parsing");
+        assert_eq!(
+            err.diagnostic().kind(),
+            ParseDiagnosticKind::MalformedJavaScript
+        );
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+        assert_eq!(
+            err.diagnostic().span,
+            Some(SourceSpan { start: 10, end: 11 })
+        );
+    }
+
+    #[test]
+    fn parser_accepts_async_arrow_heads_longer_than_thirty_two_tokens() {
+        let source = r#"
+var ref = async (aFalse = falseCount +=1, aString = stringCount += 1, aNaN = nanCount += 1, a0 = zeroCount += 1, aNull = nullCount += 1, aObj = objCount +=1) => {};
+"#;
+
+        parse(source, ParseOptions::script()).expect("long async arrow head should parse");
+    }
+
+    #[test]
+    fn parser_accepts_simple_module_syntax() {
+        parse("export const value = 1;", ParseOptions::module())
+            .expect("module goal should accept export");
+    }
+
+    #[test]
+    fn parser_accepts_sloppy_annex_b_block_functions() {
+        for source in [
+            "if (true) function then_branch() {} else function else_branch() {}",
+            "label: function labelled() {}",
+        ] {
+            parse(source, ParseOptions::script())
+                .expect("sloppy Annex B block function should parse");
+        }
+    }
+
+    #[test]
+    fn parser_rejects_annex_b_block_functions_in_strict_and_module_code() {
+        let cases = [
+            (
+                "'use strict'; if (true) function strict_script() {}",
+                ParseOptions::script(),
+            ),
+            (
+                "function outer() { 'use strict'; if (true) function strict_function() {} }",
+                ParseOptions::script(),
+            ),
+            (
+                "'use strict'; label: function strict_label() {}",
+                ParseOptions::script(),
+            ),
+            ("if (true) function module_if() {}", ParseOptions::module()),
+            ("label: function module_label() {}", ParseOptions::module()),
+        ];
+
+        for (source, options) in cases {
+            parse(source, options).expect_err("strict and module Annex B forms should fail");
+        }
+    }
+
+    #[test]
+    fn parser_rejects_labelled_functions_nested_under_if_and_loop() {
+        for source in [
+            "if (true) label: function nested_if() {}",
+            "while (false) label: function nested_loop() {}",
+        ] {
+            parse(source, ParseOptions::script())
+                .expect_err("labelled function nested under a control-flow statement should fail");
+        }
+    }
+
+    #[test]
+    fn annex_b_declarations_preserve_each_eligible_function_identity() {
+        let source = r#"
+{
+    function sibling() {}
+}
+{
+    function sibling() {}
+}
+switch (0) {
+    case 0:
+        function switch_function() {}
+        break;
+    default:
+        function switch_function() {}
+}
+{
+    function protected() {}
+}
+{
+    let protected;
+    {
+        function protected() {}
+    }
+}
+"#;
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+        let names = declarations
+            .iter()
+            .map(|function| interner.resolve_expect(function.name().sym()).to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            [
+                "sibling",
+                "sibling",
+                "switch_function",
+                "switch_function",
+                "protected",
+            ]
+        );
+        assert!(declarations
+            .windows(2)
+            .all(|pair| pair[0].linear_span().start() < pair[1].linear_span().start()));
+        assert!(!core::ptr::eq(declarations[0], declarations[1]));
+        assert!(!core::ptr::eq(declarations[2], declarations[3]));
+        assert_eq!(
+            annex_b_function_declarations_names(&script)
+                .into_iter()
+                .map(|name| interner.resolve_expect(name).to_string())
+                .collect::<Vec<_>>(),
+            ["sibling", "switch_function", "protected"]
+        );
+    }
+
+    #[test]
+    fn annex_b_script_direct_function_allows_nested_candidate_with_the_same_name() {
+        let source = "function f() { return 1; } { function f() { return 2; } } f() === 2;";
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+        let StatementListItem::Declaration(declaration) = &script.statements().statements()[0]
+        else {
+            panic!("script should begin with a function declaration");
+        };
+        let Declaration::FunctionDeclaration(direct_function) = declaration.as_ref() else {
+            panic!("script should begin with an ordinary function declaration");
+        };
+
+        let declarations = annex_b_function_declarations(&script);
+
+        assert_eq!(declarations.len(), 1);
+        let span = declarations[0].linear_span();
+        assert_eq!(
+            &source[span.start().pos()..span.end().pos()],
+            "function f() { return 2; }",
+            "the nested Annex B declaration should update the script's var-scoped binding"
+        );
+        assert!(
+            !core::ptr::eq(declarations[0], direct_function),
+            "the direct script declaration is not itself an Annex B candidate"
+        );
+    }
+
+    #[test]
+    fn annex_b_function_body_direct_function_allows_nested_candidate_with_the_same_name() {
+        let source = "function outer() { function f() { return 1; } { function f() { return 2; } } return f() === 2; }";
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+        let StatementListItem::Declaration(declaration) = &script.statements().statements()[0]
+        else {
+            panic!("script should begin with the enclosing function declaration");
+        };
+        let Declaration::FunctionDeclaration(outer_function) = declaration.as_ref() else {
+            panic!("script should begin with an ordinary function declaration");
+        };
+        let StatementListItem::Declaration(declaration) = &outer_function.body().statements()[0]
+        else {
+            panic!("function body should begin with a function declaration");
+        };
+        let Declaration::FunctionDeclaration(direct_function) = declaration.as_ref() else {
+            panic!("function body should begin with an ordinary function declaration");
+        };
+
+        let declarations = annex_b_function_declarations(outer_function.body());
+
+        assert_eq!(declarations.len(), 1);
+        let span = declarations[0].linear_span();
+        assert_eq!(
+            &source[span.start().pos()..span.end().pos()],
+            "function f() { return 2; }",
+            "the nested Annex B declaration should update the function body's var-scoped binding"
+        );
+        assert!(
+            !core::ptr::eq(declarations[0], direct_function),
+            "the direct function-body declaration is not itself an Annex B candidate"
+        );
+    }
+
+    #[test]
+    fn annex_b_direct_function_blocks_only_nested_candidate_with_same_name() {
+        let source = r#"
+{
+    { function before() {} }
+    function protected() {}
+    { function protected() {} }
+    { function sibling() {} }
+    { function after() {} }
+}
+"#;
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+        let names = declarations
+            .iter()
+            .map(|function| interner.resolve_expect(function.name().sym()).to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["before", "protected", "sibling", "after"]);
+        assert_eq!(
+            declarations[1].linear_span().start().pos(),
+            source
+                .find("function protected() {}")
+                .expect("source should contain the direct declaration")
+        );
+        assert!(declarations
+            .windows(2)
+            .all(|pair| pair[0].linear_span().start() < pair[1].linear_span().start()));
+        assert_eq!(
+            annex_b_function_declarations_names(&script)
+                .into_iter()
+                .map(|name| interner.resolve_expect(name).to_string())
+                .collect::<Vec<_>>(),
+            ["before", "protected", "sibling", "after"]
+        );
+    }
+
+    #[test]
+    fn annex_b_direct_function_blocks_nested_if_candidate_with_same_name() {
+        let source = "{ function f(){1} if (true) function f(){2} }";
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(
+            interner
+                .resolve_expect(declarations[0].name().sym())
+                .to_string(),
+            "f",
+            "the direct declaration should remain eligible"
+        );
+        let span = declarations[0].linear_span();
+        assert_eq!(
+            &source[span.start().pos()..span.end().pos()],
+            "function f(){1}",
+            "the nested if declaration must not replace the direct declaration"
+        );
+    }
+
+    #[test]
+    fn annex_b_switch_direct_functions_block_nested_candidates_with_the_same_name() {
+        let source = r#"
+switch (0) {
+    case 0:
+        { function f() { 0 } }
+        { function before() {} }
+        function f() { 1 }
+        break;
+    case 1:
+        { function after() {} }
+        function f() { 2 }
+}
+"#;
+        let mut interner = Interner::default();
+        let script = Parser::new(Source::from_bytes(source.as_bytes()))
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("sloppy Annex B declarations should parse");
+
+        let declarations = annex_b_function_declarations(&script);
+        let names = declarations
+            .iter()
+            .map(|function| interner.resolve_expect(function.name().sym()).to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["before", "f", "after", "f"]);
+        assert_eq!(
+            declarations
+                .iter()
+                .map(|function| {
+                    let span = function.linear_span();
+                    &source[span.start().pos()..span.end().pos()]
+                })
+                .collect::<Vec<_>>(),
+            [
+                "function before() {}",
+                "function f() { 1 }",
+                "function after() {}",
+                "function f() { 2 }",
+            ]
+        );
+        assert!(declarations
+            .windows(2)
+            .all(|pair| pair[0].linear_span().start() < pair[1].linear_span().start()));
+        assert!(!core::ptr::eq(declarations[1], declarations[3]));
+    }
+
+    #[test]
+    fn parser_accepts_annex_b_html_comments_in_scripts() {
+        for source in [
+            "<!-- open comment\nconst open_comment = 1;",
+            "const close_comment = 1;\n--> close comment",
+            "'use strict';\n<!-- strict comment\nconst strict_comment = 1;\n--> close comment",
+        ] {
+            parse(source, ParseOptions::script()).expect("script HTML comment should parse");
+        }
+    }
+
+    #[test]
+    fn parser_rejects_annex_b_html_comments_in_modules() {
+        for source in [
+            "<!-- open comment\nexport const open_comment = 1;",
+            "export const close_comment = 1;\n--> close comment",
+        ] {
+            parse(source, ParseOptions::module()).expect_err("module HTML comment should fail");
+        }
+    }
+
+    /// Ledger L1's injection channel, closed.
+    ///
+    /// boa renders a `TokenKind::StringLiteral` as its raw contents
+    /// (`boa_parser/src/lexer/token.rs:313`) and interpolates the found token
+    /// into `Error::Unexpected` / `Error::Expected`, so a program can put a
+    /// whole fragment set of the one table into the message boa produces for an
+    /// ordinary syntax error. `classify_parse_failure` refuses the two
+    /// interpolating shapes, so this stays `Malformed` — a syntax error we do
+    /// not model — rather than becoming a forged `E_ILLEGAL_BREAK`.
+    #[test]
+    fn user_source_text_cannot_forge_an_early_error_classification() {
+        let err = parse(
+            "var x = \"illegal break statement\" \"y\";",
+            ParseOptions::script(),
+        )
+        .expect_err("two adjacent string literals are a syntax error");
+        assert_eq!(err.diagnostic().code, ParseCode::Malformed, "{err}");
+    }
+
+    /// MC4's call-site half. A code the fragment table cannot produce is not a
+    /// `ParseClassified`, so it cannot be reported at
+    /// `ParseDiagnosticPhase::Early` by any parse-stage producer.
+    #[test]
+    fn only_parse_table_codes_are_parse_classified() {
+        assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());
+        assert!(ParseClassified::from_early(EarlyErrorCode::ModuleTooManyUnits).is_none());
+    }
+}

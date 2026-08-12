@@ -4,9 +4,10 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
-The public project name is Lila. Existing `porffor-*` Rust crates, the `porf`
-CLI, environment variables, cache paths, diagnostics, and host ABI names retain
-their current identifiers until the coordinated migration tracked by T29.
+The public project and all current Rust packages, commands, environment
+variables, cache paths, diagnostics and host ABI names use the Lila identity.
+The GitHub repository URL and current DNS name retain their external locators
+until those resources are moved.
 
 The product path is direct JavaScript compilation. User programs must go through
 parse, early errors, spec-shaped IR, lowering IR, and real Wasm codegen. Lila
@@ -16,10 +17,10 @@ into it" as success.
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace
-and its `porf` CLI are the only current product implementation.
+and its `lila` CLI are the only current product implementation.
 
 ## Current Status
-<!-- porffor-status:start -->
+<!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:
 - Fake wasm-safe Test262 subset: `187/187` green
 - Fake full Rust rewrite suite: `190/190` green
@@ -30,14 +31,14 @@ Rust rewrite status must be read in layers, not one vanity number:
 As of `2026-04-30`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until the full pinned real Test262 run is green for Rust path and the status artifact is republished.
 
 Status refresh commands:
-- `cargo test -p porffor-engine --quiet`
-- `cargo test -p porffor-cli --quiet`
-- `./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`
-- `./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262`
-- `./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real`
+- `cargo test -p lila-engine --quiet`
+- `cargo test -p lila-cli --quiet`
+- `./target/debug/lila test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`
+- `./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262`
+- `./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real`
 
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
-<!-- porffor-status:end -->
+<!-- lila-status:end -->
 
 Focused Wasm-AOT progress verified after the last aggregate publish is recorded
 under [Current Capabilities](#current-capabilities). The generated status block
@@ -45,15 +46,16 @@ above stays conservative until a full pinned real-suite publish is refreshed.
 
 ## Implementation Progress
 
-As of `2026-08-11`, the Rust rewrite has 30 epic-level tasks:
+As of `2026-08-12`, the Rust rewrite has 30 epic-level tasks:
 
 - `2` complete: the repository operating contract (`T00`) and retirement of
   the legacy JavaScript product (`T28`);
-- `24` in progress with substantial implementation but unmet closure criteria;
+- `26` in progress with substantial implementation but unmet closure criteria,
+  including the deterministic Intl architecture plus its first consumed,
+  provider-backed locale canonicalization operation (`T23`) and the
+  implemented-but-not-yet-fully-verified Lila identity cutover (`T29`);
 - `1` with policy selected and implementation/accounting still open: dynamic
   source evaluation (`T13`);
-- `2` open lanes: complete product-side ECMA-402 Intl (`T23`) and the
-  coordinated Lila identifier migration (`T29`);
 - `1` blocked final gate: zero-failure current-pin Wasm-AOT conformance (`T26`).
 
 These are closure counts, not an estimate that “2/30 of JavaScript” is
@@ -78,7 +80,8 @@ The largest remaining closure work is:
 - publish a complete current-pin Wasm-AOT Test262 aggregate and generated
   failure backlog;
 - remove the large Test262 path/source materialization layer—the shortcut audit
-  is currently red;
+  now passes as an exact no-drift baseline, but its recorded entries remain
+  semantic debt;
 - implement executable GC and real weak reachability, plus complete
   arbitrary-precision BigInt operations;
 - remove the parser/lowering reparse boundary;
@@ -93,15 +96,18 @@ the generated status block above, not by this task summary.
 
 ## Rust Workspace
 
-- `crates/porffor-front`: parser boundary and source-unit handling.
-- `crates/porffor-ir`: spec-shaped IR, diagnostics, and lowering metadata.
-- `crates/porffor-runtime`: realms and host hooks.
-- `crates/porffor-aot-wasm`: primary direct JS -> Wasm backend.
-- `crates/porffor-engine`: public Rust library API.
-- `crates/porffor-cli`: clean-break `porf` command.
-- `crates/porffor-test262`: Test262 discovery, execution, snapshots, taxonomy, and README status publishing.
-- `crates/porffor-spec-exec`: reference/spec execution backend used for conformance work.
-- `crates/porffor-backend-c` and `crates/porffor-backend-native`: scaffolds, not product-ready emitters.
+- `crates/lila-front`: parser boundary and source-unit handling.
+- `crates/lila-ir`: spec-shaped IR, diagnostics, and lowering metadata.
+- `crates/lila-intl`: Intl data/profile/protocol domains and the first pinned,
+  host-embedded locale canonicalization provider.
+- `crates/lila-runtime`: realms plus typed host clock, randomness, and output
+  capabilities.
+- `crates/lila-aot-wasm`: primary direct JS -> Wasm backend.
+- `crates/lila-engine`: public Rust library API.
+- `crates/lila-cli`: clean-break `lila` command.
+- `crates/lila-test262`: Test262 discovery, execution, snapshots, taxonomy, and README status publishing.
+- `crates/lila-spec-exec`: reference/spec execution backend used for conformance work.
+- `crates/lila-backend-c` and `crates/lila-backend-native`: scaffolds, not product-ready emitters.
 
 Supporting directories:
 
@@ -122,22 +128,22 @@ The developer wrapper uses `lld` when available, falls back to the system
 linker, and caps Cargo at half the machine's logical CPUs (at most eight on the
 primary 16-core development machine). It deliberately shares Cargo's normal
 `target/` directory. `./scripts/dev.sh check`, `exact-test`, `test262`, and
-`timings` provide the corresponding fast-loop commands; set `PORFFOR_JOBS` to
+`timings` provide the corresponding fast-loop commands; set `LILA_JOBS` to
 request a lower cap.
 
 Run the built binary directly:
 
 ```sh
-./target/debug/porf --help
-./target/debug/porf inspect crates/porffor-cli/tests/fixtures/hello.js
-./target/debug/porf run --execution-backend wasm crates/porffor-cli/tests/fixtures/hello.js
-./target/debug/porf build wasm crates/porffor-cli/tests/fixtures/hello.js
+./target/debug/lila --help
+./target/debug/lila inspect crates/lila-cli/tests/fixtures/hello.js
+./target/debug/lila run --execution-backend wasm crates/lila-cli/tests/fixtures/hello.js
+./target/debug/lila build wasm crates/lila-cli/tests/fixtures/hello.js
 ```
 
 Or run it through Cargo:
 
 ```sh
-cargo run -p porffor-cli -- inspect crates/porffor-cli/tests/fixtures/hello.js
+cargo run -p lila-cli -- inspect crates/lila-cli/tests/fixtures/hello.js
 ```
 
 Current commands:
@@ -155,22 +161,22 @@ The Rust CLI also exposes a convenience command for Worker-style TypeScript
 setup:
 
 ```sh
-cargo run -p porffor-cli -- types src/index.ts worker-configuration.d.ts --config wrangler.jsonc
+cargo run -p lila-cli -- types src/index.ts worker-configuration.d.ts --config wrangler.jsonc
 ```
 
-`porf types` mirrors Wrangler's type-generation shape: it writes
+`lila types` mirrors Wrangler's type-generation shape: it writes
 `worker-configuration.d.ts` by default, accepts `--config`, `--entrypoint`,
 `--env`, `--env-interface`, `--include-runtime=false`, `--include-env=false`,
 `--strict-vars=false`, `--check`, `--print`, and discovers `wrangler.jsonc`,
-`wrangler.json`, `wrangler.toml`, or `porffor.*` config files from `--cwd` when
+`wrangler.json`, `wrangler.toml`, or `lila.*` config files from `--cwd` when
 `--config` is omitted. An explicit positional entrypoint or `--entrypoint`
 overrides the config `main`, matching the common Wrangler flow of generating
 types from a config plus a selected worker source. JSON, JSONC, and TOML configs
-are supported, and `porf typegen` is accepted as an alias. The type-generation
-paths are covered by `cargo test -p porffor-cli types_ --quiet`.
+are supported, and `lila typegen` is accepted as an alias. The type-generation
+paths are covered by `cargo test -p lila-cli types_ --quiet`.
 
 Wasm-AOT compilation uses one process-wide Wasmtime engine and a shared
-Cranelift pool. The pool defaults to half the logical CPUs; `porf --jobs N ...`
+Cranelift pool. The pool defaults to half the logical CPUs; `lila --jobs N ...`
 overrides it, while Test262 `--threads N` controls case workers independently.
 Every execution still creates a fresh realm, Store, and Wasmtime instance.
 Up to 64 immutable compiled Wasmtime Modules are retained in-process with LRU
@@ -187,19 +193,26 @@ Writes are atomic and corrupt program/native entries are treated as misses.
 Test262 agent roots and the complete `agent prelude + worker source` use the
 same bounded program-Wasm cache; only immutable Wasm bytes are reused, while
 every Store, instance, realm, shared-memory backing, report queue, and worker
-remains fresh. A focused shared-buffer/report regression measured `22.05 s`
+remains fresh. Host globals are selected by a typed compilation policy:
+ordinary product/CLI compilation exposes ECMAScript globals and the deliberate
+`print`/`gc` extensions, while the Test262 runner explicitly enables its
+`__lila*` capabilities and agent workers inherit that same policy. The policy
+also participates in the program-Wasm cache key. Conformance fixtures invoked
+through `lila run` can opt in explicitly with `--host-surface test262`; ordinary
+CLI invocations remain on the product surface. A focused
+shared-buffer/report regression measured `22.05 s`
 cold and `0.32 s` warm after both the root and worker became cache hits.
 Concurrent pruning may remove an entry during a cache scan; that vanished entry
 is skipped without turning an otherwise valid cache write into a failure.
-Set `PORFFOR_CACHE_DIR` to relocate only Lila's cache. The legacy global
-Wasmtime directory is reported by `porf cache status` and is never deleted
+Set `LILA_CACHE_DIR` to relocate only Lila's cache. The legacy global
+Wasmtime directory is reported by `lila cache status` and is never deleted
 implicitly.
 
-`PORFFOR_WASM_TRACE=1` reports parse, lower, emit, program/function/module
+`LILA_WASM_TRACE=1` reports parse, lower, emit, program/function/module
 cache decisions, native compilation, instantiation, and execution timings.
-`PORFFOR_WASM_TRACE_DUMP=1` additionally emits the large backend debug dump.
+`LILA_WASM_TRACE_DUMP=1` additionally emits the large backend debug dump.
 CI can sample and recompile function-cache hits with
-`PORFFOR_VERIFY_FUNCTION_CACHE=1`.
+`LILA_VERIFY_FUNCTION_CACHE=1`.
 
 ## Conformance
 
@@ -209,13 +222,13 @@ fake-suite progress kept separate from real-suite progress.
 Useful local checks:
 
 ```sh
-cargo test -p porffor-engine --quiet
-./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p porffor-cli --test cli -- --test-threads=2
-./target/debug/porf test262 run language/wasm/pass --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
-./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+cargo test -p lila-engine --quiet
+./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p lila-cli --test cli -- --test-threads=2
+./target/debug/lila test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
+./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
-The CLI suite is 614 default-executing tests (615 compile; 8 more sit behind the
+The CLI suite is 617 default-executing tests (618 compile; 8 more sit behind the
 `spec-exec-oracle` feature): about 26 minutes at `--test-threads=8` on 16 CPUs,
 an estimated 1 h 45 min at `--test-threads=2`. Raise the thread count on a
 machine with spare cores, but keep `--stall 900` — a single cold Wasm-AOT
@@ -223,16 +236,15 @@ compile can exceed the 300 s default of log silence, and the guard then kills a
 healthy run with exit code 124.
 
 **Do not use `--test-threads=1`.** libtest then runs every test on the thread
-named `main`, the per-test name the suite routes on is unavailable, and all 614
-tests fall back to spawning a cold `porf` child process instead of the warm
+named `main`, the per-test name the suite routes on is unavailable, and all 617
+tests fall back to spawning a cold `lila` child process instead of the warm
 in-process call the 26-minute figure is built on. It is correct and terminating,
 just far slower. For a single test use `-- --exact <name>`.
 
-It no longer needs `--skip atomics_wait_core`. That case still hangs (tracked
-under T17), but it is now a declared hang in
-`crates/porffor-cli/tests/known-failures.tsv`: `tests/cli/main.rs` runs it as a
-real child process and kills it after the hang timeout, so the suite terminates
-and the hang is reported as a bounded, expected failure. A hang in a test with
+It no longer needs `--skip atomics_wait_core`: that case is green and the
+known-failure row was removed in batch 6. The guarded child-process path remains
+available for future explicitly declared hangs, but the current CLI ledger has
+no hang entry. A hang in a test with
 *no* ledger row is bounded too, on the in-process path, so the suite terminates
 either way.
 
@@ -243,11 +255,18 @@ declared test, an orphan ledger row, or an `#[ignore]` with no owner all turn
 rung 1c red. Green means exactly the declared outcomes, for the declared
 reasons.
 
+Developer differential builds also expose a deterministic bounded campaign:
+`lila differential generate-arithmetic <output.json> --seed N --checks N
+--depth 1|2|3|4 --max-replays N --oracle spec-exec` generates and, on a
+backend mismatch, type-safely reduces the `integer-arithmetic-v1` Add/Sub
+corpus slice. Like `differential replay`, it requires a
+`--features spec-exec-oracle` build and explicit oracle selection.
+
 For local Wasm-AOT Test262 iteration, use the default in-process case runner:
 execution remains exact-source, realm-isolated, and epoch-timeout bounded while
 reusing the process-wide engine and caches. Set
-`PORFFOR_TEST262_FORCE_CASE_RUNNER=1` only for crash reproduction or deliberate
-per-case process isolation. Ensure `PORFFOR_CACHE_DIR` is writable; on a
+`LILA_TEST262_FORCE_CASE_RUNNER=1` only for crash reproduction or deliberate
+per-case process isolation. Ensure `LILA_CACHE_DIR` is writable; on a
 representative 18.48 MiB TypedArray iterator module, a cold exact run took about
 50 seconds while an identical warm run completed in 2 seconds from the program
 and module caches.
@@ -256,20 +275,22 @@ For real-suite publication, prefer the low-RAM wrapper so the top-level matrix
 checkpoints one node at a time, isolates each case in a reclaimable process,
 uses one compiler job by default, and only publishes after verified completion.
 Set `ISOLATE_CASES=0` or raise `JOBS` and `THREADS` only when more memory is
-available. The wrapper inventories the pinned suite once, then reuses that
-total while it polls aggregate completion between nodes:
+available. The wrapper asks Lila's Rust matrix planner for progress between
+nodes and only accepts the product backend:
 
 ```sh
-./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
 ./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
 ```
+
+Oracle matrices remain available through `lila test262 report-all
+--execution-backend spec-exec`; they cannot enter the status publisher.
 
 Useful status and triage commands:
 
 ```sh
-./target/debug/porf test262 progress-status --execution-backend wasm-aot
-./target/debug/porf test262 triage-status --execution-backend wasm-aot
-./target/debug/porf test262 failure-details language/wasm --execution-backend wasm-aot
+./target/debug/lila test262 progress-status --execution-backend wasm-aot
+./target/debug/lila test262 triage-status --execution-backend wasm-aot
+./target/debug/lila test262 failure-details language/wasm --execution-backend wasm-aot
 ```
 
 ## Contribution Protocol
@@ -286,10 +307,10 @@ Use the pull request template fields to keep fake-suite smoke evidence separate
 from pinned real Test262 evidence. `Unsupported`, timeout, crash, and bug are all
 non-passing outcomes. The generated README status block must only move with the
 publisher output and its snapshot artifacts; documentation-only edits belong
-outside the `porffor-status` markers.
+outside the `lila-status` markers.
 
 Until T02 lands and splits the monolithic IR and Wasm backend modules, treat
-`crates/porffor-ir/src/lib.rs` and `crates/porffor-aot-wasm/src/lib.rs` as
+`crates/lila-ir/src/lib.rs` and `crates/lila-aot-wasm/src/lib.rs` as
 single-owner files. Feature work that needs shared ABI changes should land the
 interface first under T04 rather than mixing unrelated feature lanes.
 
@@ -298,9 +319,9 @@ interface first under T04 rather than mixing unrelated feature lanes.
 Rust Wasm-AOT currently compiles a limited but useful JavaScript subset. Treat
 this as a tested capability map, not a spec-completeness claim. Programs are
 most likely to work when they stay close to the fixtures under
-`crates/porffor-cli/tests/fixtures/wasm_*.js` and the fake wasm-safe Test262
+`crates/lila-cli/tests/fixtures/wasm_*.js` and the fake wasm-safe Test262
 cases under
-`crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
+`crates/lila-test262/tests/fixtures/fake_test262/vendor/test262/test/language/wasm/pass`.
 
 Recent focused progress through `2026-07-27`:
 
@@ -328,7 +349,7 @@ Recent focused progress through `2026-07-27`:
   `proto-from-ctor-realm.js`, invokes the cross-realm Function constructor and
   remains an explicit dynamic-source exclusion (manifest
   `2879933483929296098`). Refresh this non-recursive residual node with
-  `./target/release/porf --jobs 1 test262 run --matrix-node built-ins/Promise --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name promise-direct-root-baseline-58-20260721`.
+  `./target/release/lila --jobs 1 test262 run --matrix-node built-ins/Promise --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name promise-direct-root-baseline-58-20260721`.
   The general `--matrix-node` selector avoids recursively rerunning all Promise
   subdirectories when measuring one residual matrix leaf.
   Mechanically deduplicating authoritative current-pin Wasm-AOT snapshots, the
@@ -341,7 +362,7 @@ Recent focused progress through `2026-07-27`:
   `{ status, reason }` records. Its complete pinned directory reports
   `104/104` under Wasm-AOT on `2026-07-21`, with every failure bucket and
   timeout count at zero (manifest `4524389048728247828`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/Promise/allSettled --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name allsettled-wasm-aot-release-20260721`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Promise/allSettled --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name allsettled-wasm-aot-release-20260721`.
   `Promise.any` uses the same generic constructor capability, one-time
   `resolve` lookup, and iterator-close behavior. It resolves on the first
   fulfillment; paired per-element rejection state preserves input order and
@@ -349,7 +370,7 @@ Recent focused progress through `2026-07-27`:
   pinned directory reports `94/94` under Wasm-AOT on `2026-07-21`, with every
   failure bucket and timeout count at zero (manifest `7726540635021801166`).
   Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/Promise/any --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-any-wasm-aot-release-20260721`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Promise/any --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-any-wasm-aot-release-20260721`.
   The Stage 3 `Promise.allKeyed` and `Promise.allSettledKeyed` builtins collect
   proxy-aware own enumerable string and symbol keys into ordered null-prototype
   result objects, while retaining generic constructor capabilities, one-time
@@ -358,7 +379,7 @@ Recent focused progress through `2026-07-27`:
   and timeout count at zero (manifests `14832762644447495093` and
   `7332652697133906527`). Refresh them by replacing `<method>` with
   `allKeyed` or `allSettledKeyed` in
-  `./target/release/porf --jobs 1 test262 run built-ins/Promise/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name promise-<method>-wasm-aot-release-fixed-20260721`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Promise/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name promise-<method>-wasm-aot-release-fixed-20260721`.
   `Promise.all` now consumes generic
   iterables through the receiver constructor's capability and `resolve`
   function, preserves input order and a shared reject function, guards each
@@ -386,7 +407,7 @@ Recent focused progress through `2026-07-27`:
   failures. All 98 roots are AOT-applicable, the directory has no dynamic-source
   exclusions, and every root is present in the full checkpoint (manifest
   `2207607493869671962`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/Promise/all --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-all-complete-98`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Promise/all --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-all-complete-98`.
   `Promise.race` now uses the same generic constructor capability, one-time
   `resolve` lookup, iterable and IteratorClose machinery, and directly chains
   every resolved value to the shared resolve/reject functions. Empty iterables
@@ -400,13 +421,13 @@ Recent focused progress through `2026-07-27`:
   per-iteration resolve observability, thenables, and settlement ordering. The
   directory contains no dynamic-source exclusions and every failure bucket and
   timeout count is zero (manifest `2843367700383518511`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/Promise/race --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-race-complete-94-20260721`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Promise/race --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-race-complete-94-20260721`.
   `Promise.prototype.finally` now performs generic receiver `then` invocation,
   species construction, callable and noncallable forwarding, cleanup
   assimilation, and original value/reason preservation or replacement. Its
   complete pinned directory reports `29/29` under Wasm-AOT with every failure
   bucket at zero (manifest `6304521883779310500`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/Promise/prototype/finally --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-finally-general`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Promise/prototype/finally --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name promise-finally-general`.
   Resolution now
   assimilates callable function and Proxy thenables asynchronously, rejects abrupt `then` access and
   self-resolution, and preserves first-settlement-wins behavior across thenable
@@ -472,7 +493,7 @@ Recent focused progress through `2026-07-27`:
   objects, for result creation and mapper calls while still awaiting mapper
   results. The complete pinned `Array.fromAsync` leaf reports `95/95` on
   `2026-07-27` under
-  `./target/release/porf test262 run built-ins/Array/fromAsync --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`;
+  `./target/release/lila test262 run built-ins/Array/fromAsync --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`;
   broader async iteration remains active conformance work, and this is not a
   claim of complete Promise or async-function support. The pinned
   six-file declaration
@@ -483,7 +504,7 @@ Recent focused progress through `2026-07-27`:
   `evaluation-body-that-throws.js`, and
   `evaluation-body-that-throws-after-await.js` paths under
   `language/statements/async-function/` with
-  `./target/debug/porf test262 run <path> --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <path> --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
 - `%AsyncIteratorPrototype%[Symbol.asyncDispose]` is a distinct
   non-constructible Rust/AOT builtin. It creates a defining-realm intrinsic
   Promise before reading `return`, converts getter and call throws into
@@ -492,7 +513,7 @@ Recent focused progress through `2026-07-27`:
   pinned `built-ins/AsyncIteratorPrototype/Symbol.asyncDispose` directory
   reports `9/9` on `2026-07-28` at Test262 pin
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`; refresh it with
-  `./target/debug/porf --jobs 1 test262 run built-ins/AsyncIteratorPrototype/Symbol.asyncDispose --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  `./target/debug/lila --jobs 1 test262 run built-ins/AsyncIteratorPrototype/Symbol.asyncDispose --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
 - Async-generator declarations and expressions now create suspended-start
   generator objects whose terminal `next`, `throw`, and `return` requests settle
   intrinsic promises with the required iterator-result or rejection outcome,
@@ -504,7 +525,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/AsyncGeneratorPrototype` directory reports `48/48` on
   `2026-07-28` at Test262 pin
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`; refresh it with
-  `./target/debug/porf --jobs 1 test262 run built-ins/AsyncGeneratorPrototype --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  `./target/debug/lila --jobs 1 test262 run built-ins/AsyncGeneratorPrototype --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
   The scoped exact checkpoint reports
   `13/13` on `2026-07-20` at Test262 pin
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`. Only two of those roots exercise
@@ -527,7 +548,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/AsyncGeneratorPrototype/return/return-state-completed.js`, and
   `built-ins/AsyncGeneratorPrototype/throw/throw-state-completed.js`.
   Refresh each listed path with
-  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1 --snapshot-name asyncgen-awaitonly-<case>-20260720`.
+  `./target/release/lila --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1 --snapshot-name asyncgen-awaitonly-<case>-20260720`.
   A separate non-overlapping intrinsic checkpoint reports `20/20` at the same
   pin: the `Symbol.toStringTag` and `constructor` roots directly under
   `built-ins/AsyncGeneratorPrototype`; the `length.js`, `name.js`, and
@@ -598,7 +619,7 @@ Recent focused progress through `2026-07-27`:
   evidence therefore accounts for 259 unique exact-green roots, leaving at
   most 359 AOT-applicable roots without exact-green evidence. Refresh the
   prefix with
-  `./target/release/porf --jobs 1 test262 run language/expressions/async-generator/dstr/ary-ptrn-elem --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000`.
+  `./target/release/lila --jobs 1 test262 run language/expressions/async-generator/dstr/ary-ptrn-elem --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000`.
   This bounded checkpoint does not recompute the broader aggregate.
   Queued `.return(value)` requests at an ordinary or delegated suspended Yield
   now unwrap through their own Promise continuation without double-awaiting the
@@ -608,7 +629,7 @@ Recent focused progress through `2026-07-27`:
   exact-green on `2026-07-22` at the same Test262 pin: object methods plus
   public/private instance/static methods in class declarations and expressions.
   Refresh each exact path with
-  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-method-mirror-<case>-20260722`.
+  `./target/release/lila --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-method-mirror-<case>-20260722`.
   A bounded 24-root scheduling and delegation checkpoint is exact-green on
   `2026-07-22` at Test262 pin
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`. It covers request-queue ordering,
@@ -619,7 +640,7 @@ Recent focused progress through `2026-07-27`:
   real async iterator. Every failure bucket is zero in the exact snapshots
   named `asyncgen-scheduling-final24-20260722-*.json`. Refresh each listed exact
   root with
-  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-scheduling-final24-20260722`.
+  `./target/release/lila --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-scheduling-final24-20260722`.
   The adjacent 30 statement-form `yield*` acquisition roots are exact-green on
   `2026-07-22` at the same pin. They cover abrupt operand evaluation, the
   inaccessible AsyncFromSync wrapper boundary, async-iterator preference,
@@ -659,7 +680,7 @@ Recent focused progress through `2026-07-27`:
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure bucket at zero
   (manifests `8156554394922646296`, `17360652823301751254`, and
   `14599242529674358692`). Refresh each exact path with
-  `./target/release/porf --jobs 1 test262 run language/statements/async-generator/yield-star-<normal|return|throw>-notdone-iter-value-throws.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-notdone-<case>-20260722`.
+  `./target/release/lila --jobs 1 test262 run language/statements/async-generator/yield-star-<normal|return|throw>-notdone-iter-value-throws.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-notdone-<case>-20260722`.
   Arbitrary mixed Await/Yield sequences now share that collision-free state
   plan. A bounded 20-root suspended try/catch/finally checkpoint is exact-green
   on `2026-07-22` at the same pin, covering `.return()`/`.throw()` overrides,
@@ -673,7 +694,7 @@ Recent focused progress through `2026-07-27`:
   `12410543517481961054`, `2765747284222495604`, `16701367308381327356`,
   `6075337559788816786`, `15049589881886505538`, `8173557398602242706`,
   `11207893843153698446`, and `679067303864347086`. Refresh an exact root with
-  `./target/release/porf --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-cohort-<case>-20260722`.
+  `./target/release/lila --jobs 1 test262 run <exact-path> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncgen-try-cohort-<case>-20260722`.
   Direct `yield` statements in runtime-selected `if`/`else` branches now use a
   dedicated merge state, so resumption does not re-evaluate the condition or
   collide with later suspension points. Classic async-generator `for` loops
@@ -862,7 +883,7 @@ Recent focused progress through `2026-07-27`:
   non-finite-to-null path, and observable `toISOString` lookup and invocation.
   The pinned `toDateString`, `toTimeString`, and `toString` leaves report
   `7/7`, `6/6`, and `8/8`, respectively, on `2026-07-27`. Refresh one with
-  `./target/release/porf --jobs 1 test262 run built-ins/Date/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Date/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`.
   The exact pinned
   `Date.prototype[Symbol.toPrimitive]` leaf reports `18/18`, including property
   attributes, hint validation, ordinary conversion order, and abrupt hooks.
@@ -873,7 +894,7 @@ Recent focused progress through `2026-07-27`:
   locale-string metadata leaves at `12/12`, callable and constructible Date
   coercion, private Date branding, and `toTemporalInstant` at `8/8`. Refresh
   with
-  `PORFFOR_CACHE_DIR=/tmp/porffor-date-cache ./target/debug/porf --jobs 4 test262 run built-ins/Date --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 8 --timeout-ms 60000`.
+  `LILA_CACHE_DIR=/tmp/lila-date-cache ./target/debug/lila --jobs 4 test262 run built-ins/Date --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 8 --timeout-ms 60000`.
   `Temporal.Instant` now has a real namespace binding, constructor, prototype,
   private epoch-nanoseconds slot, branded `epochNanoseconds` and floor-rounded
   `epochMilliseconds` accessors, and a real static `from` path. `from` copies
@@ -923,7 +944,10 @@ Recent focused progress through `2026-07-27`:
   claim.
   `Date.now` reads integer
   Unix-epoch milliseconds from the host wall clock; Atomics timeout scheduling
-  continues to use the separate monotonic nanosecond clock.
+  continues to use the separate monotonic nanosecond clock. `Math.random`
+  reads the current realm's validated `[0, 1)` host-randomness capability; the
+  production provider uses operating-system entropy, while embedders and exact
+  tests can inject a deterministic provider without changing the Wasm path.
 - Complete pinned builtin-shard evidence refreshed on `2026-07-28` also
   reports `built-ins/Boolean` at `51/51` and `built-ins/DataView` at `559/561`;
   all `559/559` AOT-applicable DataView tests pass, while its two unsupported
@@ -931,7 +955,7 @@ Recent focused progress through `2026-07-27`:
   covers `built-ins/BigInt` at `77/77`: a fresh full-shard baseline passed
   `75/77`, then exact reruns passed the two corrected relational-comparison and
   wrapper `ToPrimitive` cases. Refresh a complete shard with
-  `./target/debug/porf --jobs 4 test262 run built-ins/<Boolean|DataView|BigInt> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 8 --timeout-ms 60000`.
+  `./target/debug/lila --jobs 4 test262 run built-ins/<Boolean|DataView|BigInt> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 8 --timeout-ms 60000`.
 - The first heap-backed `Map` slice implements nullish construction plus
   `clear`, `delete`, `get`, `has`, `set`, and the `size` accessor with ordered
   tombstoned entries, SameValueZero keys, and `-0` normalization. Twelve pinned
@@ -947,7 +971,7 @@ Recent focused progress through `2026-07-27`:
   `2026-07-29`, including symbol and duplicate keys, direct entry-property
   access, define semantics, and the required iterator-close boundary. Refresh
   it with
-  `./target/debug/porf --jobs 1 test262 run built-ins/Object/fromEntries --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  `./target/debug/lila --jobs 1 test262 run built-ins/Object/fromEntries --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
   `Map.prototype.getOrInsert` reports `14/14`,
   while the older `getOrInsertComputed` checkpoint reports `17/19`; that
   checkpoint predates WeakMap support and was not refreshed in this batch.
@@ -965,7 +989,7 @@ Recent focused progress through `2026-07-27`:
   complete pinned `built-ins/WeakMap` leaf reports `139/141` on `2026-07-27`;
   the only two unsupported roots use excluded dynamic `Function` construction,
   so all `139/139` AOT-applicable roots pass. Refresh with
-  `./target/release/porf --jobs 1 test262 run built-ins/WeakMap --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`.
+  `./target/release/lila --jobs 1 test262 run built-ins/WeakMap --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1`.
 - `WeakSet` has a real global intrinsic, realm-aware prototype and `newTarget`
   allocation, a private brand, and a distinct weak entry layout. Its constructor
   consumes iterables through the observable `add` method with `IteratorClose`
@@ -1046,7 +1070,7 @@ Recent focused progress through `2026-07-27`:
   direct, aliased, computed, helper-escaped, assignment, definition, and
   deletion mutations. The complete pinned real Test262
   `built-ins/Array/length` prefix reports `31/31` as of `2026-07-11` under
-  `./target/debug/porf test262 run built-ins/Array/length --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/length --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `Object.prototype.valueOf` now performs `ToObject` for Boolean, Number,
   String, Symbol, and BigInt primitives, preserves existing object identity,
   and selects primitive-wrapper prototypes and `TypeError` from the builtin's
@@ -1054,13 +1078,13 @@ Recent focused progress through `2026-07-27`:
   configurable `length` deletion and later `Object.prototype.valueOf`
   replacement remain observable. The complete pinned real Test262
   `built-ins/Object/prototype/valueOf` leaf reports `20/20` as of `2026-07-11`
-  under `./target/debug/porf test262 run built-ins/Object/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  under `./target/debug/lila test262 run built-ins/Object/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Object.prototype.isPrototypeOf` now preserves the required primitive-argument
   early return before `ToObject(this)`, throws for a nullish receiver only when
   the argument is an Object, and walks proxy-aware `[[GetPrototypeOf]]` links
   while propagating trap failures. The complete pinned real Test262
   `built-ins/Object/prototype/isPrototypeOf` leaf reports `10/10` as of
-  `2026-07-11` under `./target/debug/porf test262 run built-ins/Object/prototype/isPrototypeOf --execution-backend wasm --timeout-ms 90000 --threads 2`.
+  `2026-07-11` under `./target/debug/lila test262 run built-ins/Object/prototype/isPrototypeOf --execution-backend wasm --timeout-ms 90000 --threads 2`.
 - `Object.prototype.propertyIsEnumerable` now performs `ToPropertyKey` before
   receiver validation, preserves Symbols returned by `@@toPrimitive`,
   `toString`, or `valueOf`, and compares Symbol keys by identity without
@@ -1069,7 +1093,7 @@ Recent focused progress through `2026-07-27`:
   builtin's defining Realm. The complete pinned real Test262
   `built-ins/Object/prototype/propertyIsEnumerable/` leaf reports `16/16` as
   of `2026-07-11` under
-  `./target/debug/porf test262 run 'built-ins/Object/prototype/propertyIsEnumerable/' --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  `./target/debug/lila test262 run 'built-ins/Object/prototype/propertyIsEnumerable/' --execution-backend wasm --timeout-ms 90000 --threads 1`.
 - `Array.prototype.join` is now installed as a real Wasm-AOT standard builtin
   in the main and created Realms. Its generic path performs `ToObject`, captures
   `LengthOfArrayLike` before separator coercion, observes inherited indexed
@@ -1081,7 +1105,7 @@ Recent focused progress through `2026-07-27`:
   `23/23` with no unsupported cases, bugs, or crashes as of `2026-07-15`,
   including fixed and length-tracking TypedArray views across resizable-buffer
   growth and shrink during separator coercion. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/join --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/join --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `%TypedArray%.prototype.join` is a distinct non-generic Wasm-AOT builtin. It
   validates the receiver and its initial view before separator coercion,
   captures the internal typed-array length without observing shadowing
@@ -1091,7 +1115,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/TypedArray/prototype/join` leaf reports `32/32`, with no
   unsupported cases, bugs, crashes, or timeouts as of `2026-07-21` (manifest
   `11374343618813182054`). Refresh under the low-RAM settings with
-  `PORFFOR_TEST262_FORCE_CASE_RUNNER=1 ./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/join --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1 --snapshot-name typedarray-prototype-join-current-pin-32`.
+  `LILA_TEST262_FORCE_CASE_RUNNER=1 ./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/join --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 1 --snapshot-name typedarray-prototype-join-current-pin-32`.
 - `Array.prototype.toLocaleString` is now installed as a Wasm-AOT standard
   builtin with generic array-like receiver support, `LengthOfArrayLike`
   conversion ordering, comma separator assembly, primitive element string
@@ -1102,13 +1126,13 @@ Recent focused progress through `2026-07-27`:
   that dispatch path and calls the receiver's `toString` method. The exact real Test262
   `staging/sm/Array/toLocaleString-01.js` file reports `1/1` as of
   `2026-06-23` under
-  `./target/debug/porf test262 run staging/sm/Array/toLocaleString-01.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  `./target/debug/lila test262 run staging/sm/Array/toLocaleString-01.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
   Typed-array receivers backed by resizable ArrayBuffers now use the typed-array
   length and integer-indexed element paths, including fixed-length
   out-of-bounds views and length-tracking views after resize. The broader
   `built-ins/Array/prototype/toLocaleString` leaf reports `12/12`
   as of `2026-06-23` under
-  `./target/debug/porf test262 run built-ins/Array/prototype/toLocaleString --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/toLocaleString --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `%TypedArray%.prototype.toLocaleString` is also installed as a distinct
   non-generic Wasm-AOT builtin for concrete typed-array method calls, including
   internal-brand and current-view validation, internal length snapshotting,
@@ -1118,7 +1142,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/TypedArray/prototype/toLocaleString` leaf reports `39/39` as of
   `2026-07-21`, with every failure bucket and timeout count at zero (manifest
   `2525782695925974509`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/toLocaleString --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 4 --snapshot-name typedarray-prototype-to-locale-string-current-pin-39`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/toLocaleString --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 60000 --threads 4 --snapshot-name typedarray-prototype-to-locale-string-current-pin-39`.
 - `%TypedArray%.prototype.toString` now uses the same Wasm-AOT function object
   as `Array.prototype.toString`, so the shared identity and descriptor checks
   are exposed on `%TypedArray%.prototype` while Array receivers still use comma
@@ -1127,11 +1151,11 @@ Recent focused progress through `2026-07-27`:
   TypedArray receivers perform `ValidateTypedArray` before joining indexed
   elements. The exact real Test262 `built-ins/Array/prototype/toString` leaf
   reports `11/11` as of `2026-06-23` under
-  `./target/debug/porf test262 run built-ins/Array/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`.
   The exact real Test262
   `built-ins/TypedArray/prototype/toString` leaf reports `4/4` as of
   `2026-06-23` under
-  `./target/debug/porf test262 run built-ins/TypedArray/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/TypedArray/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Array.prototype.forEach` covers array-like and primitive receivers,
   inherited array indexes including Array instances used as prototypes where
   `HasProperty` and `Get` must agree, ToLength and callback-order edge cases,
@@ -1140,7 +1164,7 @@ Recent focused progress through `2026-07-27`:
   calls on typed arrays backed by resizable ArrayBuffers. The exact real
   Test262 `built-ins/Array/prototype/forEach` leaf reports `190/190` as of
   `2026-07-15` under
-  `./target/debug/porf test262 run built-ins/Array/prototype/forEach --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/forEach --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - Generic `Array.prototype.every`, `Array.prototype.some`,
   `Array.prototype.filter`, and `Array.prototype.includes` calls on resizable
   typed arrays cover fixed-length and length-tracking views across shrink/grow,
@@ -1148,13 +1172,13 @@ Recent focused progress through `2026-07-27`:
   comparisons such as `NaN`. The exact real Test262
   `built-ins/Array/prototype/every` leaf reports `218/218` as of `2026-07-15`
   under
-  `./target/debug/porf test262 run built-ins/Array/prototype/every --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/every --execution-backend wasm --timeout-ms 180000 --threads 4`.
   The `built-ins/Array/prototype/some` leaf reports `219/219` as of
   `2026-07-15` under
-  `./target/debug/porf test262 run built-ins/Array/prototype/some --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/some --execution-backend wasm --timeout-ms 180000 --threads 4`.
   The `built-ins/Array/prototype/filter` leaf reports `242/242` as of
   `2026-07-15` under
-  `./target/debug/porf test262 run built-ins/Array/prototype/filter --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/filter --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - Generic `Array.prototype.indexOf` now observes `HasProperty` before `Get` for
   sparse and array-like receivers, supports borrowed calls on resizable typed
   arrays including subclass instances, preserves strict equality for special
@@ -1177,7 +1201,7 @@ Recent focused progress through `2026-07-27`:
   `2026-06-19`: shard `1/8` is `26/26`, and shards `2/8` through `8/8` are
   `25/25` each under `--execution-backend wasm --timeout-ms 90000 --threads 8`.
   Refresh individual cases with
-  `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  `./target/debug/lila test262 run <case> --execution-backend wasm --timeout-ms 90000 --threads 1`.
 - Generic `Array.prototype.lastIndexOf` now shares the index-search receiver,
   `HasProperty`, sparse array, array-like, and resizable typed-array paths while
   preserving the spec distinction between omitted `fromIndex` and explicit
@@ -1213,7 +1237,7 @@ Recent focused progress through `2026-07-27`:
   post-shrink `undefined` callback values. The complete pinned real-Test262
   `find` and `findIndex` leaves each report `23/23`, with no unsupported cases,
   bugs, or crashes as of `2026-07-15`. Refresh a leaf with
-  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.findLast` and `Array.prototype.findLastIndex` are now
   registered Wasm-AOT builtins sharing the find-like callback path with reverse
   length-snapshot traversal. The local `wasm_array_find_last_core.js` fixture
@@ -1231,7 +1255,7 @@ Recent focused progress through `2026-07-27`:
   timeout and one thread. The complete pinned real-Test262 `findLast` and
   `findLastIndex` leaves each report `24/24`, with no unsupported cases, bugs,
   or crashes as of `2026-07-15`. Refresh a leaf with
-  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.reduce` and `Array.prototype.reduceRight` are registered
   Wasm-AOT builtins with generic `LengthOfArrayLike`, length snapshots,
   directional `HasProperty`/`Get` traversal, inherited and accessor-backed
@@ -1242,7 +1266,7 @@ Recent focused progress through `2026-07-27`:
   for each method, `520/520` combined, with no unsupported cases, bugs, or
   crashes as of `2026-07-16`. Refresh either leaf within a 4 GiB task-memory
   cap with
-  `PORFFOR_TEST262_FORCE_CASE_RUNNER=1 PORFFOR_CACHE_DIR=$HOME/.cache/porffor-test262 systemd-run --user --wait --collect --pipe -p MemoryHigh=3G -p MemoryMax=4G -p MemorySwapMax=8G --working-directory="$PWD" ./target/release/porf --jobs 1 test262 run built-ins/Array/prototype/reduce/ --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1 --snapshot-name array-reduce-current --resume`;
+  `LILA_TEST262_FORCE_CASE_RUNNER=1 LILA_CACHE_DIR=$HOME/.cache/lila-test262 systemd-run --user --wait --collect --pipe -p MemoryHigh=3G -p MemoryMax=4G -p MemorySwapMax=8G --working-directory="$PWD" ./target/release/lila --jobs 1 test262 run built-ins/Array/prototype/reduce/ --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1 --snapshot-name array-reduce-current --resume`;
   replace `reduce` with `reduceRight` for the reverse leaf.
 - Optional chains now have ordered property/call IR and Wasm-AOT lowering for
   dot keys, computed keys, and calls. The implementation evaluates each base,
@@ -1257,7 +1281,7 @@ Recent focused progress through `2026-07-27`:
   `37/38` with no bugs or crashes as of `2026-07-27`. The sole remaining case
   uses excluded dynamic `eval`, so all `37/37` AOT-applicable roots pass.
   Refresh with
-  `./target/debug/porf test262 run language/expressions/optional-chaining --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run language/expressions/optional-chaining --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Tagged templates now lower as ordinary calls with preserved member receivers,
   source-site template-object identity, cooked and raw strings, invalid-escape
   `undefined` values, and frozen array/property descriptors. The checked-out
@@ -1265,7 +1289,7 @@ Recent focused progress through `2026-07-27`:
   `2026-07-16`: all `21` Wasm-AOT-applicable cases pass, including the two
   strict-mode proper-tail-call cases; the other six cases require excluded
   dynamic source evaluation. Refresh with
-  `./target/debug/porf test262 run language/expressions/tagged-template --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run language/expressions/tagged-template --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Strict-mode proper tail calls use Wasm `return_call` and
   `return_call_indirect` through the shared callable dispatcher. Tail position
   is preserved through tagged calls, conditional and comma expressions, and
@@ -1273,7 +1297,7 @@ Recent focused progress through `2026-07-27`:
   All `30` AOT-applicable pinned language tests carrying the
   `tail-call-optimization` feature pass as of `2026-07-16`. The other four use
   excluded dynamic `eval`. Refresh the exact cases with
-  `rg -l 'tail-call-optimization' test262/vendor/test262/test/language | sed 's#test262/vendor/test262/test/##' | while read -r test; do ./target/debug/porf test262 run "$test" --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1; done`.
+  `rg -l 'tail-call-optimization' test262/vendor/test262/test/language | sed 's#test262/vendor/test262/test/##' | while read -r test; do ./target/debug/lila test262 run "$test" --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1; done`.
 - `Array.prototype.flat` and `flatMap` now preserve dynamic custom-species
   result tags, avoid exposing typed-array implementation slots through Proxy
   `get` traps, and keep unproven concat/flat result shapes conservative.
@@ -1287,7 +1311,7 @@ Recent focused progress through `2026-07-27`:
   pinned real-Test262 `built-ins/Array/prototype/flat` prefix reports `43/43`,
   and the exact `flatMap` leaf reports `24/24`, with no unsupported cases,
   bugs, or crashes as of `2026-07-11`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/flat --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/flat --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Array.prototype.reverse`, `copyWithin`, `toReversed`, `toSpliced`,
   `toSorted`, and `with` are installed as real Wasm-AOT builtins. The mutating
   methods preserve holes, inherited properties, proxy-observable operations,
@@ -1297,7 +1321,7 @@ Recent focused progress through `2026-07-27`:
   `reverse`, `39/39` for `copyWithin`, `17/17` for `toReversed`, `30/30` for
   `toSpliced`, `21/21` for `toSorted`, and `21/21` for `with` as of
   `2026-07-15`. Refresh a leaf with
-  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `Array.prototype.concat` handles species creation, proxies and revoked
   proxies, sparse and inherited indexes, spreadable Arguments and TypedArray
   objects, maximum-safe-length rejection, abrupt getters, and inherited
@@ -1306,58 +1330,58 @@ Recent focused progress through `2026-07-27`:
   for all `69/69` pinned real-Test262 roots with no unsupported cases, bugs, or
   crashes as of `2026-07-27`: a fresh `68/69` full-leaf baseline plus the exact
   corrected survivor. Refresh the complete leaf with
-  `./target/debug/porf test262 run built-ins/Array/prototype/concat --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/concat --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.slice` preserves sparse and inherited indexes, species
   construction, proxy-observable operations, and the current integer-index
   bounds of fixed and length-tracking TypedArrays over resizable buffers. Its
   complete pinned real-Test262 leaf reports `71/71` with no unsupported cases,
   bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/slice --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/slice --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.fill` distinguishes omitted and explicit-`undefined` bounds,
   preserves observable coercion and write ordering, and writes through the
   integer-indexed storage of fixed and length-tracking TypedArrays over
   resizable buffers. Its complete pinned real-Test262 leaf reports `22/22`
   with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/fill --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/fill --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.pop` follows the generic `ToObject`/`LengthOfArrayLike`,
   `Get`, `DeletePropertyOrThrow`, and strict length-update sequence. It handles
   inherited indexes, primitive receivers, maximum-safe lengths, frozen arrays,
   and non-writable length properties. Its complete pinned real-Test262 leaf
   reports `23/23` with no unsupported cases, bugs, or crashes as of
   `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/pop --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/pop --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.push` handles generic receivers, primitive boxing,
   maximum-safe-length rejection, proxy-observable writes, and strict failures
   for frozen or non-writable targets. Its complete pinned real-Test262 leaf
   reports `24/24` with no unsupported cases, bugs, or crashes as of
   `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/push --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/push --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.shift` and `Array.prototype.unshift` have complete pinned
   real-Test262 leaves at `20/20` and `22/22`, respectively, with no unsupported
   cases, bugs, or crashes as of `2026-07-15`. Refresh a leaf with
-  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.splice` has a complete pinned real-Test262 leaf at `81/81`,
   with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/splice --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/splice --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Array.prototype.sort` has a complete pinned real-Test262 leaf at `54/54`,
   with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/sort --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/sort --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Array.isArray` has a complete pinned real-Test262 leaf at `29/29`, with no
   unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/isArray --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/isArray --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.of` passes all `15/15` Wasm-AOT-applicable cases as of `2026-07-15`.
   The remaining `proto-from-ctor-realm.js` case explicitly constructs source
   through another Realm's `Function` constructor and is tracked as an excluded
   dynamic-code-generation case. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/of --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/of --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.from` passes all `46/46` Wasm-AOT-applicable cases as of `2026-07-15`.
   Its remaining `proto-from-ctor-realm.js` case has the same explicit
   cross-realm `Function`-constructor dependency and is tracked as excluded
   dynamic code generation. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/from --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/from --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Array[Symbol.species]` has a complete pinned real-Test262 leaf at `4/4`,
   with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/Symbol.species --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/Symbol.species --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype.includes` now performs the observable generic
   `ToObject`/`LengthOfArrayLike` sequence for every receiver, including
   TypedArrays with own `length` properties, while indexed reads recognize real
@@ -1368,7 +1392,7 @@ Recent focused progress through `2026-07-27`:
   polymorphic construction. The pinned real-Test262
   `built-ins/Array/prototype/includes` leaf reports `30/30`, with no
   unsupported cases, bugs, or crashes as of `2026-07-11`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/includes --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/includes --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - The exact real Test262
   `Array.prototype.map/callbackfn-resize-arraybuffer.js`,
   `Array.prototype.every/callbackfn-resize-arraybuffer.js`,
@@ -1379,7 +1403,7 @@ Recent focused progress through `2026-07-27`:
   coverage without timing out in the generic `testTypedArray.js` helper path.
   The complete pinned real-Test262 `Array.prototype.map` leaf reports `216/216`,
   with no unsupported cases, bugs, or crashes as of `2026-07-15`. Refresh with
-  `./target/debug/porf test262 run built-ins/Array/prototype/map --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/map --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - The exact real Test262 `Array.prototype.every/resizable-buffer.js`,
   `Array.prototype.some/resizable-buffer.js`,
   `Array.prototype.filter/resizable-buffer.js`, and
@@ -1401,7 +1425,7 @@ Recent focused progress through `2026-07-27`:
   iterators on `Uint8Array` views, covering initial fixed-length iteration,
   length-tracking and offset views after shrink, and out-of-bounds `TypeError`
   checks for fixed or offset views. Refresh a leaf with
-  `./target/debug/porf test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/<method> --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Array.prototype[Symbol.iterator]` aliases `values`, and
   `Array.prototype[Symbol.unscopables]` is the standard null-prototype object
   with its non-writable, non-enumerable, configurable prototype property. The
@@ -1410,7 +1434,7 @@ Recent focused progress through `2026-07-27`:
 - The full `built-ins/Array/prototype/at` leaf now reports `13/13` passing as
   of `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Array/prototype/at --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/at --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The resizable typed-array materializations call the real
   `Array.prototype.at.call` on resizable `Uint8Array` fixed, fixed-offset,
   length-tracking, and offset length-tracking views across shrink/grow states,
@@ -1422,7 +1446,7 @@ Recent focused progress through `2026-07-27`:
 - The exact current-pin real Test262 `built-ins/TypedArray/prototype/at` leaf
   reports `15/15` under Wasm-AOT as of `2026-07-21`, with every failure bucket
   and timeout count at zero (manifest `13619138540264852855`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/at --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-at-current-pin-15`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/at --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-at-current-pin-15`.
   Wasm-AOT exposes a distinct `%TypedArray%.prototype.at` intrinsic, so both
   direct `ta.at(...)` and dynamically selected typed intrinsic calls perform
   full brand, detached-buffer, and out-of-bounds validation. Generic
@@ -1446,7 +1470,7 @@ Recent focused progress through `2026-07-27`:
   `@@toStringTag` reads the internal element kind without validating the
   backing buffer and returns `undefined` for receivers without TypedArray
   internal slots. Refresh an accessor by replacing `<accessor>` in
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/<accessor> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<accessor>-current-pin`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/<accessor> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<accessor>-current-pin`.
 - The `%TypedArray%.prototype` iterator leaves `values`, `keys`, `entries`, and
   `Symbol.iterator` report `21/21`, `19/19`, `19/19`, and `1/1` under Wasm-AOT
   as of `2026-07-22`, with every failure bucket and timeout count at zero
@@ -1457,7 +1481,7 @@ Recent focused progress through `2026-07-27`:
   values and current resizable-buffer lengths while rejecting detached or
   out-of-bounds views. Exhausted iterators remain done after later buffer
   growth or shrinkage. Refresh a leaf by replacing `<method>` in
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<method>-current-pin`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<method>-current-pin`.
 - The `%TypedArray%.prototype` leaves `find`, `findIndex`, `findLast`, and
   `findLastIndex` each report `38/38` under Wasm-AOT as of `2026-07-22`, with
   every failure bucket and timeout count at zero (manifests
@@ -1468,7 +1492,7 @@ Recent focused progress through `2026-07-27`:
   shrinkage. The resizable-buffer cases use static Wasm-AOT materializations
   rather than dynamic source evaluation. Refresh a leaf by replacing
   `<method>` in
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<method>-current-pin`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-prototype-<method>-current-pin`.
 - The `%TypedArray%.prototype.every` leaf reports `44/44` under Wasm-AOT as of
   `2026-07-22`, with every failure bucket and timeout count at zero (manifest
   `10128406413910089111`). It is a distinct non-generic `%TypedArray%`
@@ -1476,7 +1500,7 @@ Recent focused progress through `2026-07-27`:
   iteration length, and reads current element values after detach, growth, or
   shrinkage. Its six resizable-buffer roots use static Wasm-AOT
   materializations rather than dynamic source evaluation. Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/every --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name typedarray-prototype-every-current-pin-final`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/every --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name typedarray-prototype-every-current-pin-final`.
 - The nine exact pinned real-Test262 numeric concrete-constructor leaves
   (`Int8Array`, `Int16Array`, `Int32Array`, `Uint8Array`,
   `Uint8ClampedArray`, `Uint16Array`, `Uint32Array`, `Float32Array`, and
@@ -1488,7 +1512,7 @@ Recent focused progress through `2026-07-27`:
   inheritance, immutable `BYTES_PER_ELEMENT` values, and rejection of the
   unbranded prototype object by the `buffer` accessor. Refresh any listed leaf
   with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/<Constructor> --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-<lowercase-constructor>-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/<Constructor> --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-<lowercase-constructor>-current-tree-20260720`.
   All ninety-nine selected vendored test bodies run without static case
   rewrites; their declared helper preludes come from the Wasm-AOT local merged
   harness rather than byte-for-byte vendored harness files. The upstream
@@ -1500,9 +1524,9 @@ Recent focused progress through `2026-07-27`:
   leaves each report `12/12`, or `24/24` together, under Wasm-AOT as of
   `2026-07-20` at the same Test262 revision, with every failure bucket at zero.
   Refresh them with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/BigInt64Array --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-bigint64array-vendored-current-tree-20260720`
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/BigInt64Array --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-bigint64array-vendored-current-tree-20260720`
   and
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/BigUint64Array --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-biguint64array-vendored-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/BigUint64Array --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-biguint64array-vendored-current-tree-20260720`.
   All twenty-four selected vendored test bodies now run through the normal
   materializer without static case rewrites. Their declared helper preludes
   come from the Wasm-AOT local merged harness rather than byte-for-byte
@@ -1524,7 +1548,7 @@ Recent focused progress through `2026-07-27`:
   `Symbol.species` getter, and observes an ordinary `ArrayBuffer.prototype` on
   the clone through the standard `Object.prototype.__proto__` accessor. Refresh
   it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/ctors/no-species.js --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-ctors-no-species-vendored-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/ctors/no-species.js --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-ctors-no-species-vendored-current-tree-20260720`.
   The body is byte-for-byte vendored; its `Test262Error` and `assert.sameValue`
   support comes from the local merged Wasm-AOT harness rather than byte-for-byte
   upstream harness preludes.
@@ -1537,7 +1561,7 @@ Recent focused progress through `2026-07-27`:
   exclusions. This covers numeric and BigInt views plus fixed and
   length-tracking resizable views before and after grow, shrink, and
   out-of-bounds transitions. Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/OwnPropertyKeys --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-own-property-keys-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/OwnPropertyKeys --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-own-property-keys-current-tree-20260720`.
   `%TypedArray%.prototype.subarray` now preserves coercion ordering, snapshots
   the current view length, performs observable constructor and `Symbol.species`
   selection, shares the source backing buffer, and validates the returned typed
@@ -1545,7 +1569,7 @@ Recent focused progress through `2026-07-27`:
   source constructs a length-tracking result. Its complete current-pin leaf
   reports `67/67` under Wasm-AOT on `2026-07-21`, with every failure bucket and
   timeout count at zero (manifest `3353953584716781290`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/subarray --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-subarray-current-pin-67`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/subarray --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-subarray-current-pin-67`.
 - `TypedArray.from` snapshots generic iterable values before target construction
   and conversion, supports Proxy iterator methods, `next`, mappers, and
   constructors, and applies the array-like `ToLength` and mapper ordering rules.
@@ -1556,7 +1580,7 @@ Recent focused progress through `2026-07-27`:
   with every failure bucket and timeout count at zero (manifests
   `14485063322838869338` and `18238188842051720004`). Refresh either by
   replacing `<method>` with `from` or `of` in
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-<method>-current-pin`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/<method> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-<method>-current-pin`.
 - TypedArray integer-indexed `[[GetOwnProperty]]` now distinguishes canonical
   numeric index strings from ordinary string and symbol properties, suppresses
   invalid, detached, and out-of-bounds indices without walking the prototype
@@ -1568,7 +1592,7 @@ Recent focused progress through `2026-07-27`:
   `24/24` under Wasm-AOT as of `2026-07-20` at Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no dynamic-source
   exclusions. Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/GetOwnProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-get-own-property-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/GetOwnProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name typedarray-get-own-property-current-tree-20260720`.
 - TypedArray integer-indexed `[[Get]]` now routes canonical numeric strings
   through integer-index validation before any ordinary prototype lookup, so
   fractional, negative-zero, negative, infinity, detached, and out-of-bounds
@@ -1578,7 +1602,7 @@ Recent focused progress through `2026-07-27`:
   under Wasm-AOT as of `2026-07-21` at Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure bucket at zero
   (manifest `7640730389657240498`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Get --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-get-post-prototype-set-complete-28`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Get --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-get-post-prototype-set-complete-28`.
 - TypedArray integer-indexed `[[HasProperty]]` now handles live, detached,
   out-of-bounds, resizable, ordinary, symbol, and inherited Proxy paths without
   leaking canonical numeric keys into the prototype chain. Dynamic `with`
@@ -1590,7 +1614,7 @@ Recent focused progress through `2026-07-27`:
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with no dynamic-source
   exclusions and every failure bucket at zero (manifest
   `4378182180659179029`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/HasProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-has-property-final-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/HasProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-has-property-final-current-tree-20260720`.
 - TypedArray integer-indexed `[[DefineOwnProperty]]` now distinguishes canonical
   numeric indices from ordinary string and symbol properties, rejects invalid
   integer-index descriptors, and performs the required numeric or BigInt
@@ -1605,7 +1629,7 @@ Recent focused progress through `2026-07-27`:
   `7031645897862764810`). This includes numeric and BigInt views, NaN
   conversion consistency, detached and resizable buffers, cross-realm errors,
   accessor rejection, and ordinary non-index properties. Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/DefineOwnProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-define-own-property-final-current-tree-20260721`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/DefineOwnProperty --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-define-own-property-final-current-tree-20260721`.
 - TypedArray integer-indexed `[[Set]]` now classifies canonical numeric keys at
   the shared object-write boundary, preserves conversion ordering, implements
   altered-receiver `Reflect.set` and inherited TypedArray prototype behavior,
@@ -1624,7 +1648,7 @@ Recent focused progress through `2026-07-27`:
   detached-buffer, and value-exception semantics. All 53 roots are
   AOT-applicable and the directory contains no dynamic-source cases. Refresh it
   with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Set --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-set-complete-53-final`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Set --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-set-complete-53-final`.
 - `%TypedArray%.prototype.set` now copies array-like and TypedArray sources in
   observable order, snapshots typed sources for overlap safety, performs
   numeric or BigInt conversion, validates offsets and content types, handles
@@ -1633,7 +1657,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/TypedArray/prototype/set` directory reports `109/109` under
   Wasm-AOT as of `2026-07-21` at the same Test262 revision, with every failure
   bucket at zero (manifest `8330323270441760429`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/set --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-set-post-validation-109`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/set --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-set-post-validation-109`.
 - `%TypedArray%.prototype.toReversed` now validates the current view, captures
   the current fixed or tracking length, allocates the same intrinsic TypedArray
   kind without constructor or species lookup, reverse-copies numeric or BigInt
@@ -1642,14 +1666,14 @@ Recent focused progress through `2026-07-27`:
   every failure bucket at zero (manifest `12517032484477954620`). One invalid
   receiver root uses an equivalent materialization to avoid the separately
   tracked Object.entries/nested-arrow capture limitation. Refresh the leaf with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/toReversed --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-to-reversed-complete-9`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/toReversed --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-to-reversed-complete-9`.
 - `%TypedArray%.prototype.reverse` now validates and captures the current view
   length, swaps typed elements in place for every numeric and BigInt kind, and
   returns the original receiver. The complete pinned leaf reports `21/21`
   under Wasm-AOT as of `2026-07-21` at the same Test262 revision, including
   shared, detached, fixed, resizable, and length-tracking views, with every
   failure bucket at zero (manifest `3206610524287450104`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/reverse --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-reverse-complete-21`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/reverse --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-reverse-complete-21`.
 - `%TypedArray%.prototype.with` now applies `ToIntegerOrInfinity` relative-index
   normalization and replacement conversion in spec order, revalidates the view
   after user coercion can detach or resize it, allocates the same intrinsic kind
@@ -1657,7 +1681,7 @@ Recent focused progress through `2026-07-27`:
   pinned leaf reports `22/22` under Wasm-AOT as of `2026-07-21` at the same
   Test262 revision, with every failure bucket at zero (manifest
   `4222886790829078659`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/with --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-with-complete-22`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/with --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-with-complete-22`.
 - `%TypedArray%.prototype.toSorted` now makes a same-kind copy before sorting,
   ignores constructor/species and public length properties, applies stable
   numeric or BigInt default ordering with NaN and signed-zero rules, and invokes
@@ -1665,7 +1689,7 @@ Recent focused progress through `2026-07-27`:
   complete pinned leaf reports `12/12` under Wasm-AOT as of `2026-07-21` at the
   same Test262 revision, with every failure bucket at zero (manifest
   `13233608438829661408`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/toSorted --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-to-sorted-complete-12`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/toSorted --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-to-sorted-complete-12`.
 - `%TypedArray%.prototype.sort` reuses the stable comparison core, writes the
   ordered values back in place, returns the receiver, and stops after comparator
   coercion if user code detaches the target. The complete pinned leaf reports
@@ -1673,7 +1697,7 @@ Recent focused progress through `2026-07-27`:
   including numeric/BigInt defaults, custom comparators, shared and resizable
   views, with every failure bucket at zero (manifest
   `11175084542474034069`). Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArray/prototype/sort --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-sort-complete-35`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArray/prototype/sort --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-prototype-sort-complete-35`.
   Together, the seven pinned `TypedArrayConstructors/internals` directories now
   report `240/240` exact-green AOT-applicable roots with no dynamic-source
   exclusions.
@@ -1688,7 +1712,7 @@ Recent focused progress through `2026-07-27`:
   `16709326299855855162`). This includes numeric and BigInt ArrayBuffer,
   SharedArrayBuffer, detached, cross-realm, strict, and non-strict cases.
   Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Delete --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-delete-current-tree-20260720`.
+  `./target/release/lila --jobs 1 test262 run built-ins/TypedArrayConstructors/internals/Delete --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-name typedarray-delete-current-tree-20260720`.
 - The exact real Test262
   `Array.prototype.every`/`filter`/`some`/`values`/`keys`/`entries`
   `resizable-buffer-grow-mid-iteration.js` and
@@ -1715,7 +1739,7 @@ Recent focused progress through `2026-07-27`:
   writable, enumerable, and configurable flags. All 24 exact files report
   `1/1` passing as of `2026-06-19` under `--execution-backend wasm` with the
   `60000` ms timeout and one thread, for example
-  `./target/debug/porf test262 run built-ins/Array/prototype/every/length.js --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/every/length.js --execution-backend wasm --timeout-ms 60000 --threads 1`.
   The local `every`, `filter`, and `some` resizable typed-array fixtures now
   cover the descriptor metadata as well as the resize behavior.
 - Proxy-backed generic `Array.prototype.includes` calls preserve string
@@ -1727,13 +1751,13 @@ Recent focused progress through `2026-07-27`:
 - The full `built-ins/Array/prototype/includes` leaf now reports `30/30`
   passing as of `2026-06-18` under `--execution-backend wasm` with the `60000`
   ms timeout and four threads (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Array/prototype/includes --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Array/prototype/includes --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The `length`, `name`, and `prop-desc` descriptor cases now use direct
   `Object.getOwnPropertyDescriptor` materializations, and the helper-heavy
   resizable ArrayBuffer includes cases use self-contained Wasm-AOT sources that
   keep direct fixed-length, length-tracking, resize, `fromIndex`, and special
   float `SameValueZero` checks without invoking the dynamic subclass helper.
-  The local `crates/porffor-cli/tests/fixtures/wasm_array_includes_resizable_typedarray.js`
+  The local `crates/lila-cli/tests/fixtures/wasm_array_includes_resizable_typedarray.js`
   fixture also covers the descriptor metadata.
 - Annex B catch-parameter/`var` redeclaration now keeps the catch parameter
   binding distinct from the outer/global binding in Wasm-AOT, including closure
@@ -1803,10 +1827,10 @@ Recent focused progress through `2026-07-27`:
   `S15.1.1.3_A1.js` `eval("var x")` check uses a source-free static
   materialization of the known `undefined` var-declaration result while generic
   dynamic `eval` stays unsupported:
-  `./target/debug/porf test262 run built-ins/Infinity --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/NaN --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Infinity --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/NaN --execution-backend wasm --timeout-ms 60000 --threads 4`,
   and
-  `./target/debug/porf test262 run built-ins/undefined --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/undefined --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Exact pinned Wasm-AOT URI-codec runs report `encodeURI` at `31/31`,
   `encodeURIComponent` at `31/31`, `decodeURI` at `54/55`, and
   `decodeURIComponent` at `55/56` as of `2026-07-29`, for `171/173` combined.
@@ -1820,7 +1844,7 @@ Recent focused progress through `2026-07-27`:
   `uri-encodeuricomponent-current-20260729`,
   `uri-decodeuri-current-20260729`, and
   `uri-decodeuricomponent-current-20260729`. Refresh one with
-  `./target/debug/porf --jobs 1 test262 run built-ins/<codec> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name <snapshot>`.
+  `./target/debug/lila --jobs 1 test262 run built-ins/<codec> --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name <snapshot>`.
 - Number constructor constants and parse aliases now avoid the slow
   `propertyHelper.js` descriptor path while still checking direct descriptors,
   read-only/non-configurable behavior, and global alias identity. The exact
@@ -1830,13 +1854,13 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Number/parseInt` now report `3/3`, `3/3`, `4/4`, `4/4`, `2/2`,
   and `2/2` passing respectively as of `2026-06-18` under
   `--execution-backend wasm` with the `60000` ms timeout and four threads:
-  `./target/debug/porf test262 run built-ins/Number/MAX_VALUE --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/MIN_VALUE --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/POSITIVE_INFINITY --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/NEGATIVE_INFINITY --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/parseFloat --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/MAX_VALUE --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/MIN_VALUE --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/POSITIVE_INFINITY --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/NEGATIVE_INFINITY --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/parseFloat --execution-backend wasm --timeout-ms 60000 --threads 4`,
   and
-  `./target/debug/porf test262 run built-ins/Number/parseInt --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Number/parseInt --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Additional Number constructor metadata leaves now use direct descriptor
   materializations for wasm-AOT instead of timing out in `propertyHelper.js`.
   The exact real Test262 files `built-ins/Number/EPSILON.js`,
@@ -1847,18 +1871,18 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Number/prototype/constructor.js` now report `1/1` passing each as
   of `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads:
-  `./target/debug/porf test262 run built-ins/Number/EPSILON.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/MAX_SAFE_INTEGER.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/MIN_SAFE_INTEGER.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/NaN.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/prop-desc.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/prototype/prop-desc.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/EPSILON.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/MAX_SAFE_INTEGER.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/MIN_SAFE_INTEGER.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/NaN.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/prop-desc.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/prototype/prop-desc.js --execution-backend wasm --timeout-ms 60000 --threads 4`,
   and
-  `./target/debug/porf test262 run built-ins/Number/prototype/constructor.js --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Number/prototype/constructor.js --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `Number.prototype.valueOf` now reports `11/11` passing as of `2026-06-18`
   under `--execution-backend wasm` with the `60000` ms timeout and four
   threads:
-  `./target/debug/porf test262 run built-ins/Number/prototype/valueOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Number/prototype/valueOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The `length`, `name`, and `prop-desc` metadata files now use direct
   descriptor materializations for wasm-AOT instead of timing out in
   `propertyHelper.js`, while the existing primitive and boxed-number receiver
@@ -1866,7 +1890,7 @@ Recent focused progress through `2026-07-27`:
 - `Number.prototype.toLocaleString` now reports `4/4` passing as of
   `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads:
-  `./target/debug/porf test262 run built-ins/Number/prototype/toLocaleString --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Number/prototype/toLocaleString --execution-backend wasm --timeout-ms 60000 --threads 4`.
   Its `length`, `name`, and `prop-desc` metadata files share the same direct
   descriptor materialization path as `Number.prototype.valueOf`, avoiding the
   slow `propertyHelper.js` route while preserving the direct descriptor flag
@@ -1875,11 +1899,11 @@ Recent focused progress through `2026-07-27`:
   `Number.prototype.toPrecision`, and `Number.prototype.toString` now report
   `16/16`, `15/15`, `17/17`, and `90/90` passing respectively as of
   `2026-06-18` under `--execution-backend wasm`:
-  `./target/debug/porf test262 run built-ins/Number/prototype/toFixed --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/prototype/toExponential --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/prototype/toPrecision --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/prototype/toFixed --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/prototype/toExponential --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/prototype/toPrecision --execution-backend wasm --timeout-ms 60000 --threads 4`,
   and
-  `./target/debug/porf test262 run built-ins/Number/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 12`.
+  `./target/debug/lila test262 run built-ins/Number/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 12`.
   Their `length`, `name`, and `prop-desc` metadata files now use the shared
   direct descriptor materialization path. The larger `Number.prototype.toString`
   leaf needs the wider per-file timeout in the command above because the
@@ -1889,7 +1913,7 @@ Recent focused progress through `2026-07-27`:
 - The full `built-ins/Number/prototype` shard now reports `168/168` passing as
   of `2026-06-19` under `--execution-backend wasm` with the `120000` ms timeout
   and twelve threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/Number/prototype --execution-backend wasm --timeout-ms 120000 --threads 12`.
+  `./target/debug/lila test262 run built-ins/Number/prototype --execution-backend wasm --timeout-ms 120000 --threads 12`.
   This aggregates the top-level Number prototype descriptor/value files plus
   the `valueOf`, `toLocaleString`, `toFixed`, `toExponential`, `toPrecision`,
   and `toString` method subleaves.
@@ -1901,14 +1925,14 @@ Recent focused progress through `2026-07-27`:
   zero-argument cross-realm `new other.Function()` and is no longer replaced
   by a Proxy newTarget. Refresh Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
-  `./target/release/porf --jobs 1 test262 run built-ins/Number --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name number-current-pin-final-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Number --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name number-current-pin-final-20260722`.
   Wasm-AOT still exposes `Number` from synthetic realms, carries a realm-local
   `%Number.prototype%` slot for boxed primitive construction, and observes
   source-free custom `newTarget.prototype` behavior in `Reflect.construct`.
 - The full `built-ins/Boolean` shard now reports `51/51` passing as of
   `2026-06-19` under `--execution-backend wasm` with the `120000` ms timeout
   and twelve threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/Boolean --execution-backend wasm --timeout-ms 120000 --threads 12`.
+  `./target/debug/lila test262 run built-ins/Boolean --execution-backend wasm --timeout-ms 120000 --threads 12`.
   Boolean constructor and prototype method descriptor files now use static
   Wasm-AOT materializations for `prop-desc`, `length`, and `name` assertions.
   The exact `built-ins/Boolean/proto-from-ctor-realm.js` file is covered by a
@@ -1923,11 +1947,11 @@ Recent focused progress through `2026-07-27`:
   report `8/8`, `9/9`, `7/7`, and `10/10` passing respectively as of
   `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads (`0` unsupported, `0` runtime failures) with:
-  `./target/debug/porf test262 run built-ins/Number/isFinite --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/isInteger --execution-backend wasm --timeout-ms 60000 --threads 4`,
-  `./target/debug/porf test262 run built-ins/Number/isNaN --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/isFinite --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/isInteger --execution-backend wasm --timeout-ms 60000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Number/isNaN --execution-backend wasm --timeout-ms 60000 --threads 4`,
   and
-  `./target/debug/porf test262 run built-ins/Number/isSafeInteger --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Number/isSafeInteger --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The IR literal folder now avoids folding potentially numeric runtime/global
   arguments such as global `NaN` to `false`, so stored results like
   `let actual = Number.isNaN(NaN)` preserve the builtin call result. The
@@ -1939,7 +1963,7 @@ Recent focused progress through `2026-07-27`:
   direct `Object.getOwnPropertyDescriptor(Error, "isError")` value, writable,
   enumerable, and configurable assertions without timing out in the generic
   helper. Other-realm Error object recognition now emits the standard Error
-  family constructor bodies when `__porfCreateRealm()` is used, so
+  family constructor bodies when `__lilaCreateRealm()` is used, so
   `Error.isError(new other.EvalError())` and the sibling Error constructors do
   not hit deferred-builtin stubs. The full `built-ins/Error/isError` subleaf
   now reports `11/12` passing as of `2026-06-15` under
@@ -1995,7 +2019,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Error/prototype` leaf now reports `30/30` passing as of
   `2026-06-15` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Error/prototype --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Error/prototype --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - The full current-pin `built-ins/Error` leaf reports `56/58` passing as of
   `2026-07-22`; all `56/56` AOT-applicable roots pass, with zero parser,
   early-error, lowering, runtime, Wasm-backend, host-harness, crash, or bug
@@ -2004,7 +2028,7 @@ Recent focused progress through `2026-07-27`:
   `new other.Function("")`, and `built-ins/Error/proto-from-ctor-realm.js`,
   which calls `new other.Function()`. Refresh Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
-  `./target/release/porf --jobs 1 test262 run built-ins/Error --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 120000 --threads 1 --snapshot-name error-current-pin-final-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/Error --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 120000 --threads 1 --snapshot-name error-current-pin-final-20260722`.
   Error construction still derives its default prototype from `newTarget` for
   source-free constructor shapes; Function-constructor source generation is
   tracked as outside the Wasm-AOT product path rather than replaced by a
@@ -2018,7 +2042,7 @@ Recent focused progress through `2026-07-27`:
   `proto-from-ctor-realm.js` exclusion because it executes
   `new other.Function()`. Refresh Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
-  `./target/release/porf --jobs 1 test262 run built-ins/NativeErrors --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name nativeerrors-current-pin-final-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/NativeErrors --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name nativeerrors-current-pin-final-20260722`.
   The `length`, `name`, global descriptor, constructor `prototype`, and
   prototype `constructor`/`message`/`name` roots retain direct descriptor
   assertions without the slow generic `propertyHelper.js` path. Cross-realm
@@ -2041,7 +2065,7 @@ Recent focused progress through `2026-07-27`:
   `new other.Function(...)`; it is no longer replaced by a static local
   function. Refresh Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b` with
-  `./target/release/porf --jobs 1 test262 run built-ins/ThrowTypeError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name throwtypeerror-current-pin-final-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/ThrowTypeError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name throwtypeerror-current-pin-final-20260722`.
 - Array index descriptors defined through `Object.defineProperty` recognize
   general canonical decimal index keys, so sparse accessor indexes such as
   `"10"` update array length and are visited by Array iteration methods.
@@ -2049,7 +2073,7 @@ Recent focused progress through `2026-07-27`:
   validate as Wasm-AOT modules after the numeric-index string-key fallback
   stopped emitting unmatched structured-control `end` operators. The focused
   Rust AOT library suite now includes this regression and reports `30/30`
-  passing as of `2026-06-18` with `cargo test -p porffor-aot-wasm --lib`.
+  passing as of `2026-06-18` with `cargo test -p lila-aot-wasm --lib`.
 - `Object.preventExtensions` now blocks missing-property writes on
   non-extensible ordinary objects, arrays, functions, and Error objects in
   Wasm-AOT, including strict-mode TypeErrors for new string and symbol
@@ -2064,7 +2088,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Object/preventExtensions` leaf now reports `40/40` passing as of
   `2026-06-04` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Object/preventExtensions --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Object/preventExtensions --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `ArrayBuffer.isView` now clears its real Test262 leaf under Wasm-AOT. The
   harness materializer expands the typed-array constructor helper into static
   per-constructor assertions for the `isView` cases, preserving the same direct
@@ -2073,7 +2097,7 @@ Recent focused progress through `2026-07-27`:
   slow generic helper path. The full `built-ins/ArrayBuffer/isView` leaf reports
   `17/17` passing as of `2026-06-04` under `--execution-backend wasm` with the
   `60000` ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/ArrayBuffer/isView --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/ArrayBuffer/isView --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `ArrayBuffer.prototype` accessor metadata and wrong-receiver checks for
   `byteLength`, `detached`, `maxByteLength`, and `resizable` now avoid the slow
   generic `propertyHelper.js`/`assert.throws` path while still executing
@@ -2106,7 +2130,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/ArrayBuffer/proto-from-ctor-realm.js`, which executes
   zero-argument cross-realm `new other.Function()` dynamic code generation.
   Refresh Test262 revision `aa55200d1310384c5cf69ea95b2a2ecba457007b`
-  with `./target/release/porf --jobs 1 test262 run built-ins/ArrayBuffer --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name arraybuffer-current-pin-authoritative-20260722`.
+  with `./target/release/lila --jobs 1 test262 run built-ins/ArrayBuffer --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name arraybuffer-current-pin-authoritative-20260722`.
 - The complete current-pin `built-ins/SharedArrayBuffer` tree reports `103/104`
   under Wasm-AOT as of `2026-07-22`; all `103/103` AOT-applicable roots pass,
   with zero parser, early-error, lowering, runtime, Wasm-backend, host-harness,
@@ -2120,7 +2144,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/SharedArrayBuffer/proto-from-ctor-realm.js`, which executes
   zero-argument cross-realm `new other.Function()` dynamic code generation.
   Refresh Test262 revision `aa55200d1310384c5cf69ea95b2a2ecba457007b`
-  with `./target/release/porf --jobs 1 test262 run built-ins/SharedArrayBuffer --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name sharedarraybuffer-current-pin-authoritative-20260722`.
+  with `./target/release/lila --jobs 1 test262 run built-ins/SharedArrayBuffer --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name sharedarraybuffer-current-pin-authoritative-20260722`.
 - `DataView` constructor lowering now reads the optional `byteLength` from the
   third constructor argument, so fixed-length views preserve explicit
   `[[ByteLength]]` instead of defaulting to the remaining buffer length. A
@@ -2140,7 +2164,7 @@ Recent focused progress through `2026-07-27`:
   `RangeError` before detached-buffer validation, while buffer validation and
   the current RAB/GSAB view length are checked after observable offset
   coercion. Refresh those leaves with
-  `./target/release/porf --jobs 1 test262 run built-ins/DataView/prototype/getInt8 --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-getint8-current-pin-authoritative-20260722`
+  `./target/release/lila --jobs 1 test262 run built-ins/DataView/prototype/getInt8 --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-getint8-current-pin-authoritative-20260722`
   and the corresponding `getUint8` path/name. The focused `setInt8` and
   `setUint8` leaves report `22/22` each, and the 8-bit `length`/`name`
   descriptor checks are materialized without timing out in the generic helper
@@ -2153,7 +2177,7 @@ Recent focused progress through `2026-07-27`:
   Float32/Float64 setters without using the slow generic
   `assert.throws`/helper loops. The detached and resizable rewrites still call
   the real Wasm-AOT `DataView` methods after direct
-  `__porfDetachArrayBuffer` or `ArrayBuffer.prototype.resize` setup. The
+  `__lilaDetachArrayBuffer` or `ArrayBuffer.prototype.resize` setup. The
   exact 16-bit getter leaves `built-ins/DataView/prototype/getInt16` and
   `getUint16` each report `18/18` passing as of `2026-07-22` under the same
   one-thread Wasm-AOT settings, with the same shared ToIndex and post-coercion
@@ -2205,17 +2229,17 @@ Recent focused progress through `2026-07-27`:
   use the spec-shaped bound-function `prototype` accessor instead of failing
   before construction; the exact `built-ins/DataView/custom-proto` filter now
   reports `11/11` as of `2026-06-23` under
-  `./target/debug/porf test262 run built-ins/DataView/custom-proto --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/DataView/custom-proto --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and `built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js`
   reports `1/1` under
-  `./target/debug/porf test262 run built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/DataView/byteOffset-validated-against-initial-buffer-length.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
   The exact non-recursive `built-ins/DataView` matrix node now reports `60/62`
   overall and `60/60` applicable passing as of `2026-07-22`, with no parser,
   early-error, lowering, runtime, Wasm-backend, host-harness, crash, or bug
   failures. Its only two unsupported roots are `proto-from-ctor-realm.js` and
   `proto-from-ctor-realm-sab.js`, which execute zero-argument cross-realm
   `new other.Function()` dynamic source generation. Refresh this cohort with
-  `./target/release/porf --jobs 1 test262 run --matrix-node built-ins/DataView --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-direct-current-pin-authoritative-20260722`.
+  `./target/release/lila --jobs 1 test262 run --matrix-node built-ins/DataView --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000 --snapshot-name dataview-direct-current-pin-authoritative-20260722`.
 - Generic function-to-string conversion in Wasm-AOT now reads the stored
   function/native source payload, so `"" + fn` agrees with
   `Function.prototype.toString.call(fn)` for builtin constructors, builtin
@@ -2241,7 +2265,7 @@ Recent focused progress through `2026-07-27`:
   method/getter/setter keys now lower to Wasm-AOT object entries with computed
   property-key conversion, covering the `getter-object.js`/`setter-object.js`
   computed-key cases and the local
-  `crates/porffor-cli/tests/fixtures/wasm_computed_object_methods.js` fixture.
+  `crates/lila-cli/tests/fixtures/wasm_computed_object_methods.js` fixture.
   Computed object method names also scan nested method definitions inside key
   expressions and allow function values through `ToPropertyKey`, so
   `method-computed-property-name.js` now reports `1/1` passing.
@@ -2256,7 +2280,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Function/prototype/toString/S15.3.4.2_A`; the current live run
   reports `9/9` passing as of `2026-06-18` under `--execution-backend wasm`
   with the `60000` ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Function/prototype/toString/S15.3.4.2_A --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Function/prototype/toString/S15.3.4.2_A --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `S15.3.4.2_A10.js` now preserves the read-only `length` write probe and
   validates through Wasm-AOT after the generic object-write array-index fast
   path stopped emitting a stale multi-level branch in every module.
@@ -2279,7 +2303,7 @@ Recent focused progress through `2026-07-27`:
   roots invoke the AsyncFunction/Function constructor or cross-realm `eval` and
   are explicit dynamic-source exclusions (manifest `5038154139032950733`).
   Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/AsyncFunction --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncfunction-current-pin-fixed-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/AsyncFunction --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name asyncfunction-current-pin-fixed-20260722`.
   Runtime-computed public class method/getter/setter keys now lower through the
   class IR and are installed on the prototype or constructor under the evaluated
   property key. The exact real Test262 Function.toString class method/accessor
@@ -2290,8 +2314,8 @@ Recent focused progress through `2026-07-27`:
   `getter-class-statement-static.js`, `setter-class-statement-static.js`,
   `method-class-expression-static.js`, `getter-class-expression-static.js`,
   and `setter-class-expression-static.js`. This is also covered by the local
-  `crates/porffor-cli/tests/fixtures/wasm_computed_class_methods.js` fixture.
-  The local `crates/porffor-cli/tests/fixtures/wasm_function_tostring.js`
+  `crates/lila-cli/tests/fixtures/wasm_computed_class_methods.js` fixture.
+  The local `crates/lila-cli/tests/fixtures/wasm_function_tostring.js`
   fixture also now covers `"" + Array`, `"" + Function.prototype.call`, and a
   bound function, plus callable Proxy native-source conversion. This is focused
   native-function source progress. The full
@@ -2299,7 +2323,7 @@ Recent focused progress through `2026-07-27`:
   passing as of `2026-06-05` under `--execution-backend wasm` with the `60000`
   ms timeout (`26` explicit unsupported dynamic/async/generator source cases,
   `0` runtime failures in that snapshot) with
-  `./target/debug/porf test262 run built-ins/Function/prototype/toString --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Function/prototype/toString --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Callable Proxy objects now participate in Wasm-AOT `[[Call]]` dispatch for
   direct calls, `Function.prototype.call`, and `Reflect.apply`, including
   nullish `apply` trap fallback through nested proxy targets. `Reflect.apply`
@@ -2360,14 +2384,14 @@ Recent focused progress through `2026-07-27`:
   `13/13` as of `2026-07-20`, covering eight parse-negative reserved-word
   roots plus staged return-call arguments, array spread, object spread,
   symbol-key copying, and overwrite order. Refresh it with
-  `./target/release/porf test262 run language/expressions/generators/named-yield --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-named-yield-complete-20260720`.
+  `./target/release/lila test262 run language/expressions/generators/named-yield --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-named-yield-complete-20260720`.
   The corresponding unnamed `yield` identifier checkpoint reports `10/10` as
   of `2026-07-20`: eight parse-negative reserved-word roots plus staged
   return-call arguments and object-spread symbol/overwrite ordering. Refresh
   its ten exact `yield-as-{binding-identifier,identifier-reference,label-identifier}`
   escaped/plain and `yield-identifier-{non-strict,strict,spread-non-strict,spread-strict}`
   paths individually with
-  `./target/release/porf test262 run language/expressions/generators/<path>.js --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-unnamed-yield-<path>-20260720`.
+  `./target/release/lila test262 run language/expressions/generators/<path>.js --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-unnamed-yield-<path>-20260720`.
   A second contextual `yield` checkpoint reports `10/10` as of `2026-07-20`:
   four parse-negative precedence/binding roots and six runtime roots covering
   nested ordinary-function contexts, property names, bare/valued suspension,
@@ -2381,7 +2405,7 @@ Recent focused progress through `2026-07-27`:
   of `2026-07-20`: generator functions expose no forbidden own `arguments` or
   `caller` properties, and ordinary functions take the permitted path that
   omits the optional legacy own `caller` extension. Refresh it with
-  `./target/release/porf test262 run language/expressions/generators/forbidden-ext --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-forbidden-ext-complete-20260720`.
+  `./target/release/lila test262 run language/expressions/generators/forbidden-ext --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-forbidden-ext-complete-20260720`.
   The final nine-root AOT closure checkpoint reports `9/9` as of `2026-07-20`:
   two parse-negative roots and seven runtime roots covering class-static-block
   `await` context boundaries, strict non-simple parameters, yield line
@@ -2506,13 +2530,13 @@ Recent focused progress through `2026-07-27`:
   dynamic-code exclusions. This is complete exact coverage of every
   AOT-applicable root in this directory; none are inferred green from their
   generator-expression counterparts. Refresh one
-  exact root at a time with `./target/release/porf test262 run language/statements/generators/<exact-file>.js --execution-backend wasm-aot --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-stmt-exact-<exact-file>-20260721`.
+  exact root at a time with `./target/release/lila test262 run language/statements/generators/<exact-file>.js --execution-backend wasm-aot --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-stmt-exact-<exact-file>-20260721`.
   Callable Proxy fallback
   through `Reflect.apply` and `Array.from` remains covered. The full
   `built-ins/Proxy/apply` leaf now reports `14/14` passing as of `2026-06-18`
   under `--execution-backend wasm` with the `120000` ms timeout (`0` explicit
   unsupported cases, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/apply --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/apply --execution-backend wasm --timeout-ms 120000 --threads 4`.
   The cross-realm `null-handler-realm.js` and
   `trap-is-not-callable-realm.js` cases use self-contained Wasm-AOT
   materializations that preserve the other-realm `Proxy` constructor setup and
@@ -2534,9 +2558,9 @@ Recent focused progress through `2026-07-27`:
   The exact `built-ins/Reflect/set/*.js` Test262 files were checked as of
   `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout and
   now have `18/18` passing. Refresh individual files with
-  `./target/debug/porf test262 run built-ins/Reflect/set/<file>.js --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/Reflect/set/<file>.js --execution-backend wasm --timeout-ms 60000 --threads 1`.
   This is also covered by the local
-  `crates/porffor-cli/tests/fixtures/wasm_reflect_set_core.js` fixture.
+  `crates/lila-cli/tests/fixtures/wasm_reflect_set_core.js` fixture.
 - Proxy `[[Set]]` fallback follow-up on `2026-06-18` now keeps missing,
   `undefined`, and `null` `set` traps aligned with target `[[Set]]` for nested
   proxy targets, prototype-proxy receivers, and integer-index array holes. The
@@ -2549,7 +2573,7 @@ Recent focused progress through `2026-07-27`:
   rejects read-only RegExp flag writes while keeping `lastIndex` writable, and
   passes function-proxy `prototype`, `length`, and strict `name` assignment
   checks. The current real Test262
-  `./target/debug/porf test262 run built-ins/Proxy/set --execution-backend wasm --timeout-ms 120000 --threads 4`
+  `./target/debug/lila test262 run built-ins/Proxy/set --execution-backend wasm --timeout-ms 120000 --threads 4`
   selection now reports `44/44` passing as of `2026-06-18`. Exact real Test262
   files
   `built-ins/Proxy/set/call-parameters-prototype.js`,
@@ -2563,73 +2587,73 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/set/trap-is-undefined-target-is-proxy.js` each report `1/1`
   passing as of `2026-06-18` under `--execution-backend wasm` with the
   `120000` ms timeout and one thread, for example
-  `./target/debug/porf test262 run built-ins/Proxy/set/trap-is-missing-target-is-proxy.js --execution-backend wasm --timeout-ms 120000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/Proxy/set/trap-is-missing-target-is-proxy.js --execution-backend wasm --timeout-ms 120000 --threads 1`.
 - Proxy `getOwnPropertyDescriptor` trap coverage is green for the current
   Wasm-AOT descriptor path: the real Test262
   `built-ins/Proxy/getOwnPropertyDescriptor` leaf reports `21/21` passing as
   of `2026-06-18` under `--execution-backend wasm` with the `120000` ms timeout
   and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `deleteProperty` trap coverage is green for the current Wasm-AOT
   delete invariant path: the real Test262 `built-ins/Proxy/deleteProperty` leaf
   reports `17/17` passing as of `2026-06-18` under `--execution-backend wasm`
   with the `120000` ms timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/deleteProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/deleteProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `has` trap coverage is green for the current Wasm-AOT invariant path:
   the real Test262 `built-ins/Proxy/has` leaf reports `26/26` passing as of
   `2026-06-18` under `--execution-backend wasm` with the `120000` ms timeout
   and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/has --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `preventExtensions` trap coverage is green for the current Wasm-AOT
   invariant path: the real Test262 `built-ins/Proxy/preventExtensions` leaf
   reports `12/12` passing as of `2026-06-18` under `--execution-backend wasm`
   with the `120000` ms timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/preventExtensions --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/preventExtensions --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `isExtensible` trap coverage is green for the current Wasm-AOT
   invariant path: the real Test262 `built-ins/Proxy/isExtensible` leaf reports
   `12/12` passing as of `2026-06-18` under `--execution-backend wasm` with the
   `120000` ms timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/isExtensible --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `getPrototypeOf` trap coverage is green for the current Wasm-AOT
   prototype invariant path: the real Test262
   `built-ins/Proxy/getPrototypeOf` leaf reports `19/19` passing as of
   `2026-06-18` under `--execution-backend wasm` with the `120000` ms timeout
   and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `ownKeys` trap coverage is green for the current Wasm-AOT key-list
   invariant path: the real Test262 `built-ins/Proxy/ownKeys` leaf reports
   `27/27` passing as of `2026-06-18` under `--execution-backend wasm` with the
   `120000` ms timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/ownKeys --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/ownKeys --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `defineProperty` trap coverage is green for the current Wasm-AOT
   descriptor compatibility path: the real Test262
   `built-ins/Proxy/defineProperty` leaf reports `24/24` passing as of
   `2026-06-23` under `--execution-backend wasm` with the `120000` ms timeout
   and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `get` trap exact files are green for the current Wasm-AOT get
   invariant path: all `19` real Test262 files under `built-ins/Proxy/get`
   report `1/1` passing individually as of `2026-06-18` under
   `--execution-backend wasm` with the `120000` ms timeout and one thread, for
   example
-  `./target/debug/porf test262 run built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js --execution-backend wasm --timeout-ms 120000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js --execution-backend wasm --timeout-ms 120000 --threads 1`.
   The directory aggregate was not recorded in this pass because it exceeded the
   `600000` ms wrapper timeout despite the exact files passing.
 - Proxy `apply` trap coverage is green for the current Wasm-AOT callable proxy
   path: the real Test262 `built-ins/Proxy/apply` leaf reports `14/14` passing
   as of `2026-06-18` under `--execution-backend wasm` with the `120000` ms
   timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/apply --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/apply --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `construct` trap coverage is green for the current Wasm-AOT
   constructible proxy path: the real Test262 `built-ins/Proxy/construct` leaf
   reports `30/30` passing as of `2026-06-18` under `--execution-backend wasm`
   with the `120000` ms timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/construct --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/construct --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Proxy `revocable` coverage is green for the current Wasm-AOT path: the real
   Test262 `built-ins/Proxy/revocable` leaf reports `18/18` passing as of
   `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout
   and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/revocable --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/revocable --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The static materializations still execute real `Proxy.revocable` calls while
   keeping helper-heavy descriptor checks self-contained; Wasm-AOT now preserves
   revocation function `length`/`name` descriptors and property order, revoked
@@ -2642,9 +2666,9 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/create-target-not-object-throw` each report `6/6` passing
   as of `2026-06-18` under `--execution-backend wasm` with the `120000` ms
   timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Proxy/create-handler-not-object-throw --execution-backend wasm --timeout-ms 120000 --threads 4`
+  `./target/debug/lila test262 run built-ins/Proxy/create-handler-not-object-throw --execution-backend wasm --timeout-ms 120000 --threads 4`
   and
-  `./target/debug/porf test262 run built-ins/Proxy/create-target-not-object-throw --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/create-target-not-object-throw --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - ProxyCreate callable/constructible target-shape coverage now also includes
   object targets that must not become callable, callable `eval` proxies that
   must not become constructible, and revoked function proxies that must still
@@ -2666,17 +2690,17 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Reflect/getOwnPropertyDescriptor` leaf now reports `13/13`
   passing as of `2026-06-18` under `--execution-backend wasm` with the
   `120000` ms timeout and four threads with
-  `./target/debug/porf test262 run built-ins/Reflect/getOwnPropertyDescriptor --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Reflect/getOwnPropertyDescriptor --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - `Reflect.setPrototypeOf` metadata cases now use self-contained Wasm-AOT
   materializations for the `setPrototypeOf`, `length`, and `name` descriptor
   files instead of the slow generic `propertyHelper.js` path. The exact
   `built-ins/Reflect/setPrototypeOf` leaf now reports `14/14` passing as of
   `2026-06-18` under `--execution-backend wasm` with the `60000` ms timeout and
   four threads (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Reflect/setPrototypeOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Reflect/setPrototypeOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The broader `built-ins/Reflect/set` prefix, which also matches
   `setPrototypeOf`, now reports `32/32` passing under the same settings.
-  The local `crates/porffor-cli/tests/fixtures/wasm_proxy_set_prototype_of.js`
+  The local `crates/lila-cli/tests/fixtures/wasm_proxy_set_prototype_of.js`
   fixture also covers the `Reflect.setPrototypeOf` descriptor metadata.
 - Constructable Proxy objects now participate in Wasm-AOT `[[Construct]]`
   dispatch for direct `new` and `Reflect.construct`, including nullish
@@ -2690,7 +2714,7 @@ Recent focused progress through `2026-07-27`:
   passing as of `2026-06-18` under `--execution-backend wasm` with the
   `120000` ms timeout (`0` explicit unsupported cases, `0` runtime failures)
   with
-  `./target/debug/porf test262 run built-ins/Proxy/construct --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/construct --execution-backend wasm --timeout-ms 120000 --threads 4`.
   Focused follow-up on `2026-06-18` made
   `trap-is-undefined-proto-from-cross-realm-newtarget.js` pass with a static
   Wasm-AOT materialization that preserves cross-realm `newTarget.prototype`
@@ -2717,7 +2741,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/get/trap-is-undefined-receiver.js`, and
   `built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js` as of
   `2026-06-05` with
-  `./target/debug/porf test262 run <file> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <file> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   This is focused `[[Get]]` progress, not a claim that every Proxy internal
   method is green.
 - Proxy `[[GetPrototypeOf]]` now routes `Object.getPrototypeOf` and
@@ -2730,7 +2754,7 @@ Recent focused progress through `2026-07-27`:
   The full real Test262 `built-ins/Proxy/getPrototypeOf` leaf now reports
   `19/19` passing as of `2026-06-05` under `--execution-backend wasm` with the
   `60000` ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[SetPrototypeOf]]` now routes `Object.setPrototypeOf` and
   `Reflect.setPrototypeOf` through a shared proxy-aware internal method. The
   Wasm-AOT path calls `setPrototypeOf` traps with the handler as `this` and
@@ -2743,7 +2767,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/setPrototypeOf` leaf now reports `17/17` passing as of
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/setPrototypeOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/setPrototypeOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[Delete]]` now routes `delete` and `Reflect.deleteProperty` through
   the shared proxy-aware delete path. The Wasm-AOT path calls `deleteProperty`
   traps with the handler as `this` and target/key arguments, applies
@@ -2756,7 +2780,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/deleteProperty` leaf now reports `17/17` passing as of
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/deleteProperty --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/deleteProperty --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[HasProperty]]` now preserves the original Symbol/String property-key
   tag through `Reflect.has`, `in`, nested proxy fallback, and proxy trap calls
   instead of reconstructing fresh `Symbol()` keys from payload names. Nested
@@ -2765,7 +2789,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/has` leaf now reports `26/26` passing as of `2026-06-05`
   under `--execution-backend wasm` with the `60000` ms timeout (`0`
   unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/has --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[IsExtensible]]` now calls the `isExtensible` trap with the handler
   as `this` and target as the sole argument, applies `ToBoolean` to trap
   results, enforces the target-result invariant, forwards missing/nullish traps
@@ -2774,7 +2798,7 @@ Recent focused progress through `2026-07-27`:
   The full real Test262 `built-ins/Proxy/isExtensible` leaf now reports
   `12/12` passing as of `2026-06-05` under `--execution-backend wasm` with the
   `60000` ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/isExtensible --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[PreventExtensions]]` now routes `Object.preventExtensions` and
   `Reflect.preventExtensions` through a shared proxy-aware internal method. The
   Wasm-AOT path calls `preventExtensions` traps with the handler as `this` and
@@ -2791,7 +2815,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/preventExtensions` leaf now reports `12/12` passing as of
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/preventExtensions --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/preventExtensions --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[DefineOwnProperty]]` has focused Reflect/Object progress in
   Wasm-AOT. `Reflect.defineProperty` is now installed on the Reflect object,
   returns Boolean results, and preserves the spec difference where a false
@@ -2831,7 +2855,7 @@ Recent focused progress through `2026-07-27`:
   full real Test262 `built-ins/Proxy/defineProperty` leaf now reports `24/24`
   passing as of `2026-06-23` under `--execution-backend wasm` with the `120000`
   ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/defineProperty --execution-backend wasm --timeout-ms 120000 --threads 4`.
   The helper-heavy undefined/null-trap and
   direct-target-definition exact files use focused Wasm-AOT materializations
   that preserve real `Reflect.defineProperty`/`Object.defineProperty` and
@@ -2847,7 +2871,7 @@ Recent focused progress through `2026-07-27`:
   property-read coverage. The full leaf now reports `21/21` passing as of
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - Proxy `[[OwnPropertyKeys]]` now clears the full real Test262
   `built-ins/Proxy/ownKeys` leaf under Wasm-AOT. `Object.keys(proxy)` calls the
   `ownKeys` trap with the handler as `this`, passes the target as the sole
@@ -2882,7 +2906,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Proxy/ownKeys` leaf now reports `27/27` passing as of
   `2026-06-15` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/Proxy/ownKeys --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Proxy/ownKeys --execution-backend wasm --timeout-ms 60000 --threads 4`.
   The pinned real Test262 `built-ins/Object/getOwnPropertySymbols` and
   `built-ins/Reflect/ownKeys` leaves report `12/12` and `13/13` passing
   respectively as of `2026-07-29`, with every failure category at zero.
@@ -2954,7 +2978,7 @@ Recent focused progress through `2026-07-27`:
   early-error, lowering, runtime, Wasm-backend, host-harness, bug, and crash
   counts are all zero in snapshot `object-seal-final-current-20260729`.
   Refresh these snapshots with
-  `./target/debug/porf --jobs 1 test262 run built-ins/Object/getOwnPropertyNames --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 120000 --snapshot-name object-get-own-property-names-final-current-20260729`,
+  `./target/debug/lila --jobs 1 test262 run built-ins/Object/getOwnPropertyNames --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 120000 --snapshot-name object-get-own-property-names-final-current-20260729`,
   the same command with `built-ins/Object/getOwnPropertySymbols` and snapshot
   `object-get-own-property-symbols-20260729`, or the same command with
   `built-ins/Reflect/ownKeys` and snapshot `reflect-own-keys-20260729`.
@@ -2998,33 +3022,33 @@ Recent focused progress through `2026-07-27`:
   `RegExp.escape` exposure. The full `built-ins/RegExp/escape` leaf now reports
   `20/20` passing as of `2026-06-04` under `--execution-backend wasm` with the
   `60000` ms timeout (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/RegExp/escape --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/escape --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `RegExp[Symbol.species]` is now installed as a configurable non-enumerable
   accessor on the RegExp constructor and returns the receiver when called. The
   full `built-ins/RegExp/Symbol.species` leaf now reports `4/4` passing as of
   `2026-06-05` under `--execution-backend wasm` with the `60000` ms timeout
   (`0` unsupported, `0` runtime failures) with
-  `./target/debug/porf test262 run built-ins/RegExp/Symbol.species --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/Symbol.species --execution-backend wasm --timeout-ms 60000 --threads 4`.
 - `String.prototype.concat` is now a real generic Wasm-AOT standard builtin:
   it applies `ToString` to the receiver and every argument in order, supports
   arbitrary argument counts, and preserves defining-realm TypeErrors for
   nullish receivers. The full real Test262 leaf reports `22/22` passing as of
   `2026-07-15` with
-  `./target/debug/porf test262 run built-ins/String/prototype/concat --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/concat --execution-backend wasm --timeout-ms 180000 --threads 4`.
 - `String.prototype.substring` now treats an explicitly supplied `undefined`
   end argument as the string length and routes coercion through the standard
   builtin when an enclosing JavaScript `catch` must observe an abrupt
   completion. The full real Test262 leaf reports `45/46` passing as of
   `2026-07-15`; the sole remaining case uses the excluded dynamic `Function`
   constructor, so the AOT-applicable subset is `45/45`. Refresh with
-  `./target/debug/porf test262 run built-ins/String/prototype/substring --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/substring --execution-backend wasm --timeout-ms 120000 --threads 4`.
 - Cross-realm `String.prototype.toString` and `valueOf` conformance rewrites now
   require the defining realm's `TypeError`, matching the original Test262
   assertions. Primitive-string concat also routes through the real concat
   builtin so argument `ToString` failures remain catchable. The full real
   Test262 `toString` and `valueOf` leaves each report `7/7` passing as of
   `2026-07-15`; refresh with
-  `./target/debug/porf test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 4`
+  `./target/debug/lila test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 120000 --threads 4`
   and the corresponding `valueOf` path.
 - Boxed String receivers now keep `String.prototype.split` in the boxed
   prototype metadata used by lowering, so `new String(" ").split("")` and
@@ -3071,7 +3095,7 @@ Recent focused progress through `2026-07-27`:
   Wasm-AOT. The exact real Test262
   `built-ins/String/prototype/split/transferred-to-number-separator-override-tostring-returns-regexp.js`
   case reports `1/1` passing as of `2026-06-04` under
-  `./target/debug/porf test262 run built-ins/String/prototype/split/transferred-to-number-separator-override-tostring-returns-regexp.js --execution-backend wasm --timeout-ms 60000`
+  `./target/debug/lila test262 run built-ins/String/prototype/split/transferred-to-number-separator-override-tostring-returns-regexp.js --execution-backend wasm --timeout-ms 60000`
   (`0` unsupported, `0` runtime failures). Simple RegExp separators now route
   through a focused Wasm-AOT split path instead of stringifying RegExp-like
   objects, covering literal and constructed `/l/`, whitespace `/\s/`, digit-run
@@ -3101,11 +3125,11 @@ Recent focused progress through `2026-07-27`:
   Its full leaf reports `43/44` as of `2026-07-16`; the sole remaining case
   constructs source with the explicitly excluded cross-realm `Function`
   constructor, so the AOT-applicable subset is `43/43`. Refresh with
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.split --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/Symbol.split --execution-backend wasm --timeout-ms 120000 --threads 4`.
   The full String split leaf reports `118/120` as of `2026-07-16`: the two
   remaining cases are explicit excluded `eval` dynamic-code-generation cases,
   so the AOT-applicable subset is `118/118`. Refresh with
-  `./target/debug/porf test262 run built-ins/String/prototype/split --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/split --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.match` now has a Wasm-AOT fallback for primitive
   literal string patterns and boxed/generic receivers: it skips inherited
   `String.prototype[Symbol.match]` on primitive search values, dispatches
@@ -3122,11 +3146,11 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/match/this-val-obj.js`, and
   `built-ins/String/prototype/match/this-val-bool.js` cases each report `1/1`
   passing as of `2026-06-20` under
-  `cargo run -p porffor-cli -- test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `cargo run -p lila-cli -- test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   The exact real Test262
   `built-ins/String/prototype/match/cstm-matcher-is-null.js` case also reports
   `1/1` passing under
-  `./target/debug/porf test262 run built-ins/String/prototype/match/cstm-matcher-is-null.js --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/String/prototype/match/cstm-matcher-is-null.js --execution-backend wasm --timeout-ms 60000 --threads 1`.
   `built-ins/String/prototype/match/invoke-builtin-match.js` now also reports
   `1/1` under the same command shape.
   Focused default `RegExp.prototype[Symbol.match]` support now stays live even
@@ -3146,12 +3170,12 @@ Recent focused progress through `2026-07-27`:
   `S15.5.4.10_A1_T10.js`, `S15.5.4.10_A1_T11.js`,
   `S15.5.4.10_A1_T12.js`, and `S15.5.4.10_A1_T13.js` report `1/1` each as
   of `2026-06-20` under
-  `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   Exact real Test262
   `built-ins/String/prototype/match/S15.5.4.10_A1_T14.js` and
   `built-ins/String/prototype/match/S15.5.4.10_A2_T2.js` report `1/1` each as
   of `2026-06-20` under
-  `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   The default global `RegExp.prototype[Symbol.match]` path now recognizes
   focused ASCII class quantifier sources for `/\d{1}/g`, `/\d{2}/g`, and
   `/\D{2}/g`, returning non-overlapping match arrays instead of rejecting them
@@ -3171,7 +3195,7 @@ Recent focused progress through `2026-07-27`:
   `S15.5.4.10_A2_T7.js`, `S15.5.4.10_A2_T8.js`,
   `S15.5.4.10_A2_T9.js`, `S15.5.4.10_A2_T10.js`, and
   `S15.5.4.10_A2_T11.js` report `1/1` each as of `2026-06-21` under
-  `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   These exact files use focused Wasm-AOT materializations that avoid repeated
   identical `match(...)` calls while still exercising the real builtin path.
   The neighboring legacy match cases `S15.5.4.10_A2_T12.js` through
@@ -3188,7 +3212,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/match/S15.5.4.10_A2_T17.js` and
   `built-ins/String/prototype/match/S15.5.4.10_A2_T18.js` report `1/1` each as
   of `2026-06-20` under
-  `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   Duplicate named capture group match results now have focused Wasm-AOT support
   for the Test262 source-order property cases: match arrays define `groups`
   with null-prototype objects, preserve `Object.keys(...groups)` order for
@@ -3205,14 +3229,14 @@ Recent focused progress through `2026-07-27`:
   Unicode code point, emoji set notation, and the `x` no-match branch.
   The complete current `built-ins/String/prototype/match` leaf reports `51/51`
   as of `2026-07-15` under
-  `./target/debug/porf test262 run built-ins/String/prototype/match --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/match --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `RegExp.prototype[Symbol.match]` now derives global and Unicode modes from
   the observable flags string and uses the common `RegExpExec` loop for sticky
   matching, zero-width advancement, and overridden exec behavior. Empty
   capturing and non-capturing groups compile to real matcher programs. The
   complete `built-ins/RegExp/prototype/Symbol.match` leaf reports `53/53` as of
   `2026-07-15` under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.match --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/Symbol.match --execution-backend wasm --timeout-ms 120000 --threads 4`.
   Broader RegExp syntax remains an explicit Wasm-AOT unsupported path.
   `RegExp.prototype[Symbol.search]` is now installed as its own Wasm-AOT
   builtin on RegExp prototypes and literals; focused numeric search results
@@ -3222,7 +3246,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/search/regexp-prototype-search-v-flag.js` and
   `built-ins/String/prototype/search/regexp-prototype-search-v-u-flag.js`
   report `1/1` each as of `2026-06-20` under
-  `./target/debug/porf test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run <case> --execution-backend wasm --timeout-ms 60000 --threads 1`.
   Focused metadata materializations for
   `built-ins/RegExp/prototype/Symbol.search/length.js`, `name.js`, and
   `prop-desc.js` now avoid the heavy descriptor helper and report `1/1` each
@@ -3232,7 +3256,7 @@ Recent focused progress through `2026-07-27`:
   literal no-match, and the focused Unicode low-surrogate advancement case. The
   full exact `built-ins/RegExp/prototype/Symbol.search` directory now reports
   `23/23` as of `2026-07-16` under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.search --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/Symbol.search --execution-backend wasm --timeout-ms 90000 --threads 4`.
   Named-group programs bypass the literal-only search shortcut and execute
   through the ordinary `RegExpExec` path; the exact
   `built-ins/RegExp/named-groups/duplicate-names-search.js` case reports `1/1`
@@ -3270,7 +3294,7 @@ Recent focused progress through `2026-07-27`:
   also report `1/1` individually under the normal 60s single-thread exact-case
   harness. The full exact `built-ins/String/prototype/search` directory now
   reports `43/43` as of `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/String/prototype/search --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/search --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `RegExp.prototype.exec` is now a real per-realm, non-constructable builtin
   rather than a literal-folding or method-name shortcut. Calls perform the
   ordinary property lookup, so direct RegExp literals observe later
@@ -3298,7 +3322,7 @@ Recent focused progress through `2026-07-27`:
   consuming input; reverse repetition shares the bounded choice-frame arena.
   The complete exact `built-ins/RegExp/named-groups` directory reports `36/36`
   as of `2026-07-16` under
-  `./target/debug/porf test262 run built-ins/RegExp/named-groups --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/named-groups --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
   Non-Unicode dot is also a program opcode with exact UTF-16
   code-unit behavior: astral scalars expose separate high- and low-surrogate
   matches, candidate search can begin on either half, and LF, CR, LS, and PS
@@ -3357,7 +3381,7 @@ Recent focused progress through `2026-07-27`:
   report `1/1`. The full exact `built-ins/RegExp/prototype/exec` leaf reports
   `79/79`
   as of `2026-07-12` under
-  `XDG_CACHE_HOME=/tmp/porffor-xdg-regexp-exec-20260712-named ./target/release/porf test262 run built-ins/RegExp/prototype/exec --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4 --snapshot-dir /tmp/porffor-test262-regexp-exec-20260712 --snapshot-name regexp-exec-wasm-aot-20260712-named-groups`.
+  `XDG_CACHE_HOME=/tmp/lila-xdg-regexp-exec-20260712-named ./target/release/lila test262 run built-ins/RegExp/prototype/exec --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4 --snapshot-dir /tmp/lila-test262-regexp-exec-20260712 --snapshot-name regexp-exec-wasm-aot-20260712-named-groups`.
   `RegExp.prototype.test` is now a real non-constructable standard builtin
   that performs argument `ToString`, observable `RegExpExec` dispatch, and
   boolean result conversion. Statically known intrinsic calls use the direct
@@ -3365,13 +3389,13 @@ Recent focused progress through `2026-07-27`:
   catchable, while replaced `test` properties retain ordinary lookup. The
   complete `built-ins/RegExp/prototype/test` leaf reports `45/45` as of
   `2026-07-16` under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/test --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/test --execution-backend wasm --timeout-ms 120000 --threads 4`.
   Non-strict function-entry analysis now applies the required global-object
   `this` substitution for nullish receivers and preserves explicit array
   callback `thisArg` shapes in exact contexts. The complete
   `built-ins/RegExp/prototype/toString` leaf reports `9/9` as of `2026-07-16`
   under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`.
   Realm-local RegExp prototypes now expose the complete accessor surface and
   retain each getter's defining realm. RegExp prototypes are distinct from
   branded RegExp instances, so a getter accepts its own realm's prototype but
@@ -3379,7 +3403,7 @@ Recent focused progress through `2026-07-27`:
   The complete `source` leaf reports `7/12` as of `2026-07-16`; all five
   remaining cases use excluded `eval` dynamic source generation, so its
   AOT-applicable subset is `7/7`. Refresh with
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/source --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/source --execution-backend wasm --timeout-ms 90000 --threads 4`.
   The complete `flags`, `global`, `ignoreCase`, `multiline`, `sticky`,
   `unicode`, `unicodeSets`, `dotAll`, and `hasIndices` leaves report `16/16`,
   `10/10`, `10/10`, `10/10`, `8/8`, `8/8`, `38/38`, `8/8`, and `8/8`
@@ -3393,11 +3417,11 @@ Recent focused progress through `2026-07-27`:
   consuming one UTF-16 code unit without `u` and one code point with `u`. The
   complete `built-ins/RegExp/dotall` leaf reports `4/4` as of `2026-07-16`
   under
-  `./target/debug/porf test262 run built-ins/RegExp/dotall --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/RegExp/dotall --execution-backend wasm --timeout-ms 120000 --threads 4`.
   The generated `built-ins/RegExp/CharacterClassEscapes` leaf reports `12/12`
   as of `2026-07-16` under the same four-thread command shape. Its complement
   cases construct nearly the full Unicode range, so use the persistent
-  `PORFFOR_CACHE_DIR` and a `120000` ms timeout rather than discarding the
+  `LILA_CACHE_DIR` and a `120000` ms timeout rather than discarding the
   compiled module cache between cases.
   Exact named-group property leaves
   `built-ins/RegExp/named-groups/non-unicode-property-names.js`,
@@ -3405,7 +3429,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/RegExp/match-indices/indices-array-unicode-property-names.js`
   each report `1/1`. The full exact `built-ins/RegExp/match-indices` directory
   reports `14/14` as of `2026-07-13` under
-  `PORFFOR_CACHE_DIR=/tmp/porffor-cache-verify_match_indices_post_self-20260713-112722 ./target/release/porf test262 run built-ins/RegExp/match-indices --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 1 --snapshot-dir /tmp/porffor-snapshots-verify_match_indices_post_self-20260713-112722 --snapshot-name match-indices-wasm-aot`.
+  `LILA_CACHE_DIR=/tmp/lila-cache-verify_match_indices_post_self-20260713-112722 ./target/release/lila test262 run built-ins/RegExp/match-indices --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 1 --snapshot-dir /tmp/lila-snapshots-verify_match_indices_post_self-20260713-112722 --snapshot-name match-indices-wasm-aot`.
   The release binary is intentional for cold status runs: populating the
   per-function Cranelift cache is materially slower and larger than a warm
   exact-case run. Compiler changes automatically invalidate whole-program
@@ -3457,12 +3481,12 @@ Recent focused progress through `2026-07-27`:
   exact real Test262
   `built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js` reports
   `1/1` as of `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js --execution-backend wasm --timeout-ms 90000 --threads 1`,
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/Symbol.matchAll/string-tostring.js --execution-backend wasm --timeout-ms 90000 --threads 1`,
   with focused `/\w/g` iteration over object `toString` input covered by the
   `wasm_regexp_symbol_match_all_word_object.js` CLI fixture. The full exact
   `built-ins/RegExp/prototype/Symbol.matchAll` directory now reports `26/26`
   as of `2026-07-16` under
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.matchAll --execution-backend wasm --timeout-ms 120000 --threads 4`;
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/Symbol.matchAll --execution-backend wasm --timeout-ms 120000 --threads 4`;
   numeric updates on bindings whose static type is unknown now perform runtime
   `ToNumeric` and preserve Number versus BigInt, including the range helper
   loaded by this Test262 leaf.
@@ -3491,7 +3515,7 @@ Recent focused progress through `2026-07-27`:
   `wasm_regexp_symbol_match_all_default_validation.js`. The downstream
   `%RegExpStringIteratorPrototype%.next` leaf now reports `15/15` as of
   `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/RegExpStringIteratorPrototype/next --execution-backend wasm --timeout-ms 120000 --threads 4`;
+  `./target/debug/lila test262 run built-ins/RegExpStringIteratorPrototype/next --execution-backend wasm --timeout-ms 120000 --threads 4`;
   the lazy iterator observes later `RegExp.prototype.exec` replacement and
   getter failures for focused dot-pattern cases. Abrupt `exec` completions
   propagate unchanged, and callable Proxy replacements receive the matcher and
@@ -3510,11 +3534,11 @@ Recent focused progress through `2026-07-27`:
   `2026-07-28`, with every failure bucket and unsupported count at zero
   (manifest `16266333929169271790`, Test262 revision
   `aa55200d1310384c5cf69ea95b2a2ecba457007b`). Refresh it with
-  `./target/debug/porf test262 run built-ins/Iterator/concat --execution-backend wasm-aot --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/Iterator/concat --execution-backend wasm-aot --timeout-ms 120000 --threads 4`.
   The pinned `built-ins/Iterator/zip` directory reports `36/36` on
   `2026-07-28` at the same Test262 revision, with every failure category at
   zero. Refresh it with
-  `./target/debug/porf --jobs 1 test262 run built-ins/Iterator/zip --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
+  `./target/debug/lila --jobs 1 test262 run built-ins/Iterator/zip --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`.
   `Iterator.zipKeyed` is also a distinct non-constructible Rust/AOT builtin.
   It reads options before enumerating the input's own keys, preserves
   `[[OwnPropertyKeys]]` and descriptor/Get ordering for string and symbol keys,
@@ -3532,7 +3556,7 @@ Recent focused progress through `2026-07-27`:
   `wellKnownIntrinsicObjects.js` harness executes source through
   `new Function(...)`, which is explicitly outside the Wasm-AOT dynamic-source
   boundary. Refresh this status with
-  `./target/debug/porf --jobs 1 test262 run built-ins/Iterator/zipKeyed --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 120000`.
+  `./target/debug/lila --jobs 1 test262 run built-ins/Iterator/zipKeyed --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 120000`.
   `Iterator.from` now calls iterable `@@iterator` methods instead of treating
   iterable inputs as iterator-like records, keeps the indirect
   `Array.prototype.values` body emitted for `Array.from`/`Iterator.from`
@@ -3540,7 +3564,7 @@ Recent focused progress through `2026-07-27`:
   wrapper `return()` invalid-`this`, base-return lookup, receiver, and result
   identity behavior observable. The full exact real Test262
   `built-ins/Iterator/from` leaf now reports `19/19` as of `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/Iterator/from --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/from --execution-backend wasm --timeout-ms 90000 --threads 4`,
   with focused coverage in
   `wasm_iterator_from_iterable_array_string.js`,
   `wasm_iterator_from_wrapper_return_invalid_this.js`, and
@@ -3554,10 +3578,10 @@ Recent focused progress through `2026-07-27`:
   already-exhausted generator iterators. The full exact real Test262
   `built-ins/Iterator/prototype/toArray` leaf now reports `18/18` as of
   `2026-06-21` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/toArray` leaf reports `10/10`
   as of `2026-06-23` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/toArray --execution-backend wasm --timeout-ms 90000 --threads 4`,
   with focused coverage in
   `wasm_iterator_to_array_direct_iterator.js` and
   `wasm_iterator_to_array_exhausted_generator.js`.
@@ -3565,31 +3589,31 @@ Recent focused progress through `2026-07-27`:
   identity behavior and built-in function metadata; the exact real Test262
   `built-ins/Iterator/prototype/Symbol.iterator` leaf reports `5/5` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/Symbol.iterator --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/Symbol.iterator --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_symbol_iterator.js`.
   `%IteratorPrototype%[Symbol.dispose]` now recognizes `Symbol.dispose`, calls
   a present `return` method, ignores its value, and returns `undefined`; the
   exact real Test262 `built-ins/Iterator/prototype/Symbol.dispose` leaf reports
   `6/6` as of `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/Symbol.dispose --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/Symbol.dispose --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_symbol_dispose.js`.
   `%IteratorPrototype%[Symbol.toStringTag]` is now the spec accessor pair with
   getter result `"Iterator"` and a setter that rejects the home prototype while
   creating/updating own tags on other objects; the exact real Test262
   `built-ins/Iterator/prototype/Symbol.toStringTag` leaf reports `2/2` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/Symbol.toStringTag --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/Symbol.toStringTag --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_symbol_to_string_tag.js`.
   `%IteratorPrototype%.constructor` is now the spec accessor pair with a
   getter that returns `%Iterator%` and a setter that rejects the home prototype
   while creating/updating own `constructor` data properties on other objects;
   the exact real Test262 `built-ins/Iterator/prototype/constructor` leaf reports
   `2/2` as of `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/constructor --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/constructor --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_constructor.js`.
   The base `%IteratorPrototype%` initial-value file also reports `1/1` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/initial-value.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/initial-value.js --execution-backend wasm --timeout-ms 90000 --threads 1`.
   `Iterator.prototype.forEach` is now registered as a Rust standard builtin and
   has Wasm-AOT support for direct iterator iteration, callback value/index
   calls, argument validation before `next`, iterator close on invalid callback
@@ -3599,10 +3623,10 @@ Recent focused progress through `2026-07-27`:
   full exact real Test262
   `built-ins/Iterator/prototype/forEach` leaf reports `27/27` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 8`,
   and the staging `staging/sm/Iterator/prototype/forEach` leaf reports `12/12`
   as of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/forEach --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_for_each.js`.
   `Iterator.prototype.some` is now registered as a Rust standard builtin and
   has Wasm-AOT support for Boolean terminal iteration, callback value/index
@@ -3614,10 +3638,10 @@ Recent focused progress through `2026-07-27`:
   ToBoolean predicate results, and metadata. The full exact real Test262
   `built-ins/Iterator/prototype/some` leaf reports `33/33` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 8`,
   and the staging `staging/sm/Iterator/prototype/some` leaf reports `14/14`
   as of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/some --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_some.js`.
   `Iterator.prototype.every` is now registered as a Rust standard builtin and
   has Wasm-AOT support for Boolean terminal iteration, callback value/index
@@ -3629,10 +3653,10 @@ Recent focused progress through `2026-07-27`:
   ToBoolean predicate results, and metadata. The full exact real Test262
   `built-ins/Iterator/prototype/every` leaf reports `33/33` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 8`,
   and the staging `staging/sm/Iterator/prototype/every` leaf reports `14/14`
   as of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/every --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_every.js`.
   `Iterator.prototype.find` is now registered as a Rust standard builtin and
   has Wasm-AOT support for terminal iteration returning the matched value or
@@ -3644,12 +3668,12 @@ Recent focused progress through `2026-07-27`:
   preserving thrown getter values, ToBoolean predicate results, and metadata.
   The staging `staging/sm/Iterator/prototype/find` leaf reports `14/14` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 4`.
   The exact real Test262 `built-ins/Iterator/prototype/find` leaf reports
   `31/32` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 8`
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/find --execution-backend wasm --timeout-ms 90000 --threads 8`
   because `prop-desc.js` times out in the parallel leaf run; rerunning
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/find/prop-desc.js --execution-backend wasm --timeout-ms 90000 --threads 1`
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/find/prop-desc.js --execution-backend wasm --timeout-ms 90000 --threads 1`
   reports `1/1`,
   covered by `wasm_iterator_prototype_find.js`.
   `Iterator.prototype.reduce` is now registered as a Rust standard builtin and
@@ -3663,10 +3687,10 @@ Recent focused progress through `2026-07-27`:
   metadata. The full exact real Test262
   `built-ins/Iterator/prototype/reduce` leaf reports `30/30` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 8`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 8`,
   and the staging `staging/sm/Iterator/prototype/reduce` leaf reports `18/18`
   as of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/reduce --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_reduce.js`.
   `Iterator.prototype.map` is now registered as a Rust standard builtin and
   has Wasm-AOT support for lazy mapped helper iteration, helper `next` and
@@ -3680,10 +3704,10 @@ Recent focused progress through `2026-07-27`:
   exact real Test262
   `built-ins/Iterator/prototype/map` leaf reports `36/36` as of `2026-06-22`
   under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/map` leaf reports `20/20` as
   of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/map --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_map.js`.
   `Iterator.prototype.filter` is now registered as a Rust standard builtin
   and has Wasm-AOT support for lazy filtered helper iteration, helper `next`
@@ -3695,10 +3719,10 @@ Recent focused progress through `2026-07-27`:
   `next`/`done`/`value`/`return` paths, chained filter helpers, and metadata.
   The exact real Test262 `built-ins/Iterator/prototype/filter` leaf reports
   `37/37` as of `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/filter` leaf reports `3/3`
   as of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/filter --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_filter.js`.
   `Iterator.prototype.flatMap` is now registered as a Rust standard builtin
   and has Wasm-AOT support for lazy flattened helper iteration, helper `next`
@@ -3714,10 +3738,10 @@ Recent focused progress through `2026-07-27`:
   helpers, and metadata. The exact real Test262
   `built-ins/Iterator/prototype/flatMap` leaf reports `44/44` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/flatMap` leaf reports `8/8`
   under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/flatMap --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_flat_map.js`.
   `Iterator.prototype.take` is now registered as a Rust standard builtin and
   has Wasm-AOT support for lazy bounded helper iteration, helper `next` and
@@ -3729,10 +3753,10 @@ Recent focused progress through `2026-07-27`:
   real Test262
   `built-ins/Iterator/prototype/take` leaf reports `33/33` as of
   `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/take` leaf reports `6/6` as
   of `2026-06-22` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/take --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_take.js`.
   `Iterator.prototype.drop` is now registered as a Rust standard builtin and
   has Wasm-AOT support for lazy skip helper iteration, helper `next` and
@@ -3743,10 +3767,10 @@ Recent focused progress through `2026-07-27`:
   drop count is reached, helper reentrancy rejection, and
   metadata. The exact real Test262 `built-ins/Iterator/prototype/drop` leaf
   reports `34/34` as of `2026-06-22` under
-  `./target/debug/porf test262 run built-ins/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run built-ins/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
   and the staging `staging/sm/Iterator/prototype/drop` leaf reports `3/3` as
   of `2026-06-23` under
-  `./target/debug/porf test262 run staging/sm/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
+  `./target/debug/lila test262 run staging/sm/Iterator/prototype/drop --execution-backend wasm --timeout-ms 90000 --threads 4`,
   covered by `wasm_iterator_prototype_drop.js`.
   `String.prototype.toUpperCase` is now registered as a Rust standard builtin
   with focused Wasm-AOT support for the ASCII/helper paths used by current
@@ -3795,7 +3819,7 @@ Recent focused progress through `2026-07-27`:
   The full `built-ins/String/prototype/charAt` Test262 leaf now reports
   `30/30` passing as of `2026-06-19` under `--execution-backend wasm` with the
   `60000` ms timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/charAt --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/charAt --execution-backend wasm --timeout-ms 60000 --threads 4`.
   Annex B `String.prototype` metadata for the HTML helpers
   (`anchor`, `big`, `blink`, `bold`, `fixed`, `fontcolor`, `fontsize`,
   `italics`, `link`, `small`, `strike`, `sub`, and `sup`), `substr`, and the
@@ -3817,7 +3841,7 @@ Recent focused progress through `2026-07-27`:
   astral pairs and lone surrogates. The exact `trimLeft` and `trimRight` leaves
   each report `4/4`, with each alias sharing the canonical function object in
   both the main realm and host-created realms. Refresh the combined prefix with
-  `./target/debug/porf test262 run annexB/built-ins/String/prototype/sub --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run annexB/built-ins/String/prototype/sub --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 120000 --threads 4`.
   Annex B global `escape`/`unescape` metadata now uses the same focused
   Wasm-AOT materialization strategy instead of timing out through
   `propertyHelper.js`. The exact real Test262
@@ -3836,7 +3860,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/charCodeAt` Test262 leaf now reports `25/25`
   passing as of `2026-06-19` under `--execution-backend wasm` with the `60000`
   ms timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/charCodeAt --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/charCodeAt --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `String.prototype.codePointAt` is now registered as a Rust standard builtin
   for property reads, borrowed builtin-function calls, and generic method-call
   dispatch. Its focused Wasm-AOT path implements `ToString(this)`,
@@ -3847,7 +3871,7 @@ Recent focused progress through `2026-07-27`:
   full `built-ins/String/prototype/codePointAt` Test262 leaf now reports
   `16/16` passing as of `2026-06-19` under `--execution-backend wasm` with the
   `60000` ms timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/codePointAt --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/codePointAt --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `String.prototype.startsWith` now performs the required `IsRegExp`
   `@@match` check before search-string `ToString`, propagating abrupt
   `Symbol.match` accessors and throwing catchable TypeErrors for RegExp search
@@ -3858,7 +3882,7 @@ Recent focused progress through `2026-07-27`:
   Test262 leaf now reports `21/21` passing as of `2026-06-19` under
   `--execution-backend wasm` with the `60000` ms timeout and four threads
   (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/startsWith --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/startsWith --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `String.prototype.endsWith` is now registered as a Rust standard builtin and
   implements the required `IsRegExp`/`@@match` check before search-string
   `ToString`, end-position `ToIntegerOrInfinity` clamping in UTF-16 code-unit
@@ -3869,7 +3893,7 @@ Recent focused progress through `2026-07-27`:
   reports `27/27` passing as of `2026-06-19` under `--execution-backend wasm`
   with the `60000` ms timeout and four threads (`0` unsupported, `0` runtime
   failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/endsWith --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/endsWith --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `String.prototype.includes` is now registered as a Rust standard builtin and
   handles primitive string dot access, direct method calls, RegExp
   `IsRegExp`/`@@match` rejection before search-string `ToString`, position
@@ -3880,7 +3904,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/includes` Test262 leaf now reports `27/27`
   passing as of `2026-06-19` under `--execution-backend wasm` with the `60000`
   ms timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/includes --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/includes --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `String.prototype.indexOf` is now registered as a Rust standard builtin and
   handles primitive string dot access, direct and borrowed method calls,
   receiver/search-string `ToString`, position `ToIntegerOrInfinity` clamping in
@@ -3896,7 +3920,7 @@ Recent focused progress through `2026-07-27`:
   full `built-ins/String/prototype/indexOf` Test262 leaf now reports `47/47`
   passing as of `2026-06-19` under `--execution-backend wasm` with the `60000`
   ms timeout and four threads (`0` unsupported, `0` runtime failures):
-  `./target/debug/porf test262 run built-ins/String/prototype/indexOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/indexOf --execution-backend wasm --timeout-ms 60000 --threads 4`.
   `String.prototype.startsWith` and `String.prototype.endsWith` are now
   covered by a local Wasm-AOT regression fixture for found/not-found searches,
   explicit position/endPosition handling, empty search strings, and direct
@@ -3905,9 +3929,9 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/endsWith` report `21/21` and `27/27` passing as
   of `2026-06-23` under `--execution-backend wasm --timeout-ms 90000 --threads
   8`:
-  `./target/debug/porf test262 run built-ins/String/prototype/startsWith --execution-backend wasm --timeout-ms 90000 --threads 8`
+  `./target/debug/lila test262 run built-ins/String/prototype/startsWith --execution-backend wasm --timeout-ms 90000 --threads 8`
   and
-  `./target/debug/porf test262 run built-ins/String/prototype/endsWith --execution-backend wasm --timeout-ms 90000 --threads 8`.
+  `./target/debug/lila test262 run built-ins/String/prototype/endsWith --execution-backend wasm --timeout-ms 90000 --threads 8`.
   `String.prototype.padStart` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
   Wasm-AOT path implements receiver `ToString`, target `ToLength`, default
@@ -3919,7 +3943,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/padStart` Test262 leaf now reports `13/13`
   passing as of `2026-06-23` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/padStart --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/padStart --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `String.prototype.padEnd` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
   Wasm-AOT path implements receiver `ToString`, target `ToLength`, default
@@ -3930,7 +3954,7 @@ Recent focused progress through `2026-07-27`:
   The full `built-ins/String/prototype/padEnd` Test262 leaf now reports
   `13/13` passing as of `2026-06-23` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/padEnd --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/padEnd --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `String.prototype.toString` and `String.prototype.valueOf` now dispatch
   through the String builtin path for direct primitive calls, borrowed calls,
   boxed receivers, and static string bindings without folding string receivers
@@ -3940,9 +3964,9 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/valueOf` Test262 leaves now report `7/7` each
   passing as of `2026-06-24` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`
+  `./target/debug/lila test262 run built-ins/String/prototype/toString --execution-backend wasm --timeout-ms 90000 --threads 4`
   and
-  `./target/debug/porf test262 run built-ins/String/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/valueOf --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `String.prototype.toLowerCase` is now a Rust standard builtin with full
   locale-insensitive Unicode lowercase mappings, multi-code-point expansion,
   and the context-sensitive final-sigma rule using Unicode `Cased` and
@@ -3952,7 +3976,7 @@ Recent focused progress through `2026-07-27`:
   as of `2026-07-15`; the sole remaining file requires dynamic `eval`, so all
   `29/29` Wasm-AOT-applicable files pass under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/toLowerCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/toLowerCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.toUpperCase` now uses the same live-only cached Unicode
   mapping infrastructure, including multi-code-point special casing and
   supplementary-plane mappings, instead of its former ASCII-only byte fold.
@@ -3960,7 +3984,7 @@ Recent focused progress through `2026-07-27`:
   `25/26` passing as of `2026-07-15`; the sole remaining file requires dynamic
   `eval`, so all `25/25` Wasm-AOT-applicable files pass under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/toUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/toUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.toLocaleLowerCase` and
   `String.prototype.toLocaleUpperCase` are now registered over the same Unicode
   case-mapping paths for Lila's default locale. Their full Test262 leaves
@@ -3968,22 +3992,22 @@ Recent focused progress through `2026-07-27`:
   remaining file requires dynamic `eval`, so all `27/27` and `25/25`
   Wasm-AOT-applicable files pass under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/toLocaleLowerCase --execution-backend wasm --timeout-ms 120000 --threads 4`
+  `./target/debug/lila test262 run built-ins/String/prototype/toLocaleLowerCase --execution-backend wasm --timeout-ms 120000 --threads 4`
   and
-  `./target/debug/porf test262 run built-ins/String/prototype/toLocaleUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/toLocaleUpperCase --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.fromCharCode` is now installed as a real non-constructor static
   builtin with variadic `ToNumber`/`ToUint16` conversion and direct WTF-8
   emission. The full `built-ins/String/fromCharCode` Test262 leaf reports
   `17/17` passing as of `2026-07-15` under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/fromCharCode --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/fromCharCode --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.fromCodePoint` is now installed as a real non-constructor static
   builtin with variadic `ToNumber` conversion, integral/range validation, and
   direct UTF-8/WTF-8 emission for BMP, supplementary, and surrogate code
   points. The full `built-ins/String/fromCodePoint` Test262 leaf reports
   `11/11` passing as of `2026-07-15` under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/fromCodePoint --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/fromCodePoint --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.raw` is now installed as a real non-constructor static builtin. Its
   Wasm-AOT implementation performs `ToObject`, `LengthOfArrayLike`, indexed
   getter access, substitution `ToString`, and concatenation in specification
@@ -3992,7 +4016,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/raw` Test262 leaf reports `30/30` passing as of
   `2026-07-15` under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/raw --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/raw --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.normalize` now implements NFC, NFD, NFKC, and NFKD in
   emitted Wasm, including recursive decomposition, canonical combining-class
   ordering, blocked composition, Hangul, form coercion, invalid-form errors,
@@ -4002,14 +4026,14 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/normalize` Test262 leaf reports `14/14` passing
   as of `2026-07-15` under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/normalize --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/normalize --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.localeCompare` now performs ordered receiver and argument
   coercion, canonical-equivalence folding through the shared NFC tables, and a
   deterministic antisymmetric UTF-16 comparison in emitted Wasm. The full
   `built-ins/String/prototype/localeCompare` Test262 leaf reports `13/13`
   passing as of `2026-07-15` under
   `--execution-backend wasm --timeout-ms 120000 --threads 2`:
-  `./target/debug/porf test262 run built-ins/String/prototype/localeCompare --execution-backend wasm --timeout-ms 120000 --threads 2`.
+  `./target/debug/lila test262 run built-ins/String/prototype/localeCompare --execution-backend wasm --timeout-ms 120000 --threads 2`.
   `String.prototype.replace` and `replaceAll` now perform literal search,
   functional replacement, and the `$$`, `$&`, ``$` ``, and `$'` substitution
   forms in emitted Wasm, with protocol hooks receiving the uncoerced receiver
@@ -4028,9 +4052,9 @@ Recent focused progress through `2026-07-27`:
   Wasmtime engine only after the fast compilation path reaches Cranelift's
   function-size limit, and shared Array element writes keep argument-vector
   construction compact. Refresh with
-  `./target/debug/porf test262 run built-ins/RegExp/prototype/Symbol.replace --execution-backend wasm --timeout-ms 120000 --threads 4`
+  `./target/debug/lila test262 run built-ins/RegExp/prototype/Symbol.replace --execution-backend wasm --timeout-ms 120000 --threads 4`
   and
-  `./target/debug/porf test262 run built-ins/String/prototype/replaceAll --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/replaceAll --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype[Symbol.iterator]` now creates a distinct per-realm String
   iterator with the standard prototype ancestry, brand checks, metadata, and
   `String Iterator` tag. Its Wasm-AOT `next` method advances by Unicode code
@@ -4039,9 +4063,9 @@ Recent focused progress through `2026-07-27`:
   `built-ins/StringIteratorPrototype` Test262 leaves report `6/6` and `7/7`
   passing as of `2026-07-15` under
   `--execution-backend wasm --timeout-ms 120000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/Symbol.iterator --execution-backend wasm --timeout-ms 120000 --threads 4`
+  `./target/debug/lila test262 run built-ins/String/prototype/Symbol.iterator --execution-backend wasm --timeout-ms 120000 --threads 4`
   and
-  `./target/debug/porf test262 run built-ins/StringIteratorPrototype --execution-backend wasm --timeout-ms 120000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/StringIteratorPrototype --execution-backend wasm --timeout-ms 120000 --threads 4`.
   `String.prototype.isWellFormed` and `String.prototype.toWellFormed` are now
   registered as Rust standard builtins for prototype property reads, borrowed
   calls, and direct method calls. The Wasm-AOT path scans the runtime string as
@@ -4054,9 +4078,9 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/toWellFormed` Test262 leaves now report `8/8`
   each passing as of `2026-06-24` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/isWellFormed --execution-backend wasm --timeout-ms 90000 --threads 4`
+  `./target/debug/lila test262 run built-ins/String/prototype/isWellFormed --execution-backend wasm --timeout-ms 90000 --threads 4`
   and
-  `./target/debug/porf test262 run built-ins/String/prototype/toWellFormed --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/toWellFormed --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `String.prototype.at` is now registered as a Rust standard builtin for
   prototype property reads, direct string method calls, borrowed calls, and the
   shared `at` method-name dispatch without falling through to
@@ -4068,7 +4092,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/at` Test262 leaf now reports `11/11` passing as
   of `2026-06-24` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/at --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/at --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `String.prototype.slice` is now registered for string prototype shape data,
   borrowed/copied calls, direct string method calls, and the deferred-builtin
   unstub analysis used by optimized method dispatch. The Wasm-AOT path handles
@@ -4080,7 +4104,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/slice` Test262 leaf now reports `38/38` passing
   as of `2026-06-24` under
   `--execution-backend wasm --timeout-ms 180000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/slice --execution-backend wasm --timeout-ms 180000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/slice --execution-backend wasm --timeout-ms 180000 --threads 4`.
   `String.prototype.repeat` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
   Wasm-AOT path implements receiver `ToString`, count `ToNumber` plus
@@ -4091,7 +4115,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/repeat` Test262 leaf now reports `16/16` passing
   as of `2026-06-23` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:
-  `./target/debug/porf test262 run built-ins/String/prototype/repeat --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila test262 run built-ins/String/prototype/repeat --execution-backend wasm --timeout-ms 90000 --threads 4`.
   `String.prototype.trim` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
   Wasm-AOT trim path now removes the ECMAScript WhiteSpace/LineTerminator set
@@ -4102,9 +4126,9 @@ Recent focused progress through `2026-07-27`:
   `built-ins/String/prototype/trimEnd` Test262 leaves now report `23/23` each
   as of `2026-06-23` under
   `--execution-backend wasm --timeout-ms 90000 --threads 8`:
-  `./target/debug/porf test262 run built-ins/String/prototype/trimStart --execution-backend wasm --timeout-ms 90000 --threads 8`
+  `./target/debug/lila test262 run built-ins/String/prototype/trimStart --execution-backend wasm --timeout-ms 90000 --threads 8`
   and
-  `./target/debug/porf test262 run built-ins/String/prototype/trimEnd --execution-backend wasm --timeout-ms 90000 --threads 8`.
+  `./target/debug/lila test262 run built-ins/String/prototype/trimEnd --execution-backend wasm --timeout-ms 90000 --threads 8`.
   Exact real Test262 files
   `built-ins/String/prototype/trim/name.js`,
   `built-ins/String/prototype/trim/u180e.js`,
@@ -4144,7 +4168,7 @@ Recent focused progress through `2026-07-27`:
   passing respectively as of `2026-07-29`, and
   `built-ins/Temporal/ZonedDateTime/from/infinity-throws-rangeerror.js`
   reports `1/1`. Refresh them with
-  `./target/debug/porf --jobs 1 test262 run language/expressions/call/spread-obj --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`,
+  `./target/debug/lila --jobs 1 test262 run language/expressions/call/spread-obj --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000`,
   the same command with
   `language/expressions/object/object-spread-proxy`, or the exact Temporal
   path.
@@ -4154,7 +4178,7 @@ Recent focused progress through `2026-07-27`:
   update operands, the shared `Math.pow` path, and special
   Number cases for infinities, signed zero, NaN, and `Math` numeric constants
   such as `Math.PI`/`Math.E`. Dynamic finite fractional Number exponentiation
-  uses the explicit `porf_host::number_pow(f64, f64) -> f64` runtime import.
+  uses the explicit `lila_host::number_pow(f64, f64) -> f64` runtime import.
   Its shared outlined `ToNumeric` path preserves the caller realm for coercion
   errors while keeping large coercion-heavy functions within Wasmtime's
   compilation limits. Numeric exponentiation assignment, unary
@@ -4166,7 +4190,7 @@ Recent focused progress through `2026-07-27`:
   payload model. The exact real Test262
   `language/expressions/exponentiation` shard now reports `44/44` passing as of
   `2026-07-27` under
-  `./target/debug/porf test262 run language/expressions/exponentiation --execution-backend wasm --timeout-ms 60000`
+  `./target/debug/lila test262 run language/expressions/exponentiation --execution-backend wasm --timeout-ms 60000`
   (`0` unsupported, `0` runtime failures). Exact real Test262 checks now green
   include the
   `language/expressions/exponentiation/applying-the-exp-operator_A1.js` through
@@ -4186,7 +4210,7 @@ Recent focused progress through `2026-07-27`:
   `built-ins/Math/pow/applying-the-exp-operator_A4.js`, `A7.js`, `A14.js`,
   `A20.js`, and `A23.js` mirror cases. The complete pinned
   `built-ins/Math/pow` leaf reports `28/28`; refresh it with
-  `./target/debug/porf test262 run built-ins/Math/pow --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
+  `./target/debug/lila test262 run built-ins/Math/pow --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 60000 --threads 1`.
   Broader arbitrary-precision BigInt coverage remains separate work.
 - Mutable bindings whose value can be either a string or number now reach the
   tagged `ToPrimitive` addition path instead of being rejected during
@@ -4194,7 +4218,7 @@ Recent focused progress through `2026-07-27`:
   outlier, `built-ins/Math/pow/applying-the-exp-operator_A9.js`. The complete
   checked-out real-Test262 `built-ins/Math` tree reports `327/327` AOT-applicable
   cases passing as of `2026-07-16`. Refresh with
-  `./target/debug/porf --jobs 4 test262 run built-ins/Math --execution-backend wasm --timeout-ms 90000 --threads 4`.
+  `./target/debug/lila --jobs 4 test262 run built-ins/Math --execution-backend wasm --timeout-ms 90000 --threads 4`.
 - `Object.defineProperty` now reads the descriptor from the correct third
   argument in Wasm-AOT builtin calls, so descriptor rewrites such as
   `%AbstractModuleSource%.prototype` can set non-writable/non-configurable
@@ -4202,16 +4226,16 @@ Recent focused progress through `2026-07-27`:
   `prototype` descriptor. The exact real Test262
   `built-ins/AbstractModuleSource` leaf now reports `8/8` passing as of
   `2026-06-04` under
-  `./target/debug/porf test262 run built-ins/AbstractModuleSource --execution-backend wasm --timeout-ms 60000 --threads 4`
+  `./target/debug/lila test262 run built-ins/AbstractModuleSource --execution-backend wasm --timeout-ms 60000 --threads 4`
   (`0` unsupported, `0` runtime failures).
-- The hidden `__porfCreateHTMLDDA()` host factory now creates a fresh callable
+- The hidden `__lilaCreateHTMLDDA()` host factory now creates a fresh callable
   with an internal Wasm-AOT HTMLDDA flag; ordinary user functions are never
   branded by their source name. Class heritage validation branches to active
   `try/catch` handlers from the correct nested Wasm block depth.
-  `$262.IsHTMLDDA` is non-constructable for `__porfIsConstructor`,
+  `$262.IsHTMLDDA` is non-constructable for `__lilaIsConstructor`,
   `class extends $262.IsHTMLDDA {}` rejects it before reading `prototype`, and
   the focused
-  `crates/porffor-cli/tests/fixtures/wasm_htmldda_host_hook.js` fixture is
+  `crates/lila-cli/tests/fixtures/wasm_htmldda_host_hook.js` fixture is
   green as of `2026-07-28` under `--execution-backend wasm`.
 - `AggregateError` descriptor and message/cause coverage now avoids the slow
   generic `propertyHelper.js` path while still executing direct
@@ -4225,7 +4249,7 @@ Recent focused progress through `2026-07-27`:
   two explicit exclusions are `newtarget-proto-fallback.js`, which calls
   `new Function()`, and `proto-from-ctor-realm.js`, which calls
   `new other.Function()`. Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/AggregateError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name aggregateerror-current-pin-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/AggregateError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name aggregateerror-current-pin-20260722`.
   Function-constructor source generation is tracked outside the Wasm-AOT
   product path instead of substituting a statically declared function or
   Proxy newTarget.
@@ -4239,7 +4263,7 @@ Recent focused progress through `2026-07-27`:
   host-harness, crash, or bug outcomes (manifest `4226220787893766358`). Its
   `newtarget-proto-fallback.js` and `proto-from-ctor-realm.js` roots are the
   same two explicit Function-constructor exclusions. Refresh it with
-  `./target/release/porf --jobs 1 test262 run built-ins/SuppressedError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name suppressederror-current-pin-20260722`.
+  `./target/release/lila --jobs 1 test262 run built-ins/SuppressedError --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-name suppressederror-current-pin-20260722`.
   Source-free custom newTarget construction remains covered through the real
   realm-local `%SuppressedError.prototype%` fallback slot.
 - Current Wasm-AOT spot checks show several other stale cached reds are now
@@ -4317,7 +4341,7 @@ the emitted Wasm artifact.
 - `build wasm` must emit compiled user-program semantics and lowered builtins, not a generic evaluator blob.
 - Debug/reference execution may exist for differential testing, but it is not the product CLI runtime path and must not be shipped as the Wasm artifact strategy.
 - Permanent silent skips and unowned expected failures are not acceptable conformance accounting.
-- README conformance numbers are maintained with `porf test262 publish-status` or the low-RAM publication script, not by hand-editing status totals.
+- README conformance numbers are maintained with `lila test262 publish-status` or the low-RAM publication script, not by hand-editing status totals.
 
 ## Development
 
@@ -4327,7 +4351,7 @@ participates in Cargo's unit fingerprint and the environment variable *replaces*
 config values rather than merging with them, so a wrapper that exported
 `RUSTFLAGS` while bare `cargo` did not made the two entry points invalidate each
 other's artifacts on every alternation. Keep linker flags in the config file and
-out of the wrapper. `PORFFOR_JOBS` still requests a lower job count for a single
+out of the wrapper. `LILA_JOBS` still requests a lower job count for a single
 invocation; job count does not affect codegen and so does not fork the
 fingerprint.
 
@@ -4337,9 +4361,9 @@ crates at `opt-level=0`. The release profile adds line tables only: workspace
 code is roughly 7% of a cold compile, so `lto` and `codegen-units = 1` would
 optimize the small end while taxing every rebuild-after-compiler-edit.
 
-`PORFFOR_CACHE_LIMIT_BYTES` raises the whole compiled-code storage budget, and
-`PORFFOR_FUNCTION_CACHE_LIMIT_BYTES`, `PORFFOR_MODULE_CACHE_LIMIT_BYTES` and
-`PORFFOR_PROGRAM_CACHE_LIMIT_BYTES` size the individual tiers. Unset, blank,
+`LILA_CACHE_LIMIT_BYTES` raises the whole compiled-code storage budget, and
+`LILA_FUNCTION_CACHE_LIMIT_BYTES`, `LILA_MODULE_CACHE_LIMIT_BYTES` and
+`LILA_PROGRAM_CACHE_LIMIT_BYTES` size the individual tiers. Unset, blank,
 non-numeric and zero values fall back to the default rather than failing, so a
 typo cannot take down a sweep that has been running for hours.
 
@@ -4360,17 +4384,17 @@ are separately adjustable. Measured over a 300-case sample on `2026-07-30`:
 A sweep therefore wants a large function tier and small program/module tiers:
 
 ```sh
-PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=34359738368 \
-PORFFOR_MODULE_CACHE_LIMIT_BYTES=536870912 \
-PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
-  ./target/release/porf test262 report-all --resume --threads 8 --jobs 8
+LILA_FUNCTION_CACHE_LIMIT_BYTES=34359738368 \
+LILA_MODULE_CACHE_LIMIT_BYTES=536870912 \
+LILA_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
+  ./target/release/lila test262 report-all --resume --threads 8 --jobs 8
 ```
 
 Capture representative large-crate build timings with:
 
 ```sh
 ./scripts/dev.sh timings
-./scripts/dev.sh exact-test -p porffor-cli run_wasm_backend_succeeds_for_supported_fixture -- --exact
+./scripts/dev.sh exact-test -p lila-cli run_wasm_backend_succeeds_for_supported_fixture -- --exact
 ```
 
 The checked-in cross-feature latency workload is
@@ -4378,7 +4402,7 @@ The checked-in cross-feature latency workload is
 benchmarks on an idle machine with:
 
 ```sh
-cargo test -p porffor-cli --test perf -- --ignored --nocapture --test-threads=1
+cargo test -p lila-cli --test perf -- --ignored --nocapture --test-threads=1
 ```
 
 Measured on the 16-logical-CPU development machine on `2026-07-10`:
@@ -4390,9 +4414,9 @@ Measured on the 16-logical-CPU development machine on `2026-07-10`:
 - compiler edit through rebuilt authoritative host-output case: `8.64 s`
   (`1.04 s` rebuild plus `7.60 s` cache-invalidated run; target `<=10 s`);
 - warm exact Wasmtime-AOT execution: `3.96 ms` (target `<=1 s`);
-- repeated exact execution in a fresh `porf` process: `0.72 s`;
+- repeated exact execution in a fresh `lila` process: `0.72 s`;
 - warmed 20-case cross-feature chunk: `168.28 ms` (target `<=5 s`);
-- cold `wasm_host_output.js` after `porf cache prune`: `13.73 s`, including
+- cold `wasm_host_output.js` after `lila cache prune`: `13.73 s`, including
   `0.84 s` lowering and `11.73 s` native compilation (target `<=5 s`, not met).
 - that cold compile averaged `488%` CPU with the eight-thread Cranelift cap;
 - sampled peak RSS for the large host-output artifact was `3,165,520 KiB`;
@@ -4407,7 +4431,7 @@ reported as cold success.
 ### Real-suite throughput
 
 Calibrated on the 16-logical-CPU development machine on `2026-07-30` with
-`--threads 8 --jobs 8`, using `./target/release/porf`:
+`--threads 8 --jobs 8`, using `./target/release/lila`:
 
 - `built-ins/Array` (50 cases): `43.1 s` at 821% CPU, `0.86 s` per case;
 - `built-ins/Array/prototype@chunk-0001-of-0012` (250 cases): `4 m 13 s` at
@@ -4417,12 +4441,12 @@ At roughly `1.0 s` per case, the full pinned matrix of 498 nodes / 53,131 cases
 extrapolates to about **15 hours**. `report-all --resume` rewrites the aggregate
 after every node and checkpoints every 10 cases within a node, so the sweep is
 interruptible and resumable; poll it from another shell with
-`porf test262 progress-status --snapshot-name <name>`.
+`lila test262 progress-status --snapshot-name <name>`.
 
 Reproduce the calibration with:
 
 ```sh
-./target/release/porf test262 report --matrix-node built-ins/Array --snapshot-name calib50 --snapshot-dir target/test262-scratch/calib --threads 8 --jobs 8
+./target/release/lila test262 report --matrix-node built-ins/Array --snapshot-name calib50 --snapshot-dir target/test262-scratch/calib --threads 8 --jobs 8
 ```
 
 Existing developer artifacts are never cleaned automatically. If an old
@@ -4439,17 +4463,17 @@ perturbs emission order, function index assignment, or property installation
 order can leave every one of those assertions green while changing the emitted
 module.
 
-`crates/porffor-aot-wasm/tests/emit_golden.rs` closes that gap. It runs the real
+`crates/lila-aot-wasm/tests/emit_golden.rs` closes that gap. It runs the real
 `parse -> lower -> emit` pipeline over all 527 CLI fixtures and records the
 emitted byte length, a content hash, and the backend `debug_dump` per fixture.
-It is inert unless `PORFFOR_GOLDEN_OUT` names an output directory, so it costs
+It is inert unless `LILA_GOLDEN_OUT` names an output directory, so it costs
 nothing in an ordinary `cargo test` run.
 
 ```sh
 git stash
-PORFFOR_GOLDEN_OUT=$PWD/target/golden/before cargo test -p porffor-aot-wasm --test emit_golden
+LILA_GOLDEN_OUT=$PWD/target/golden/before cargo test -p lila-aot-wasm --test emit_golden
 git stash pop
-PORFFOR_GOLDEN_OUT=$PWD/target/golden/after cargo test -p porffor-aot-wasm --test emit_golden
+LILA_GOLDEN_OUT=$PWD/target/golden/after cargo test -p lila-aot-wasm --test emit_golden
 diff -r target/golden/before target/golden/after
 ```
 
@@ -4471,15 +4495,15 @@ Start with focused package tests while working, then widen only when the change
 touches shared behavior:
 
 ```sh
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli --test cli array::            # one area, ~1-3 min
-cargo test -p porffor-test262 --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli --test cli array::            # one area, ~1-3 min
+cargo test -p lila-test262 --quiet
 ```
 
 Wrap anything long in the stall guard rather than watching elapsed time:
 
 ```sh
-./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p porffor-cli --test cli -- --test-threads=2
+./scripts/run-watched.sh --label cli --stall 900 -- cargo test -p lila-cli --test cli -- --test-threads=2
 ```
 
 `scripts/run-watched.sh` writes the command's output to `target/watched/<label>.log`,
@@ -4489,7 +4513,7 @@ bound and `Atomics.wait` blocks outright, so a hung run is otherwise
 indistinguishable from a slow one — and piping a long run into `tail` hides
 progress entirely.
 
-The CLI integration tests live in `crates/porffor-cli/tests/cli/`, split into
+The CLI integration tests live in `crates/lila-cli/tests/cli/`, split into
 area modules (`array`, `string`, `typed_array`, `language`, `frontend`, ...) so
 that concurrent feature work does not funnel into a single file. They stay child
 modules of one target rather than separate `tests/*.rs` files because each extra
@@ -4497,19 +4521,19 @@ integration target statically relinks a 143 MB binary. Per-test cost varies by
 more than 1.7x across modules, so do not extrapolate one module's runtime to the
 whole suite.
 
-Every expected non-green outcome in **`porffor-cli`'s three integration-test
+Every expected non-green outcome in **`lila-cli`'s three integration-test
 targets** (`cli`, `perf`, `async_generator`) is declared in
-`crates/porffor-cli/tests/known-failures.tsv` — target, libtest name, state
+`crates/lila-cli/tests/known-failures.tsv` — target, libtest name, state
 (`fail`/`hang`/`ignored`/`unfilled`), owner task, reason, evidence — and
-enforced by `crates/porffor-cli/tests/cli/known_failures.rs`. Within that scope
+enforced by `crates/lila-cli/tests/cli/known_failures.rs`. Within that scope
 there is no skip list and no expected failure without an owner: an `#[ignore]`
 or a `#[should_panic]` with no row fails the suite, a row whose test no longer
 exists fails `cargo xc`, and a bare `#[should_panic]` (which would pass on any
 panic at all) is rejected outright.
 
 The scope is real, not a hedge: `TestTarget` is a closed three-variant enum and
-the source scan reads only `crates/porffor-cli/tests/`. Undeclared cases of
-exactly this shape survive one crate over — `porffor-aot-wasm` carries an
+the source scan reads only `crates/lila-cli/tests/`. Undeclared cases of
+exactly this shape survive one crate over — `lila-aot-wasm` carries an
 `#[ignore]` with a reason but no owner, expiry or row (`src/planning.rs`), and an
 undeclared `#[should_panic]` (`src/control_flow.rs`). Extending the ledger to
 unit tests in other crates is open work, not a claim this paragraph makes.

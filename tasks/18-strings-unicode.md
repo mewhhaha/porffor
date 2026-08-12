@@ -15,6 +15,29 @@ rewrites, while full Unicode normalization/case data and RegExp/Intl
 integration are not proven complete. The complete current-pin String tree and
 materialization-removal gate remain open.
 
+The metadata cases for `String.prototype.at`, `charAt`, `charCodeAt`,
+`codePointAt`, `includes`, `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`,
+`match`, `matchAll`, `search`, `repeat`, `padStart`, `padEnd`, `trim`,
+`trimStart`, `trimEnd`, `toString`, `valueOf`, `isWellFormed` and
+`toWellFormed` now run their pinned sources through the shared Wasm-AOT
+`propertyHelper.js` and general builtin metadata path; their path-specific
+rewrites have been removed. The exact shortcut inventory now assigns 33
+remaining observations to T18. Those are legacy, helper-reduction, coercion,
+cross-realm and other semantic rewrites rather than the metadata leaves above.
+The two non-`eval` Sputnik `charAt` receiver cases, the direct `charAt`
+position-coercion/rounding cases and the plain Array `toString` conversion
+matrix also run their pinned source now; existing product fixtures already
+encode those same receiver, conversion and assertion contracts. The remaining
+`charAt`/`charCodeAt`/`indexOf` legacy rewrites contain dynamic `eval` and stay
+explicit until the T13 policy permits a static-source replacement or the
+pinned cases are classified unsupported.
+
+The direct `String.fromCharCode` lowering now consumes the shared exact
+`ToUint32` residue emitter before selecting the low 16 bits. It no longer
+narrows to a saturating signed `i64` first, so infinities and finite magnitudes
+outside the signed-64-bit interval obey `ToUint16` rather than becoming
+`0xffff` or `0x0000` by accident.
+
 ## Objective
 
 Implement ECMAScript strings as sequences of UTF-16 code units, including lone surrogates, while retaining an efficient Wasm representation. Complete String primitives, wrapper exotics, iterators and all pinned String APIs without ASCII-only assumptions or exact-test materializations.
@@ -87,10 +110,10 @@ Implement from shared conversion/string primitives rather than method-local byte
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir string_ --quiet
-cargo test -p porffor-aot-wasm string_ --quiet
-cargo test -p porffor-cli wasm_string --quiet
-./target/debug/porf test262 run built-ins/String --execution-backend wasm --timeout-ms 180000 --threads 8
+cargo test -p lila-ir string_ --quiet
+cargo test -p lila-aot-wasm string_ --quiet
+cargo test -p lila-cli wasm_string --quiet
+./target/debug/lila test262 run built-ins/String --execution-backend wasm --timeout-ms 180000 --threads 8
 ```
 
 Add focused representation tests for every surrogate boundary and rerun JSON, RegExp, URI, Date and Intl-adjacent filters that consume strings.

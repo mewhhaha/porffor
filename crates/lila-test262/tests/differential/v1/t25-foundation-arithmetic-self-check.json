@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "t25/foundation/arithmetic-self-check",
+  "goal": "script",
+  "observation_contract": "self_checking_no_output",
+  "filename": "differential/v1/t25-foundation-arithmetic-self-check.js",
+  "timeout_ms": 5000,
+  "source": "if (1 + 1 !== 2) {\n  throw \"number addition diverged\";\n}\n"
+}

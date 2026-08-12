@@ -15,6 +15,39 @@ materialization, and the README records unsupported suspended/control-flow
 families. General sync/async generator state machines, iterator-close coverage
 across all consumers and complete resource-management filters remain open.
 
+The generator-yield IR now distinguishes `yield` from `yield*` with the closed
+`YieldForm` domain. Its delegation case carries a one-inhabitant
+`GeneratorDelegationProtocol`, which is compile-time tied to all four iterator
+obligations and to the sync/async delegation emitter family. The parser-facing
+delegation boolean is converted exactly once where `StatementIr` is built;
+backend consumers match the closed form exhaustively. This seam is covered by
+the green central feature-enabled CLI compile without changing
+`generator_delegation.rs`; focused yield execution remains unverified, and
+this is not a claim that the broader generator or iterator-close acceptance
+criteria are complete.
+
+Call-argument spread now has the same compile-enforced boundary:
+`ExprIr::SpreadArgument` carries a `SpreadArgumentIr`, whose required
+one-inhabitant `SpreadArgumentProtocol` is tied through the iterator-operation
+catalog to `emit_call_args_vector`. The witness credits only the operations the
+emitter performs (`GetIterator`, `IteratorStep`, `IteratorValue`) and records
+the no-`IteratorClose` path as an implementation fact. Adding a new spread IR
+construction without that protocol is therefore a build error; the backend
+does not branch on the witness, so evaluation order and emitted control flow
+are unchanged. The central feature-enabled CLI compile covers this seam;
+focused spread execution remains unverified.
+
+Array-literal spread remains a separate correctness gap. The intended closed
+decision is `ArraySpreadStrategy::{ProvenDense, GeneralIterator}`, but the
+current compiler cannot honestly construct `ProvenDense`: a dense inferred
+array shape says nothing about a patched `%Array.prototype%[@@iterator]`, and
+the available `array_prototype_mutated` fact starts conservative (`true`) and
+has no proven-intact transition. Encoding a never-reachable fast path would not
+make a plausible mistake fail to compile. Until lowering gains a realm/version
+witness (or deletes the shortcut in favor of a direct general iterator
+accumulator), known-Array `[].concat(...)` desugaring remains open and must not
+be described as protocol-equivalent.
+
 ## Objective
 
 Implement resumable generator execution, the complete iterator protocols, iterator helpers and explicit resource management through reusable state-machine and iterator-operation layers.
@@ -73,10 +106,10 @@ Coordinate syntax/early errors with T07 and error objects with T24.
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir generator_ --quiet
-cargo test -p porffor-aot-wasm iterator_ --quiet
-cargo test -p porffor-cli wasm_iterator --quiet
-./target/debug/porf test262 run built-ins/Iterator --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-ir generator_ --quiet
+cargo test -p lila-aot-wasm iterator_ --quiet
+cargo test -p lila-cli wasm_iterator --quiet
+./target/debug/lila test262 run built-ins/Iterator --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Also run language generator/`yield`, `for-of`, spread/destructuring, AsyncIterator, DisposableStack, AsyncDisposableStack and explicit-resource-management filters.

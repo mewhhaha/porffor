@@ -1,5 +1,18 @@
 # Contract: early-error taxonomy — one closed `EarlyErrorCode` domain and one fragment table
 
+## 2026-08-12 normative parse-once amendment
+
+T07 removed the second parser path described by the original measurement
+below. `lila-front` now owns the sole product parse and returns goal-typed
+`ParsedScript` / `ParsedModule` values holding the AST and its exact interner.
+Loaded dependencies retain that result; request discovery and module-record
+construction borrow the same parser session. Consequently
+`reparse_module`, `MODULE_REPARSE_PREFIX`, and assertion P6 no longer exist.
+All later references to them describe the historical baseline and discrepancy
+ledger only; they are not current encoder requirements. The closed
+`EarlyErrorCode` domain, the single classifier, and the remaining assertions
+stay normative.
+
 Area: *Early-error taxonomy: one closed `EarlyErrorCode` domain and one fragment
 table, not two that have already drifted*
 Stage: FORMALIZER. This document is normative for the encoder and is the oracle
@@ -21,33 +34,33 @@ same closed set. Both were measured, not recalled; every count and every
 The brief is wrong or imprecise in seven places. Each correction is load-bearing
 for the encoding, so they come first.
 
-### 0.1 `EarlyErrorCode` **cannot** live in `crates/porffor-ir` — it would be a dependency cycle
+### 0.1 `EarlyErrorCode` **cannot** live in `crates/lila-ir` — it would be a dependency cycle
 
-The brief's scope item (a) puts the enum in `crates/porffor-ir/src/early_error_code.rs`
-and has `porffor_front::parser_static_semantics_error_code` consume it. Measured
+The brief's scope item (a) puts the enum in `crates/lila-ir/src/early_error_code.rs`
+and has `lila_front::parser_static_semantics_error_code` consume it. Measured
 from `Cargo.toml`:
 
 ```
-porffor-front  deps: boa_ast, boa_interner, boa_parser        (no porffor-ir)
-porffor-ir     deps: ..., porffor-front                        (porffor-ir → porffor-front)
-porffor-engine deps: ..., porffor-front, porffor-ir
-porffor-test262 deps: porffor-engine, porffor-front, porffor-ir
+lila-front  deps: boa_ast, boa_interner, boa_parser        (no lila-ir)
+lila-ir     deps: ..., lila-front                        (lila-ir → lila-front)
+lila-engine deps: ..., lila-front, lila-ir
+lila-test262 deps: lila-engine, lila-front, lila-ir
 ```
 
-`porffor-ir` depends on `porffor-front` (`crates/porffor-ir/src/diagnostics.rs:1`
-is `use porffor_front::SourceSpan;`). A type in `porffor-ir` therefore cannot be
-named by `porffor-front`.
+`lila-ir` depends on `lila-front` (`crates/lila-ir/src/diagnostics.rs:1`
+is `use lila_front::SourceSpan;`). A type in `lila-ir` therefore cannot be
+named by `lila-front`.
 
 Both crates independently call boa's parser and both independently need the
-classification: `porffor_front::parse` (`crates/porffor-front/src/lib.rs:166-173`)
-for the entry file, and `porffor_ir::modules::record::reparse_module`
-(`crates/porffor-ir/src/modules/record.rs:1331-1351`) for every dependency
+classification: `lila_front::parse` (`crates/lila-front/src/lib.rs:166-173`)
+for the entry file, and `lila_ir::modules::record::reparse_module`
+(`crates/lila-ir/src/modules/record.rs:1331-1351`) for every dependency
 module. The one table must therefore sit in the lower crate.
 
 **Decision D0.1.** `EarlyErrorCode`, the fragment table and the classifier live in
-a new module **`crates/porffor-front/src/early_error_code.rs`**.
-`crates/porffor-ir/src/early_error_code.rs` still exists and is still this lane's
-exclusive module, but it holds only what needs `porffor-ir` types: the
+a new module **`crates/lila-front/src/early_error_code.rs`**.
+`crates/lila-ir/src/early_error_code.rs` still exists and is still this lane's
+exclusive module, but it holds only what needs `lila-ir` types: the
 re-export and the single `EarlyErrorCode → IrDiagnosticKind` map (§2.2). There
 is no second copy of any table.
 
@@ -57,11 +70,11 @@ is no second copy of any table.
 crates — the brief's counts are exact and were reproduced). Two of the 20 are
 not early-error codes:
 
-- `"E_IR_DIAGNOSTIC"` (`crates/porffor-test262/src/lib.rs:21523`) is the display
+- `"E_IR_DIAGNOSTIC"` (`crates/lila-test262/src/lib.rs:21523`) is the display
   placeholder used when `diagnostic.code` is `None`, i.e. for `Unsupported` and
   `Lowering` diagnostics. It names the *absence* of a code. Making it an
   inhabitant would let `code: Some(EarlyErrorCode::IrDiagnostic)` mean "no code".
-- `"E_TEST_EARLY"` (`crates/porffor-engine/src/lib.rs:4112`) is a fabricated code
+- `"E_TEST_EARLY"` (`crates/lila-engine/src/lib.rs:4112`) is a fabricated code
   in one `#[test]`. That a unit test could mint a code that no producer emits is
   itself an instance of MC2.
 
@@ -73,7 +86,7 @@ deleted and the test names a real code (§6.9).
 
 The brief says paths 2 (module entry) and 3 (module dependency) both fall through.
 Measured: `Engine::compile_on_current_thread`
-(`crates/porffor-engine/src/lib.rs:1907-1924`) calls `porffor_front::parse` on the
+(`crates/lila-engine/src/lib.rs:1907-1924`) calls `lila_front::parse` on the
 **entry** for *both* goals before any lowering. So a module entry file is
 classified by front (`lib.rs:213-215`) and already reports
 `E_OBJECT_DUPLICATE_PROTO`. Only the **dependency** path — where
@@ -94,7 +107,7 @@ Measured: `boa` produces **five** distinct wordings for this rule.
 | W4 | `lexical name declared in var declared names` | `statement/switch/mod.rs:101` |
 | W5 | `invalid scope analysis: duplicate lexical declaration` | `boa_parser/src/parser/mod.rs:186-191` wrapping `boa_ast/src/scope_analyzer.rs:1783,1793` |
 
-Front (`crates/porffor-front/src/lib.rs:235-242`) matches W1 (literal), W5
+Front (`crates/lila-front/src/lib.rs:235-242`) matches W1 (literal), W5
 (`"duplicate lexical declaration"`) and — via the loose
 `"lexical" && "declared" && "names"` fallback — W3 and W4. It does **not** match
 W2, because W2 contains `name \`x\`` and not the substring `names`.
@@ -112,7 +125,7 @@ So the drift is bidirectional and both directions are live:
 - **A W3/W4/W5 lexical error in a dependency module reports `Unsupported`**, whose
   `error_type` is `None` and whose kind is not in
   `{EarlyError, LinkError}` — so `compile_negative_error_matches`
-  (`crates/porffor-test262/src/lib.rs:21501-21506`) rejects it and the case
+  (`crates/lila-test262/src/lib.rs:21501-21506`) rejects it and the case
   **fails**. This one is conformance-visible, not merely taxonomy-visible.
 
 ### 0.5 W5 is **not** reachable from the product path — corrected at DISCREPANCY-FIXER stage
@@ -133,8 +146,8 @@ Measured in `boa_ast-0.21.1/src/scope_analyzer.rs`:
 - both of those returns require `env.has_binding(name)` / `env.has_lex_binding(name)`
   on the `Scope` that was passed in;
 - both callers in this workspace pass a **fresh** `Scope::new_global()` —
-  `porffor_front::parse` (`front/lib.rs:239`) and
-  `porffor_ir::modules::record::reparse_module` (`record.rs:1333`) — whose
+  `lila_front::parse` (`front/lib.rs:239`) and
+  `lila_ir::modules::record::reparse_module` (`record.rs:1333`) — whose
   `bindings` are `RefCell::default()` (`boa_ast/src/scope.rs:115-128`);
 - `visit_module_mut` (**:1202-1210**) contains no `Break` at all, so the module
   goal cannot reach it under any scope.
@@ -165,9 +178,9 @@ every row and makes the table order-independent.
 
 ### 0.7 `E_MODULE_DUPLICATE_EXPORT` is already emitted under two phases
 
-`crates/porffor-ir/src/modules/early.rs:44-55` emits it through
+`crates/lila-ir/src/modules/early.rs:44-55` emits it through
 `IrDiagnostic::early_error` (kind `EarlyError`, phase `Early`).
-`crates/porffor-ir/src/modules/graph.rs:783-788` pushes
+`crates/lila-ir/src/modules/graph.rs:783-788` pushes
 `ModuleLinkErrorIr::DuplicateExport`, which becomes
 `IrDiagnostic::link_error` (kind `LinkError`, phase `Resolution`) at
 `graph.rs:226`. 16.2.3.1 makes it an **early** error and
@@ -258,7 +271,7 @@ property that matters here:
 - test262 gives them their own `phase: resolution` but the *same*
   `type: SyntaxError` — measured, see §1.4.
 - In an AOT compiler they are reported at compile time, exactly like an early
-  error. `crates/porffor-ir/src/diagnostics.rs:28-31` already says this.
+  error. `crates/lila-ir/src/diagnostics.rs:28-31` already says this.
 
 They therefore belong in the same closed code domain, distinguished by a derived
 phase, not by living in a separate enum. `ModuleLinkErrorIr::code()`
@@ -267,7 +280,7 @@ phase, not by living in a separate enum. `ModuleLinkErrorIr::code()`
 Two of its seven are **not** spec conditions at all —
 `E_MODULE_UNSUPPORTED_PHASE` and `E_MODULE_TOO_MANY_UNITS` are implementation
 limits (`graph.rs:141-168`), and their messages say so
-("unsupported in porffor wasm-aot: ..."). Their current classification as
+("unsupported in lila wasm-aot: ..."). Their current classification as
 `SyntaxError`/`Resolution` is a spec claim this compiler cannot support. That is
 a **recorded defect, deliberately not fixed here** — see §4 B0 and ledger entry
 L4.
@@ -340,7 +353,7 @@ carries and names the operation alongside, so the reference survives renumbering
 Today, three independent free fields carry what is one derived triple:
 
 ```rust
-// crates/porffor-ir/src/diagnostics.rs:35-43
+// crates/lila-ir/src/diagnostics.rs:35-43
 pub struct IrDiagnostic {
     pub kind: IrDiagnosticKind,          // EarlyError | LinkError | Unsupported | Lowering
     pub phase: IrDiagnosticPhase,        // Early | Resolution | Lowering
@@ -352,7 +365,7 @@ pub struct IrDiagnostic {
 ```
 
 ```rust
-// crates/porffor-front/src/lib.rs:57-65
+// crates/lila-front/src/lib.rs:57-65
 pub struct ParseDiagnostic {
     pub kind: ParseDiagnosticKind,       // MalformedJavaScript | UnsupportedParserFeature
     pub phase: ParseDiagnosticPhase,     // Parse | Early
@@ -366,14 +379,14 @@ pub struct ParseDiagnostic {
 Both collapse to **one closed field plus payload**. Everything else is a `const
 fn` of it.
 
-### 2.1 `crates/porffor-front/src/early_error_code.rs` — NEW
+### 2.1 `crates/lila-front/src/early_error_code.rs` — NEW
 
 The sole definition of the domain, the sole producer of every `E_...` string, and
 the sole classifier of boa messages.
 
 #### 2.1.1 The enum, generated from one row list
 
-Follow the shape of `crates/porffor-ir/src/native_error.rs` exactly — it is the
+Follow the shape of `crates/lila-ir/src/native_error.rs` exactly — it is the
 landed precedent from round 1's `closed-name-domains.md`, and consistency here is
 worth more than novelty. One `macro_rules!` row list generates the enum, `ALL`,
 `wire_name` and `from_wire_name`, so there is no second list to forget.
@@ -527,7 +540,7 @@ future insertion cannot silently change an existing classification.
 #### 2.1.3 The classifier
 
 ```rust
-/// The prefix `porffor_ir::modules::record::reparse_module` puts in front of
+/// The prefix `lila_ir::modules::record::reparse_module` puts in front of
 /// boa's message (`record.rs:1343`). Const assertion P6 proves it matches no
 /// rule on its own, so classifying a prefixed message and a bare one give the
 /// same answer.
@@ -548,15 +561,15 @@ pub fn classify_parse_failure(message: &str) -> Option<EarlyErrorCode> {
 }
 ```
 
-There is exactly one such function in the workspace. `porffor-ir` calls this one.
+There is exactly one such function in the workspace. `lila-ir` calls this one.
 
-### 2.2 `crates/porffor-ir/src/early_error_code.rs` — NEW
+### 2.2 `crates/lila-ir/src/early_error_code.rs` — NEW
 
-Everything that needs a `porffor-ir` type, and nothing else. `EarlyErrorCode` is
+Everything that needs a `lila-ir` type, and nothing else. `EarlyErrorCode` is
 foreign here, so this is a free `const fn`, not an inherent `impl`.
 
 ```rust
-pub use porffor_front::EarlyErrorCode;
+pub use lila_front::EarlyErrorCode;
 
 /// Which stage rejects a program carrying this code.
 ///
@@ -594,10 +607,10 @@ forces the fix in §0.7 / §4 B4: `ModuleLinkErrorIr::DuplicateExport` now yield
 an `EarlyError`/`Early` diagnostic from *both* producers, and const assertion P7
 makes any other answer fail to build.
 
-### 2.3 `crates/porffor-ir/src/diagnostics.rs` — rewritten
+### 2.3 `crates/lila-ir/src/diagnostics.rs` — rewritten
 
 ```rust
-use porffor_front::{EarlyErrorCode, SourceSpan};
+use lila_front::{EarlyErrorCode, SourceSpan};
 use crate::early_error_code::rejection_kind;
 use crate::NativeErrorKind;
 
@@ -671,10 +684,10 @@ impl IrDiagnostic {
 
 `LoweringStage` is unchanged.
 
-### 2.4 `crates/porffor-front/src/lib.rs` — `ParseDiagnostic` collapses the same way
+### 2.4 `crates/lila-front/src/lib.rs` — `ParseDiagnostic` collapses the same way
 
 ```rust
-/// Everything `porffor_front::parse` can report, as one closed domain.
+/// Everything `lila_front::parse` can report, as one closed domain.
 ///
 /// The two `P_...` codes are compiler-gap codes, not spec rejections; keeping
 /// them out of `EarlyErrorCode` is deliberate — an `EarlyErrorCode` must always
@@ -729,7 +742,7 @@ at `ParseDiagnosticPhase::Early`. That is **MC4 verbatim**: one condition under
 two phases from two paths. P7 constrains what the *table* can yield; it says
 nothing about what a *call site* can name, and `ParseDiagnosticPhase` and
 `IrDiagnosticPhase` are unrelated types with nothing tying them. The mirror image
-held in `porffor-ir`: `IrDiagnostic::rejected(EarlyErrorCode::ModuleMissingExport, …)`
+held in `lila-ir`: `IrDiagnostic::rejected(EarlyErrorCode::ModuleMissingExport, …)`
 compiled inside `modules/early.rs`, a `ParseModule`-stage producer that names two
 codes directly.
 
@@ -763,8 +776,8 @@ still uses it, and now so does the constructor.
 
 ### 2.5 The const assertions
 
-All of P1–P6 live in `crates/porffor-front/src/early_error_code.rs`; P7–P9 live
-in `crates/porffor-ir/src/early_error_code.rs`. They need a private
+All of P1–P6 live in `crates/lila-front/src/early_error_code.rs`; P7–P9 live
+in `crates/lila-ir/src/early_error_code.rs`. They need a private
 `const fn contains_sub(haystack: &str, needle: &str) -> bool` written as a byte
 loop, in the shape of `native_error.rs`'s private `str_eq` (and, like it, private
 on purpose: a `pub const fn contains_sub` would be workspace surface with no
@@ -777,7 +790,7 @@ product call site).
 | **P3** | `ALL[i] as u8 == i` for all *i*, and `from_wire_name(c.wire_name()) == Some(c)` for all `c` | `ALL` out of declaration order or incomplete; `wire_name`/`from_wire_name` diverging |
 | **P4** | no two codes share a `wire_name()` | a duplicated spelling would make one code unreachable through `from_wire_name` and would collapse two taxonomy buckets |
 | **P5** | every `wire_name()` begins `"E_"` and contains only `b'A'..=b'Z'` and `b'_'` | `"e_FOO"`, `"E_Foo"`, a stray space — a typo that a `&str` domain would carry all the way into the failure taxonomy |
-| **P5'** | no `wire_name()` equals `NO_EARLY_ERROR_CODE` (`"E_IR_DIAGNOSTIC"`, now spelled once in `porffor-front` beside the codes) (DISCREPANCY-FIXER) | a nineteenth variant spelled `E_IR_DIAGNOSTIC` passes P4 (distinct) and P5 (well-formed) and is then indistinguishable from "no code" in every failure-detail string — the §0.2 confusion, reintroduced |
+| **P5'** | no `wire_name()` equals `NO_EARLY_ERROR_CODE` (`"E_IR_DIAGNOSTIC"`, now spelled once in `lila-front` beside the codes) (DISCREPANCY-FIXER) | a nineteenth variant spelled `E_IR_DIAGNOSTIC` passes P4 (distinct) and P5 (well-formed) and is then indistinguishable from "no code" in every failure-detail string — the §0.2 confusion, reintroduced |
 | **P6** | `classify_parse_failure(MODULE_REPARSE_PREFIX) == None` | a future fragment (e.g. bare `"module"`) that the dependency-path wrapper prefix would match on its own, making every dependency parse failure classify as one code |
 | **P10** | for every row *i* and every `w` in `rows[i].witnesses`, `classify_parse_failure(w) == Some(rows[i].code)` — checked through the **whole** classifier, not row by row (DISCREPANCY-FIXER) | P2 checks `rule_matches`; the classifier now also refuses `INTERPOLATING_MESSAGE_SHAPES` (ledger L1). A guard shape that happens to occur inside a real boa wording would silently take a whole spec condition out of the taxonomy, and P2 would still pass |
 | **P7** | for every row of `PARSE_FAILURE_RULES`, `rejection_kind(row.code) == IrDiagnosticKind::EarlyError`; and no code with `rejection_kind == LinkError` appears in any row | a boa **parse** failure classified as a link error, or a link-only code wired into the parse table — i.e. exactly the `E_MODULE_DUPLICATE_EXPORT` phase split of §0.7 |
@@ -801,11 +814,11 @@ which would make an inconsistent `(kind, code)` pair not merely unwritable but
 non-existent. It is **rejected for this lane**, on measured grounds: the four
 unit variants are matched by name in three files outside this lane's ownership —
 
-- `crates/porffor-aot-wasm/src/emit.rs:313-318`
-- `crates/porffor-ir/src/ir.rs:2248-2255`
-- `crates/porffor-ir/src/lowering.rs:391-400`
+- `crates/lila-aot-wasm/src/emit.rs:313-318`
+- `crates/lila-ir/src/ir.rs:2248-2255`
+- `crates/lila-ir/src/lowering.rs:391-400`
 
-— and `porffor-aot-wasm` is batch 2's crate. Keeping the four unit variants means
+— and `lila-aot-wasm` is batch 2's crate. Keeping the four unit variants means
 this lane's diff touches **only** its `files_owned` list plus the one routed
 cross-lane line. The private-`code`-field design (§2.3) buys the same closure
 against every constructor written outside `diagnostics.rs`; what it does not buy
@@ -878,11 +891,11 @@ Each entry states why a type cannot carry it.
   in `boa_parser-0.21.1` and `boa_ast-0.21.1` against the 15 rows — exactly 28
   producer sites classify, every one to the intended code, and zero literals
   match two rows. The table has no false positive from boa's *own* corpus.
-- **L2 — `"SyntaxError"` in `porffor-front`.** `ParseCode::error_type` returns a
-  `&'static str` literal because `NativeErrorKind` lives in `porffor-ir`, which
-  `porffor-front` cannot name (§0.1). The literal count in `porffor-front` goes
+- **L2 — `"SyntaxError"` in `lila-front`.** `ParseCode::error_type` returns a
+  `&'static str` literal because `NativeErrorKind` lives in `lila-ir`, which
+  `lila-front` cannot name (§0.1). The literal count in `lila-front` goes
   from 3 to 1 and it is no longer at any call site, but it is still a string.
-  Closing this requires moving `NativeErrorKind` below `porffor-ir`, which is
+  Closing this requires moving `NativeErrorKind` below `lila-ir`, which is
   `closed-name-domains.md`'s file and another lane's decision.
 - **L3 — a fifth constructor inside `diagnostics.rs`.** The private `code` field
   stops struct literals everywhere else in the workspace. Someone adding a fifth
@@ -921,8 +934,8 @@ Each entry states why a type cannot carry it.
   `&mut IrDiagnostic`, `d.kind = IrDiagnosticKind::Unsupported;` compiles and
   desynchronises `kind` from `code`, and therefore `phase()`/`error_type()` from
   the condition. Making `kind` private needs a `kind()` accessor at four read
-  sites, two of which — `crates/porffor-aot-wasm/src/emit.rs:313-318` (batch 2's
-  crate, excluded) and `crates/porffor-ir/src/ir.rs:2248-2255` — are outside this
+  sites, two of which — `crates/lila-aot-wasm/src/emit.rs:313-318` (batch 2's
+  crate, excluded) and `crates/lila-ir/src/ir.rs:2248-2255` — are outside this
   lane's `files_owned`. Measured: zero `&mut IrDiagnostic` bindings exist in the
   workspace today, so nothing exploits it. Close it in the same patch as §2.6's
   payload-carrying `IrDiagnosticKind`, which removes the field entirely.
@@ -942,7 +955,7 @@ Each entry states why a type cannot carry it.
   the table stays private; that is a real cross-crate consumer.
 - **L6 — the dependency-path message prefix existed in three places. CLOSED at
   DISCREPANCY-FIXER stage.** `MODULE_REPARSE_PREFIX`, the live literal at
-  `crates/porffor-ir/src/modules/record.rs:1343`, and a *third* copy
+  `crates/lila-ir/src/modules/record.rs:1343`, and a *third* copy
   (`const PREFIX: &str = "lowering module reparse failed: ";`) inside the
   `modules/early.rs` test that is P6's runtime half — so a drift in `record.rs`
   would have left both checks guarding a string no producer emits, which is
@@ -955,7 +968,7 @@ Each entry states why a type cannot carry it.
   pass-count report.** `Engine::compile_on_current_thread` converted an
   `IrDiagnostic` into an `EngineError` carrying `ir_diagnostic` only when
   `diagnostic.kind == IrDiagnosticKind::EarlyError`. A `LinkError` fell through,
-  reached `porffor_aot_wasm::emit` (`emit.rs:312-321`), was flattened to
+  reached `lila_aot_wasm::emit` (`emit.rs:312-321`), was flattened to
   `EmitError::unsupported(message)`, and arrived with `ir_diagnostic: None` —
   so `compile_negative_error_matches`'s `IrDiagnosticPhase::Resolution` **and**
   `IrDiagnosticPhase::Lowering` arms were both unreachable, and DR-5/DR-11 could
@@ -969,7 +982,7 @@ Each entry states why a type cannot carry it.
 
   Two edits, both inside the retrofit map (§6.12, §6.13): the engine's find
   predicate is now `diagnostic.code().is_some()` — the same predicate
-  `porffor-test262` already used, and the one that survives §2.6's
+  `lila-test262` already used, and the one that survives §2.6's
   payload-carrying `IrDiagnosticKind` — and the negative-phase domain became a
   closed `NegativePhase` enum whose `is_compile_only()` is an exhaustive match
   admitting `Resolution`. Kept in the ledger rather than deleted because the
@@ -1043,7 +1056,7 @@ spec-defensible independently (15.2.1 is a lexical-redeclaration rule).
 
 | id | Mistake | Today | After | Error |
 |---|---|---|---|---|
-| MC1 | Add an early-error rule to one table and not the other | happens silently; **has happened twice and is live** (§0.3, §0.4) | there is no second table; `early.rs:107-170` is deleted and `porffor_ir` calls `porffor_front::classify_parse_failure` | unrepresentable — deletion, not a diagnostic |
+| MC1 | Add an early-error rule to one table and not the other | happens silently; **has happened twice and is live** (§0.3, §0.4) | there is no second table; `early.rs:107-170` is deleted and `lila_ir` calls `lila_front::classify_parse_failure` | unrepresentable — deletion, not a diagnostic |
 | MC1′ | Add a row that shadows an existing row, or is shadowed by one | silent misclassification; the disjointness claim is a comment (`early.rs:114`) | `witnesses` + **P2** | `error: evaluation of constant value failed` at the `const _: () = assert!(witnesses_select_their_own_row(), …)` in `early_error_code.rs` |
 | MC1″ | Add a row with an empty `fragments` list | matches every message; every parse failure collapses to one code | **P1** | same const-assert failure, distinct message |
 | MC2 | Mint a code as a fresh string literal | compiles; 51 tokens over 4 crates; typo = unmatched arm = silent misclassification | there is no `&'static str` code anywhere; `EarlyErrorCode` has no `FromStr`/`Display` | `error[E0308]: expected \`EarlyErrorCode\`, found \`&str\`` at any construction site |
@@ -1062,7 +1075,7 @@ No type in this lane is decoration: every construct in §3's mapping table has a
 least one mistake class that fails to build without it.
 
 **DISCREPANCY-FIXER correction to that status.** MC4 was discharged on the
-`porffor-ir` side only. The *call-site* half was still convention in both
+`lila-ir` side only. The *call-site* half was still convention in both
 directions — `ParseError::early_error(EarlyErrorCode::ModuleMissingExport, …)`
 and `IrDiagnostic::rejected(EarlyErrorCode::ModuleMissingExport, …)` inside
 `modules/early.rs` both compiled, each reporting one code under the wrong phase
@@ -1082,27 +1095,27 @@ is the honest classification.
 ## 6. Retrofit map
 
 Strictly ordered. Each step leaves the tree in a state where the next step's
-errors are attributable. `cargo check -p porffor-front` after step 3;
-`cargo check -p porffor-ir` after step 8; `cargo check --workspace` after step 11.
+errors are attributable. `cargo check -p lila-front` after step 3;
+`cargo check -p lila-ir` after step 8; `cargo check --workspace` after step 11.
 
-### 6.1 NEW `crates/porffor-front/src/early_error_code.rs`
+### 6.1 NEW `crates/lila-front/src/early_error_code.rs`
 
 The whole of §2.1 plus const assertions P1–P6. Nothing else; this file must not
-name any `porffor-ir` type.
+name any `lila-ir` type.
 
-### 6.2 `crates/porffor-front/src/lib.rs` — module wiring
+### 6.2 `crates/lila-front/src/lib.rs` — module wiring
 
 Add `mod early_error_code;` and
 `pub use early_error_code::{classify_parse_failure, EarlyErrorCode, MODULE_REPARSE_PREFIX};`.
 
-### 6.3 `crates/porffor-front/src/lib.rs:40-65` — `ParseCode` and `ParseDiagnostic`
+### 6.3 `crates/lila-front/src/lib.rs:40-65` — `ParseCode` and `ParseDiagnostic`
 
 Add `enum ParseCode` (§2.4). Delete `ParseDiagnostic`'s `kind`, `phase` and
 `error_type` fields; retype `code` to `ParseCode`; add the three accessors.
 `ParseDiagnosticKind` and `ParseDiagnosticPhase` keep their definitions — they
 are now return types, not fields.
 
-### 6.4 `crates/porffor-front/src/lib.rs:73-128` — the three constructors
+### 6.4 `crates/lila-front/src/lib.rs:73-128` — the three constructors
 
 `malformed` → `code: ParseCode::Malformed`. `unsupported_parser_feature` →
 `ParseCode::UnsupportedParserFeature`. `early_error(code, error_type, message,
@@ -1111,7 +1124,7 @@ span)` → `early_error(code: EarlyErrorCode, message, span)`, storing
 `"SyntaxError"` literals leave the constructors and become `ParseCode`'s three
 `const fn` bodies (2 + 1 literals).
 
-### 6.5 `crates/porffor-front/src/lib.rs:181-185` and `:205-256` — the classifier
+### 6.5 `crates/lila-front/src/lib.rs:181-185` and `:205-256` — the classifier
 
 `parser_static_semantics_error_code` is **deleted in full** (52 lines, 17 `E_`
 tokens, including the loose alternative at `:237-239` and the doc comment at
@@ -1129,7 +1142,7 @@ Note the argument is `&err`, the **bare** boa message — front does not apply t
 `"parse error: "` prefix before classifying (`lib.rs:178-181`), and must not
 start.
 
-### 6.6 `crates/porffor-front/src/lib.rs` tests — 5 sites
+### 6.6 `crates/lila-front/src/lib.rs` tests — 5 sites
 
 `:356`, `:380`, `:448` → `ParseCode::Malformed`. `:396` →
 `ParseCode::Early(EarlyErrorCode::ObjectDuplicateProto)`. `:408`, `:413`, `:421`,
@@ -1138,11 +1151,11 @@ start.
 `ParseCode::Early(EarlyErrorCode::DuplicateLexicalDeclaration)` and no longer as
 `Malformed`.
 
-### 6.7 NEW `crates/porffor-ir/src/early_error_code.rs`
+### 6.7 NEW `crates/lila-ir/src/early_error_code.rs`
 
 §2.2 plus const assertions P7–P9.
 
-### 6.8 `crates/porffor-ir/src/lib.rs`
+### 6.8 `crates/lila-ir/src/lib.rs`
 
 - Add `mod early_error_code;` beside `mod early_errors;` (line 60-ish) —
   **note the two names are unrelated**; `early_errors.rs` is derived-constructor
@@ -1153,16 +1166,16 @@ start.
   `pub use native_error::NativeErrorKind;` (line 136).
 - `:1185` → `.all(|d| d.code() != Some(EarlyErrorCode::ObjectDuplicateProto))`.
 
-### 6.9 `crates/porffor-ir/src/diagnostics.rs`
+### 6.9 `crates/lila-ir/src/diagnostics.rs`
 
 The whole of §2.3. `early_error` and `link_error` are deleted; `rejected` replaces
 both. The `"SyntaxError"` literal at `:68` disappears.
 
-### 6.10 `crates/porffor-ir/src/modules/early.rs`
+### 6.10 `crates/lila-ir/src/modules/early.rs`
 
 - Delete `struct ParseFailureRule` and `const PARSE_FAILURE_RULES`
   (`:107-170`, 64 lines, 11 `E_` tokens). Replace the doc comment at `:98-106`
-  with a pointer to `porffor_front::early_error_code`.
+  with a pointer to `lila_front::early_error_code`.
 - `:49-54` and `:83-92` → `IrDiagnostic::rejected(EarlyErrorCode::ModuleDuplicateExport, …)`
   and `IrDiagnostic::rejected(EarlyErrorCode::ModuleUndeclaredExport, …)`. The
   first currently reads `error.code()` from a `ModuleLinkErrorIr`; name the code
@@ -1170,7 +1183,7 @@ both. The `"SyntaxError"` literal at `:68` disappears.
 - `module_parse_failure_diagnostic` becomes:
   ```rust
   pub(crate) fn module_parse_failure_diagnostic(message: &str) -> IrDiagnostic {
-      match porffor_front::classify_parse_failure(message) {
+      match lila_front::classify_parse_failure(message) {
           Some(code) => IrDiagnostic::rejected(code, message, None),
           None => IrDiagnostic::unsupported(message),
       }
@@ -1185,7 +1198,7 @@ both. The `"SyntaxError"` literal at `:68` disappears.
   to all 15 rows' witnesses under the `MODULE_REPARSE_PREFIX`. Add the **B1** and
   **B2** cases explicitly.
 
-### 6.11 `crates/porffor-ir/src/modules/graph.rs`
+### 6.11 `crates/lila-ir/src/modules/graph.rs`
 
 - `:174-186` `pub const fn code(&self) -> &'static str` → `-> EarlyErrorCode`,
   seven arms returning variants. Keep the arm order.
@@ -1194,7 +1207,7 @@ both. The `"SyntaxError"` literal at `:68` disappears.
   lands.
 - `:1783` → `d.code() == Some(EarlyErrorCode::ModuleTooManyUnits)`.
 
-### 6.12 `crates/porffor-engine/src/lib.rs` — tests only
+### 6.12 `crates/lila-engine/src/lib.rs` — tests only
 
 - `:4103-4105` → `diagnostic.phase()`, `diagnostic.error_type()`,
   `diagnostic.code == ParseCode::Malformed`.
@@ -1205,7 +1218,7 @@ both. The `"SyntaxError"` literal at `:68` disappears.
 - `:1948-1952` (`kind == IrDiagnosticKind::EarlyError`) is **untouched** — unit
   variant, unchanged.
 
-### 6.13 `crates/porffor-test262/src/lib.rs`
+### 6.13 `crates/lila-test262/src/lib.rs`
 
 - `:21477-21486` — `diagnostic.phase` → `diagnostic.phase()`; the match arms are
   unchanged (`ParseDiagnosticPhase` is unchanged).
@@ -1235,7 +1248,7 @@ both. The `"SyntaxError"` literal at `:68` disappears.
 
 ### 6.14 The one cross-lane edit, routed
 
-`crates/porffor-ir/src/lowering.rs:28135-28141`:
+`crates/lila-ir/src/lowering.rs:28135-28141`:
 
 ```rust
 self.diagnostics.push(IrDiagnostic::early_error(
@@ -1260,10 +1273,10 @@ agreed in the lane note. Nothing else in `lowering.rs` is touched —
 
 **Status: APPLIED at DISCREPANCY-FIXER stage.** It had *not* been applied at
 ENCODER stage, and the omission was not cosmetic: `IrDiagnostic::early_error` no
-longer exists, so `cargo check -p porffor-ir` failed with
+longer exists, so `cargo check -p lila-ir` failed with
 `error[E0599]: no function or associated item named \`early_error\` found for
 struct \`IrDiagnostic\``. Consequently **assertions P7-P9 had never been
-evaluated by rustc**, and §6.16's token accounting was wrong: `porffor-ir`
+evaluated by rustc**, and §6.16's token accounting was wrong: `lila-ir`
 carried 1 `"E_..."` literal and 1 production `"SyntaxError"` literal outside the
 two spelling authorities, not 0. Both are now 0 (re-counted, §6.16).
 
@@ -1271,16 +1284,16 @@ two spelling authorities, not 0. Both are now 0 (re-counted, §6.16).
 
 | file:line | why it does not change |
 |---|---|
-| `crates/porffor-aot-wasm/src/emit.rs:313-318` | matches `IrDiagnosticKind` unit variants only |
-| `crates/porffor-ir/src/ir.rs:2248-2255` | same |
-| `crates/porffor-ir/src/lowering.rs:391-400` | same |
-| `crates/porffor-engine/src/lib.rs:1948-1952` | same |
-| `crates/porffor-ir/src/modules/record.rs` | calls `module_parse_failure_diagnostic` and `module_early_errors`; neither signature changes. Its `"lowering module reparse failed: "` literal at `:1343` is duplicated by `MODULE_REPARSE_PREFIX` — see **L6** below |
-| `crates/porffor-ir/src/modules/{link,namespace,dynamic}.rs` | construct `IrDiagnostic` only through `unsupported`/`lowering` |
-| `crates/porffor-ir/src/native_error.rs` | round 1's file; read, not edited |
-| `crates/porffor-ir/src/early_errors.rs` | despite the name, derived-constructor validation over 76 `ExprIr::` arms; Reference-Records lane |
-| `crates/porffor-cli/**` | measured: zero `"E_..."` and zero `IrDiagnostic` references |
-| `crates/porffor-spec-exec/**` | measured: zero `IrDiagnostic` references |
+| `crates/lila-aot-wasm/src/emit.rs:313-318` | matches `IrDiagnosticKind` unit variants only |
+| `crates/lila-ir/src/ir.rs:2248-2255` | same |
+| `crates/lila-ir/src/lowering.rs:391-400` | same |
+| `crates/lila-engine/src/lib.rs:1948-1952` | same |
+| `crates/lila-ir/src/modules/record.rs` | calls `module_parse_failure_diagnostic` and `module_early_errors`; neither signature changes. Its `"lowering module reparse failed: "` literal at `:1343` is duplicated by `MODULE_REPARSE_PREFIX` — see **L6** below |
+| `crates/lila-ir/src/modules/{link,namespace,dynamic}.rs` | construct `IrDiagnostic` only through `unsupported`/`lowering` |
+| `crates/lila-ir/src/native_error.rs` | round 1's file; read, not edited |
+| `crates/lila-ir/src/early_errors.rs` | despite the name, derived-constructor validation over 76 `ExprIr::` arms; Reference-Records lane |
+| `crates/lila-cli/**` | measured: zero `"E_..."` and zero `IrDiagnostic` references |
+| `crates/lila-spec-exec/**` | measured: zero `IrDiagnostic` references |
 
 **Ledger addition L6** — `MODULE_REPARSE_PREFIX` and the literal at
 `record.rs:1343` are two copies of one string, because `record.rs` is not in this
@@ -1292,14 +1305,14 @@ deferred to whoever owns `record.rs`.
 
 | file | `"E_..."` tokens before | after |
 |---|---|---|
-| `porffor-ir/src/modules/early.rs` | 21 | 0 |
-| `porffor-front/src/lib.rs` | 17 | 0 |
-| `porffor-ir/src/modules/graph.rs` | 8 | 0 |
-| `porffor-engine/src/lib.rs` | 2 | 0 |
-| `porffor-test262/src/lib.rs` | 1 | 0 — the placeholder moved to `porffor-front` as `NO_EARLY_ERROR_CODE` (P5'), named here, not spelled |
-| `porffor-ir/src/lib.rs` | 1 | 0 |
-| `porffor-ir/src/lowering.rs` | 1 | 0 |
-| `porffor-front/src/early_error_code.rs` (new) | — | 19 (18 in `wire_name`, the sole producer, + `NO_EARLY_ERROR_CODE`, the absence placeholder, proved distinct from all 18 by P5') |
+| `lila-ir/src/modules/early.rs` | 21 | 0 |
+| `lila-front/src/lib.rs` | 17 | 0 |
+| `lila-ir/src/modules/graph.rs` | 8 | 0 |
+| `lila-engine/src/lib.rs` | 2 | 0 |
+| `lila-test262/src/lib.rs` | 1 | 0 — the placeholder moved to `lila-front` as `NO_EARLY_ERROR_CODE` (P5'), named here, not spelled |
+| `lila-ir/src/lib.rs` | 1 | 0 |
+| `lila-ir/src/lowering.rs` | 1 | 0 |
+| `lila-front/src/early_error_code.rs` (new) | — | 19 (18 in `wire_name`, the sole producer, + `NO_EARLY_ERROR_CODE`, the absence placeholder, proved distinct from all 18 by P5') |
 | **total** | **51 across 7 files** | **19 in 1 file** |
 
 **Re-counted at DISCREPANCY-FIXER stage**, after §6.14 was actually applied. The
@@ -1307,8 +1320,8 @@ ENCODER-stage figures counted the intended state, not the tree: `lowering.rs`
 still held `"E_OBJECT_DUPLICATE_PROTO"` and `"SyntaxError"`, so the true "after"
 was 20 tokens across 3 files. It is now 19 across 1.
 
-`"SyntaxError"` literals: `porffor-ir` goes from 12 (`diagnostics.rs:68`,
-`early.rs` ×11) to **0**; `porffor-front` goes from 3 to **1** (ledger L2).
+`"SyntaxError"` literals: `lila-ir` goes from 12 (`diagnostics.rs:68`,
+`early.rs` ×11) to **0**; `lila-front` goes from 3 to **1** (ledger L2).
 `"P_PARSE_*"` literals go from 2 producers + 5 comparison sites to **2**, both
 inside `ParseCode::wire_name`.
 
@@ -1325,12 +1338,12 @@ through `classify_parse_failure`, through `rejection_kind`, into
 
 | id | source | must establish |
 |---|---|---|
-| **DR-1** | `language/expressions/object/__proto__-duplicate.js` | Row 1 fires. Then **the adversarial triple**: the same body as (i) a script, (ii) a module entry, (iii) `dep.js` imported by a trivial module entry. All three must reach `ObjectDuplicateProto`/`SyntaxError`/parse. Show that (i) and (ii) go through `porffor_front::parse` (`engine/lib.rs:1913-1923`) and (iii) through `record.rs:1343` → `module_parse_failure_diagnostic`, and that both now consult the same table. **This is the acceptance trace for B1.** Confirm the brief's claim about path (ii) is wrong (§0.3) or produce the counter-trace. |
+| **DR-1** | `language/expressions/object/__proto__-duplicate.js` | Row 1 fires. Then **the adversarial triple**: the same body as (i) a script, (ii) a module entry, (iii) `dep.js` imported by a trivial module entry. All three must reach `ObjectDuplicateProto`/`SyntaxError`/parse. Show that (i) and (ii) go through `lila_front::parse` (`engine/lib.rs:1913-1923`) and (iii) through `record.rs:1343` → `module_parse_failure_diagnostic`, and that both now consult the same table. **This is the acceptance trace for B1.** Confirm the brief's claim about path (ii) is wrong (§0.3) or produce the counter-trace. |
 | **DR-2** | `language/module-code/early-dup-lex.js` (`let x; const x;`) | As an entry: `ModuleParser::parse` (`boa_parser/src/parser/mod.rs:507-517`) emits W2. Show that under §6 it now hits row 4 and yields `ParseCode::Early(DuplicateLexicalDeclaration)`, where today it yields `Malformed`. **Acceptance trace for B3.** As a dependency: row 4 again, same code. State plainly that the two paths now agree, and that they did not before. |
 | **DR-3** | `language/module-code/early-lex-and-var.js` (`let x; var x;`) | Which boa check fires for the *module* goal — `mod.rs:521-531` (W2) — and which for a *script* — `mod.rs:372-379` (W1) or the block/switch forms (W3/W4). Then show W1 and W2 both hit row 4 and W3/W4 both hit row 5, one code. This is the probe that decides whether the loose `"lexical"+"declared"+"names"` fallback was load-bearing; §4's non-change proof predicts **not** and must be checked, not assumed. |
 | **DR-4** | `language/module-code/early-dup-export-id.js` | Row 2. Then follow the *other* producer: `modules::early::module_early_errors` `:44-55` for a dependency, and `graph.rs:783-788` for the (currently unreachable) link path. Show `rejection_kind(ModuleDuplicateExport) == EarlyError` makes both yield phase `Early`, and that P7 is what forces it. **Acceptance trace for B4.** Also show *why* the graph path is unreachable today (`record.rs:740-743` returns `Err` first) so the change is correctly labelled latent. |
 | **DR-5** | `language/module-code/early-export-unresolvable.js` | Row 3 on the parse path. Then the distinct link-path code `ModuleMissingExport` (`graph.rs:836,873`) → `rejection_kind` → `LinkError` → `Resolution` → `SyntaxError`. Show the two codes are different codes for different conditions and that neither can borrow the other's phase. |
-| **DR-6** | any script with a lexical redeclaration | **Settle L5/§0.5 as a refutable prediction.** `Parser::parse_script_with_source` runs `ScriptParser::parse`'s own duplicate check (`mod.rs:361-379`) *before* `analyze_scope` (`mod.rs:186`), so W1 should fire and W5 should never be reached for a plain top-level `let x; let x;`. Predict: no ordinary source reaches W5 through `porffor_front::parse`, and row 6 is retained on the strength of the *reachable path existing*, not of a witness case. If the trace finds a source that does reach W5, name it; if it finds W5 unreachable in every construction tried, say so and leave row 6 in with the finding recorded — do **not** delete a row on a negative result. |
+| **DR-6** | any script with a lexical redeclaration | **Settle L5/§0.5 as a refutable prediction.** `Parser::parse_script_with_source` runs `ScriptParser::parse`'s own duplicate check (`mod.rs:361-379`) *before* `analyze_scope` (`mod.rs:186`), so W1 should fire and W5 should never be reached for a plain top-level `let x; let x;`. Predict: no ordinary source reaches W5 through `lila_front::parse`, and row 6 is retained on the strength of the *reachable path existing*, not of a witness case. If the trace finds a source that does reach W5, name it; if it finds W5 unreachable in every construction tried, say so and leave row 6 in with the finding recorded — do **not** delete a row on a negative result. |
 | **DR-7** | `language/module-code/early-super.js` + `early-new-target.js` | Rows 8 and 9. **Refute the brief's prefix-overlap hazard concretely**: show `"module cannot contain \`new.target\` on the top-level"` does not contain `super` and vice versa, and that P2 proves it for the whole table so first-match-wins ordering is no longer load-bearing anywhere. |
 | **DR-8** | `early-undef-break.js`, `early-dup-lables.js` | Rows 12 and 11. These come from `CheckLabelsError::message` (`boa_ast/src/operations/mod.rs:1399-1417`) via `Error::lex(LexError::Syntax(...))`, a *different* boa error constructor from `Error::general`. Confirm the `Display` of both reaches the classifier as a plain `contains`-able string on both the script and module paths. |
 | **DR-9** | `privatename-not-valid-earlyerr-module-1.js` | Row 10, and that `invalid private identifier usage` is emitted from three sites (`mod.rs:462`, `mod.rs:593`, `statement/mod.rs:1020`) covering script, module and statement contexts under one row. |
@@ -1345,15 +1358,15 @@ through `classify_parse_failure`, through `rejection_kind`, into
 Rungs, per `docs/rust-rewrite/batch-workflow.md`. This lane is spec/IR only and
 does not emit Wasm, so rung G does not apply.
 
-1. `cargo check -p porffor-front` — after §6.6. All const assertions P1–P6 are
-   evaluated here; a table defect is caught before `porffor-ir` is touched.
-2. `cargo check -p porffor-ir` — after §6.11. P7–P9 evaluate here.
+1. `cargo check -p lila-front` — after §6.6. All const assertions P1–P6 are
+   evaluated here; a table defect is caught before `lila-ir` is touched.
+2. `cargo check -p lila-ir` — after §6.11. P7–P9 evaluate here.
 3. `cargo check --workspace` — after §6.14.
-4. `cargo test -p porffor-front` then `cargo test -p porffor-ir` — the rewritten
+4. `cargo test -p lila-front` then `cargo test -p lila-ir` — the rewritten
    tests, including the new B1/B2/B3 cases.
-5. `cargo test -p porffor-engine --lib` for the four diagnostic tests.
-6. Rung 4 for this lane's family: `porf test262 run language/module-code` and
-   `porf test262 run language/expressions/object`. B1 and B2 predict a pass-count
+5. `cargo test -p lila-engine --lib` for the four diagnostic tests.
+6. Rung 4 for this lane's family: `lila test262 run language/module-code` and
+   `lila test262 run language/expressions/object`. B1 and B2 predict a pass-count
    *increase*; B3 and B4 predict no change in pass count and a change in the
    failure taxonomy only. Report both, separately.
 
@@ -1376,7 +1389,7 @@ private so that no fifth constructor can be written outside the file that owns
 the derivation, and four measured drifts closed — two of them conformance-visible.
 
 What it does not buy, stated plainly: boa's message wording stays a fragile
-oracle (L1), `porffor-front` keeps one `"SyntaxError"` literal it cannot type
+oracle (L1), `lila-front` keeps one `"SyntaxError"` literal it cannot type
 (L2), a fifth constructor inside `diagnostics.rs` can still pair badly (L3), two
 implementation limits still claim `SyntaxError` (L4), and a dead table row still
 compiles (L5). Those five are the whole of what tests remain load-bearing for in

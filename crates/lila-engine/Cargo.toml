@@ -1,0 +1,32 @@
+[package]
+name = "lila-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lila-aot-wasm = { path = "../lila-aot-wasm" }
+lila-backend-c = { path = "../lila-backend-c" }
+lila-backend-native = { path = "../lila-backend-native" }
+lila-front = { path = "../lila-front" }
+lila-ir = { path = "../lila-ir" }
+lila-intl = { path = "../lila-intl" }
+lila-runtime = { path = "../lila-runtime" }
+lila-spec-exec = { path = "../lila-spec-exec", optional = true }
+rayon = "1.11.0"
+sha2 = "0.10.9"
+wasmparser = "0.245.1"
+wasmtime = { version = "38.0.4", default-features = false, features = ["cache", "cranelift", "gc", "gc-drc", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
+
+[build-dependencies]
+sha2 = "0.10.9"
+
+[features]
+# Off by default: keeps the Boa interpreter (lila-spec-exec / boa_engine)
+# out of product and release builds. Only enable for developer-only
+# differential-oracle testing (see AGENTS.md and tasks/25). Never enable this
+# feature for a shipped/product build.
+spec-exec-oracle = ["dep:lila-spec-exec"]
+
+[lib]
+path = "src/lib.rs"

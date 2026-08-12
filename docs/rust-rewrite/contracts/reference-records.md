@@ -124,21 +124,21 @@ encoder and discrepancy-fixer stages.
 
 Three files, one new field, and the field is read.
 
-1. `porffor-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
+1. `lila-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
    `strictness: Strictness`. Its one construction site is
    `lowering.rs`'s `lower_array_assignment_property_target`, so omitting it is
    `E0063`; a `bool` there is `E0308` for the reasons in `Strictness`'s doc.
    `AssignmentIdentifier` and `AssignmentPrivate` still carry none, and the
    field comment says why (branch 4.c and PrivateSet respectively).
-2. `porffor-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
+2. `lila-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
    the crate's single producer. The `grep -c 'self\.reference_strictness()'`
    gate in ledger L1 moves from **21** to **22**.
-3. `porffor-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
+3. `lila-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
    carries it from `prepare_destructuring_target` to `put_destructuring_target`,
    which wraps `compile_property_write_to_locals` in
    `with_reference_strictness` (promoted to `pub(crate)` for this call).
    Analysis arms in `data.rs` and `planning.rs` took `..` / `strictness: _`.
-4. `porffor-aot-wasm/src/planning.rs` — the array-pattern
+4. `lila-aot-wasm/src/planning.rs` — the array-pattern
    `AssignmentProperty` temp-local budget gains
    `REFERENCE_STRICTNESS_FLAG_LOCALS`, because `with_reference_strictness`
    reserves one and `reserve_temp_local` **asserts** rather than diagnosing.
@@ -159,7 +159,66 @@ encoder's §4 describes, now closed for destructuring as well.
 
 ### Compile-gate outcome
 
-`cargo check -p porffor-ir` clean; `cargo check -p porffor-aot-wasm` clean;
+`cargo check -p lila-ir` clean; `cargo check -p lila-aot-wasm` clean;
 `cargo xc` (`check --workspace --all-targets`) exit 0, **0 errors**, and the
 warning set is identical to the pre-integration baseline after normalising line
 numbers. `cargo fmt --all -- --check` exit 0.
+
+---
+
+## T08 identifier-reference follow-up
+
+Destructuring identifier targets now cross lowering and Wasm emission as one
+`IdentifierWriteReferenceIr`, replacing the parallel
+`name`/`global`/`implicit`/`immutable` fields. Its private representation has
+four executable outcomes: mutable binding write, ignored non-strict immutable
+write, typed abrupt completion, and global/unresolvable write carrying
+`Strictness`. The emitter matches that disposition exhaustively.
+
+This closes two previously separate holes without changing evaluation order:
+
+- the uninitialized path consumes `TdzViolation` into the deferred Reference,
+  then emits ReferenceError only when destructuring reaches PutValue, after the
+  extracted value and any default initializer;
+- the global path uses the checked Reference writer under
+  `with_reference_strictness`, so strict destructuring assignment cannot create
+  an unresolvable implicit global and a failed global-object `[[Set]]` observes
+  the Reference's mode.
+
+This is a deliberately narrow seam, not completion of T08's general Reference
+model. `ReferenceRecord` is still recovered from a lowered property read rather
+than constructed directly from the AST, `super` still lacks an explicit
+`[[ThisValue]]` receiver in this contract's ledger. The integration checkpoint
+passed `cargo check -p lila-ir -p
+lila-aot-wasm`, the focused immutable-target IR contract, and a Wasm execution
+covering TDZ/default order, strict and sloppy unresolved writes, and immutable
+assignment.
+
+## T08 suspended-property-reference follow-up
+
+The synchronous-generator activation already has four words which preserve an
+evaluated ordinary property's base/tag and normalized key/tag across `yield`.
+The missing state was not another runtime word: lowering discarded the
+Reference's `[[Strict]]` when it converted a dummy `ExprIr::PropertyWrite` into
+`GeneratorResumeModeIr::AssignProperty { target, key }`, and both the plain
+`yield` and `yield*` resume emitters called raw `emit_object_write`. That bypass
+made the ambient function mode, rather than the carried Reference, decide
+PutValue 3.d.
+
+`AssignProperty` therefore carries a private-field
+`SuspendedPropertyReferenceIr`. Its only current constructor records an
+ordinary Reference as `{ base_and_receiver, key, strictness }`: for a
+non-super property Reference, 6.2.5.3 `GetThisValue` returns `[[Base]]`, so a
+second receiver expression or activation slot would permit an impossible
+disagreement. Consumers receive an exhaustive borrowed use view. The shared
+AOT consumer evaluates and stores base/key before the yielded expression, then
+reloads them and spends `strictness` through `with_reference_strictness` only
+after a normal resume. Adding super/property receiver separation later requires
+a new use-view variant and compile-visible emitter work.
+
+This remains deliberately narrower than the complete generator/Reference
+matrix. Async-generator property-assignment resumption was already an explicit
+unsupported path and its activation has no assignment-reference slots; adding
+those slots and threading them through async delegation is a separate ABI
+feature, not something this type pretends to implement. Private and super yield
+assignment targets remain explicit lowering gaps as before.

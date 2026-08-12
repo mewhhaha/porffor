@@ -89,15 +89,15 @@ and a plain function is better.
 - Keep `README.md` current when work changes user-visible capabilities, conformance, CLI behavior, architecture, or development workflow.
 - If fake suite counts, wasm-safe subset counts, pinned real Test262 status, or major green/red milestones change, update the README status block in the same patch.
 - The README status block must include refresh commands, exact counts, and the refresh date when changed.
-- Use `./target/debug/porf test262 publish-status --execution-backend <spec-exec|wasm-aot>` or equivalent `cargo run -p porffor-cli -- test262 publish-status ...` to refresh pinned real-suite artifacts and the README block. Do not hand-edit status numbers.
+- Use `./target/debug/lila test262 publish-status --execution-backend <spec-exec|wasm-aot>` or equivalent `cargo run -p lila-cli -- test262 publish-status ...` to refresh pinned real-suite artifacts and the README block. Do not hand-edit status numbers.
 - For low-RAM real-suite refreshes, use `./scripts/publish-real-status-low-ram.sh <spec-exec|wasm-aot> <snapshot-name>` so the top-level matrix checkpoints one node per process, then publishes the README only after verified completion.
 
 ## Workspace Map
 
 - Rust workspace: `crates/`
-- Public library face: `crates/porffor-engine`
-- Clean-break CLI face: `crates/porffor-cli` and the `porf` command
-- Conformance taxonomy and harness rewrite: `crates/porffor-test262`
+- Public library face: `crates/lila-engine`
+- Clean-break CLI face: `crates/lila-cli` and the `lila` command
+- Conformance taxonomy and harness rewrite: `crates/lila-test262`
 
 ## Legacy Retirement Boundary
 
@@ -110,8 +110,9 @@ and a plain function is better.
   not implement or dispatch the product compiler/runtime.
 - Use Git commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8` to inspect the retired
   implementation. Do not add an archive copy to the working tree.
-- Existing `porffor-*`, `porf`, and `PORFFOR_*` Rust identifiers remain until
-  the coordinated migration in T29; do not perform piecemeal renames.
+- T29's coordinated identity cutover is complete for current product surfaces.
+  Keep all Rust packages, commands, configuration, caches and host interfaces
+  under the canonical Lila identity.
 
 ## Hard Bans
 

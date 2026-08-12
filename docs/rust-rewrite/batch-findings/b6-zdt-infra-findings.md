@@ -1,6 +1,6 @@
 # b6 ZDT+INFRA analyst findings
 
-Started 2026-08-10, branch `claude/test-driven-rust-opus-pp6giw`. Read-only lane: no cargo, no `porf`
+Started 2026-08-10, branch `claude/test-driven-rust-opus-pp6giw`. Read-only lane: no cargo, no `lila`
 runs, nothing CPU-bound. The sweep was left running throughout. Every number below is `grep`/`ls`/`sed`
 over the checkout, so it is countable rather than measured-by-execution, and I say which is which.
 
@@ -16,7 +16,7 @@ missing-registration defect, not a mis-emission and not an unrooted internal.
 
 ## How that is established without running anything
 
-`crates/porffor-aot-wasm/src/intrinsics/temporal.rs:938-1130`
+`crates/lila-aot-wasm/src/intrinsics/temporal.rs:938-1130`
 (`install_temporal_zoned_date_time_constructor_intrinsics`) is the *only* place ZDT prototype members
 are installed. Read end to end it installs exactly 23 things:
 
@@ -29,7 +29,7 @@ are installed. Read end to end it installs exactly 23 things:
 - `Symbol.toStringTag` = `"Temporal.ZonedDateTime"` (`:1113`).
 
 The membership is mirrored — deliberately, per the comment at `:977-987` — by
-`porffor-ir/src/lowering.rs:1666` `temporal_zoned_date_time_prototype_shape()`, which inserts the same
+`lila-ir/src/lowering.rs:1666` `temporal_zoned_date_time_prototype_shape()`, which inserts the same
 18 accessors and the same 4 `ObjectShapeProperty::Data` methods (`:1764-1791`) and nothing else. The
 two lists agree, so there is no shape/prototype disagreement to chase: **both sides agree the methods
 are absent.**
@@ -133,13 +133,13 @@ Adding one ZDT builtin is a **19-site** edit. Counted, not estimated: the site l
 `TemporalZonedDateTimePrototypeToPlainDateTime` is
 
 ```
-porffor-ir/src/lowering.rs:1788, 6950, 27541
-porffor-ir/src/builtins.rs:1131, 1706, 2902, 4422, 5988, 6932, 7976, 8723
-porffor-aot-wasm/src/intrinsics/temporal.rs:1103     (the install call)
-porffor-aot-wasm/src/module.rs:1559
-porffor-aot-wasm/src/builtins/standard.rs:37109      (the compile arm)
-porffor-aot-wasm/src/builtins/bootstrap.rs:1046
-porffor-aot-wasm/src/planning.rs:234, 2168, 2216, 6122   (:234 is the cycle doc, :6122 is arity)
+lila-ir/src/lowering.rs:1788, 6950, 27541
+lila-ir/src/builtins.rs:1131, 1706, 2902, 4422, 5988, 6932, 7976, 8723
+lila-aot-wasm/src/intrinsics/temporal.rs:1103     (the install call)
+lila-aot-wasm/src/module.rs:1559
+lila-aot-wasm/src/builtins/standard.rs:37109      (the compile arm)
+lila-aot-wasm/src/builtins/bootstrap.rs:1046
+lila-aot-wasm/src/planning.rs:234, 2168, 2216, 6122   (:234 is the cycle doc, :6122 is arity)
 ```
 
 and `TemporalPlainDateTimePrototypeSince` has the same shape at 17 sites. Both lists are one
@@ -204,10 +204,10 @@ Two further consequences, both already documented in the tree and both live for 
 
 Smallest honest slice that turns the quartet green: `add`, `subtract`, `since`, `until`, `withCalendar`
 — five members, ~95 registration sites, one new
-`crates/porffor-aot-wasm/src/builtins/temporal_zoned_date_time_methods.rs` following the five sibling
+`crates/lila-aot-wasm/src/builtins/temporal_zoned_date_time_methods.rs` following the five sibling
 `_methods.rs` files, one `planning.rs` arm edit (with the Duration root), and a `check-module-boundaries.sh`
 entry for the new module. Verify at rung 4 with
-`porf test262 run intl402/Temporal/ZonedDateTime/prototype/add` etc. — but budget for it: b5 measured
+`lila test262 run intl402/Temporal/ZonedDateTime/prototype/add` etc. — but budget for it: b5 measured
 **~300 s per cold case** in this subtree, so 566 cases is not a rung-4 the lane can run whole. Run the
 28 era-boundary cases as the gate and the rest as a hand-off.
 
@@ -219,7 +219,7 @@ files are the cheapest possible witness of it.
 # (D) Rung-1c completion infrastructure
 
 Read at HEAD `4bb813639`, tree otherwise clean. Recounted here rather than quoted:
-`awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++}' crates/porffor-cli/tests/cli/*.rs` = **615**,
+`awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++}' crates/lila-cli/tests/cli/*.rs` = **615**,
 `grep -c 'cfg(feature = "spec-exec-oracle")' .../frontend.rs` = **8**, so **607 executing**,
 `frontend.rs` 54 compiled / 46 executing. b5's arithmetic still holds at this head.
 
@@ -227,10 +227,10 @@ Read at HEAD `4bb813639`, tree otherwise clean. Recounted here rather than quote
 
 ### The test, and why it is not on either bounded path
 
-`crates/porffor-cli/tests/cli/frontend.rs:1345-1370`
+`crates/lila-cli/tests/cli/frontend.rs:1345-1370`
 `frontend::test262_wasm_backend_runs_supported_fixture_subset`. It is ungated (no
 `spec-exec-oracle` cfg) and it does **not** go through the crate's `Command` wrapper — it calls
-`ProcessCommand::new(env!("CARGO_BIN_EXE_porf"))` directly (`ProcessCommand` is
+`ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))` directly (`ProcessCommand` is
 `std::process::Command`, aliased in `main.rs:31`). Consequence worth stating on its own: this test is on
 **neither** of `main.rs`'s two bounded paths. `HANG_TIMEOUT` (900 s, `main.rs:67`) is applied by
 `Command::output` (`main.rs:153`), and this call site bypasses it. 9 call sites in the target do the
@@ -263,7 +263,7 @@ There is also a libtest fact that kills the decomposition independent of the hyg
 
 The hygiene test already understands exactly one form of isolation — a module. Use it.
 
-1. **New file** `crates/porffor-cli/tests/cli/frontend_test262_subset.rs`, opening `use crate::*;`
+1. **New file** `crates/lila-cli/tests/cli/frontend_test262_subset.rs`, opening `use crate::*;`
    (that is what `frontend.rs:3` does, and it is why `ProcessCommand` resolves: a private `use` in the
    crate root is visible to descendant modules, so the glob picks it up). Move the whole of
    `frontend.rs:1345-1370` into it, unchanged.
@@ -299,29 +299,29 @@ peak is 8.7 GiB + libtest, which fits 15 GiB on an idle box. It does **not** mak
 sweep-compatible — 8.7 GiB plus a `--threads 2 --jobs 2` sweep still does not fit. Combine with D2 if
 that is wanted.
 
-## D2 — the 8.7 GiB, and why `PORFFOR_*_CACHE_LIMIT_BYTES` is the wrong lever
+## D2 — the 8.7 GiB, and why `LILA_*_CACHE_LIMIT_BYTES` is the wrong lever
 
 **The brief's premise is wrong, and acting on it would waste a window.** b5 recorded the 8.7 GiB as "a
-compile-cache sizing question (`PORFFOR_*_CACHE_LIMIT_BYTES` are set for the sweep but not for the CLI
+compile-cache sizing question (`LILA_*_CACHE_LIMIT_BYTES` are set for the sweep but not for the CLI
 test child)". The three tiers are **on-disk** caches: `FunctionCache` implements wasmtime's `CacheStore`
-with `fs::read` / `fs::write` against a cache directory (`porffor-engine/src/cache.rs:220-240`,
+with `fs::read` / `fs::write` against a cache directory (`lila-engine/src/cache.rs:220-240`,
 `:163`), and the module and program tiers are directories too (`MODULE_CACHE_DIR`,
 `PROGRAM_CACHE_DIR`, `:90-92`). Those limits bound **bytes on disk**, not process RSS. Setting them on
 the CLI test child would not have prevented one of the three OOM kills.
 
 ### What actually holds 8.7 GiB, traced
 
-`test262_wasm_backend_runs_supported_fixture_subset` spawns `porf test262 run language/wasm/pass
+`test262_wasm_backend_runs_supported_fixture_subset` spawns `lila test262 run language/wasm/pass
 --execution-backend wasm` with **no `--threads` and no `--jobs`**. Both defaults are high:
 
 - `SuiteConfig::default().worker_count = available_parallelism().min(4)`
-  (`porffor-test262/src/lib.rs:233`) = **4** on this box.
+  (`lila-test262/src/lib.rs:233`) = **4** on this box.
 - Those workers are **scoped threads in one process**, not child processes:
   `execute_cases` does `thread::scope` + `thread::Builder::spawn_scoped` per slot
   (`lib.rs:20727-20752`) with `TEST262_WORKER_STACK_SIZE = 64 MiB` (`lib.rs:60`).
 - The child-runner (one process per case) is **off by default**: `case_runner_bin` is `None`
-  (`lib.rs:236`) and the CLI sets it only under `PORFFOR_TEST262_FORCE_CASE_RUNNER=1`
-  (`porffor-cli/src/main.rs:2886-2890`).
+  (`lib.rs:236`) and the CLI sets it only under `LILA_TEST262_FORCE_CASE_RUNNER=1`
+  (`lila-cli/src/main.rs:2886-2890`).
 - `--jobs` defaults to half the logical CPUs (`main.rs:175-177`) = **2** Cranelift threads.
 
 So: **187 cases, 4 concurrent cold Wasm-AOT compiles, one process, 2 Cranelift threads.** That is a
@@ -337,11 +337,11 @@ workers sharing 2 compiler threads on 4 CPUs looks like), and it explains why th
    from b5's ~330 s. `--threads 2` is the recommended setting — ~4.4 GiB fits beside a running sweep,
    where `--threads 1` buys little more RSS and doubles the wall clock again.
 2. **`--jobs 1`** — bounds Cranelift's own 2 threads. Secondary; smaller effect than (1).
-3. **`PORFFOR_TEST262_FORCE_CASE_RUNNER=1`** in the child's env — one process per case, so RSS is
+3. **`LILA_TEST262_FORCE_CASE_RUNNER=1`** in the child's env — one process per case, so RSS is
    bounded by construction. Rejected: it pays a process re-exec + prelude reload + fresh Wasmtime
    `Engine` bootstrap **187 times**, which the comment at `main.rs:2875-2881` says is exactly what the
    in-process default exists to avoid.
-4. **`PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`** — bounds disk, not RSS. Worth setting
+4. **`LILA_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`** — bounds disk, not RSS. Worth setting
    anyway for a different, real reason: the CLI suite runs hundreds of distinct sources and the
    program/module tiers are source-keyed pure churn (`cache.rs:27-37`), so the same asymmetric shape the
    sweep uses keeps the CLI suite from thrashing the shared cache directory. It is a hygiene
@@ -350,20 +350,20 @@ workers sharing 2 compiler threads on 4 CPUs looks like), and it explains why th
 ### If the cache env is set anyway, set it in the script — never in a test
 
 Every limit is memoised in a `OnceLock` resolved from `std::env::var` on first use
-(`cache.rs:44-66`). Both the in-process CLI path and any spawned `porf` child read it, and a child
+(`cache.rs:44-66`). Both the in-process CLI path and any spawned `lila` child read it, and a child
 inherits the parent's environment, so **one `env` on the `cargo test` invocation covers both paths**.
 A `std::env::set_var` inside a test is useless (the `OnceLock` may already be initialised by an earlier
 test in the same process) and unsound under libtest's threads. The correct place is
-`scripts/rung1c-chunks.sh`, on the same line that already carries `PORFFOR_CPU_PERCENT=100`
-(`:149`), which is inherited by `cargo test` -> the test binary -> every `porf` child:
+`scripts/rung1c-chunks.sh`, on the same line that already carries `LILA_CPU_PERCENT=100`
+(`:149`), which is inherited by `cargo test` -> the test binary -> every `lila` child:
 
 ```sh
-PORFFOR_CPU_PERCENT=100 \
-PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=8589934592 \
-PORFFOR_MODULE_CACHE_LIMIT_BYTES=536870912 \
-PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
+LILA_CPU_PERCENT=100 \
+LILA_FUNCTION_CACHE_LIMIT_BYTES=8589934592 \
+LILA_MODULE_CACHE_LIMIT_BYTES=536870912 \
+LILA_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
 ./scripts/run-watched.sh --label "rung1c-$name" --stall 900 -- \
-  cargo test -p porffor-cli --test cli -- --test-threads=3 "$@"
+  cargo test -p lila-cli --test cli -- --test-threads=3 "$@"
 ```
 
 (Defaults if unset: total 1 GiB, function tier = total, module and program tiers = total/2 —
@@ -375,7 +375,7 @@ it can land independently of D1.
 ### The tripwire, re-read at this head
 
 - `known_failures.rs:137` `const CURRENT_BATCH: u32 = 3;`
-- `crates/porffor-cli/tests/known-failures.tsv:41` `# unfilled-allowed-until: batch-4`
+- `crates/lila-cli/tests/known-failures.tsv:41` `# unfilled-allowed-until: batch-4`
 - `known_failures.rs:1233-1250`: the assertion runs **only if at least one `unfilled` row exists**
   (`if unfilled_rows > 0`), and is `CURRENT_BATCH < ledger.unfilled_allowed_until`.
 
@@ -410,7 +410,7 @@ Read out of the assertions, so nobody discovers it at the bump. For each row wit
 2. **evidence column**: its first whitespace token must resolve under the repo root and must **not**
    start with `target/` (`:1209-1231`). Citing `target/lane-notes/rung1c-chunks.md` or any
    `target/watched/*.log` is a hard red. Cite the fixture
-   (`crates/porffor-cli/tests/fixtures/wasm_iterator_helper_class_receiver_some.js`) or the test file.
+   (`crates/lila-cli/tests/fixtures/wasm_iterator_helper_class_receiver_some.js`) or the test file.
 3. **`#[should_panic(expected = "...")]`** on the named test, non-empty (`:1307-1319`; bare and empty
    are both rejected by name). One physical line, exactly that spelling — `scan_source` asserts any line
    starting `#[` also ends `]`, and the `\`-continued form is already idiomatic elsewhere in this tree,
@@ -418,7 +418,7 @@ Read out of the assertions, so nobody discovers it at the bump. For each row wit
 4. **`pub(crate)`** on the test fn, plus `const _: fn() = crate::<module>::<test>;` in
    `known_failures.rs`. Both directions are enforced (`:1254-1276`): a row with no assertion is red, an
    assertion with no row is red. The existing example is `binary_data.rs:548-550`
-   (`#[should_panic(expected = "porf run exceeded")]` + `pub(crate) fn ...`).
+   (`#[should_panic(expected = "lila run exceeded")]` + `pub(crate) fn ...`).
 
 ### Row content designed from the banked verdicts
 
@@ -484,6 +484,6 @@ head.
 D1 and D2 are independent of everything else and should land **before** the next rung-1c resume — they
 are what stops `frontend` failing to bank a fourth time. D3 cannot start until that resume completes.
 Concretely: land D1 (3 files: new module, `main.rs`, `rung1c-chunks.sh`) + D2 lever 1 (one `.arg` pair),
-verify at rung 0 with `cargo test -p porffor-cli --test cli -- known_failures::` (5 tests, 0.02 s in b5
+verify at rung 0 with `cargo test -p lila-cli --test cli -- known_failures::` (5 tests, 0.02 s in b5
 — it is the cheapest possible check that the chunk/module bijection still holds), then resume
 `./scripts/rung1c-chunks.sh` verbatim.

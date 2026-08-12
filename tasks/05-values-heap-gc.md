@@ -1,6 +1,6 @@
 # T05 — Value representation, heap, GC and weak reachability
 
-**Status:** In progress — layout registries landed; executable GC and full BigInt remain open
+**Status:** In progress — GC and weak runtime limits are explicit; cyclic collection and real weak reachability remain blocked
 
 **Parallel group:** Core foundations  
 **Depends on:** T02, T04  
@@ -8,13 +8,77 @@
 
 ## Current repository state
 
-The checked-in heap design and registries document value tags, layouts, roots,
-weak edges and collector phases, and allocation grows linear memory safely.
-The implementation remains bump-only, the collector contract is metadata-only,
-`gc()` is intentionally unsupported, and multi-limb BigInt arithmetic and
-conversion are still incomplete. The current linear-memory object model also
-does not yet realize this task's Wasm-GC-first target, so that architecture gap
-must be resolved rather than treated as completion.
+[`docs/rust-rewrite/value-heap-gc.md`](../docs/rust-rewrite/value-heap-gc.md)
+is now the checked-in architecture and phased cutover contract. The new
+`gc_types.rs` vocabulary distinguishes GC type indices, field owners, storage
+values, mutability, nullability, strong GC references and owner-typed linear
+spans at compile time. The central `ModuleTypeRegistry` appends
+`RuntimeGcAnchor` and then `RuntimeGcAnchorHolder` from that typed schema. The
+holder has one immutable, non-null `GcRef<RuntimeGcAnchor>` field. Main
+initialization constructs both structs, traverses the holder's strong edge and
+traps if the recovered anchor ABI version differs from the schema constant.
+
+The product implementation is still the bump-allocated linear-memory object
+model. Its layout, root, weak-edge and collector tables remain passive metadata;
+`gc()` is unsupported and current weak records are strong in practice. The GC
+anchor is only a runtime-capability witness; no JavaScript semantic value has
+moved from the linear heap and there is no integer/reference bridge.
+
+The engine is pinned to Wasmtime 38.0.4. One typed runtime policy now configures
+both product Wasmtime engines, explicitly requires reference types, typed
+function references, Wasm GC and exceptions, and explicitly selects DRC. The
+product dependency retains `gc-drc` and removes `gc-null`, so engine creation
+cannot silently fall back to the null collector. DRC cannot collect cycles;
+T05's cyclic-graph acceptance criterion therefore requires a cycle-capable
+lower-bound update, not a hand-written parallel collector.
+
+The same product policy records weak reachability separately as
+`WasmWeakReachabilityCapability::Unavailable`. Wasm GC and DRC do not expose
+the weak-reference or ephemeron operations T21 needs, and typed engine-setup
+errors retain that fact independently of the collector selection. This is an
+explicit blocker, not a claim that the current linear weak records have weak
+semantics.
+
+The central feature-enabled CLI compile covers both `lila-aot-wasm` and
+`lila-engine`. The focused engine execution that instantiates an emitted module
+and runs the typed strong-edge/ABI probe under the explicit DRC policy has not
+run, so runtime use of that anchor remains unverified.
+
+## Landed foundation
+
+- One-object-model invariant and atomic semantic cutover are explicit.
+- `GcTypeIndex<T>` and `GcField<Owner, Value, Mutability, Nullability>` prevent
+  the main schema/index/field-shape mixups before encoding.
+- `GcRef<T>` deliberately has no integer representation and denotes only a
+  strong edge; no false weak-reference marker exists.
+- `LinearAddr<Owner>` and checked `LinearSpan<Owner>` distinguish byte storage
+  from object identity and name its sole GC owner.
+- `RuntimeGcAnchorSchema` fixes one immutable `i32` ABI-version field; its type
+  index is assigned by the central builder rather than a numeric constant and
+  is carried into the main-function initialization as typed module state.
+- `RuntimeGcAnchorHolderSchema` fixes one immutable, non-null
+  `GcRef<RuntimeGcAnchor>` field. Ordered central registration consumes the
+  anchor's typed index when encoding that field, and the main probe constructs
+  and traverses the edge before asserting the anchor ABI.
+- `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` is the
+  closed collector truth consumed by configuration, trace reporting and typed
+  `EngineError` context; both native compiler profiles share that policy.
+- `WasmWeakReachabilityCapability::Unavailable` independently closes the
+  product weak/ephemeron capability domain, so changing the collector cannot
+  silently imply weak-reference support.
+
+## Remaining implementation sequence
+
+1. Generate the complete GC layout/type/accessor registry.
+2. Close the value, completion, exception and host ABIs over scalar plus real
+   Wasm-reference parts.
+3. Atomically switch every semantic-object producer/consumer and delete the
+   corresponding linear object model in the same batch.
+4. Raise the lower bound to a cycle-capable collector and close rooting,
+   side-storage and cyclic stress cases.
+5. Select a real weak/ephemeron facility and replace the explicit unavailable
+   capability before implementing weak collections, WeakRef,
+   FinalizationRegistry and Test262 `gc()`.
 
 ## Objective
 
@@ -83,9 +147,9 @@ Expose ephemeron/weak-edge support required by WeakMap, WeakSet, WeakRef and Fin
 ## Required tests
 
 ```sh
-cargo test -p porffor-aot-wasm heap_ --quiet
-cargo test -p porffor-engine wasm_ --quiet
-cargo test -p porffor-cli wasm_ --quiet
+cargo test -p lila-aot-wasm heap_ --quiet
+cargo test -p lila-engine wasm_ --quiet
+cargo test -p lila-cli wasm_ --quiet
 ```
 
 Add long-running stress tests behind an ignored or dedicated CI profile, plus focused real tests under `built-ins/WeakRef`, `built-ins/FinalizationRegistry`, weak collections and allocation-heavy Array/Object subtrees.

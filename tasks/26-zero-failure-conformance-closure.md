@@ -10,7 +10,9 @@
 
 The fake suites are green, but the README explicitly states that the current
 pinned real Wasm-AOT aggregate is not green and has not been fully republished.
-The shortcut audit is also red in the current working tree, the generated
+The shortcut audit is green as an exact-drift contract over 449 classified
+observations, but 368 of those observations are still semantic shortcuts; audit
+green therefore does not satisfy the final integrity criterion. The generated
 current-pin backlog is absent, and several architecture/feature lanes retain
 explicit unsupported cases. Formal closure entry criteria are therefore not
 met.
@@ -126,7 +128,7 @@ All completed runs must reconcile manifest totals and produce the same semantic 
 
 After all checks pass:
 
-- publish status only through `porf test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
+- publish status only through `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
 - commit generated JSON/text snapshots and the generated README status block together as required by repository policy;
 - include exact counts, pins, date and refresh commands;
 - archive a closure report listing matrix nodes, duration, slowest cases, artifact hashes and integrity-audit result;
@@ -138,24 +140,25 @@ After all checks pass:
 ```sh
 cargo fmt --all --check
 cargo test --workspace --quiet
-cargo build -p porffor-cli
+cargo build -p lila-cli
 
-./target/debug/porf test262 run language/wasm/pass \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 \
+./target/debug/lila test262 run language/wasm/pass \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
-./target/debug/porf test262 run \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262
+./target/debug/lila test262 run \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
 
 rm -f test262/snapshots/final-wasm-aot-*.json test262/snapshots/final-wasm-aot-*.txt
 ./scripts/publish-real-status-low-ram.sh wasm-aot final-wasm-aot
 
 # Optional oracle-validation matrix; diagnostic only, never published as product conformance:
 rm -f test262/snapshots/final-spec-exec-*.json test262/snapshots/final-spec-exec-*.txt
-./scripts/publish-real-status-low-ram.sh spec-exec final-spec-exec
+./target/debug/lila test262 report-all --execution-backend spec-exec \
+  --snapshot-name final-spec-exec --resume
 
-./target/debug/porf test262 progress-status --execution-backend wasm-aot \
+./target/debug/lila test262 progress-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
-./target/debug/porf test262 triage-status --execution-backend wasm-aot \
+./target/debug/lila test262 triage-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
 ```
 

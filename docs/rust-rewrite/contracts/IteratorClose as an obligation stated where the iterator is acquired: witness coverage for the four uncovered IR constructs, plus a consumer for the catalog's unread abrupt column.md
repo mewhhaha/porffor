@@ -3,11 +3,11 @@
 Witness coverage for the uncovered IR constructs, plus a consumer for the
 catalog's unread `abrupt` column.
 
-Status: **normative for the encoder**. Stage: formalization only — **no source
-file was edited to produce this document**. Every count in it was obtained by
-reading the tree at `claude/test-driven-rust-opus-pp6giw`; the command that
-produced each count is given so the dry-runner can re-derive it rather than
-trust it.
+Status: **normative for the encoder**. Group A, generator-delegation slice B2
+and call-spread slice B1 are encoded; Group C remains open. The
+original counts below were obtained by reading the tree at
+`claude/test-driven-rust-opus-pp6giw`; §13 records the 2026-08-12 B2 integration
+and supersedes the earlier statements that no part of Group B had landed.
 
 Predecessor: `docs/rust-rewrite/contracts/Spec-operation catalog evidence and
 the iterator-protocol obligation witness.md` (round 1). This contract extends
@@ -17,18 +17,18 @@ an `IC` prefix so the two ledgers cannot be confused.
 
 Owned files (all edits this contract authorises):
 
-- `crates/porffor-ir/src/iterator_obligations.rs`
-- `crates/porffor-ir/src/operations.rs`
-- `crates/porffor-ir/src/ir.rs`
-- `crates/porffor-ir/src/lowering.rs` — **two lines only**, enumerated in §8 R3.
-- `crates/porffor-ir/src/lib.rs` — additions inside the two pre-existing
+- `crates/lila-ir/src/iterator_obligations.rs`
+- `crates/lila-ir/src/operations.rs`
+- `crates/lila-ir/src/ir.rs`
+- `crates/lila-ir/src/lowering.rs` — **two lines only**, enumerated in §8 R3.
+- `crates/lila-ir/src/lib.rs` — additions inside the two pre-existing
   `pub use` blocks only. No new `mod` line.
 - `docs/rust-rewrite/contracts/…` (this file, and the short redirect
   `iterator-close-obligation.md`)
 - `target/lane-notes/iterator-close-obligation-theory-integration.md` (new)
 
 Files this contract **does not** touch, stated as a prohibition rather than an
-omission: everything under `crates/porffor-aot-wasm/`. That includes
+omission: everything under `crates/lila-aot-wasm/`. That includes
 `emission_sites.rs`, `control_flow.rs`, `expressions.rs`, `functions.rs`,
 `planning.rs`, `data.rs`, `emit.rs`, `objects.rs`, `builtins/standard.rs`, and
 of course the four batch-2 files (`intl_datetimeformat.rs`, `temporal*.rs`,
@@ -68,7 +68,7 @@ Terminology, continued from round 1:
 - **Acquisition site**: a point in the IR where a construct causes a
   `GetIterator` to run. This is where the close obligation is *incurred*, and
   therefore where this contract makes it a required field.
-- **Emission site**: a `porffor-aot-wasm` function that performs a 7.4
+- **Emission site**: a `lila-aot-wasm` function that performs a 7.4
   operation. This is where the close obligation is *discharged*, and it is
   outside this contract's file set — §10 says so as a prohibition.
 
@@ -93,8 +93,8 @@ What is missing is a *reader*. `CompletionAbruptKind` has exactly one mention
 outside `operations.rs`, and it is the `pub use` line at `lib.rs:107`:
 
 ```sh
-grep -rn "CompletionAbruptKind" crates/ --include=*.rs | grep -v porffor-ir/src/operations.rs
-# → crates/porffor-ir/src/lib.rs:107  (the re-export)
+grep -rn "CompletionAbruptKind" crates/ --include=*.rs | grep -v lila-ir/src/operations.rs
+# → crates/lila-ir/src/lib.rs:107  (the re-export)
 ```
 
 `SpecOperationIr::abrupt()` (`operations.rs:798`) and
@@ -242,15 +242,15 @@ The `done` guard is 8.6.3 step 5 / 13.15.5.5's
 ### 1.7 The builtin consumers, and why they are not typed here
 
 `IfAbruptCloseIterator` is written out inline at 62 close call sites (§2.3).
-They are all in `porffor-aot-wasm`, they are batch 5's lane this round, and none
-of them is reachable from a `porffor-ir` type. §10 states the prohibition; the
+They are all in `lila-aot-wasm`, they are batch 5's lane this round, and none
+of them is reachable from a `lila-ir` type. §10 states the prohibition; the
 lane note carries the design.
 
 ### 1.8 Where the spec leaves latitude, and the choice this contract makes
 
 1. **Nothing in 7.4 requires that a compiler represent the close obligation at
    all.** A compiler may re-derive it at each emission site. This contract
-   chooses to state it *at acquisition*, in `porffor-ir`, because the emission
+   chooses to state it *at acquisition*, in `lila-ir`, because the emission
    sites outnumber the acquisition sites 62 to 6 and because an acquisition with
    no stated discharge is invisible today.
 2. **7.4 does not say a specialization is forbidden.** `for (x of arr)` may be
@@ -283,7 +283,7 @@ root on this branch. Re-derive rather than trust.
 | `ExprIr::ArrayDestructure` | 36 | 5 | `lowering.rs:14590, 31589, 31721, 31824, 31936` |
 | `ArrayDestructuringPatternIr` | 14 | **2** | `lowering.rs:32307, 32361` |
 | `ExprIr::SpreadArgument` | 23 | **1** | `lowering.rs:25199` |
-| `ExprIr::ArrayLiteral` | 48 (excluding 33 `TypedArrayLiteral*` false hits in `porffor-test262`) | 9 | `lowering.rs:15776, 15825, 15835, 28149, 28212, 28222, 28257, 28271`; `porffor-aot-wasm/src/builtins/json.rs:97` |
+| `ExprIr::ArrayLiteral` | 48 (excluding 33 `TypedArrayLiteral*` false hits in `lila-test262`) | 9 | `lowering.rs:15776, 15825, 15835, 28149, 28212, 28222, 28257, 28271`; `lila-aot-wasm/src/builtins/json.rs:97` |
 | `StatementIr::GeneratorYield` | 76 | **1** | `lowering.rs:15502` |
 
 ```sh
@@ -297,10 +297,10 @@ grep -rn "ArrayDestructuringPatternIr *{" crates/ --include=*.rs           # 2 h
 `ArrayDestructuringPatternIr` is the pivotal measurement. It is
 `pub struct ArrayDestructuringPatternIr { pub elements: Vec<ArrayDestructuringElementIr> }`
 (`ir.rs:826-828`). Outside its two construction sites, **every** use in the
-workspace — including all six `porffor-aot-wasm` uses — is a `&`-borrow that
+workspace — including all six `lila-aot-wasm` uses — is a `&`-borrow that
 reads `.elements`. There is no struct-literal pattern, no `..Default`, and no
 exhaustive destructuring anywhere. Adding a field is therefore `E0063` at
-exactly two lines, both inside `crates/porffor-ir`, and byte-neutral everywhere
+exactly two lines, both inside `crates/lila-ir`, and byte-neutral everywhere
 else.
 
 ### 2.2 The witness and the sites
@@ -311,7 +311,7 @@ else.
 grep -rn "EmissionSite::ArrayDestructuring" crates/ --include=*.rs
 # iterator_obligations.rs:112 (variant), :120 (name arm)
 # operations.rs:1012 (SYNC_PROTOCOL_SITES)
-# porffor-aot-wasm/src/emission_sites.rs:31 (the name-resolution join)
+# lila-aot-wasm/src/emission_sites.rs:31 (the name-resolution join)
 ```
 
 Six witness constant *names* (`ARRAY_INDEX_WALK`, `ARRAY_INDEX_WALK_RESUMABLE`,
@@ -327,8 +327,8 @@ credits and no acquisition has accepted — is what §3 A2 closes.
 ### 2.3 The emitter side (context only; not edited this round)
 
 ```sh
-grep -rn "self\.emit_iterator_close" crates/porffor-aot-wasm/src/ | wc -l   # 64
-grep -rno "self\.emit_iterator_close[a-z_]*" crates/porffor-aot-wasm/src/ \
+grep -rn "self\.emit_iterator_close" crates/lila-aot-wasm/src/ | wc -l   # 64
+grep -rno "self\.emit_iterator_close[a-z_]*" crates/lila-aot-wasm/src/ \
   | awk -F: '{print $3}' | sort | uniq -c
 #  15 self.emit_iterator_close
 #   2 self.emit_iterator_close_condition_i32
@@ -361,7 +361,7 @@ eleven `pub(crate)` `u32` fields. Two functions take it as
 
 ```sh
 grep -n "fn compile_for_of_array\|fn compile_for_of_string\|fn compile_async_for_of_iterator\|fn compile_for_of_iterator\|fn compile_array_destructure_from_value_locals\|fn emit_iterator_close_condition_i32" \
-  crates/porffor-aot-wasm/src/control_flow.rs
+  crates/lila-aot-wasm/src/control_flow.rs
 ```
 
 `emit_iterator_close` at `:8479` and `_preserving_current_throw` at `:8622` are
@@ -380,7 +380,7 @@ named.
 
 ### 2.6 The behavioural pins that already exist
 
-`crates/porffor-cli/tests/cli/iterator.rs` holds 30 `#[test]` functions, of
+`crates/lila-cli/tests/cli/iterator.rs` holds 30 `#[test]` functions, of
 which **5** name iterator closing (the brief said 6):
 
 ```
@@ -400,7 +400,7 @@ contract does not inflate it.
 ## 3. Type mapping — Group A: what lands this round
 
 Group A is exactly the work that leaves `cargo xc` green with **no edit outside
-`crates/porffor-ir`**. Every item is stated as the Rust the encoder writes.
+`crates/lila-ir`**. Every item is stated as the Rust the encoder writes.
 
 ### A1. `emission_sites!` — enum, `ALL`, and `name` from one row list
 
@@ -446,7 +446,7 @@ invocation as a module-level comment block, or are dropped; a macro-generated
 variant cannot carry one from the row. Keep the `ArrayDestructuring` prose —
 with the line number repaired per §2.4 — as a comment beside its row.
 
-**The variant set is unchanged.** `porffor-aot-wasm/src/emission_sites.rs` is
+**The variant set is unchanged.** `lila-aot-wasm/src/emission_sites.rs` is
 therefore untouched, which is why A1 is in Group A.
 
 ### A2. `ARRAY_DESTRUCTURING_PROTOCOL`, and the site↔witness tie
@@ -470,7 +470,7 @@ pub const ARRAY_DESTRUCTURING_PROTOCOL: Self =
     Self::emitted_by(EmissionSite::ArrayDestructuring);
 ```
 
-The witness census, `pub(crate)` so `porffor-aot-wasm` cannot read it (§10 P2):
+The witness census, `pub(crate)` so `lila-aot-wasm` cannot read it (§10 P2):
 
 ```rust
 **The census is generated, not hand-maintained.** An `iterator_witnesses!`
@@ -679,7 +679,7 @@ pub struct ArrayDestructuringPatternIr {
     ///
     /// **The emitter must not read this**, and cannot: every reader of a
     /// witness's contents — including `ArrayPatternProtocol::witness` — is
-    /// `pub(crate)` to `porffor-ir` (round 1 §13.12), so a `porffor-aot-wasm`
+    /// `pub(crate)` to `lila-ir` (round 1 §13.12), so a `lila-aot-wasm`
     /// arm that binds it and branches on it is `E0624`.
     /// Non-optional, no `Default`.
     pub protocol: ArrayPatternProtocol,
@@ -726,8 +726,8 @@ one design decision in Group A that a reviewer might want to overturn:
    outermost acquisition and silently cover none of the nested ones.
 2. **It costs two lines instead of four files.**
    `ExprIr::ArrayDestructure { value, pattern, assignment }` is matched
-   exhaustively without `..` at `porffor-aot-wasm/src/expressions.rs:1326` and
-   `:3086` and at `porffor-ir/src/lib.rs:2159` and `:2214`; a fourth field is
+   exhaustively without `..` at `lila-aot-wasm/src/expressions.rs:1326` and
+   `:3086` and at `lila-ir/src/lib.rs:2159` and `:2214`; a fourth field is
    `E0027` at all four. `ArrayDestructuringPatternIr` is matched exhaustively
    **nowhere** (§2.1), so a second field is `E0063` at exactly its two
    constructions.
@@ -755,8 +755,8 @@ speculative:
 ///
 /// What this proves is a **table** claim: that the row states a discipline
 /// consistent with its `abrupt` set. It does **not** prove that the named
-/// emitter body implements that discipline — `porffor-ir` cannot see
-/// `porffor-aot-wasm`. That boundary is ledger **L2**, restated as **IC-1**.
+/// emitter body implements that discipline — `lila-ir` cannot see
+/// `lila-aot-wasm`. That boundary is ledger **L2**, restated as **IC-1**.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AbruptDiscipline {
     /// The operation has no abrupt completion. `abrupt` must be empty.
@@ -1025,9 +1025,9 @@ operation, bypassing J7, J10, J12 and J13 — which quantify only over
 
 Group B is the remainder of M1 and all of M2. Each item is **complete** — the
 type, the construction site, and every pattern site that must be repaired — and
-each requires edits in `crates/porffor-aot-wasm`, which §10 P1 forbids this
+each requires edits in `crates/lila-aot-wasm`, which §10 P1 forbids this
 round. The encoder does **not** write Group B. The lane note carries the patch
-text and the line list so the batch that owns `porffor-aot-wasm` can apply it as
+text and the line list so the batch that owns `lila-aot-wasm` can apply it as
 one mechanical change.
 
 Group B is atomic per item **for everything the const ties can see**: a new
@@ -1132,7 +1132,7 @@ exhaustive match at `iterator_obligations.rs:215`, plus a `name()` arm.
 
 New site: `CallArgumentSpread => "emit_call_args_vector"`, backed by
 `FunctionBuilder::emit_call_args_vector` (`pub(crate)`, in `functions.rs`;
-locate it with `rg -n 'fn emit_call_args_vector' crates/porffor-aot-wasm/src/functions.rs`
+locate it with `rg -n 'fn emit_call_args_vector' crates/lila-aot-wasm/src/functions.rs`
 rather than by the stale `:7632`).
 
 Catalog: `EmissionSite::CallArgumentSpread` joins `SYNC_PROTOCOL_SITES` for the
@@ -1160,7 +1160,7 @@ const SYNC_CLOSE_SITES: &[EmissionSite] = &[
 ];
 ```
 
-**Construction (1 site, `crates/porffor-ir`):** `lowering.rs:25199`
+**Construction (1 site, `crates/lila-ir`):** `lowering.rs:25199`
 
 ```rust
 ExprIr::SpreadArgument(SpreadOperandIr {
@@ -1169,7 +1169,7 @@ ExprIr::SpreadArgument(SpreadOperandIr {
 }),
 ```
 
-**Pattern repairs, in `crates/porffor-ir` (4 product + 2 `#[cfg(test)]`):**
+**Pattern repairs, in `crates/lila-ir` (4 product + 2 `#[cfg(test)]`):**
 
 | line | today | becomes |
 |---|---|---|
@@ -1178,8 +1178,8 @@ ExprIr::SpreadArgument(SpreadOperandIr {
 | `early_errors.rs:32` | or-pattern arm `\| ExprIr::SpreadArgument(operand)` | split into its own arm |
 | `lib.rs` (was cited `:1298`/`:1303`, re-derived as `:1312`/`:1317`) | `ExprIr::SpreadArgument(ref value)` (both inside `#[cfg(test)] mod tests`) | `…(ref operand)` + `&operand.value` |
 
-**Pattern repairs outside `crates/porffor-ir` (6) — the lane note's patch:**
-`porffor-aot-wasm/src/data.rs:3363`, one site in `functions.rs` (cited `:7667`;
+**Pattern repairs outside `crates/lila-ir` (6) — the lane note's patch:**
+`lila-aot-wasm/src/data.rs:3363`, one site in `functions.rs` (cited `:7667`;
 now about +150 after a concurrent lane), `planning.rs:2935` (or-pattern), `:3385`
 (or-pattern), `:4768`, `:8106`. Plus one new arm in `emission_sites.rs`. The
 **nine** `(_)`/`(..)` patterns — the list below was called "the eight" and has
@@ -1240,7 +1240,7 @@ EmissionSite::GeneratorDelegation => {
 }
 ```
 
-**Construction (1 site, `crates/porffor-ir`):** `lowering.rs:15502-15508`, the
+**Construction (1 site, `crates/lila-ir`):** `lowering.rs:15502-15508`, the
 *only* place in the workspace that builds a `GeneratorYield`:
 
 ```rust
@@ -1270,18 +1270,18 @@ built delegating-without-a-witness; it does not claim the word `bool` has been
 eliminated from the lowering path. Closing that would mean rewriting twelve call
 sites to duplicate the same `if`, which is churn without a new compile error.
 
-**Pattern repairs, in `crates/porffor-ir`: five**, all in `lib.rs`, all
+**Pattern repairs, in `crates/lila-ir`: five**, all in `lib.rs`, all
 `#[cfg(test)]` — `lib.rs:6027, 6056, 6097, 6150, 6323` spell `delegate:` and
-break under the field rename (`grep -c delegate crates/porffor-ir/src/lib.rs`
+break under the field rename (`grep -c delegate crates/lila-ir/src/lib.rs`
 returns 5). This section used to say "none" and then hedge in the next sentence;
 the count costs one command and belongs in the applier's estimate.
 
-Every *other* `porffor-ir` pattern on `GeneratorYield` either uses `..` or binds
+Every *other* `lila-ir` pattern on `GeneratorYield` either uses `..` or binds
 only `value`/`resume_mode` (`lowering.rs:12108, 12851, 12857, 12914, 12988,
 13182, 13267, 13273, 13281, 15998, 16002, 16015, 16019`; `ir.rs:2153, 2664`;
 `lowering_helpers.rs:49`; `early_errors.rs:298`).
 
-**Pattern repairs outside `crates/porffor-ir` (7) — the lane note's patch:**
+**Pattern repairs outside `crates/lila-ir` (7) — the lane note's patch:**
 `control_flow.rs:1943` and `:2090` (full-field patterns, no `..`; also the
 `*delegate` reads at `:1952`, `:2097`), `data.rs:2774`/`:2778`,
 `emit.rs:621`/`:632`/`:806`, `planning.rs:4179`/`:4196`. Plus one new arm in
@@ -1356,14 +1356,14 @@ what cannot be a type, and why.
 
 | id | Invariant | Why no type can carry it | The check that replaces it |
 |---|---|---|---|
-| **IC-1** | An emitter body actually implements the `AbruptDiscipline` its row declares. | `porffor-ir` cannot see `porffor-aot-wasm`; the dependency runs the other way, and an emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm closes before propagating". This is round 1's **L2** in a new suit, and it is stated here so the A4a claim is not over-read: J12 proves the *table* is coherent, not that the emitter is. | Nothing, this round. The lane note's scope type (§7 of the note) is the design that would close it; it lives in `porffor-aot-wasm`. |
+| **IC-1** | An emitter body actually implements the `AbruptDiscipline` its row declares. | `lila-ir` cannot see `lila-aot-wasm`; the dependency runs the other way, and an emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm closes before propagating". This is round 1's **L2** in a new suit, and it is stated here so the A4a claim is not over-read: J12 proves the *table* is coherent, not that the emitter is. | Nothing, this round. The lane note's scope type (§7 of the note) is the design that would close it; it lives in `lila-aot-wasm`. |
 | **IC-2** | A `StatementEmissionRow`'s `calls` column lists every operation the row's spec definition invokes. | The column is transcribed from spec text by hand. Nothing in the crate can read ECMA-262. | Bounded rather than checked: every entry is a real `SpecOperationIr` variant (type-checked), and under-listing only *weakens* J13 — it can never forge a containment. Over-listing makes the check stricter. |
 | **IC-3** | The lowering path carries no `bool` standing for "is this a delegation". | `lower_linear_generator_yield{,_value}` keep a `delegate: bool` parameter; the conversion to `YieldForm` happens once at the IR construction. Removing the parameter means twelve duplicated `if`s and buys no new compile error. | Nothing. The mistake M2 names — building the IR variant delegating without a witness — is `E0063`/`E0308` regardless. |
 | **IC-4** | `ALL_WITNESSES` lists every witness constant. | ~~Stable Rust has no way to enumerate a type's associated constants; the constants are four-argument expressions, not rows a macro can expand twice.~~ **That reason was wrong.** A `macro_rules!` row carries expression fragments perfectly well. | **CLOSED by a type.** `iterator_witnesses!` expands one row list into both the `pub const`s and `ALL_WITNESSES`, exactly as `emission_sites!` does for the sites; an alias row (`ARRAY_INDEX_WALK_RESUMABLE => Self::ARRAY_INDEX_WALK`) even removes the aliasing wart. K3's length check is **retired** — it is the shape that cannot detect its own omission — and K1 is now total rather than conditional on a hand-maintained census. |
 | **IC-5** | An array-literal SpreadElement states which desugaring discharged 13.2.4.1, and on what premise. | There is no IR node: the spread is desugared to `[].concat(…)` / `Array.from(…)` before any node exists (C1). The obligation would have to be attached to the lowering *decision*, which is a `lowering.rs` restructure this area is not allowed to make (§5). | **Was "documentation"; that understated it — the first branch's premise was not unproven, it was *falsified by ordinary programs*.** The guard was `spread_value.possible_kinds.contains(ValueKind::Array)`, and an un-inferred function parameter carries `KindSet::all_runtime_tags()`, which sets `ARRAY_BIT`. So `function f(x) { return [...x]; }` desugared to `[].concat(x)`, and for any non-array iterable `x`, 23.1.3.1 with IsConcatSpreadable false **appended the object instead of iterating it** — wrong under a pristine realm, with no tampering at all. Fixed this round: the guard is now `possible_kinds.is_subset_of({Array})`, the same predicate the for-of array walk uses, so `ConcatArrayLike` is reachable only where the premise can hold and everything else falls through to `Array.from`, which runs the real protocol. The **residual** IC-5 is what it always should have been: a statically-known `Array` still skips `%Array.prototype%[@@iterator]`. `ArraySpreadStrategy` (§5) is the design that names that; until it lands the residual is documentation. |
 | **IC-7** | The `ForOf*` `protocol` fields hold the *right* witness, not merely *a* witness. | The three fields legitimately admit three different constants, and `lowering.rs` selects between them with an `if`/`else` chain — the shape a copy-paste gets wrong. A one-inhabitant newtype (A3's `ArrayPatternProtocol`) cannot apply. Closing it means moving the choice into a function that takes the `KindSet` and returns a `ForOfProtocol`, which is a `lowering.rs` restructure. | Nothing at the field. `ForOfLoweringIr::into_statement_and_kind` now *reads* the witness on the way out and `debug_assert`s the two conditions that are checkable — an `Empty` statement must carry `NO_ITERATION`, and a real `ForOf*` statement must not — which also replaces the unread `protocol()` accessor. |
 | **IC-8** | `StatementEmissionRow` / `TrackedGapRow` are not part of the public API. | They are `pub` and re-exported from `lib.rs`, and narrowing them to `pub(crate)` is a wider change than a blind round should make. `into_entry` is `pub(crate)`, which closes the forge-a-catalog-entry hole; the structs themselves remain visible. | Nothing yet. `AbruptDiscipline`'s re-export survives only because `StatementEmissionRow::discipline` names it. |
-| **IC-6** | `porffor-aot-wasm` acquisition sites that no `porffor-ir` construct reaches are witnessed. | Some acquisitions have no IR construct at all — the ~15 builtin consumers of `IfAbruptCloseIterator` (§1.7) are emitted from `StandardBuiltinId` arms, not from user-program IR. A witness on an acquisition that the user's program does not spell has nothing to attach to. | Nothing, and deliberately not the same thing as a gap: the builtins' close discipline is pinned by the five CLI fixtures in §2.6 and by Test262. Named here so the next reader does not mistake `EmissionSite`'s small variant set for a claim that only that many arms run the protocol. |
+| **IC-6** | `lila-aot-wasm` acquisition sites that no `lila-ir` construct reaches are witnessed. | Some acquisitions have no IR construct at all — the ~15 builtin consumers of `IfAbruptCloseIterator` (§1.7) are emitted from `StandardBuiltinId` arms, not from user-program IR. A witness on an acquisition that the user's program does not spell has nothing to attach to. | Nothing, and deliberately not the same thing as a gap: the builtins' close discipline is pinned by the five CLI fixtures in §2.6 and by Test262. Named here so the next reader does not mistake `EmissionSite`'s small variant set for a claim that only that many arms run the protocol. |
 
 ---
 
@@ -1381,21 +1381,21 @@ what cannot be a type, and why.
 | **M4a** | A row whose `abrupt` says the operation may throw, with nothing said about how the throw leaves. | `abrupt` has zero readers (§2.5). | **`E0063`** for the missing `discipline` field, then **`E0080`** via const assert **J12** if the declared discipline and the `abrupt` set disagree. Scope: a *table* claim. Ledger **IC-1** states what it does not prove. **Group A.** |
 | **M4b** | Mark an operation the iterator protocol depends on as non-throwing — commit `ca09433c1`'s shape. | `SpecOperationIr::abrupt()` is total on the variant and nothing reads it. | **`E0080`** — const assert **J13**, *including its justification clause*. Containment alone does **not** catch this: weakening `Get` to `NO_ABRUPT` empties the callee slice, so the containment loop body never runs and the build stays green. J13 therefore also asserts that a row claiming an abrupt exit names at least one callee that can produce one, which fails at `IteratorValue` — whose only callee is `Get` — the instant `Get` is weakened. **Group A.** |
 | **M4c** | Claim 7.4.11 step-4 precedence on a row whose `abrupt` admits only `Throw`, i.e. claim an asymmetry with only one side. | Nothing. | **`E0080`** — J12 (b). **Group A.** |
-| **M5** | Close with the wrong precedence: `emit_iterator_close` where step 5 requires the original throw to win, or `_preserving_current_throw` where step 6 requires the close's error to replace a `break`/`return`. | A choice between two similarly-named plain functions at 62 call sites. Silent wrong answer; `iterator-close-throw-get-method-abrupt.js` is the trace that separates them. | **Not typed.** The distinction lives entirely in `porffor-aot-wasm`. `AbruptDiscipline` gives the fork a *name* in the IR crate's vocabulary so the emitter-side design has something to be checked against; the check itself is the lane note's scope type. Ledger **IC-1**. |
+| **M5** | Close with the wrong precedence: `emit_iterator_close` where step 5 requires the original throw to win, or `_preserving_current_throw` where step 6 requires the close's error to replace a `break`/`return`. | A choice between two similarly-named plain functions at 62 call sites. Silent wrong answer; `iterator-close-throw-get-method-abrupt.js` is the trace that separates them. | **Not typed.** The distinction lives entirely in `lila-aot-wasm`. `AbruptDiscipline` gives the fork a *name* in the IR crate's vocabulary so the emitter-side design has something to be checked against; the check itself is the lane note's scope type. Ledger **IC-1**. |
 | **M6** | Add an abrupt exit out of an iteration region without closing — the failure `IfAbruptCloseIterator` exists to name. | `Option<IteratorCloseOnThrowLocals>::None` is a legal argument at every call site of the two functions that take it (`objects.rs:14383`, `builtins/standard.rs:4418`). One acquisition through `emit_get_iterator_from_value_locals` against 62 close sites, with nothing linking them. | **Not typed, and honestly bounded.** There is *no shipped-defect ledger entry and no git-log instance* of this class; five CLI fixtures already pin the behaviour (§2.6). It is a real structural gap, not a wound, and this contract does not inflate it. Designed in the lane note. |
 
 ---
 
 ## 8. Retrofit map
 
-Ordered. Each step must leave `cargo check -p porffor-ir` clean before the next
+Ordered. Each step must leave `cargo check -p lila-ir` clean before the next
 begins — that is the whole verification strategy, per the campaign's method.
 Steps R1–R6 are Group A and are the encoder's work. R7 is the note.
 
 **R1 — `iterator_obligations.rs`, the site domain.** Introduce `emission_sites!`
 (A1) and re-declare the three existing variants through it. Promote
 `ALL_OBLIGATIONS` out of `#[cfg(test)]` to a `pub(crate) const`. No behaviour
-change, no new variant. `cargo check -p porffor-ir --all-targets`.
+change, no new variant. `cargo check -p lila-ir --all-targets`.
 
 **R2 — `iterator_obligations.rs`, the witness.** Add
 `ARRAY_DESTRUCTURING_PROTOCOL`, `ALL_WITNESSES`, `site_is_witnessed`, and const
@@ -1406,14 +1406,14 @@ the tree *before* R2, and the dry-runner verifies it by the counterfactual in
 line-number citation here (§2.4).
 
 **R3 — `ir.rs` and `lowering.rs`, the field.** Add `protocol` to
-`ArrayDestructuringPatternIr` (A3). This makes `cargo check -p porffor-ir` fail
+`ArrayDestructuringPatternIr` (A3). This makes `cargo check -p lila-ir` fail
 with `E0063` at exactly two lines, which are then filled:
 
-- `crates/porffor-ir/src/lowering.rs:32307` —
+- `crates/lila-ir/src/lowering.rs:32307` —
   `Some(ArrayDestructuringPatternIr { elements })` becomes
   `Some(ArrayDestructuringPatternIr { elements, protocol: IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL })`
   (inside `lower_array_binding_pattern`, the 8.6.3 side).
-- `crates/porffor-ir/src/lowering.rs:32361` — the identical change inside
+- `crates/lila-ir/src/lowering.rs:32361` — the identical change inside
   `lower_array_assignment_pattern` (the 13.15.5.5 side).
 
 **These two lines are the entirety of this contract's `lowering.rs` allowance.**
@@ -1449,13 +1449,13 @@ and the emitter-side close-scope design with its paper trace (§9.15).
 
 ### Untouched, deliberately
 
-- **`crates/porffor-aot-wasm/**` in its entirety.** §10 P1.
+- **`crates/lila-aot-wasm/**` in its entirety.** §10 P1.
 - **`ExprIr::ArrayLiteral`.** §5 / C1.
 - **`ExprIr::ArrayDestructure`'s `assignment: bool`.** It is also a closed
   two-element domain masquerading as a bool — 8.6.3 versus 13.15.5.5 are two
   different abstract operations — and it is *adjacent, not in scope*. Recording
   it here so the next lane finds it; typing it would touch four exhaustive
-  patterns including two in `porffor-aot-wasm`.
+  patterns including two in `lila-aot-wasm`.
 - **`ObligationDischarge::ByEmission`'s arity.** §1.8 choice 3 explains why it
   stays a single site.
 - **Round 1's `pub(crate)` narrowing** (`iterator_obligations.rs:45-51`,
@@ -1517,7 +1517,7 @@ closed. Path today: `ExprIr::ArrayDestructure` → `compile_array_destructure_to
 that the `ArrayDestructuringPatternIr` reaching that emitter now carries
 `ARRAY_DESTRUCTURING_PROTOCOL`, which the emitter cannot read (`E0624` if it
 tried). The dry-runner must confirm the *no-byte-change* claim by inspection —
-the field is `Copy`, adds no allocation, and no `porffor-aot-wasm` code path
+the field is `Copy`, adds no allocation, and no `lila-aot-wasm` code path
 branches on it.
 
 ### 9.5 `assignment/dstr/array-elem-iter-nrml-close-skip.js` — the question the row actually asks
@@ -1629,7 +1629,7 @@ discharges `GetIterator` by `ByEmission(SyncForOfIterator)` → `true`.
 `ARRAY_INDEX_WALK` (×2 names) and `STRING_CODE_POINT_WALK` and `NO_ITERATION`
 are `ByAssumption` throughout; the two protocol constants are
 `ByEmission(SyncForOfIterator)` / `ByEmission(AsyncForOfIterator)`. **No match.**
-K1 asserts `false` → **`E0080` at `cargo check -p porffor-ir`**, message "an
+K1 asserts `false` → **`E0080` at `cargo check -p lila-ir`**, message "an
 EmissionSite names an emitter arm that no IR construct's witness has accepted".
 
 **After R2.** `ARRAY_DESTRUCTURING_PROTOCOL` is
@@ -1654,7 +1654,7 @@ J12(a) fails first, and J13 would too.
 
 **Cannot catch, and this goes in the ledger rather than in the claim:** a row
 that declares `CloseOnAbruptExitWithStep4Precedence` while
-`compile_for_of_iterator` propagates without closing. `porffor-ir` cannot see
+`compile_for_of_iterator` propagates without closing. `lila-ir` cannot see
 the body. IC-1.
 
 **Also cannot catch:** a row that declares `calls: &[]`. J13's first assertion
@@ -1688,7 +1688,7 @@ normal-completion close. Two exits then cost two method calls on one scope, and
 picking the wrong precedence stops being a choice between two similarly-named
 free functions — it becomes a value in a closed domain that the scope maps.
 
-Second, decisive check: **the design reads nothing from `porffor-ir`'s witness.**
+Second, decisive check: **the design reads nothing from `lila-ir`'s witness.**
 The scope is built from `IteratorCloseOnThrowLocals` (`emit.rs:99`, eleven `u32`
 locals) and an `AbruptExitKind`; neither `IteratorProtocolWitness` nor any of its
 `pub(crate)` readers appears in it. Round 1's §13.12 narrowing therefore survives
@@ -1703,7 +1703,7 @@ design is wrong instead of shipping it.
 
 Stated as prohibitions, not preferences.
 
-**P1 — no edit under `crates/porffor-aot-wasm/`.** This campaign works in the
+**P1 — no edit under `crates/lila-aot-wasm/`.** This campaign works in the
 spec/IR layer while batch 2 verifies in the backend builtins and batch 5 owns
 the iterator-emission lane. Group B and the §5 design are specified here and
 applied by whoever owns that crate next. A contract that quietly edits thirteen
@@ -1713,11 +1713,11 @@ concurrency budget without asking.
 **P2 — round 1's `pub(crate)` narrowing is not re-opened.** Every reader of a
 witness's contents (`get_iterator`, `iterator_step`, `iterator_value`,
 `iterator_close`, `discharge`, `is_fully_emitted`,
-`ObligationDischarge::is_emitted`) stays `pub(crate)` to `porffor-ir`
+`ObligationDischarge::is_emitted`) stays `pub(crate)` to `lila-ir`
 (`iterator_obligations.rs:45-51`, round 1 §13.12), and the two new helpers
 `ALL_WITNESSES` and `site_is_witnessed` are `pub(crate)` for the same reason.
 The emitter-side close token is a **sibling type living in
-`porffor-aot-wasm`**, not an extension of the witness. A design that makes the
+`lila-aot-wasm`**, not an extension of the witness. A design that makes the
 brief's sentence "an abrupt exit that does not discharge the close fails to
 compile" literally true by letting the emitter read the witness has spent round
 1's payment for nothing.
@@ -1741,7 +1741,7 @@ The encoder is done when all of the following hold. Items marked **claim** are
 what this contract asserts; items marked **non-claim** are stated so nobody
 reads more into the result than is there.
 
-1. `cargo check -p porffor-ir --all-targets` is clean, and `cargo xc` is clean.
+1. `cargo check -p lila-ir --all-targets` is clean, and `cargo xc` is clean.
 2. **claim** Reverting `ARRAY_DESTRUCTURING_PROTOCOL` in a scratch copy makes
    K1 fail with `E0080` (§9.13). A tie that passes in both states has not been
    built.
@@ -1766,14 +1766,14 @@ reads more into the result than is there.
    containment loop body never execute. The clause "a row that claims an abrupt
    exit names at least one callee that can produce one" is what fires, at
    `IteratorValue`, whose only callee is `Get`.
-7. **claim** No hunk in `crates/porffor-aot-wasm/` is attributable to this
+7. **claim** No hunk in `crates/lila-aot-wasm/` is attributable to this
    contract. **Not dischargeable by a bare `git status`**: the checkout is
    shared, and at the time this checklist was written `git status` already
-   listed `crates/porffor-aot-wasm/src/functions.rs` as modified by a concurrent
+   listed `crates/lila-aot-wasm/src/functions.rs` as modified by a concurrent
    lane (a `MethodCallDestination`/`DestinationWritten` typestate for
    `emit_method_call`, unrelated to iterator obligations, and not one of the four
    batch-2 files). An integrator running item 7 literally reads a false negative.
-   The owned file set is: `crates/porffor-ir/src/iterator_obligations.rs`,
+   The owned file set is: `crates/lila-ir/src/iterator_obligations.rs`,
    `operations.rs`, `ir.rs`, `lowering.rs`, `lib.rs`, plus `docs/` and
    `target/lane-notes/`.
 8. **claim** The six stale `control_flow.rs` citations of §2.4 are repaired in
@@ -1812,7 +1812,7 @@ build lock throughout; every command queued on it.
 
 ### 12.1 Compile gate
 
-`cargo check -p porffor-ir` **exit 0** (6 warnings, all baseline);
+`cargo check -p lila-ir` **exit 0** (6 warnings, all baseline);
 `cargo xc` **exit 0**, 0 errors; `cargo fmt --all` clean after formatting
 `operations.rs`, `ir.rs` and `lib.rs`.
 
@@ -1854,7 +1854,7 @@ was discharged by the round-4 rewrite to `SpreadCloseOwedOnlyAfterAcquisition`.
 What still blocks Group B is **only** concurrency and crate boundary:
 
 - `SpreadArgument` needs six pattern repairs plus an `emission_sites.rs` arm in
-  `porffor-aot-wasm` (`data.rs`, `functions.rs`, `planning.rs` ×4).
+  `lila-aot-wasm` (`data.rs`, `functions.rs`, `planning.rs` ×4).
 - `YieldForm` needs seven out-of-crate pattern lines, two of them at
   `control_flow.rs:1943`/`:2090` — the same file batch 5's iterator lane is live
   in. §3.4's own sequencing note says to apply it *after* batch 5 lands.
@@ -1865,3 +1865,110 @@ contention surface, and changes emitted bytes — unverifiable without rung G.
 
 None of the three were applied. Each is fully specified in the lane note; none
 is blocked on analysis.
+
+---
+
+## 13. Generator-delegation integration (2026-08-12)
+
+This section supersedes §4 B2, mistake-table row M2, checklist non-claim 11 and
+§12.3 wherever they say `YieldForm` is not encoded. B1 (`SpreadArgument`) is
+superseded by §14; Group C remains open.
+
+The encoded seam is narrower and stronger than B2's first code sketch:
+
+- `StatementIr::GeneratorYield { delegate: bool }` is now
+  `StatementIr::GeneratorYield { form: YieldForm }`, where the closed domain is
+  `Plain | Delegate(GeneratorDelegationProtocol)`.
+- `GeneratorDelegationProtocol` is a one-inhabitant wrapper with a private
+  constructor. Its only public value, `YIELD_STAR`, contains
+  `IteratorProtocolWitness::YIELD_STAR_DELEGATION_PROTOCOL`. A const assertion
+  asks through the wrapper and proves that all four obligations are discharged
+  at `EmissionSite::GeneratorDelegation`; pointing the wrapper at any other
+  otherwise-valid witness is therefore `E0080`.
+- `EmissionSite::GeneratorDelegation` names the sync/async emitter family.
+  `emission_sites_are_backed` resolves both
+  `compile_generator_delegation` and `compile_async_generator_delegation`, as
+  §1.8 choice 3 requires.
+- The statement-emission catalog credits that site for `GetIterator`,
+  `IteratorStep`, `IteratorValue`, `IteratorClose` and `AsyncIteratorClose`.
+  K1/J10/J11 therefore cover the new site in both directions.
+- The parser-facing `delegate: bool` remains on the two private lowering
+  helpers, per ledger IC-3, and is converted exactly once at the sole
+  `GeneratorYield` construction. Every backend consumer that observes the
+  distinction matches `YieldForm` exhaustively.
+
+No emitted instruction sequence was rewritten: the new exhaustive matches
+enter the same delegation return before the plain-yield instructions, and the
+same plain path otherwise. `generator_delegation.rs` is untouched.
+
+This integration was dry-written. Static formatting, whitespace and module
+boundary checks are recorded by the batch handoff; no Cargo command or runtime
+test was run in this lane. The cheapest focused verification is
+`cargo check -p lila-ir -p lila-aot-wasm`, followed by the existing focused
+generator and iterator filters in T15.
+
+---
+
+## 14. Call-argument spread integration and the uninhabited dense strategy (2026-08-12)
+
+This section supersedes §4 B1, M1b, §12.3 and every earlier sentence that says
+the `SpreadArgument` witness is only specified.
+
+`ExprIr::SpreadArgument(Box<TypedExpr>)` is now
+`ExprIr::SpreadArgument(SpreadArgumentIr)`. The payload has two required
+fields: the operand and a `SpreadArgumentProtocol`. The protocol wrapper has a
+private constructor and one public inhabitant, `ARGUMENT_LIST`, so a new IR
+construction that omits the discharge is `E0063` and one that substitutes a
+for-of, destructuring or delegation witness is `E0308`.
+
+The witness is deliberately partial:
+
+| obligation | discharge | evidence |
+|---|---|---|
+| `GetIterator` | `ByEmission(CallArgumentSpread)` | `emit_call_args_vector` reads `@@iterator`, calls it, checks the returned object and caches `next` once |
+| `IteratorStep` | `ByEmission(CallArgumentSpread)` | the same emitter calls cached `next`, checks the result object and reads/coerces `done` |
+| `IteratorValue` | `ByEmission(CallArgumentSpread)` | the same loop reads `value` only after `done` is false |
+| `IteratorClose` | `ByAssumption(SpreadCloseOwedOnlyAfterAcquisition)` | 13.3.8.1 propagates acquisition and step/value abrupt completions; adding a close would be observable extra `return()` behavior |
+
+`EmissionSite::CallArgumentSpread` is name-resolved to
+`FunctionBuilder::emit_call_args_vector`. The first three statement-emission
+rows include it; the `IteratorClose` row uses a smaller `SYNC_CLOSE_SITES`
+domain that excludes it. K1/J10/J11 therefore make either accidental catalog
+claim a const-evaluation failure. The AOT pattern only unwraps `.value`; it
+cannot inspect the protocol witness, so the existing evaluation order,
+temporary-local plan and Wasm instruction sequence are preserved.
+
+### Why `ArraySpreadStrategy::ProvenDense` does not land with it
+
+Call-argument spread has no dense shortcut: every current spread operand enters
+the general iterator loop. Array-literal spread is different and is desugared
+earlier, in `lower_array_literal` and its staged-generator twin. The smallest
+honest future domain is:
+
+```rust
+enum ArraySpreadStrategy {
+    ProvenDense,
+    GeneralIterator,
+}
+```
+
+There is presently no valid constructor for `ProvenDense`. An inferred dense
+array shape proves backing-layout facts, not that
+`%Array.prototype%[@@iterator]` and `%ArrayIteratorPrototype%.next` retain their
+initial values; even `[...[1, 2]]` must observe an iterator method patched
+earlier in the script. The only related lowerer fact,
+`array_prototype_mutated`, initializes to `true` and has no transition that
+proves the realm intact. Selecting `ProvenDense` from `ValueKind::Array` or a
+dense `HeapShape` would therefore certify a false premise. Declaring the enum
+while making that variant unreachable would instead be speculative decoration.
+
+Group C remains open until either (a) a realm/version witness makes the intact
+premise constructible, or (b) array-literal spread deletes the shortcut and
+uses a direct/general iterator accumulator. This integration does not broaden
+or bless the existing known-Array `concat` desugaring.
+
+The change was dry-written only. No Cargo command or execution test ran in this
+lane. The cheapest compile gate is
+`cargo check -p lila-ir -p lila-aot-wasm`; the focused semantic gate is the
+pinned `language/expressions/call` spread subtree followed by the existing T15
+CLI iterator regression.

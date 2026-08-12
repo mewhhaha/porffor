@@ -1,15 +1,16 @@
 [workspace]
 members = [
-  "crates/porffor-front",
-  "crates/porffor-ir",
-  "crates/porffor-runtime",
-  "crates/porffor-spec-exec",
-  "crates/porffor-aot-wasm",
-  "crates/porffor-backend-c",
-  "crates/porffor-backend-native",
-  "crates/porffor-engine",
-  "crates/porffor-cli",
-  "crates/porffor-test262",
+  "crates/lila-front",
+  "crates/lila-ir",
+  "crates/lila-intl",
+  "crates/lila-runtime",
+  "crates/lila-spec-exec",
+  "crates/lila-aot-wasm",
+  "crates/lila-backend-c",
+  "crates/lila-backend-native",
+  "crates/lila-engine",
+  "crates/lila-cli",
+  "crates/lila-test262",
 ]
 resolver = "2"
 
@@ -62,44 +63,48 @@ opt-level = 2
 # Package overrides win over the wildcard dependency setting above. Keep all
 # workspace crates at opt-level 0 so an IR/backend edit does not trigger a slow
 # optimized rebuild of Lila itself.
-[profile.dev.package.porffor-front]
+[profile.dev.package.lila-front]
 opt-level = 0
-[profile.dev.package.porffor-ir]
+[profile.dev.package.lila-ir]
 opt-level = 0
-[profile.dev.package.porffor-runtime]
+[profile.dev.package.lila-intl]
 opt-level = 0
-[profile.dev.package.porffor-spec-exec]
+[profile.dev.package.lila-runtime]
 opt-level = 0
-[profile.dev.package.porffor-aot-wasm]
+[profile.dev.package.lila-spec-exec]
 opt-level = 0
-[profile.dev.package.porffor-backend-c]
+[profile.dev.package.lila-aot-wasm]
 opt-level = 0
-[profile.dev.package.porffor-backend-native]
+[profile.dev.package.lila-backend-c]
 opt-level = 0
-[profile.dev.package.porffor-engine]
+[profile.dev.package.lila-backend-native]
 opt-level = 0
-[profile.dev.package.porffor-cli]
+[profile.dev.package.lila-engine]
 opt-level = 0
-[profile.dev.package.porffor-test262]
+[profile.dev.package.lila-cli]
+opt-level = 0
+[profile.dev.package.lila-test262]
 opt-level = 0
 
-[profile.test.package.porffor-front]
+[profile.test.package.lila-front]
 opt-level = 0
-[profile.test.package.porffor-ir]
+[profile.test.package.lila-ir]
 opt-level = 0
-[profile.test.package.porffor-runtime]
+[profile.test.package.lila-intl]
 opt-level = 0
-[profile.test.package.porffor-spec-exec]
+[profile.test.package.lila-runtime]
 opt-level = 0
-[profile.test.package.porffor-aot-wasm]
+[profile.test.package.lila-spec-exec]
 opt-level = 0
-[profile.test.package.porffor-backend-c]
+[profile.test.package.lila-aot-wasm]
 opt-level = 0
-[profile.test.package.porffor-backend-native]
+[profile.test.package.lila-backend-c]
 opt-level = 0
-[profile.test.package.porffor-engine]
+[profile.test.package.lila-backend-native]
 opt-level = 0
-[profile.test.package.porffor-cli]
+[profile.test.package.lila-engine]
 opt-level = 0
-[profile.test.package.porffor-test262]
+[profile.test.package.lila-cli]
+opt-level = 0
+[profile.test.package.lila-test262]
 opt-level = 0

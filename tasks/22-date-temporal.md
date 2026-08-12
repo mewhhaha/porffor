@@ -10,9 +10,33 @@
 
 Date has a substantial dedicated backend implementation and focused complete
 leaves. Temporal now has a dedicated builtin module with Instant and
-ZonedDateTime work and focused snapshots. The complete Temporal class surface,
-custom calendar/time-zone protocols, pinned deterministic data, Intl
-integration and materialization-free full Date/Temporal trees remain open.
+ZonedDateTime work and focused snapshots. A realm-owned `HostClock` is the one
+product boundary for JavaScript-visible wall-clock and monotonic reads:
+`UtcEpochMilliseconds` validates the shared Date/Temporal range, monotonic
+instants and durations are separate types, tests may inject a deterministic
+clock, and the production `SystemHostClock` is shared by realm clones and agent
+workers. `Date.now`, `Temporal.Now` clock reads, the Wasm monotonic-clock import
+and the Test262 agent monotonic operation all consume that boundary without
+changing their Wasm ABI. Engine compilation, timeout and sleep machinery still
+uses real execution-control timers and is deliberately not virtualized.
+
+The default time-zone boundary is not implemented yet. Current AOT Date local
+operations and `Temporal.Now` defaults remain UTC/fixed-offset behavior.
+`lila-intl` owns the closed `CanonicalTimeZoneId` domain, but no canonical zone
+provider or Wasm host ABI connects it to Date/Temporal yet; a realm setting with
+no semantic consumer would not satisfy this task. The complete Temporal class
+surface, custom calendar/time-zone protocols, pinned deterministic data, Intl
+integration and materialization-free full Date/Temporal trees therefore remain
+open.
+
+Artifacts that use the existing Intl locale host operation now carry the full
+canonical `IntlDataIdentity`, and the engine matches it to the shared provider
+before Wasmtime compilation or instantiation. That closes the
+artifact/provider identity seam shared with T23, but it does not add a
+time-zone provider, transition data, or a default-zone consumer. In particular,
+the carried identity's pinned tzdb field is metadata for the selected complete
+data line; the current Locale-only external provider still does not claim that
+capability.
 
 ## Objective
 
@@ -94,12 +118,12 @@ Use generated tables/enums for option names and units to prevent inconsistent va
 ## Required tests
 
 ```sh
-cargo test -p porffor-runtime time_ --quiet
-cargo test -p porffor-aot-wasm date_ --quiet
-cargo test -p porffor-aot-wasm temporal_ --quiet
-cargo test -p porffor-cli wasm_date --quiet
-./target/debug/porf test262 run built-ins/Date --execution-backend wasm --timeout-ms 180000 --threads 4
-./target/debug/porf test262 run built-ins/Temporal --execution-backend wasm --timeout-ms 240000 --threads 4
+cargo test -p lila-runtime time_ --quiet
+cargo test -p lila-aot-wasm date_ --quiet
+cargo test -p lila-aot-wasm temporal_ --quiet
+cargo test -p lila-cli wasm_date --quiet
+./target/debug/lila test262 run built-ins/Date --execution-backend wasm --timeout-ms 180000 --threads 4
+./target/debug/lila test262 run built-ins/Temporal --execution-backend wasm --timeout-ms 240000 --threads 4
 ```
 
 Run with several injected zones—including UTC and zones with DST gaps/folds—and compare deterministic outputs against the spec-exec differential oracle (diagnostic comparison only; the Wasm-AOT results are the product evidence).

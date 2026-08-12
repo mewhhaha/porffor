@@ -1,6 +1,6 @@
 # T20 — Number, BigInt, Math and JSON
 
-**Status:** In progress — broad numeric/JSON support exists; arbitrary BigInt and full closure remain
+**Status:** In progress — exact core BigInt operators and broad numeric/JSON support exist; full closure remains
 
 **Parallel group:** Feature lane; split internally by Number, BigInt, Math and JSON  
 **Depends on:** T04, T05, T10, T18  
@@ -9,11 +9,33 @@
 ## Current repository state
 
 Number operators/conversions, Math builtins, JSON parsing/stringification and
-small/heap BigInt representations have extensive Wasm implementations and
-focused real-suite coverage. The heap design explicitly records multi-limb
-BigInt arithmetic and conversion as incomplete, and JSON/Number metadata still
-appears in the Test262 materialization layer. Full Number, BigInt, Math and JSON
-current-pin trees have not met this task's shortcut-free acceptance gate.
+inline/heap BigInt representations have extensive Wasm implementations and
+focused real-suite coverage. Core multi-limb BigInt arithmetic, comparison and
+binary bitwise operators now share the exact arbitrary-precision runtime
+representation. The binary bitwise path evaluates both operands before its
+ordered ToNumeric conversions, rejects mixed numeric types and BigInt `>>>`,
+implements negative shift-count reversal and reports unaddressable left-shift
+results as an explicit resource RangeError. Unary complement now has its own
+closed IR operation and an exhaustive Number-versus-BigInt backend dispatch:
+the operand is evaluated once and crosses one ToNumeric boundary, the Number
+arm consumes the shared exact modulo-2^32 emitter, and the BigInt arm applies
+the existing arbitrary-precision XOR representation to `-1n`. Literal folding
+uses the same mathematical identity without narrowing. Remaining
+conversion/builtin integrations are still open. The Number side uses the same
+exact modulo-2^32 emitter across unary and binary bitwise operators, Array
+length conversion, String split limits and `String.fromCharCode`'s `ToUint16`
+projection, replacing the saturate-before-modulo path that miscompiled positive
+infinity and magnitudes at or above 2^63. The
+Math.random product path uses a realm-owned
+`HostRandom` capability: the only provider result type validates the exact
+finite `[0, 1)` domain, the production provider maps 53 operating-system
+entropy bits to binary64, and the builtin catalog alone decides whether the
+optional host import exists. A deterministic injected provider covers the same
+engine path without making production output constant. The central
+feature-enabled CLI compile is green, as are focused checks for the typed host
+import, injected provider, and BigInt bitwise CLI fixture. The full Number,
+BigInt, Math and JSON current-pin trees have not met this task's shortcut-free
+acceptance gate.
 
 ## Objective
 
@@ -87,15 +109,15 @@ Property access and calls must route through T04/T10 so getters/proxies and muta
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir numeric_ --quiet
-cargo test -p porffor-aot-wasm numeric_ --quiet
-cargo test -p porffor-cli wasm_number --quiet
-cargo test -p porffor-cli wasm_bigint --quiet
-cargo test -p porffor-cli wasm_json --quiet
-./target/debug/porf test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/BigInt --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/Math --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/JSON --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-ir numeric_ --quiet
+cargo test -p lila-aot-wasm numeric_ --quiet
+cargo test -p lila-cli wasm_number --quiet
+cargo test -p lila-cli wasm_bigint --quiet
+cargo test -p lila-cli wasm_json --quiet
+./target/debug/lila test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/BigInt --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Math --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/JSON --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Re-run numeric expression/operator tests and binary-data filters that consume Number/BigInt conversions.

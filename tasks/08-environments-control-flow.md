@@ -10,10 +10,24 @@
 
 Environment, reference-adjacent lowering and structured control-flow emitters
 now support substantial lexical scope, closure, loop, destructuring and
-try/finally behavior. The parse-once prerequisite remains open, several
-environment/control-flow files are still large shared hotspots, and the
-language subtrees assigned to this task have not been proven zero-failure on a
-current complete Wasm-AOT matrix.
+try/finally behavior. Destructuring identifier writes use one typed, validated
+Reference across lowering and emission: it closes the former name-plus-boolean
+flag convention, carries global `[[Strict]]`, and defers TDZ and immutable
+failures until PutValue. Synchronous plain-generator and `yield*` property
+assignments now carry one private `SuspendedPropertyReferenceIr` containing the
+evaluated ordinary base/receiver, normalized key and `[[Strict]]`; one
+exhaustive AOT consumer persists its operands before suspension and spends its
+strictness only on normal resume. Async-generator property assignment remains
+an explicit activation-ABI gap, as do private and `super` yield-assignment
+targets. The parse-once boundary is landed, several environment/control-flow
+files remain large shared hotspots, and the language subtrees assigned to this
+task have not been proven zero-failure on a current complete Wasm-AOT matrix.
+
+The earlier focused IR contract and Wasm execution covering TDZ/default order,
+strict and sloppy unresolved writes, and immutable assignment are green. The
+suspended-property Reference IR contract is also covered by the central
+feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
+green.
 
 ## Objective
 
@@ -80,10 +94,10 @@ Wasm branch depth must be derived from a structured control stack, never patched
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir environment_ --quiet
-cargo test -p porffor-aot-wasm control_flow_ --quiet
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli wasm_ --quiet
+cargo test -p lila-ir environment_ --quiet
+cargo test -p lila-aot-wasm control_flow_ --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli wasm_ --quiet
 ```
 
 Run focused real filters for lexical declarations, destructuring, `for-in`, `for-of`, `try`, labels, `with`, global code and closure capture.

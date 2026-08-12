@@ -1,6 +1,6 @@
 # T02 — Modularize the IR and Wasm backend
 
-**Status:** In progress — initial boundaries landed; large ownership bottlenecks remain
+**Status:** In progress — major builtin ownership bottlenecks split; broader lowering/emitter seams remain
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** None  
@@ -10,15 +10,52 @@
 
 Both crates now expose dedicated IR, lowering, analysis, diagnostics,
 operations, ABI, heap, object, function, environment, control-flow and builtin
-modules, and `./scripts/check-module-boundaries.sh` passes. The split is only
-partial: `porffor-ir/src/lib.rs`, `lowering.rs`, several Wasm builtin files and
-object/operation emitters remain very large implementation stores. Treat the
-existing module boundaries as usable, but continue coordinating broad edits to
-those remaining hotspots.
+modules, and `./scripts/check-module-boundaries.sh` enforces the highest-value
+seams and line budgets. The split remains partial: `lowering.rs`,
+`builtins/standard.rs`, several family files and object/operation emitters are
+still large implementation stores. Treat the landed boundaries as independent
+ownership surfaces, but continue coordinating broad edits to those remaining
+hotspots.
+
+### Landed 2026-08-12: builtin metadata, Object, Proxy and Math body boundaries
+
+Four previously coupled builtin stores now have separate owners:
+
+- `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
+  constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
+  subsequent work leaves it at 31,998 lines, below the enforced cap. The moved
+  methods have only parent-module visibility except the existing crate test
+  hook.
+- `lila-ir/src/builtins/catalog.rs` is the single 779-row
+  `StandardBuiltinId` registry. One row generates the enum, names, flags,
+  function-ID mappings and independent function/global order arrays. Typed
+  dense ordinals plus const duplicate/hole/ID checks preserve the deliberately
+  different declaration, 779-function and 52-global orders.
+- `lila-aot-wasm/src/builtins/object.rs` owns all 34 Object builtin bodies and
+  their private helpers. Three grouped choices are closed enums rather than
+  generic builtin IDs or booleans.
+- `lila-aot-wasm/src/builtins/proxy.rs` owns the three Proxy lifecycle bodies;
+  `reflect.rs` remains the separate owner of the 13 Reflect bodies and their
+  proxy-trap machinery.
+- `lila-aot-wasm/src/builtins/math.rs` owns all 37 Math bodies behind a private
+  closed `MathBuiltin` domain. `standard.rs` gives every Math ID its own typed
+  one-line delegate, and both Math behavior matches are exhaustive. The
+  min/max direction is a two-case private enum rather than a generic builtin
+  ID. After the Object, Proxy and Math moves, `standard.rs` has fallen from
+  49,179 to 36,807 lines.
+
+The central feature-enabled CLI compile, which covers `lila-aot-wasm` and
+`lila-intl`, and the focused builtin catalog tests pass. The source moves were
+also compared against their pre-extraction bodies, and the boundary audit
+prevents these stores from being folded back into their parents. The later
+Proxy move is source-equivalent by a static body comparison and is included in
+the green compile checkpoint and product-artifact boundary proof. The Math move
+is statically source-equivalent, boundary-checked, and covered by that compile
+checkpoint.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
-`crates/porffor-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
+`crates/lila-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
 and property-descriptor installation, extracted from
 `builtins/bootstrap.rs::init_builtin_constructor_object`. That function was a
 single ~4,760-line body and the worst merge point in the backend: two lanes
@@ -32,34 +69,62 @@ Every arm moved **verbatim** — installers destructure an `IntrinsicInstall`
 context back into the original identifier names (including `builtin`, which
 multi-variant arms branch on), so no body text was rewritten. The move was
 verified byte-identical across all 527 CLI fixtures with
-`crates/porffor-aot-wasm/tests/emit_golden.rs`, which matters because property
+`crates/lila-aot-wasm/tests/emit_golden.rs`, which matters because property
 installation order is observable through `Object.keys` and the ordinary suites
 assert on program output rather than emitted bytes.
 
-Remaining in this area, in dependency order:
+The earlier intrinsic split left three immediate follow-ups. All now have
+bounded owners:
 
-- The 485-variant no-op or-pattern at the tail of the dispatch, plus 7 smaller
-  interspersed no-op groups, still have to be appended to for every new builtin.
-  They collapse into an `is_intrinsic_root()` guard once the descriptor table
-  below exists.
-- `porffor-ir/src/builtins.rs` still carries a 583-variant enum and ~9 parallel
-  exhaustive `match self` tables. Collapsing them into one descriptor row per
-  builtin is the largest remaining per-builtin edit cost. Ordering hazards:
-  `all_functions()` order feeds Wasm function indices, `all_globals()` is
-  deliberately *not* declaration order and feeds `globalThis` enumeration order,
-  and variant order feeds `Ord` for `BTreeSet` iteration.
-- `builtins/standard.rs` is still 48,608 lines, of which `compile_standard_builtin`
-  is a 39,009-line match with 203 arms holding bodies inline.
+- **Resolved 2026-08-12:** the append-only no-op dispatch is gone. The standard
+  builtin catalog requires a closed installer class on every row, and
+  `bootstrap.rs` consumes it through an exhaustive installer match.
+- **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
+  catalog with compile-time ordering and uniqueness invariants.
+- **Resolved for Object, Proxy and Math 2026-08-12:** their bodies are family
+  modules; Reflect already has the same boundary. Other large inline families
+  should follow the same exhaustive-delegate shape.
+
+### Landed 2026-08-12: catalog-owned bootstrap routing
+
+`init_builtin_constructor_object` performs common function/prototype setup for
+every initialized `StandardBuiltinId`, but only 34 IDs then run one of 33
+family intrinsic installers. Before this seam that distinction was encoded
+backwards: the 33 productive arms were followed by no-op arms naming every
+other ID. Adding a builtin compiled only after someone appended its name to an
+unrelated no-op tail, while the catalog that owned the builtin could not say
+whether an installer was required.
+
+The landed seam is a mandatory catalog field whose value is a closed
+`StandardBuiltinInstaller` domain. `None` must skip family dispatch; every
+other case must be consumed by an exhaustive backend match that invokes the
+corresponding installer. This is behavioral routing rather than passive
+metadata: omitting the field makes a new catalog row fail to parse, and adding
+an installer variant makes the backend fail to compile until it handles the
+case. The existing catalog/function iteration and the location of dispatch
+after common setup remain unchanged, preserving construction and observable
+property-installation order.
+
+The catalog now records 34 productive roots across 33 installer classes and
+745 explicit `None` choices. `ArrayBuffer` and `SharedArrayBuffer` deliberately
+share one class because their installer branches on the carried builtin ID.
+The backend match contains only the productive classes; the former raw-ID
+no-op groups were deleted, reducing `builtins/bootstrap.rs` from 4,903 to 4,156
+lines. A catalog contract pins the productive root sequence, and the module
+boundary audit requires both the mandatory field and the typed backend
+dispatch. The focused catalog contract and central feature-enabled CLI compile
+are green; broader behavioral suites remain part of this task's acceptance
+gate.
 
 ## Objective
 
-Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `porffor-ir/src/lib.rs` and `porffor-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.
+Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `lila-ir/src/lib.rs` and `lila-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.
 
 ## Required module boundaries
 
 The exact filenames may change, but the resulting architecture must expose equivalent boundaries.
 
-### `porffor-ir`
+### `lila-ir`
 
 - `ir/`: public `ProgramIr`, statements, expressions, functions, classes, properties, shapes, value information and IDs.
 - `lowering/`: AST-to-spec-IR lowering, split by declarations, expressions, statements, functions/classes and modules.
@@ -69,7 +134,7 @@ The exact filenames may change, but the resulting architecture must expose equiv
 - `operations/`: typed representations of shared ECMAScript abstract operations consumed by backends.
 - `diagnostics/`: structured diagnostic codes and source locations.
 
-### `porffor-aot-wasm`
+### `lila-aot-wasm`
 
 - `module/`: sections, imports/exports, tables, globals, data and validation.
 - `abi/`: tagged values, call/construct convention, completion convention and host imports.
@@ -104,7 +169,7 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 - Both giant `lib.rs` files become orchestration/re-export surfaces rather than implementation stores.
 - Feature families have clear files that separate agents can own.
 - There are no cyclic module dependencies or duplicate constant registries.
-- Public APIs used by `porffor-engine` remain coherent and documented.
+- Public APIs used by `lila-engine` remain coherent and documented.
 - Representative emitted artifacts behave identically before and after extraction. If byte identity is not practical, compare imports, exports, validation, output, completion kind and thrown error class.
 - Workspace compile time and binary size do not regress materially solely because of module movement.
 
@@ -113,12 +178,12 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 ```sh
 cargo fmt --all --check
 cargo check --workspace
-cargo test -p porffor-ir --quiet
-cargo test -p porffor-aot-wasm --quiet
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli --quiet
-./target/debug/porf test262 run language/wasm/pass \
-  --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 \
+cargo test -p lila-ir --quiet
+cargo test -p lila-aot-wasm --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli --quiet
+./target/debug/lila test262 run language/wasm/pass \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
 ```
 

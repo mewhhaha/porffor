@@ -1,6 +1,6 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-**Status:** Early in progress — benchmarks exist; differential/reduction/CI framework remains open
+**Status:** Bounded campaign in progress — versioned replay plus one deterministic Add/Sub generator and reducer exist; structured values, broader generation/reduction, performance budgets and CI remain open
 
 **Parallel group:** Validation lane  
 **Depends on:** T01, T02, T03, T04  
@@ -8,12 +8,51 @@
 
 ## Current repository state
 
-The repository has legacy fuzz inputs, benchmark programs, ignored Wasm-AOT
-performance tests, snapshot determinism tests and an explicitly feature-gated
-spec-exec oracle. It does not yet expose the task's grammar-aware differential
-generator, structured mismatch corpus, AST reducer and replay CLI, nor the
-described nightly fuzz/performance artifact pipeline. Treat performance
-fixtures as a starting point, not completion of this validation lane.
+T28 removed the retired JavaScript fuzz, benchmark and execution surfaces. The
+durable starting points are ignored Rust-owned Wasm-AOT performance probes,
+snapshot determinism tests and an explicitly feature-gated spec-exec oracle.
+One performance probe still expects a machine-local untracked manifest, so it
+is not a portable benchmark corpus. The new `lila differential replay` command
+consumes a schema-v1 Rust-owned corpus entry, always runs Wasm-AOT first, and
+can run the off-by-default spec-exec oracle only when both the cargo feature
+and explicit `--oracle spec-exec` flag are present. Its JSON report has a stable
+case fingerprint and mismatch signature. Replay compiles both backends with the
+ordinary product host-surface policy; schema-v1 probes do not silently gain
+Test262-only globals.
+
+The Rust-owned `integer-arithmetic-v1` campaign is the first non-decorative
+consumer of that replay path. `lila differential generate-arithmetic` uses a
+stable SplitMix64-v1 stream to build one or more self-checking Script probes
+from a closed Add/Sub grammar. Leaves are integers in `-32..=32`; the public
+plan types admit only 1–32 checks and depths 1–4, and expected results are
+accepted only while they remain exact safe integers. The reducer admits a
+typed non-zero budget of 1–512 replays and only constructs candidates whose
+`(check count, node count, sum of absolute literals)` complexity decreases
+strictly. It removes contiguous check ranges, replaces binary expressions by
+children, and shrinks literals toward zero. A candidate is retained only when
+it preserves both the mismatch direction and the failing backend phase; it
+does not compare source-dependent mismatch fingerprints.
+
+The generator command is protected by the same two independent oracle gates
+as replay. It writes a schema-v1 case that the existing replay command consumes
+only after both backends complete, or after a mismatch has been reduced; shared
+failures and observation-contract failures are reported but are not persisted
+as corpus entries. The committed seed-1/checks-4/depth-2 case pins the PRNG,
+grammar rendering and schema encoding.
+
+This first observation protocol is intentionally smaller than the objective
+below. The current engine APIs expose backend identity, a backend diagnostic
+note on normal completion, and error text/limited compiler phase metadata.
+They do not expose a common structured JS value or output-event channel for
+both backends. Schema v1 therefore admits only self-checking, no-output probes
+and compares their normal-versus-error disposition. Reports retain Wasm-AOT
+host-hook events, mark spec-exec events unavailable, say semantic equivalence
+is `not_established`, and enumerate every missing observation capability. A
+shared failure or observed no-output contract violation is red, not a match.
+The committed foundation and generated cases plus feature-gated end-to-end
+contract tests make this slice durable, but they do not satisfy the full
+structured differential, full-corpus replay, layered generator, general AST
+reducer, fuzz, performance, or CI requirements.
 
 ## Objective
 
@@ -25,8 +64,12 @@ Create a runner that can execute the same generated or minimized program through
 
 - Lila Wasm-AOT (the product under test);
 - Lila `spec-exec` (the internal Boa-based oracle — this differential role is the only permitted use of an interpreter in the project);
-- the legacy JavaScript implementation when it provides useful independent evidence;
-- an optional external standards-oriented engine configured explicitly for developer testing.
+- one or more optional external standards-oriented engines configured
+  explicitly for developer testing.
+
+The retired JavaScript implementation is neither an oracle nor a runnable
+backend. Git history may explain an old behavior, but differential tooling must
+not restore or execute that product surface.
 
 The framework must compare structured observations rather than only process exit status:
 
@@ -124,10 +167,12 @@ CI artifacts must retain minimized failures, random seeds and comparison reports
 
 ```sh
 cargo test --workspace --quiet
-cargo test -p porffor-ir fuzz_regressions --quiet
-cargo test -p porffor-aot-wasm fuzz_regressions --quiet
-cargo test -p porffor-test262 snapshot_determinism --quiet
-./target/debug/porf differential replay --corpus tests/differential
+cargo test -p lila-ir fuzz_regressions --quiet
+cargo test -p lila-aot-wasm fuzz_regressions --quiet
+cargo test -p lila-test262 snapshot_determinism --quiet
+cargo test -p lila-test262 --features spec-exec-oracle differential::generated_arithmetic::tests::committed_generated_arithmetic_case_replays_through_both_backends -- --exact
+cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-arithmetic.json --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
+cargo run -p lila-cli --features spec-exec-oracle -- differential replay /tmp/lila-t25-arithmetic.json --oracle spec-exec
 ```
 
 The exact CLI may differ, but equivalent seed/replay/reduce commands, CI jobs and artifact retention are required before closing this task.

@@ -10,10 +10,35 @@
 
 Array exotic storage, descriptors, species and most prototype families have
 substantial implementations and many focused complete-leaf results recorded in
-the README. `crates/porffor-aot-wasm/src/builtins/array.rs` remains a very large
+the README. `crates/lila-aot-wasm/src/builtins/array.rs` remains a very large
 shared implementation file, and the Test262 harness still contains numerous
 Array-specific path rewrites and source reductions. This task cannot close
 until the full current-pin Array tree is green through general semantics.
+
+The generic callback tranche (`map`, `every`, `some`, `filter`, `find*`,
+`forEach`, `reduce` and `reduceRight`) and the search/access tranche now observe
+borrowed TypedArrays through a closed view/witness API. The view carries the
+immutable fixed extent, a length witness snapshots one backing-store length for
+`LengthOfArrayLike`, and each live integer-indexed `HasProperty` or `Get` gate
+takes a fresh witness. `at` selects generic length observation or validated
+TypedArray entry through its closed receiver policy. Generic `includes`
+continues to perform the observable `LengthOfArrayLike` and per-index `Get`
+operations rather than borrowing the non-generic TypedArray entry rule. This
+prevents an out-of-bounds observation from erasing the extent needed after a
+later regrow, and length-tracking views floor odd backing-byte lengths to whole
+elements.
+
+The shared `at` emitter also receives a closed receiver policy rather than a
+raw validation boolean. Generic `Array.prototype.at` and the validated
+`%TypedArray%.prototype.at` path are the only inhabitants, so adding another
+receiver policy cannot silently inherit either branch's error behavior.
+
+This is not yet a universal borrowed-Array seam. Indexed `Get` still belongs to
+the general object/integer-indexed protocol, and Array iterators, getters and
+other exotic consumers have not been migrated to the witness type. The
+existing Test262 materializers also remain: several encode constructor/subclass
+and BigInt breadth that this witness migration does not settle, so none can be
+honestly deleted on the strength of this tranche alone.
 
 ## Objective
 
@@ -75,9 +100,9 @@ Avoid method-specific duplicates of `LengthOfArrayLike`, `HasProperty`, `Get`, c
 ## Required tests
 
 ```sh
-cargo test -p porffor-aot-wasm array_ --quiet
-cargo test -p porffor-cli wasm_array --quiet
-./target/debug/porf test262 run built-ins/Array --execution-backend wasm --timeout-ms 180000 --threads 8
+cargo test -p lila-aot-wasm array_ --quiet
+cargo test -p lila-cli wasm_array --quiet
+./target/debug/lila test262 run built-ins/Array --execution-backend wasm --timeout-ms 180000 --threads 8
 ```
 
 During development use method-level filters and deterministic shards. Before closing, run the entire Array tree and all local `wasm_array_*` fixtures.

@@ -13,24 +13,24 @@ coexist with the sweep).
 
 `cargo xc -j 2` → **EXIT=0**, `Finished dev profile in 0.44s` (fully cached from
 the fixer's run). Log: `target/watched/b7r-xc.log`, 399 lines.
-Warning set identical to the fixer's report (`porffor-ir` lib-test 5 warnings,
+Warning set identical to the fixer's report (`lila-ir` lib-test 5 warnings,
 4 duplicates, etc.). Confirms the worktree the fixer left is the worktree I run.
 
 Worktree state at start (uncommitted, the fixer's 25 fixes):
 
 ```
- M crates/porffor-aot-wasm/src/data.rs
- M crates/porffor-aot-wasm/src/expressions.rs
- M crates/porffor-cli/tests/cli/known_failures.rs
- M crates/porffor-cli/tests/cli/language.rs
- M crates/porffor-cli/tests/cli/main.rs
- M crates/porffor-cli/tests/fixtures/wasm_intl_date_time_format_subclass.js
- M crates/porffor-cli/tests/fixtures/wasm_regexp_runtime_pattern_invalid.js
- M crates/porffor-cli/tests/known-failures.tsv
- M crates/porffor-engine/src/lib.rs
- M crates/porffor-ir/src/lowering.rs
- M crates/porffor-ir/src/lowering_helpers.rs
- M crates/porffor-test262/src/lib.rs
+ M crates/lila-aot-wasm/src/data.rs
+ M crates/lila-aot-wasm/src/expressions.rs
+ M crates/lila-cli/tests/cli/known_failures.rs
+ M crates/lila-cli/tests/cli/language.rs
+ M crates/lila-cli/tests/cli/main.rs
+ M crates/lila-cli/tests/fixtures/wasm_intl_date_time_format_subclass.js
+ M crates/lila-cli/tests/fixtures/wasm_regexp_runtime_pattern_invalid.js
+ M crates/lila-cli/tests/known-failures.tsv
+ M crates/lila-engine/src/lib.rs
+ M crates/lila-ir/src/lowering.rs
+ M crates/lila-ir/src/lowering_helpers.rs
+ M crates/lila-test262/src/lib.rs
  M docs/rust-rewrite/batch-workflow.md
  M scripts/rung1c-chunks.sh
 ```
@@ -129,9 +129,9 @@ and the `.txt` is a head.
 
 State harvested at start: HEAD `167add6a9` "WIP checkpoint: batch 7 runner
 mid-ladder", worktree **clean** (the harness checkpoint-committed the fixer's and
-the write lanes' edits). `target/debug/porf` was 04:21 and therefore **stale**
-against `crates/porffor-ir/src/lowering.rs` (05:31) — the fixer's IR-SHAPES and
-RE-RT edits were not in it. Session 1's `cargo test -p porffor-ir` was killed
+the write lanes' edits). `target/debug/lila` was 04:21 and therefore **stale**
+against `crates/lila-ir/src/lowering.rs` (05:31) — the fixer's IR-SHAPES and
+RE-RT edits were not in it. Session 1's `cargo test -p lila-ir` was killed
 mid-run by the restart (`target/watched/b7r-ir.log` ends on two
 "has been running for over 60 seconds" lines).
 
@@ -143,17 +143,17 @@ rows).
 ## Rung 0 (re-run) — `cargo xc`
 
 `cargo xc -j 2` → **EXIT=0**, `Finished dev profile in 0.21s`.
-Warning set unchanged (`porffor-ir` lib-test 5 warnings, 4 duplicates).
+Warning set unchanged (`lila-ir` lib-test 5 warnings, 4 duplicates).
 Log: `target/watched/b7r2-chain.log`.
 
-## Rung 0.5 — debug `porf` rebuilt against the current head
+## Rung 0.5 — debug `lila` rebuilt against the current head
 
-`cargo build -j 2 -p porffor-cli --bin porf` → **EXIT=0** in `2m 29s`.
-`target/debug/porf` now 05:42. Everything below this line is measured with that
+`cargo build -j 2 -p lila-cli --bin lila` → **EXIT=0** in `2m 29s`.
+`target/debug/lila` now 05:42. Everything below this line is measured with that
 binary.
 
 **Sweep hazard, recorded not hidden.** `sweep-supervisor.sh` runs
-`./target/debug/porf`; the live sweep process (pid 2209, started 04:53) keeps the
+`./target/debug/lila`; the live sweep process (pid 2209, started 04:53) keeps the
 old inode, but its *next* supervisor attempt will pick up the new binary. The
 `baseline-wasm-aot-b2` snapshot therefore spans two compiler revisions. It only
 matters for cases whose verdict the b7 semantic changes move (DTF subclassing,
@@ -169,7 +169,7 @@ fix.
 | probe | expectation on record | measured now |
 |---|---|---|
 | RE-RT §1, the six-line wrapped-call probe (`re-rt-b7-integration.md` line ~137). Literal `"(?<n>a)"` appears ONLY as a call argument inside a `function`, with a separate seed literal to keep `runtime_regexp_candidate_literals` non-empty | pre-fix `THREW TypeError: RegExp.prototype.exec unsupported pattern`; post-fix `true` | `(?<n>a)` then **`true`**, RC=0 |
-| IR-SHAPES item 1, `porf inspect` on `class D extends Intl.DateTimeFormat {} new D();` | pre-fix `result=undefined` (that is the whole defect); post-fix `result=object` | **`result=object`**, with `class_extends=1 constructs=2 classes=1` |
+| IR-SHAPES item 1, `lila inspect` on `class D extends Intl.DateTimeFormat {} new D();` | pre-fix `result=undefined` (that is the whole defect); post-fix `result=object` | **`result=object`**, with `class_extends=1 constructs=2 classes=1` |
 
 The RE-RT probe is the stronger of the two: `(?<n>a)` is a named group, which the
 `emit_regexp_exec_simple_from_locals` fallback matcher cannot execute, so `true`
@@ -191,7 +191,7 @@ only on completion, so nothing banked is lost.
 
 First measured consequence of the pause: with the sweep live the prefix run was
 also being pinned to CPUs 0-1, because `run-watched.sh` routes through
-`capped.sh`, whose default is `PORFFOR_CPU_PERCENT=50` → `taskset -c 0-1`. Setting
+`capped.sh`, whose default is `LILA_CPU_PERCENT=50` → `taskset -c 0-1`. Setting
 it on the **outer** `run-watched.sh` invocation (as `frontier-driver.sh` does),
 not inside the wrapped script, is what makes it `CPUs 0-3 of 4 (100%)`. The first
 launch of this session's prefix chain had it inside and was killed and relaunched.
@@ -237,9 +237,9 @@ language total exactly.
 
 The lane deliberately did not measure this because the sweep and FRONTIER were
 both live in its window. With the sweep paused it is three one-command sides.
-`PORFFOR_EMIT_SIZE_REPORT_PATH` sink, one file per side, `porf build wasm`:
+`LILA_EMIT_SIZE_REPORT_PATH` sink, one file per side, `lila build wasm`:
 
-| probe | source | emitted fns | total bytes | `porffor::main` | `Intl.DateTimeFormat.*` bodies |
+| probe | source | emitted fns | total bytes | `lila::main` | `Intl.DateTimeFormat.*` bodies |
 |---|---|---:|---:|---:|---|
 | A | `class D extends Intl.DateTimeFormat {}` + `new D()` | 404 | **6,009,478** | 577,211 | 7 fns / 203,759 B |
 | C | `new Intl.DateTimeFormat()` — names DTF, does **not** subclass | 403 | **6,003,673** | 574,528 | 7 fns / 203,759 B |
@@ -257,7 +257,7 @@ both live in its window. With the sweep paused it is three one-command sides.
   `js::D#f0` (the subclass's own constructor). `diff` over the name column
   returns that single line and nothing else.
 * *"low kilobytes"* — A − C = **+5,805 bytes** (+0.097% of a 6.0 MB module), of
-  which `porffor::main` is +2,683 B and the new `js::D#f0` body is the remaining
+  which `lila::main` is +2,683 B and the new `js::D#f0` body is the remaining
   3,122 B. And A vs B — the same subclass shape over a heritage that was already
   correct — differ by **83 bytes**, i.e. subclassing DTF now costs what
   subclassing `Intl.Locale` costs.
@@ -322,26 +322,26 @@ figure `batch-workflow.md` records.
 
 ## Rung 6 — a NEW scheduling fact, measured by an OOM kill (regression of my own making)
 
-I launched `cargo test -p porffor-ir` and the resumed test262 prefix chain
+I launched `cargo test -p lila-ir` and the resumed test262 prefix chain
 concurrently, on the theory that the scheduling law only covers "the sweep vs
 heavy CLI chunks". It does not, and the kernel said so:
 
 ```
-oom-kill: ... task=porffor_ir-16cb, pid=7024
-Out of memory: Killed process 7024 (porffor_ir-16cb)
+oom-kill: ... task=lila_ir-16cb, pid=7024
+Out of memory: Killed process 7024 (lila_ir-16cb)
   total-vm:9267376kB, anon-rss:9098260kB
 error: test failed ... (signal: 9, SIGKILL: kill)
 ```
 
-**`cargo test -p porffor-ir` alone is a ≥9.1 GiB job** at its default
+**`cargo test -p lila-ir` alone is a ≥9.1 GiB job** at its default
 `--test-threads` (4 on this box), for 645 tests. It is in the same weight class
 as the `date::` chunk (11.48 GiB) and it does **not** coexist with a
-`porf test262 report` node (~2-4 GiB), let alone with the sweep. Session 1's run
+`lila test262 report` node (~2-4 GiB), let alone with the sweep. Session 1's run
 of the same command was killed by the container restart before it finished, so
 this is the first time the crate's lib-test peak has been attributed.
 
 Extend the scheduling law as measured: **sweep, heavy CLI chunks, AND
-`cargo test -p porffor-ir` are mutually exclusive.** Re-run below, alone, with
+`cargo test -p lila-ir` are mutually exclusive.** Re-run below, alone, with
 `--test-threads=2`.
 
 Partial result harvested from the killed run before it died (383 of 645 tests
@@ -358,15 +358,15 @@ new positive array-walk case) sorts after the kill point and was NOT reached.
 
 ## Rung 7 — the IR-SHAPES anti-vacuity fixture, measured (it stays unwired, and now for a measured reason)
 
-`crates/porffor-cli/tests/fixtures/wasm_async_for_of_closure_capture.js` exists on
+`crates/lila-cli/tests/fixtures/wasm_async_for_of_closure_capture.js` exists on
 disk with **zero** references anywhere in `crates/` or `scripts/` (grepped). That
 is deliberate per `ir-shapes-b7-integration.md` §2.5, and I confirmed the reason
 rather than taking it:
 
 ```
-./target/debug/porf run --execution-backend wasm \
-  crates/porffor-cli/tests/fixtures/wasm_async_for_of_closure_capture.js
-→ unsupported in porffor wasm-aot first slice: async for-of with a body await
+./target/debug/lila run --execution-backend wasm \
+  crates/lila-cli/tests/fixtures/wasm_async_for_of_closure_capture.js
+→ unsupported in lila wasm-aot first slice: async for-of with a body await
   cannot give the loop binding a fresh per-iteration environment record, and a
   closure in the body captures it; the iterable is an array and the head binds
   one plain name.
@@ -460,11 +460,11 @@ limit, so neither is recorded as a false `Crash`.
 
 Total pause: **05:54:13 → 08:22:11, 2 h 28 min**, spent on 8 rung-1c chunks
 (244 tests), 133 test262 prefix cases, the DTF size measurement and the
-`porffor-ir` runs. The sweep now runs the **post-fix** binary, so the
+`lila-ir` runs. The sweep now runs the **post-fix** binary, so the
 `baseline-wasm-aot-b2` snapshot spans two compiler revisions from node
 `built-ins/AsyncDisposableStack` onward.
 
-## Rung 9 — `cargo test -p porffor-ir`, alone, `--test-threads=2`: 644/645, ONE RED
+## Rung 9 — `cargo test -p lila-ir`, alone, `--test-threads=2`: 644/645, ONE RED
 
 ```
 test result: FAILED. 644 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out;
@@ -488,7 +488,7 @@ test tests::allocates_disjoint_for_await_states_when_the_body_never_suspends ...
 ### The red one — REPORTED, NOT PAPERED OVER, and not attributable to batch 7
 
 ```
-crates/porffor-ir/src/lib.rs:1420
+crates/lila-ir/src/lib.rs:1420
   panicked: an unshaped concat input must not become an empty array shape
   source: let source = [].concat({ length: 1 }); let copy = [...source]; copy[0];
   assertion: copy_init.heap_shape.is_none()
@@ -497,7 +497,7 @@ crates/porffor-ir/src/lib.rs:1420
 Three things are measured about it, and the third is why I did not "fix" it:
 
 1. **It is not new in batch 7 and no batch-7 lane touched array-literal spread
-   shape inference.** The last completed `porffor-ir` run in `target/watched/` is
+   shape inference.** The last completed `lila-ir` run in `target/watched/` is
    `b2-ir-lib.log` (2026-08-09 07:41) where this test is `... ok`. Batches 3-6
    never completed a full crate run — every later log is a partial killed by a
    restart, including this session's first attempt. So the regression window is
@@ -519,7 +519,7 @@ Three things are measured about it, and the third is why I did not "fix" it:
    argument takes that path. The shape is being introduced by the array-literal
    spread lowering downstream of it.
 
-**Owner: the `porffor-ir` shape-inference owner. Reason: needs a decision on
+**Owner: the `lila-ir` shape-inference owner. Reason: needs a decision on
 whether `[...unshaped]` may carry an `ArrayShape`, which is a soundness question
 about every consumer of `heap_shape`, not a test edit.**
 
@@ -537,7 +537,7 @@ about every consumer of `heap_shape`, not a test edit.**
 
 | item | owner | why it is not done |
 |---|---|---|
-| `porffor_ir::tests::lowers_array_spread_with_unshaped_concat_input_as_dynamic_elements` | `porffor-ir` shape-inference owner | soundness decision about `heap_shape` on `[...unshaped]`, not a test edit (rung 9) |
+| `lila_ir::tests::lowers_array_spread_with_unshaped_concat_input_as_dynamic_elements` | `lila-ir` shape-inference owner | soundness decision about `heap_shape` on `[...unshaped]`, not a test edit (rung 9) |
 | FRONTIER tier 1 tail: `language/statements/let` (145 cases) unrun, `language/block-scope` banked PARTIAL at 120/145 | FRONTIER lane | the driver is resumable and was not restarted this session; the box was spent on rung 1c and the 133 prefix cases |
 | FRONTIER tier 2 (792 cases: `switch` 111, `try` 201, `function-code` 217, `arguments-object` 263) | FRONTIER lane | gated on tier 1 completing |
 | RE-RT F4/F7 deltas: `built-ins/RegExp/prototype` (487 cases) for the false-`InvalidSyntax` risk, emit-size attribution for the +12.5% row growth | RE-RT lane | 487 cases at this node's measured rate is a multi-hour run; it does not fit beside a sweep restart |

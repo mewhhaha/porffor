@@ -1,6 +1,6 @@
 # T10 — Object model, descriptors and exotic-object protocol
 
-**Status:** In progress — general object machinery exists; shortcut-free closure remains
+**Status:** In progress — canonical descriptor lattice is consumed; exotic closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T04, T05, T06  
@@ -8,12 +8,42 @@
 
 ## Current repository state
 
-The backend has dedicated object/internal-operation emitters, descriptor
-support, integrity operations, own-key ordering and multiple exotic brands.
-Recent focused Object work is extensive, but the shortcut audit still finds
-path/source-dependent materializations and there is no current complete
-Wasm-AOT proof that the Object and descriptor trees are zero-failure. Exotic
-families continue to expose gaps in the common protocol.
+`lila-ir` now owns one closed ECMA-262 6.2.6 descriptor lattice: six typed
+fields, three presence states, validation before classification, the
+data/accessor/generic partition and two complete stored kinds. The ordinary
+object `ValidateAndApplyPropertyDescriptor` emitter consumes that lattice, and
+the array named-property validator now does too. Its data/accessor entry points
+construct `ValidatedDescriptor<WasmLocals>` values, while the validator derives
+kind-change checks from `classify`/`KindTerms`; the former parallel
+`requested_data_descriptor: bool`, six positional field fragments and
+hand-written four-field kind-presence fold are gone. Heap descriptor values and
+masks are also distinct typed domains, so an accessor word cannot acquire a
+`[[Writable]]` bit through their constructors.
+
+Arguments-object `length` writes now take the same closed
+`PropertyDescriptorKind` domain rather than an `accessor: bool`. The Generic
+arm preserves the existing data/accessor kind (and data-only writability) while
+applying only the requested attributes, so a generic update can no longer
+silently turn an accessor `length` back into a data property. Its backing value
+is a tagged ECMAScript value rather than a coerced integer, its getter and
+setter are stored independently, and the read, write and
+`GetOwnPropertyDescriptor` paths exhaustively follow the stored kind. Updating
+one accessor field preserves the omitted peer, while a real kind conversion
+initializes omitted fields to `undefined` instead of reviving stale storage.
+The remaining arguments `callee` and `length` attribute tables also carry
+`DescriptorMask` values rather than raw `u64` words. They can test or apply only
+the three named attribute masks, and cannot accidentally receive a complete
+stored descriptor word at that boundary.
+
+This is still a foundation, not task closure. Array application and index
+paths, arguments descriptors, several builtin/exotic emitters and lowering
+shape facts still consume derived raw words or parallel positional forms. The
+`Presence::Present` step-4 exemption remains the explicit LN10 obligation, the
+ordinary `Object.defineProperty` adapter still relies on its emitted run-time
+6.2.6.5 step-9 check, and the shortcut audit still finds path/source-dependent
+materializations. `cargo check -p lila-ir -p lila-aot-wasm` and the focused
+array descriptor CLI fixture are green; a complete current-pin Wasm-AOT
+Object/descriptor subtree run has not been performed.
 
 ## Objective
 
@@ -78,11 +108,11 @@ Static shapes and direct offsets are allowed only when guards prove that prototy
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir object_ --quiet
-cargo test -p porffor-aot-wasm object_ --quiet
-cargo test -p porffor-cli wasm_object --quiet
-./target/debug/porf test262 run built-ins/Object --execution-backend wasm
-./target/debug/porf test262 run built-ins/Reflect --execution-backend wasm
+cargo test -p lila-ir object_ --quiet
+cargo test -p lila-aot-wasm object_ --quiet
+cargo test -p lila-cli wasm_object --quiet
+./target/debug/lila test262 run built-ins/Object --execution-backend wasm
+./target/debug/lila test262 run built-ins/Reflect --execution-backend wasm
 ```
 
 Include tests with accessors, symbols, proxies, inherited properties, non-extensible targets and cross-realm descriptor functions.

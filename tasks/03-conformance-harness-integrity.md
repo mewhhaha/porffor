@@ -1,6 +1,6 @@
 # T03 — Test262 harness integrity and host contract
 
-**Status:** In progress — host contracts landed; shortcut audit is currently red
+**Status:** In progress — host contracts and an exact typed shortcut ledger landed; semantic cleanup remains
 
 **Parallel group:** Bootstrap/foundation  
 **Depends on:** T01 for the authoritative inventory  
@@ -8,20 +8,37 @@
 
 ## Current repository state
 
-The repository has a checked-in host-ABI contract, shortcut inventory,
-allowlist and CI audits. `./scripts/check-test262-host-abi.sh` passes in the
-current working tree. `./scripts/audit-test262-shortcuts.sh --check` does not:
-direct path predicates, source-text predicates and harness-helper reductions
-currently exceed their recorded ceilings. The remaining materialization layer
-is still large, so harness results cannot yet satisfy this task's integrity
-acceptance criteria.
+The repository has a checked-in host-ABI contract, shortcut inventory, exact
+per-entry ledger and CI audits. `./scripts/check-test262-host-abi.sh` passes in
+the current working tree. `./scripts/audit-test262-shortcuts.sh --check` now
+pins every production observation on its audited surface by a stable key and
+SHA-256 source fingerprint. Rewrite-dispatch entries are keyed by the called
+rewrite function, so deleting one no longer renumbers every later entry;
+observations inside a declaration retain a local occurrence ordinal. It rejects new, missing,
+duplicated or drifted entries, invalid classifications and non-concrete task
+IDs, then byte-compares the generated inventory.
+
+The current ledger contains 449 observations: 32 legitimate harness
+adaptations, 49 diagnostic instrumentation sites and 368 semantic shortcuts.
+Every entry has a concrete owner, removal task and closed reason code; none use
+`T26-unclassified`. This is an honest cleanup map, not completion. The semantic
+materialization layer is still large, so harness results cannot yet satisfy
+this task's integrity acceptance criteria.
+
+The Wasm `agent_call` transport no longer duplicates raw operation integers
+between the AOT emitter and engine. `lila-runtime::AgentHostOperation` is the
+single closed 13-operation wire domain: the emitter writes its explicitly
+pinned `i64` values, the engine rejects an unknown word once at the import
+boundary, and the semantic dispatch is an exhaustive Rust match. This closes
+one host-ABI drift path; it does not establish that every `$262` operation or
+agent case satisfies the acceptance criteria below.
 
 ## Objective
 
 Make the Test262 runner an honest observer of compiler behavior rather than a second semantic implementation. Replace source-pattern simulations, test-path materializations and permissive host fallbacks with explicit host APIs and general compiler/runtime semantics.
 
 Current areas to audit include the embedded local-harness assets owned by
-`porffor-test262`, source materialization, `RunOptions.test_path`, and Wasm
+`lila-test262`, source materialization, `RunOptions.test_path`, and Wasm
 backend branches that recognize exact Test262 paths or source shapes.
 
 ## Work items
@@ -37,6 +54,12 @@ Generate a checked-in report of every branch that depends on:
 - converting a timeout into success.
 
 Classify each item as legitimate harness adaptation, temporary diagnostic instrumentation, or semantic cheat. Assign removal to the relevant task ID.
+
+The checked-in ledger completes this classification baseline for the current
+mechanical scan. Stable keys intentionally exclude line numbers; line numbers
+exist only in the generated report for review. Any source edit that retains a
+key but changes its matched expression changes the fingerprint and fails the
+guard. Semantic entries remain open work in their removal tasks.
 
 ### 2. Define the `$262` host ABI
 
@@ -80,13 +103,13 @@ Missing host capability must produce a stable `HostHarness` or explicit `Unsuppo
 ## Required tests
 
 ```sh
-cargo test -p porffor-spec-exec --quiet
-cargo test -p porffor-test262 --quiet
-cargo test -p porffor-engine --quiet
-cargo test -p porffor-cli test262_ --quiet
-./target/debug/porf test262 run harness --execution-backend wasm
+cargo test -p lila-spec-exec --quiet
+cargo test -p lila-test262 --quiet
+cargo test -p lila-engine --quiet
+cargo test -p lila-cli test262_ --quiet
+./target/debug/lila test262 run harness --execution-backend wasm
 # Oracle runner parity check (diagnostic only):
-./target/debug/porf test262 run harness --execution-backend spec
+./target/debug/lila test262 run harness --execution-backend spec
 ```
 
 Add focused fake fixtures for each host method, but validate representative real `harness`, `language/module-code`, `built-ins/Atomics` and cross-realm cases before completion.

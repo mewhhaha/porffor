@@ -5,7 +5,7 @@
 # `scripts/dev.sh` exported `RUSTFLAGS` and a bare `cargo build` did not, the
 # two entry points produced different fingerprints and each one invalidated the
 # other's artifacts — a full opt-level-0 rebuild of all ten workspace crates
-# plus a relink of the 143 MB `porf` binary, every time a developer alternated
+# plus a relink of the 143 MB `lila` binary, every time a developer alternated
 # between them. Keep linker flags here, and keep `scripts/dev.sh` from setting
 # `RUSTFLAGS` at all.
 #
@@ -24,7 +24,7 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [build]
 # Half of the 16 logical CPUs on the development machine, by request: leave the
-# other half free for interactive work. `PORFFOR_JOBS` can lower it further
+# other half free for interactive work. `LILA_JOBS` can lower it further
 # through `scripts/dev.sh`.
 #
 # Test262 runs have their own knobs and must be capped to match: `--jobs 8` sizes

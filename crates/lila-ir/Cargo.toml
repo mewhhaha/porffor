@@ -1,0 +1,21 @@
+[package]
+name = "lila-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+boa_ast = { version = "0.21.1", features = ["annex-b"] }
+boa_interner = "0.21.1"
+icu_properties = "2.0.2"
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
+lila-front = { path = "../lila-front" }
+regress = "0.10.5"
+serde_json = "1.0"
+
+[dev-dependencies]
+boa_parser = { version = "0.21.1", features = ["annex-b"] }
+
+[lib]
+path = "src/lib.rs"

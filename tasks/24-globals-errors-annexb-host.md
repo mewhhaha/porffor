@@ -10,10 +10,52 @@
 
 Native errors, global constants/functions, URI codecs, Annex B builtins,
 IsHTMLDDA and AbstractModuleSource have dedicated runtime/backend paths and
-many focused real-suite results. Error/global/Annex B metadata and legacy
-behavior still appears in exact-path materializations, dynamic-source cases
-remain visible exclusions, and the full assigned trees lack current complete
-Wasm-AOT closure.
+many focused real-suite results. The Wasm backend now validates every
+hand-written runtime-error name at its string boundary and immediately carries
+`NativeErrorKind`; one exhaustive mapping owns both the global and per-realm
+prototype locations, the realm snapshot entries derive from
+`NativeErrorKind::ALL`, and the static `instanceof` fast path consumes the same
+mapping. A new error family omitted from that authority is therefore a compile
+error, and an invalid internal spelling can no longer silently fall back to
+`%Object.prototype%`.
+
+The 19 host-backed callables now also come from one macro-backed
+`HostBuiltinId` row source. Each row must classify its global exposure and
+realm scope, so the compiler derives complete/global/every-realm iteration and
+name lookup without parallel lists or a raw `HTMLDDA` exclusion. Lowering,
+AOT lookup/stub planning and created-realm installation consume that catalog.
+The nineteenth row is the Test262-only realm-eval callable: T13 rejects every
+resolved invocation as typed dynamic-source debt, and its defensive AOT body
+exists only so the harness can store a valid function value, not as support.
+`HostSurfacePolicy` is now the authority over those classifications. Product
+compilation, including the CLI/default engine path, admits ECMAScript globals
+and the deliberate `print`/`gc` extensions but does not resolve Test262-only
+`__lila*` globals. The Test262 harness opts in explicitly, the policy is part
+of the whole-program cache key, every IR lowering entry point receives it, and
+agent workers inherit the root compilation's policy. The focused authority
+acceptance requirement is therefore closed. CLI conformance fixtures use the
+explicit `--host-surface test262` opt-in; product CLI compilation retains the
+default `Product` policy. AOT raw-identifier fallbacks are also limited to the
+IR-derived compiled-host set, so the backend cannot re-authorize a filtered
+spelling through its complete stub registry. See
+`docs/rust-rewrite/contracts/host-builtin-surface.md`.
+
+Global declaration instantiation now has one typed IR authority as well.
+`GlobalBindingPlan` owns a unique map instead of allowing lowering to append
+duplicate predefined/`var`/function rows for AOT to collect last-wins. Property
+initialization and declaration claims are separate: `var Infinity` retains the
+immutable predefined value and descriptor, while duplicate source functions
+carry the exact last `FunctionId`. Global lexical names stay in the separate
+declarative-name set. Annex-B copies carry an exhaustive owner-binding versus
+script-global target, and script-global writes reuse the plan's existing-
+property policy rather than unconditionally overwriting raw object storage;
+every mirrored Set then resynchronizes the frame cache from the authoritative
+global property, including properties hardened after instantiation.
+See `docs/rust-rewrite/contracts/global-binding-plan.md`.
+
+Error/global/Annex B metadata and legacy behavior still appears in other
+exact-path materializations, dynamic-source cases remain visible exclusions,
+and the full assigned trees lack current complete Wasm-AOT closure.
 
 ## Objective
 
@@ -102,13 +144,13 @@ Generate a test that fails when Test262 references a known standard global absen
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir annex_b --quiet
-cargo test -p porffor-aot-wasm error_ --quiet
-cargo test -p porffor-aot-wasm global_ --quiet
-cargo test -p porffor-cli wasm_error --quiet
-./target/debug/porf test262 run built-ins/Error --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/AggregateError --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run annexB --execution-backend wasm --timeout-ms 180000 --threads 4
+cargo test -p lila-ir annex_b --quiet
+cargo test -p lila-aot-wasm error_ --quiet
+cargo test -p lila-aot-wasm global_ --quiet
+cargo test -p lila-cli wasm_error --quiet
+./target/debug/lila test262 run built-ins/Error --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/AggregateError --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run annexB --execution-backend wasm --timeout-ms 180000 --threads 4
 ```
 
 Also run URI/global-value/global-function filters, SuppressedError, AbstractModuleSource and IsHTMLDDA-focused cases.

@@ -9,9 +9,14 @@
 ## Current repository state
 
 Deterministic backlog generation, ownership mapping, snapshot comparison and
-pin-mismatch tests exist in `porffor-test262`, with CLI entry points for
+pin-mismatch tests exist in `lila-test262`, with CLI entry points for
 `generate-backlog` and `compare-snapshots`. The checked-in ownership map routes
-unknown cases to `T26-unclassified`. This task is not complete because the
+unknown cases to `T26-unclassified`. Ownership-map input is parsed into the
+closed repository `TaskId` domain and a closed debt-category domain;
+`T26-unclassified` is a separate typed closure bucket rather than an invented
+task identifier. One `BacklogOwnership` enum owns the pair, so a concrete task
+cannot be paired with the unclassified category and the unclassified bucket
+cannot masquerade as classified debt. This task is not complete because the
 README still reports that the current pinned Wasm-AOT aggregate has not been
 fully republished, and there is no checked-in current-pin generated Wasm-AOT
 backlog artifact.
@@ -34,15 +39,17 @@ The current README explicitly says the last complete real-suite publication is s
    - matrix node;
    - likely owner task ID;
    - whether the failure is parser, semantic, host, dynamic-source, performance, or infrastructure debt.
+   Owner and debt-category strings are serialization-boundary spellings of
+   closed Rust types; arbitrary values cannot enter the in-memory backlog.
 4. Human-readable summaries grouped by task ID, feature tag, failure hash, and slowest subtree.
 5. A comparison command that reports added passes, regressions, changed failure hashes, and pin mismatches between two snapshots.
 
 ## Implementation steps
 
-- Build `porf` once and record the exact binary/source commit used.
+- Build `lila` once and record the exact binary/source commit used.
 - Verify the suite pin before running. Refuse to merge or compare snapshots with different pins or matrix strategy versions.
 - Run `report-all --resume` through `scripts/publish-real-status-low-ram.sh` with one matrix node per process until complete.
-- Extend `porffor-test262` rather than writing a separate ad-hoc parser for snapshot files.
+- Extend `lila-test262` rather than writing a separate ad-hoc parser for snapshot files.
 - Normalize unstable data such as absolute paths and wall-clock timestamps before comparison.
 - Classify by the earliest trustworthy boundary. A backend message containing a runtime symptom must not overwrite a known parser or lowering origin.
 - Add a checked-in ownership mapping from stable feature/subtree prefixes to task IDs; unknown cases go to `T26-unclassified`, never to an ignored bucket.
@@ -66,13 +73,14 @@ The current README explicitly says the last complete real-suite publication is s
 ## Required tests
 
 ```sh
-cargo test -p porffor-test262 --quiet
-cargo test -p porffor-cli test262_ --quiet
-./target/debug/porf test262 progress-status --execution-backend wasm-aot
-./target/debug/porf test262 triage-status --execution-backend wasm-aot
+cargo test -p lila-test262 --quiet
+cargo test -p lila-cli test262_ --quiet
+./target/debug/lila test262 progress-status --execution-backend wasm-aot
+./target/debug/lila test262 triage-status --execution-backend wasm-aot
 ./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
 # Optional oracle triage snapshot; never published as product conformance:
-./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real
+./target/debug/lila test262 report-all --execution-backend spec-exec \
+  --snapshot-name codex-oracle-real
 ```
 
 Use low thread counts for publication, but add unit tests that prove higher worker counts preserve deterministic case accounting.

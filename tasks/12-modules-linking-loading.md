@@ -8,12 +8,14 @@
 
 ## Current repository state
 
-The IR and Wasm backend have module-related data and emission support, and
-`AbstractModuleSource` has focused coverage. The repository does not yet show a
-complete loader/resolver, live-binding/cycle/linking implementation and
-componentized dynamic-import path satisfying this task. The
-`language/module-code` current-pin closure and module namespace exotic
-acceptance criteria remain unverified.
+The Rust path now has a host loader, parse-once graph assembly, export
+resolution, evaluation ordering, live-binding aliases and an AOT dynamic-import
+registry. Dynamic-import components now retain the exact typed request the host
+resolved, including phase and attributes, and the generated executor preserves
+the specifier/options/coercion/property-read order. Those are foundations rather
+than completion: exact module namespace exotic behavior, lazy dynamic target
+evaluation, all cyclic/deferred/async evaluation cases and the
+`language/module-code` current-pin closure remain unverified.
 
 ## Objective
 
@@ -67,15 +69,83 @@ Document whether a graph is emitted as one Wasm module or multiple linked module
 
 The graph is linked at compile time into a single `ScriptIr`. Per-module identity survives in `ProgramIr::modules` (`ModuleGraphIr`), which carries the Source Text Module Records, the resolved import bindings, the namespace descriptors, the evaluation order and its strongly-connected components.
 
-Every module's top-level bindings live side by side in the one merged activation environment under a per-module storage prefix (`$m<k>$`), and `FunctionId`s carry a matching per-module prefix (`$m<k>/`) so two modules cannot collide on a span-derived id. A cross-module binding is therefore an ordinary read of the exporter's cell rather than a copied value, which is what makes live bindings free and needs no runtime indirection.
+Every eagerly evaluated module's top-level bindings live side by side in one
+merged activation environment. Source-spelled bindings keep their source name
+(with collision rejection while the per-unit renaming pass is still open), an
+anonymous default receives `$d<k>$`, and only compiler-owned cells use the
+`$m<k>$` family. A cross-module binding is therefore an ordinary read of the
+exporter's cell rather than a copied value, which keeps the binding live without
+runtime indirection. Span-derived function ids remain unique because the
+source units are concatenated before the single lowering pass.
 
-Dynamic-import components are lazily-initialised `StatementIr::ModuleUnitOnce` blocks inside the same artifact, not separate Wasm modules. Splitting a graph into several linked Wasm modules later is therefore a backend change with no IR change.
+### Module identity domain
 
-`porffor-ir` performs no IO. The host resolves and reads the whole transitive closure up front (`porffor_engine::load_module_graph`) and hands it to `porffor_ir::lower_module_graph` as `ModuleGraphSources`.
+`ModuleRequestIr::specifier` is source spelling interpreted relative to a
+referrer. `ModuleKey` is the distinct, opaque identity returned by the host
+after resolution/canonicalization. The engine retains that type through its
+parse-once discovery map, `ModuleSourceIr`, `SourceTextModuleRecordIr`, the IR
+graph key map and `DynamicComponentIr`; it is never recovered by comparing a
+raw request spelling with a normalized key. This prevents a missing host
+resolution from becoming an accidental match merely because the two strings
+happen to be equal, without changing graph sharing or evaluation order.
 
-### Componentized dynamic import
+### Evaluation dependency domain
 
-`import()` must work without runtime source compilation. Compile every module reachable through the graph — including specifiers of dynamic imports that are statically discoverable — into separately instantiable compiled units ("components") carried in or alongside the artifact. At runtime, `import(spec)` resolves through the host loader to a precompiled component and lazily instantiates/links it with correct module-record identity, live bindings and job integration. Runtime-computed specifiers resolve against the registry of AOT-compiled components (plus any host-supplied precompiled components); a specifier with no precompiled component rejects the promise with a host resolution error. It never falls back to parsing or evaluating source inside the artifact. This keeps dynamic import out of T13's unsupported dynamic-source bucket.
+`ModuleEvaluationDependencyIr` is the closed edge type consumed by Tarjan
+ordering and top-level-await propagation. Its private target can be constructed
+only from an evaluation-phase request; `import defer` and `import source` remain
+part of loading, linking and evaluation-mode classification but cannot become
+ordinary evaluation dependencies after resolution erases the request context.
+Non-eager units consequently have neither `[[AsyncEvaluation]]` nor pending
+async dependencies.
+
+Dynamic-import targets are compiled into the same artifact, not separate Wasm
+modules, and dispatch through the artifact's generated dynamic-import registry.
+Target-body evaluation is not fully lazy yet: `StatementIr::ModuleUnitOnce` and
+its Wasm guard exist, but the linker does not yet populate that seam for module
+bodies. Splitting a graph into several linked Wasm modules later remains a
+backend change with no source-loading fallback.
+
+`lila-ir` performs no IO. The host resolves and reads the whole transitive closure up front (`lila_engine::load_module_graph`) and hands it to `lila_ir::lower_module_graph` as `ModuleGraphSources`.
+
+### Artifact-local dynamic import
+
+`import()` must work without runtime source compilation. Every statically
+discoverable dynamic-import target is resolved with the graph and compiled as a
+guarded module unit inside the same graph artifact. At runtime, the exact typed
+request — resolved module identity, phase and attributes — must match an entry
+in that artifact's precompiled registry. A runtime-computed specifier may select
+only such a precompiled entry; a request with no exact match rejects its promise
+with a host resolution error. There is no source-loading, parsing or evaluation
+fallback inside the artifact. This keeps dynamic import out of T13's
+unsupported dynamic-source bucket while preserving the one-Wasm-module-per-
+graph decision.
+
+### Dynamic-import request and options contract
+
+`EvaluateImportCall` has two different abrupt-completion boundaries. The
+specifier expression and options expression are evaluated, in that order,
+before `%Promise%` creates the returned capability; an abrupt completion there
+is therefore thrown to the caller. `ToString(specifier)`, `Get(options,
+"with")`, enumerable-own-property discovery, and each attribute-value `Get`
+happen after the capability exists; failures in those operations reject that
+promise. Attribute values are required to be strings, and the resulting list
+is sorted by key in UTF-16 code-unit order before host resolution.
+
+The AOT graph preserves that boundary by leaving both source operands at the
+rewritten call site and doing coercion and option inspection inside the
+generated promise executor. A dynamic component owns the exact
+`ModuleRequestIr` accepted by the host: referrer plus that request is its
+identity, so phase and attributes cannot drift into parallel lookup keys.
+Literal `{ with: { ... } }` attributes are carried into graph discovery and
+therefore reach `HostModuleLoader::resolve`. An option shape whose eventual
+attributes depend on runtime code discovers the attribute-free request as the
+only safe baseline. At runtime it may resolve only to an exact request variant
+already compiled into the component registry; no unknown module type triggers
+runtime parsing or loading. The default filesystem host currently supports no
+attributes, so attributed dynamic requests are retained and rejected honestly;
+embedders that implement a module type can resolve the same typed requests
+without changing compiler IR.
 
 ## Acceptance criteria
 
@@ -90,10 +160,10 @@ Dynamic-import components are lazily-initialised `StatementIr::ModuleUnitOnce` b
 ## Required tests
 
 ```sh
-cargo test -p porffor-ir module_ --quiet
-cargo test -p porffor-engine module_ --quiet
-cargo test -p porffor-cli module_ --quiet
-./target/debug/porf test262 run language/module-code --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-ir module_ --quiet
+cargo test -p lila-engine module_ --quiet
+cargo test -p lila-cli module_ --quiet
+./target/debug/lila test262 run language/module-code --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Add filesystem-loader tests for cycles, missing modules, traversal rejection, duplicate normalized specifiers and import attributes.

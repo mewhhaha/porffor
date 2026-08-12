@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — structured diagnostics exist; parse-once architecture is not implemented
+**Status:** In progress — parse-once boundary implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -8,21 +8,39 @@
 
 ## Current repository state
 
-The front end and IR now have dedicated diagnostics and early-error modules.
-Lowering still calls `reparse_script`/`reparse_module`, and the engine exposes
-an `ast-reparsed` lowering stage, so the task's parse-exactly-once architecture
-has not landed. Current-pin parser and early-error buckets also lack a complete
-verified Wasm-AOT aggregate.
+The front end now returns a closed `ParsedSource` with goal-typed
+`ParsedScript` and `ParsedModule` variants. Each variant owns Boa's AST and the
+exact interner that produced it, while `lila-ir` can only borrow the pair
+through a controlled compiler session. Raw `SourceUnit` metadata is a distinct
+type that the lowerer does not accept.
+
+Loaded modules retain either that parsed product or the structured parse
+rejection in `ModuleSourceIr`; dependency discovery and module-record
+construction therefore share one parse attempt. The engine similarly retains a
+`PreparedCompilation` so cache-key graph hashing and lowering consume the same
+graph. Linked module text is a new, generated Script compilation unit and is
+parsed once before ordinary Script lowering. The old reparsing functions and
+the public reparsing stage have been removed.
+
+A Script that contains `import()` keeps its Script-goal parse: request discovery
+walks that retained AST and synthesizes only the graph record the linker needs.
+It is not reparsed under Module grammar, so sloppy Script syntax and top-level
+semantics cannot drift merely because the Script performs a dynamic import.
+
+This closes the architectural double-parse defect, not T07 as a whole.
+Current-pin parser and early-error buckets still lack a complete verified
+Wasm-AOT aggregate, and the remaining grammar/diagnostic cases below still need
+inventory-driven closure.
 
 ## Objective
 
-Make parsing and static-semantics classification complete, deterministic and source-located for the pinned ECMAScript grammar. Remove the current double-parse shape where `porffor-front` validates and stores source text while `porffor-ir` reparses independently.
+Make parsing and static-semantics classification complete, deterministic and source-located for the pinned ECMAScript grammar. Keep the parse-once ownership boundary intact while closing the remaining pinned-suite failures.
 
 ## Architecture
 
-- Define a parsed source product that owns the Boa AST/interner/scope data needed by lowering, or perform lowering inside a controlled parser session and return a Lila-owned syntax representation.
-- Parse exactly once per compilation unit.
-- Preserve script vs module goal, filename, spans, strictness and source text.
+- `ParsedScript` and `ParsedModule` own the Boa AST/interner pair; access stays inside their non-escaping compiler-session callbacks.
+- Parse exactly once per compilation unit and retain failed module attempts as structured rejections rather than retrying them.
+- Preserve script vs module goal, filename, spans, strictness and source text in the parsed product.
 - Convert parser panics into structured diagnostics without hiding compiler bugs. Known unsupported parser constructs must be distinguishable from malformed JavaScript.
 - Keep Boa as an implementation dependency, not the public IR contract, so it can be upgraded or replaced deliberately.
 
@@ -71,10 +89,10 @@ Add stable diagnostic codes, phase (`parse` or `early`), error constructor and s
 ## Required tests
 
 ```sh
-cargo test -p porffor-front --quiet
-cargo test -p porffor-ir early_error --quiet
-cargo test -p porffor-engine --quiet
-./target/debug/porf test262 run language --execution-backend wasm
+cargo test -p lila-front --quiet
+cargo test -p lila-ir early_error --quiet
+cargo test -p lila-engine --quiet
+./target/debug/lila test262 run language --execution-backend wasm
 ```
 
 During development run focused `language/expressions`, `language/statements`, `language/declarations`, `language/module-code` and negative-phase shards rather than the full language tree on every edit.

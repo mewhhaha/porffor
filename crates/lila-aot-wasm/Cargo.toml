@@ -1,0 +1,21 @@
+[package]
+name = "lila-aot-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+icu_normalizer = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
+icu_properties = "2.0.2"
+num-bigint = "0.4.6"
+lila-ir = { path = "../lila-ir" }
+lila-intl = { path = "../lila-intl" }
+lila-runtime = { path = "../lila-runtime" }
+wasm-encoder = "0.245.1"
+
+[dev-dependencies]
+lila-front = { path = "../lila-front" }
+wasmparser = "0.245.1"
+
+[lib]
+path = "src/lib.rs"

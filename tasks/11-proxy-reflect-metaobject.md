@@ -15,6 +15,20 @@ including creation, revocation, call/construct and descriptor traps. Until
 those rewrites are removed and the complete Proxy/Reflect trees are verified,
 this lane remains open.
 
+`lowering/proxy_traps.rs` now owns one private, closed `ProxyTrap` domain
+containing all thirteen ECMA-262 10.5 handler methods. Each trap maps
+exhaustively to one of eight semantic argument records rather than to an
+untyped arity. When a proven
+`new Proxy(target, handler)` path has a statically visible handler method,
+pre-lowering and typed lowering both enumerate every trap through that mapping.
+Ordinary object-literal lowering deliberately retains its former five-name
+heuristic so methods merely named `apply`, `construct`, or `set` are not
+misclassified as traps. This removes the former raw-string match and its
+catch-all, which silently discarded eight valid trap signatures. The seam is
+covered by the green central feature-enabled CLI compile; focused Proxy
+execution remains unverified. It is an inference invariant, not a claim that
+the runtime implementations or full Proxy/Reflect trees are complete.
+
 ## Objective
 
 Implement every Proxy internal method and every Reflect method through the shared object/call protocols, including revocation and all invariant checks. Remove static-shape behavior that bypasses observable traps.
@@ -72,10 +86,10 @@ Reflect methods return booleans where specified rather than throwing on ordinary
 ## Required tests
 
 ```sh
-cargo test -p porffor-aot-wasm proxy_ --quiet
-cargo test -p porffor-cli wasm_proxy --quiet
-./target/debug/porf test262 run built-ins/Proxy --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/porf test262 run built-ins/Reflect --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p lila-aot-wasm proxy_ --quiet
+cargo test -p lila-cli proxy_ --quiet
+./target/debug/lila test262 run built-ins/Proxy --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/lila test262 run built-ins/Reflect --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
 Re-run adjacent Object, Array, TypedArray and Function filters because proxy invariants are shared across them.

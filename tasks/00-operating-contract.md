@@ -20,7 +20,7 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
 
 ## Scope
 
-- Add a small task-plan validator, preferably `scripts/check-task-plan.sh` or a Rust test under `porffor-cli`, that verifies:
+- Add a small task-plan validator, preferably `scripts/check-task-plan.sh` or a Rust test under `lila-cli`, that verifies:
   - every `TNN` file has a unique ID;
   - every dependency points to an existing task;
   - every link in `tasks/README.md` resolves;
@@ -61,7 +61,7 @@ Keep the validator dependency-free and deterministic. It must run on Linux and s
 
 ```sh
 ./scripts/check-task-plan.sh
-cargo test -p porffor-cli --quiet
+cargo test -p lila-cli --quiet
 ```
 
 Also run the validator against a temporary intentionally broken copy to prove both error paths before submitting the PR.

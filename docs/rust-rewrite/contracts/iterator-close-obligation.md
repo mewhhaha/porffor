@@ -23,23 +23,31 @@ which change what gets built:
   `array-elem-iter-nrml-close-skip.js` trace at §9.5). The repair is to *add*
   `ARRAY_DESTRUCTURING_PROTOCOL`, not to delete the row.
 
-The work is split into three groups, and only one of them lands:
+The original work was split into three groups; Group A and both Group B seams
+are now encoded, while Group C remains open:
 
 - **Group A (§3)** — everything that leaves `cargo xc` green with no edit
-  outside `crates/porffor-ir`: the `emission_sites!` row list,
+  outside `crates/lila-ir`: the `emission_sites!` row list,
   `ARRAY_DESTRUCTURING_PROTOCOL` and the site↔witness↔catalog triangle
   (K1/J10/J11), the `protocol` field on `ArrayDestructuringPatternIr` (two
   `E0063`s, both in `lowering.rs`), and two `const`-evaluated readers for the
   `abrupt` column (`AbruptDiscipline` + callee containment, J12/J13).
-- **Group B (§4)** — `SpreadArgument`'s witness and `YieldForm` replacing
-  `delegate: bool`. Fully specified, including every one of the 13 out-of-crate
-  pattern lines. **Applied by nobody this round**: §10 P1 forbids editing
-  `crates/porffor-aot-wasm/`.
-- **Group C (§5)** — the array-literal spread strategy. Designed, note-routed,
-  not written.
+- **Group B (§4)** — two independent witness seams. `YieldForm` now replaces
+  `StatementIr::GeneratorYield`'s `delegate: bool` and carries the
+  one-inhabitant `GeneratorDelegationProtocol` (integrated 2026-08-12; see the
+  main contract's §13). `SpreadArgumentIr` now likewise requires the
+  one-inhabitant `SpreadArgumentProtocol`; its witness credits the real
+  argument-vector emitter for acquisition, step and value only, and makes the
+  absence of an `IteratorClose` claim explicit (integrated 2026-08-12; §14).
+- **Group C (§5)** — the array-literal spread strategy remains unencoded. The
+  honest closed target is `ArraySpreadStrategy::{ProvenDense,
+  GeneralIterator}`, but the current lowerer has no realm/version proof that
+  can construct `ProvenDense`: a known dense Array must still observe a patched
+  `%Array.prototype%[@@iterator]`. §14 records why an uninhabited fast-path type
+  would be decoration rather than an invariant.
 
 §10's prohibitions are the load-bearing part for anyone extending this: P1 (no
-`porffor-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
+`lila-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
 `iterator_obligations.rs:45-51` is not re-opened — the emitter-side close token
 is a sibling type in the backend crate, never a witness reader), P5 (`lowering.rs`
 gets exactly two lines).
@@ -53,8 +61,8 @@ iterator — and the scope-shaped design that replaces it.
 
 ## As built (encoder stage, Group A)
 
-Five files changed, all under `crates/porffor-ir/src/`, plus this document and
-the lane note. Acceptance item §11.7 is "no hunk in `crates/porffor-aot-wasm/` is
+Five files changed, all under `crates/lila-ir/src/`, plus this document and
+the lane note. Acceptance item §11.7 is "no hunk in `crates/lila-aot-wasm/` is
 attributable to this contract" — **not** "`git status` is empty there". The
 checkout is shared with concurrent lanes, and a bare `git status` reads as a
 false negative.
@@ -114,3 +122,18 @@ belongs to another batch, and the integrator runs the compile gate. Acceptance
 items §11.1 (`cargo xc` clean) and §11.2 (the K1 counterfactual in a scratch
 copy) are therefore open, and §11.12 (emitted bytes unchanged) is argued from
 the shape of the change, not measured.
+
+## Generator-delegation addendum (2026-08-12)
+
+Group B2 is now encoded. `YieldForm::{Plain, Delegate}` replaces the raw IR
+boolean; `Delegate` requires `GeneratorDelegationProtocol::YIELD_STAR`, whose
+private constructor prevents an unrelated witness from occupying that field.
+`EmissionSite::GeneratorDelegation` is backed by both sync and async delegation
+functions, and the catalog/witness const joins credit all four iterator
+obligations. Backend consumers match the form exhaustively while preserving the
+existing emitter branches and instruction order. `generator_delegation.rs` was
+untouched.
+
+This addendum was dry-written only. No Cargo command or execution test was run;
+the batch integrator owns those gates. Group B1 (`SpreadArgument`) is now
+integrated as described in §14 of the main contract; Group C remains open.

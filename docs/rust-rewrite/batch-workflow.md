@@ -33,9 +33,9 @@ Pick the cheapest rung that can answer the question in front of you.
 | Rung | Command | Cost | Catches | Does not catch |
 |---|---|---|---|---|
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
-| 1 | `cargo test -p porffor-ir`, focused `-p porffor-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
+| 1 | `cargo test -p lila-ir`, focused `-p lila-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
-| 1c | the whole CLI suite, run as 20 resumable chunks by `scripts/rung1c-chunks.sh` (620 `#[test]` attributes at batch 7 → **612 compiled**, 611 executing; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
+| 1c | the whole CLI suite, run as resumable area chunks by `scripts/rung1c-chunks.sh` (recount the current partition and tests; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
 | 2 | fake fixture suite (190 cases) | 10–60 s warm | the runner itself | conformance; it is green by construction |
 | 3 | `shard 1/25` on the real suite | est. 15 min–3 h | broad cross-subtree regressions | families smaller than ~25 cases |
@@ -57,21 +57,21 @@ exactly like this. No `--skip`:
 
 ```sh
 ./scripts/run-watched.sh --label b3-cli --stall 900 -- \
-  cargo test -p porffor-cli --test cli -- --test-threads=2
+  cargo test -p lila-cli --test cli -- --test-threads=2
 ```
 
 On a container that restarts hourly, that invocation cannot finish, and the
-supported form is `./scripts/rung1c-chunks.sh` — the same suite as 20 resumable
-per-module chunks, banked one verdict at a time. It was 18 until batch 7 split
-`tests/cli/language.rs` three ways: 105 tests in one libtest process OOM-SIGKILLed
-three times, and the chunk set cannot be partitioned by test-name filter (the
-hygiene test asserts each chunk's filter is exactly `<module>::`), so fewer
+supported form is `./scripts/rung1c-chunks.sh` — the same suite as resumable
+per-module chunks, banked one verdict at a time. The partition grew when batch 7
+split `tests/cli/language.rs` three ways: 105 tests in one libtest process
+OOM-SIGKILLed three times, and the chunk set cannot be partitioned by test-name
+filter (the hygiene test asserts each chunk's filter is exactly `<module>::`), so fewer
 tests per **process**, i.e. more modules, was the lever batch 7 reached for.
 It was not the *only* lever, and the note that said so had checked only
-environment knobs: the accumulation is `porffor-engine`'s
+environment knobs: the accumulation is `lila-engine`'s
 `WASM_MODULE_MEMORY_CACHE_ENTRIES`, an in-process LRU of fully compiled
 Wasmtime modules bounded by entry count (64) and by no byte ceiling, retained
-on the in-process CLI path. `PORFFOR_MODULE_MEMORY_CACHE_ENTRIES` overrides it;
+on the in-process CLI path. `LILA_MODULE_MEMORY_CACHE_ENTRIES` overrides it;
 bounding it by bytes, as the three disk tiers already are, is open. Recount the chunk
 count the same way you recount the test count — it moves. It is tracked precisely because
 every batch used to re-derive it from a lane note. Its own header carries the
@@ -83,7 +83,7 @@ Raise `--test-threads` on a machine with spare cores; the suite is CPU-bound and
 scales close to linearly. **Never lower it to 1.** Under `--test-threads=1`
 libtest runs every test on the thread named `main`, the per-test name that
 `known_failures::execution_path` routes on is unavailable, and every test falls
-back to spawning a cold `porf` child process instead of the warm in-process call
+back to spawning a cold `lila` child process instead of the warm in-process call
 the ~26 minute estimate is built on. It is correct and terminating, just far
 slower. For one test use `-- --exact <name>`, not a lower thread count.
 
@@ -94,7 +94,7 @@ judge a long run by whether its **log is still growing**, never by elapsed time
 against an estimate.
 
 **Do not compare the result against a document.** The expected non-green
-outcomes are tracked in `crates/porffor-cli/tests/known-failures.tsv` and the
+outcomes are tracked in `crates/lila-cli/tests/known-failures.tsv` and the
 suite enforces them itself, so a green rung 1c means "exactly the declared
 outcomes, for the declared reasons" and a red one means something moved. Seven
 kinds of drift are failures rather than notes someone has to remember:
@@ -107,7 +107,7 @@ kinds of drift are failures rather than notes someone has to remember:
 | declared test renamed or deleted | `cargo xc`: E0425/E0603 on a `const _` line |
 | ledger row with no test, or test with no row | `known_failures::*` hygiene tests |
 | `#[ignore]` added with no owner | `known_failures::every_ignored_test_is_declared` |
-| **hang in an undeclared test** | `porf run exceeded ... in process` after the hang timeout |
+| **hang in an undeclared test** | `lila run exceeded ... in process` after the hang timeout |
 
 That last row is the one the table used to be missing, and its absence was not
 cosmetic. `execution_path` routes only *declared* hangs to the guarded
@@ -162,7 +162,7 @@ Two naming traps, both of which have cost time:
    accepts only that spelling. A wrapped or `\`-continued attribute fails the
    hygiene tests with a pointed message — and the `\`-continued form is already
    idiomatic in this tree for long `#[ignore = "..."]` reasons
-   (`crates/porffor-aot-wasm/src/planning.rs`), so a contributor following local
+   (`crates/lila-aot-wasm/src/planning.rs`), so a contributor following local
    convention will trip it. Shorten the substring instead of wrapping the line.
 5. Re-run until green.
 
@@ -175,8 +175,9 @@ test green.
 Two failure modes here are silent, and both have cost hours:
 
 - **Work that hangs.** Wasm-AOT compilation has no wall-clock bound (the
-  `--timeout-ms` check is skipped for that backend) and `Atomics.wait` blocks
-  outright. A hung run looks exactly like a slow one.
+  `--timeout-ms` check is skipped for that backend), and a regression in a
+  blocking operation such as `Atomics.wait` can block outright. A hung run
+  looks exactly like a slow one.
 - **Buffered output.** Piping a long run into `tail`/`head` hides all progress
   until exit, so "no output" becomes indistinguishable from "still working".
 
@@ -186,7 +187,7 @@ log goes quiet for `--stall` seconds is killed and reported with exit code 124.
 
 ```sh
 ./scripts/run-watched.sh --label sweep --stall 900 -- \
-  ./target/release/porf test262 report-all --resume --threads 8 --jobs 8
+  ./target/release/lila test262 report-all --resume --threads 8 --jobs 8
 ```
 
 Judge a long run by whether its **log is still growing**, never by elapsed time
@@ -204,30 +205,30 @@ git check-ignore -v <path>   # exit 1 = tracked. exit 0 prints the rule eating i
 
 This has already cost this repository two files. `benchmarks/wasm-aot-20.txt` is
 machine-local for exactly this reason (see the comment in
-`crates/porffor-cli/tests/perf.rs`), and an earlier
-`crates/porffor-cli/tests/known-failures.txt` was silently dropped while this
+`crates/lila-cli/tests/perf.rs`), and an earlier
+`crates/lila-cli/tests/known-failures.txt` was silently dropped while this
 document and `README.md` went on citing it for three batches — nobody noticed,
 because the suite that would have used it could not be run.
 
 Use `.tsv` for hand-maintained tables; that is already the convention
 (`test262/backlog/ownership-map.tsv`, `test262/backlog/shortcut-allowlist.tsv`,
-`crates/porffor-cli/tests/known-failures.tsv`). Do **not** "fix" this with a `!`
+`crates/lila-cli/tests/known-failures.tsv`). Do **not** "fix" this with a `!`
 negation in `.gitignore`: `*.txt` has real users, and the next such file walks
 into the same trap. Better still, give the file a consumer that fails without it
 — `known-failures.tsv` is an `include_str!`, so its absence is a compile error.
 
 ### Rung G — the refactor gate
 
-`crates/porffor-aot-wasm/tests/emit_golden.rs` runs the real
+`crates/lila-aot-wasm/tests/emit_golden.rs` runs the real
 `parse -> lower -> emit` pipeline over all 527 CLI fixtures and records emitted
 byte length, a content hash, and the backend `debug_dump` per fixture. It is
-inert unless `PORFFOR_GOLDEN_OUT` is set.
+inert unless `LILA_GOLDEN_OUT` is set.
 
 ```sh
 git stash
-PORFFOR_GOLDEN_OUT=$PWD/target/golden/before cargo test -p porffor-aot-wasm --test emit_golden
+LILA_GOLDEN_OUT=$PWD/target/golden/before cargo test -p lila-aot-wasm --test emit_golden
 git stash pop
-PORFFOR_GOLDEN_OUT=$PWD/target/golden/after cargo test -p porffor-aot-wasm --test emit_golden
+LILA_GOLDEN_OUT=$PWD/target/golden/after cargo test -p lila-aot-wasm --test emit_golden
 diff -r target/golden/before target/golden/after
 ```
 
@@ -240,10 +241,10 @@ When the refactor is spread across new files, `git stash` alone will not park it
 baseline, then restore:
 
 ```sh
-mv crates/porffor-aot-wasm/src/intrinsics target/golden/intrinsics-parked
-git stash push -- crates/porffor-aot-wasm/src/builtins/bootstrap.rs crates/porffor-aot-wasm/src/lib.rs
+mv crates/lila-aot-wasm/src/intrinsics target/golden/intrinsics-parked
+git stash push -- crates/lila-aot-wasm/src/builtins/bootstrap.rs crates/lila-aot-wasm/src/lib.rs
 # ... capture baseline ...
-git stash pop && mv target/golden/intrinsics-parked crates/porffor-aot-wasm/src/intrinsics
+git stash pop && mv target/golden/intrinsics-parked crates/lila-aot-wasm/src/intrinsics
 ```
 
 Empty diff means byte identity. This exists because the ordinary suites assert
@@ -252,7 +253,7 @@ assignment, or property installation order can leave every CLI test green
 while changing the emitted module. Two independent runs were verified
 byte-identical, so a non-empty diff is signal, not noise.
 
-Use it for **every** pure refactor of `porffor-ir` or `porffor-aot-wasm`. Do not
+Use it for **every** pure refactor of `lila-ir` or `lila-aot-wasm`. Do not
 use it for feature work — a feature is *supposed* to change the bytes.
 
 ## Running a batch
@@ -263,7 +264,8 @@ Capture the pre-batch gate state so regressions are detectable later.
 
 ```sh
 git rev-parse --short HEAD
-PORFFOR_GOLDEN_OUT=/tmp/golden-pre cargo test -p porffor-aot-wasm --test emit_golden
+mkdir -p target/golden
+LILA_GOLDEN_OUT=$PWD/target/golden/pre cargo test -p lila-aot-wasm --test emit_golden
 ```
 
 ### 2. Write (N lanes, no builds)
@@ -284,16 +286,16 @@ Because lanes get no compile feedback, two rules are load-bearing:
 ### 3. Integrate (integrator, one lane at a time)
 
 ```sh
-cargo check -p porffor-aot-wasm      # after each lane's files land
+cargo check -p lila-aot-wasm      # after each lane's files land
 cargo xc                              # once all lanes are in
 cargo test --workspace --quiet
-./target/debug/porf test262 run --suite-root crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
+./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm
 ```
 
 ### 4. Gate (integrator)
 
 ```sh
-./target/release/porf test262 shard 1/25 \
+./target/release/lila test262 shard 1/25 \
   --snapshot-name gate-$(git rev-parse --short HEAD)-post \
   --snapshot-dir target/test262-scratch/gate \
   --threads 8 --jobs 8 --resume
@@ -319,8 +321,8 @@ Keep every non-authoritative snapshot under `target/test262-scratch/` (gitignore
 exists, use the commands that tolerate a partial sweep:
 
 ```sh
-./target/release/porf test262 triage-status   --snapshot-name baseline-wasm-aot-aa55200
-./target/release/porf test262 failure-details 'built-ins/Array/fromAsync' --snapshot-name baseline-wasm-aot-aa55200
+./target/release/lila test262 triage-status   --snapshot-name baseline-wasm-aot-aa55200
+./target/release/lila test262 failure-details 'built-ins/Array/fromAsync' --snapshot-name baseline-wasm-aot-aa55200
 ```
 
 `failure-details` is already the right shape for handing to an agent: it groups
@@ -330,7 +332,7 @@ by `(detail_hash, outcome, kind, origin)` with representative tests, i.e. one
 into `Crash`**, so a crash-ranked list promotes slow-but-correct cases above
 genuine defects until that is separated.
 
-Each fix lane verifies with its own prefix at rung 4. `porf test262 run <prefix>`
+Each fix lane verifies with its own prefix at rung 4. `lila test262 run <prefix>`
 exits non-zero unless `passed == total`, which is exactly the "start from a
 failing filter, end with it green" rule.
 
@@ -338,10 +340,10 @@ failing filter, end with it green" rule.
 
 ```sh
 setsid env \
-  PORFFOR_FUNCTION_CACHE_LIMIT_BYTES=34359738368 \
-  PORFFOR_MODULE_CACHE_LIMIT_BYTES=536870912 \
-  PORFFOR_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
-  ./target/release/porf test262 report-all \
+  LILA_FUNCTION_CACHE_LIMIT_BYTES=34359738368 \
+  LILA_MODULE_CACHE_LIMIT_BYTES=536870912 \
+  LILA_PROGRAM_CACHE_LIMIT_BYTES=536870912 \
+  ./target/release/lila test262 report-all \
     --snapshot-name baseline-wasm-aot-$(git rev-parse --short HEAD:test262/vendor/test262) \
     --threads 8 --jobs 8 --resume \
   > target/test262-scratch/baseline.log 2>&1 < /dev/null &
@@ -353,7 +355,7 @@ disown
 - The aggregate is rewritten after every node and cases checkpoint every 10, so
   a kill loses at most 9 cases. Re-running the identical command resumes.
 - Poll from another shell with
-  `porf test262 progress-status --snapshot-name <name>`.
+  `lila test262 progress-status --snapshot-name <name>`.
 - Watch for silence: **Wasm-AOT compiles have no wall-clock bound** (the
   `--timeout-ms` check is skipped for that backend), so a pathological compile
   stalls the sweep with no diagnostic. If the log stops growing for >15 minutes,
@@ -373,7 +375,7 @@ function, so builtin bodies shared by every case are written once and hit
 thereafter.
 
 Hence the asymmetric settings above: a large function tier, minimal
-program/module tiers. Raising the single `PORFFOR_CACHE_LIMIT_BYTES` knob
+program/module tiers. Raising the single `LILA_CACHE_LIMIT_BYTES` knob
 instead would be consumed within a few hundred cases.
 
 Re-sweep **per milestone, not per batch** — and mandatorily whenever the
@@ -385,40 +387,31 @@ Landed:
 
 - `.cargo/config.toml` unifies build flags between `scripts/dev.sh` and bare
   `cargo`, ending recurring full-workspace rebuilds.
-- Per-tier cache budgets (`PORFFOR_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
+- Per-tier cache budgets (`LILA_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
 - The golden capture (rung G).
-- `crates/porffor-cli/tests/cli.rs` split into `tests/cli/` — **620** `#[test]`
-  attributes (recounted at the batch-7 integration head) across the 20
-  area modules plus the `known_failures.rs` hygiene module, so feature lanes no
-  longer all append to one 10,709-line file. 8 of them sit behind
-  `#[cfg(feature = "spec-exec-oracle")]` in `frontend.rs`, so **612 compile**
-  under default features — that is the number every chunk's
-  `ran + filtered_out` must sum to, and `--list` printed exactly that — and
-  **611 actually run**, because one of
-  the 612 is `#[ignore]`d (in `heap.rs`). Ignored is not the same as not
-  compiled: `--list` counts the ignored test, and the 8-test gap between 620 and
-  612 is the `cfg` gates alone.
-  This number moves every batch (593 at batch 3, 607 at batch 5, 617 at batch 6,
-  620 now) and it moved **within** batch 7 — the write lane measured 619 and a
-  concurrent lane added the 620th — so
-  **recount it rather than citing this line.** Use the **exact-line** form — the
-  same one the hygiene scanner itself uses (`known_failures.rs`), not a
-  substring grep — and settle the compiled/executing split with `--list`, the
-  only form that resolves `cfg`:
+- `crates/lila-cli/tests/cli.rs` split into `tests/cli/`, so feature lanes no
+  longer all append to one large file. The source, compiled, ignored and chunk
+  counts move independently as tests, feature gates and area modules change;
+  no count in this document is authoritative. Recount at the integration head.
+  Use the **exact-line** form — the same one the hygiene scanner itself uses
+  (`known_failures.rs`), not a substring grep — and use libtest's list mode to
+  resolve feature gates and ignored tests:
 
   ```sh
   awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
-    crates/porffor-cli/tests/cli/*.rs
-  cargo test -p porffor-cli --test cli -- --list | tail -1
+    crates/lila-cli/tests/cli/*.rs
+  cargo test -p lila-cli --test cli -- --list | tail -1
+  cargo test -p lila-cli --test cli -- --list --ignored | tail -1
+  awk '$1 == "run_chunk" {n++} END{print n+0}' scripts/rung1c-chunks.sh
   ```
 
-  This line has been wrong five times. `grep -h '#\[test\]' … | wc -l` — which
-  this document used to print as the recount recipe — is a *substring* match and
-  over-counts, because it also matches prose lines inside `known_failures.rs`
-  (and now `language.rs`) that name the attribute. Do not trust either
-  the number or a substring recount; run the `awk` form.
+  `--list` counts compiled ignored tests; the `--ignored` list isolates those
+  that do not execute in the default run. The difference between source and
+  compiled counts is the active `cfg` gating. `grep -h '#\[test\]' … | wc -l`
+  is a substring match and over-counts prose that names the attribute, so use
+  the exact-line `awk` form.
 
-- **`crates/porffor-cli/tests/known-failures.tsv`** — the tracked ledger of
+- **`crates/lila-cli/tests/known-failures.tsv`** — the tracked ledger of
   expected non-green outcomes for this crate's three test targets, enforced by
   `tests/cli/known_failures.rs` at compile time (file existence via
   `include_str!`, test existence via `const _`) and by libtest at run time

@@ -1,6 +1,6 @@
 # T06 — Realms, intrinsics and cross-realm semantics
 
-**Status:** In progress — realm records and intrinsic metadata exist; full isolation is unverified
+**Status:** In progress — typed intrinsic and created-realm function foundations exist; full allocation and isolation remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T03, T04, T05  
@@ -8,12 +8,41 @@
 
 ## Current repository state
 
-Realm IDs, realm records, intrinsic tables and realm-owned prototype references
-are present in the runtime/backend, and focused cross-realm cases are tracked in
-the README. Dynamic-source-dependent cross-realm cases remain explicit
+Realm IDs, realm records, intrinsic metadata and realm-owned prototype
+references are present in the runtime/backend. The current 23 intrinsic rows now
+live in one declarative registry that generates `IntrinsicKind`, ordered
+descriptors, callable `name`/`length` properties and 46 ordered property
+templates. A closed `IntrinsicLink` relation distinguishes internal
+`[[Prototype]]` inheritance from constructor/prototype own-property links.
+Const validation pins the exact row/property counts, role compatibility and
+reciprocal relationships, so incomplete registry additions fail compilation.
+The design contract is recorded in
+`docs/rust-rewrite/realm-intrinsics.md`.
+
+Wasm-AOT created-realm function materialization now takes a private typed
+`RealmRecordLocal` minted only by realm-record allocation. The 83 bootstrap
+sites that previously allocated a function under the current realm and then
+repaired its defining-realm header now go through one in-realm choke point;
+the canonical `parseInt`/`parseFloat` installer delegates to the same path.
+Environment/self-backing remains a separate choice because it has distinct
+execution semantics. `GetFunctionRealm` now returns opaque result locals that
+cannot expose their realm until a consuming route has handled both nonresolved
+states. Constructor/default-prototype routes preserve the specified revoked
+Proxy `TypeError`; Promise-job creation explicitly selects the specification's
+current-realm fallback for a revoked callback. Every route traps a missing
+defining realm or unknown callable representation as an internal invariant
+failure instead of silently selecting a prototype.
+
+This remains metadata foundation rather than full realm bootstrap. Intrinsic
+objects are not yet independently allocated from these templates across the
+complete ECMAScript set, the registry is not yet shared with `lila-ir`, and the
+eleven focused `lila-runtime` contracts are green. `lila-engine` re-exports the
+typed link relation with the rest of the public realm vocabulary.
+Dynamic-source-dependent cross-realm cases remain explicit
 unsupported cases, and no current complete Wasm-AOT aggregate proves the full
-realm acceptance matrix. Realm creation, teardown, borrowed builtins and
-realm-correct errors therefore remain active work.
+realm acceptance matrix. Complete intrinsic allocation, host-capability
+scoping, teardown, borrowed builtins and realm-correct errors therefore remain
+active work.
 
 ## Objective
 
@@ -36,7 +65,11 @@ Do not encode realm identity as a collection of one-off function header fields. 
 
 ## Intrinsic bootstrap
 
-- Generate intrinsic installation from one declarative registry shared with `porffor-ir` builtin metadata.
+The runtime registry is now the single source for its current rows and property
+templates. Expanding it to the complete intrinsic set and making `lila-ir`
+consume the same registry remain part of this work item.
+
+- Generate intrinsic installation from one declarative registry shared with `lila-ir` builtin metadata.
 - Define constructor/prototype links, method `name`/`length`, writable/enumerable/configurable attributes and well-known-symbol properties in data, not repeated emitter code.
 - Allow feature modules to register their intrinsic families without editing one giant bootstrap match.
 - Validate that all references resolve, property keys are unique and every builtin function has a defining realm.
@@ -55,7 +88,7 @@ Implement and test:
 
 ## Host integration
 
-Extend `porffor-runtime::HostHooks` or replace it with typed capability traits. Host hooks must be scoped by realm/agent and may not expose spec-exec engine objects to product Wasm semantics. `createRealm` must produce a truly separate global and intrinsic graph.
+Extend `lila-runtime::HostHooks` or replace it with typed capability traits. Host hooks must be scoped by realm/agent and may not expose spec-exec engine objects to product Wasm semantics. `createRealm` must produce a truly separate global and intrinsic graph.
 
 ## Acceptance criteria
 
@@ -69,11 +102,11 @@ Extend `porffor-runtime::HostHooks` or replace it with typed capability traits. 
 ## Required tests
 
 ```sh
-cargo test -p porffor-runtime --quiet
-cargo test -p porffor-ir intrinsic_ --quiet
-cargo test -p porffor-aot-wasm realm_ --quiet
-cargo test -p porffor-spec-exec realm_ --quiet
-cargo test -p porffor-engine --quiet
+cargo test -p lila-runtime --quiet
+cargo test -p lila-ir intrinsic_ --quiet
+cargo test -p lila-aot-wasm realm_ --quiet
+cargo test -p lila-spec-exec realm_ --quiet
+cargo test -p lila-engine --quiet
 ```
 
 Run real Test262 cases containing `createRealm`, `proto-from-ctor-realm`, `newtarget-proto-fallback`, cross-realm error constructors, species and borrowed builtins.

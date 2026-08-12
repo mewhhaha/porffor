@@ -1390,6 +1390,121 @@ dependencies = [
 ]
 
 [[package]]
+name = "lila-aot-wasm"
+version = "0.1.0"
+dependencies = [
+ "icu_normalizer",
+ "icu_properties",
+ "lila-front",
+ "lila-intl",
+ "lila-ir",
+ "lila-runtime",
+ "num-bigint",
+ "wasm-encoder 0.245.1",
+ "wasmparser 0.245.1",
+]
+
+[[package]]
+name = "lila-backend-c"
+version = "0.1.0"
+dependencies = [
+ "lila-ir",
+]
+
+[[package]]
+name = "lila-backend-native"
+version = "0.1.0"
+dependencies = [
+ "lila-ir",
+]
+
+[[package]]
+name = "lila-cli"
+version = "0.1.0"
+dependencies = [
+ "lila-engine",
+ "lila-test262",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lila-engine"
+version = "0.1.0"
+dependencies = [
+ "lila-aot-wasm",
+ "lila-backend-c",
+ "lila-backend-native",
+ "lila-front",
+ "lila-intl",
+ "lila-ir",
+ "lila-runtime",
+ "lila-spec-exec",
+ "rayon",
+ "sha2",
+ "wasmparser 0.245.1",
+ "wasmtime",
+]
+
+[[package]]
+name = "lila-front"
+version = "0.1.0"
+dependencies = [
+ "boa_ast",
+ "boa_interner",
+ "boa_parser",
+]
+
+[[package]]
+name = "lila-intl"
+version = "0.1.0"
+dependencies = [
+ "icu_locale",
+ "icu_locale_data",
+ "icu_provider",
+]
+
+[[package]]
+name = "lila-ir"
+version = "0.1.0"
+dependencies = [
+ "boa_ast",
+ "boa_interner",
+ "boa_parser",
+ "icu_properties",
+ "lila-front",
+ "num-bigint",
+ "num-traits",
+ "regress",
+ "serde_json",
+]
+
+[[package]]
+name = "lila-runtime"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+]
+
+[[package]]
+name = "lila-spec-exec"
+version = "0.1.0"
+dependencies = [
+ "boa_engine",
+]
+
+[[package]]
+name = "lila-test262"
+version = "0.1.0"
+dependencies = [
+ "lila-engine",
+ "lila-front",
+ "lila-ir",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1638,106 +1753,6 @@ name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
-
-[[package]]
-name = "porffor-aot-wasm"
-version = "0.1.0"
-dependencies = [
- "icu_normalizer",
- "icu_properties",
- "num-bigint",
- "porffor-front",
- "porffor-ir",
- "wasm-encoder 0.245.1",
- "wasmparser 0.245.1",
-]
-
-[[package]]
-name = "porffor-backend-c"
-version = "0.1.0"
-dependencies = [
- "porffor-ir",
-]
-
-[[package]]
-name = "porffor-backend-native"
-version = "0.1.0"
-dependencies = [
- "porffor-ir",
-]
-
-[[package]]
-name = "porffor-cli"
-version = "0.1.0"
-dependencies = [
- "porffor-engine",
- "porffor-test262",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "porffor-engine"
-version = "0.1.0"
-dependencies = [
- "porffor-aot-wasm",
- "porffor-backend-c",
- "porffor-backend-native",
- "porffor-front",
- "porffor-ir",
- "porffor-runtime",
- "porffor-spec-exec",
- "rayon",
- "sha2",
- "wasmparser 0.245.1",
- "wasmtime",
-]
-
-[[package]]
-name = "porffor-front"
-version = "0.1.0"
-dependencies = [
- "boa_ast",
- "boa_interner",
- "boa_parser",
-]
-
-[[package]]
-name = "porffor-ir"
-version = "0.1.0"
-dependencies = [
- "boa_ast",
- "boa_interner",
- "boa_parser",
- "icu_properties",
- "num-bigint",
- "num-traits",
- "porffor-front",
- "regress",
- "serde_json",
-]
-
-[[package]]
-name = "porffor-runtime"
-version = "0.1.0"
-
-[[package]]
-name = "porffor-spec-exec"
-version = "0.1.0"
-dependencies = [
- "boa_engine",
-]
-
-[[package]]
-name = "porffor-test262"
-version = "0.1.0"
-dependencies = [
- "porffor-engine",
- "porffor-front",
- "porffor-ir",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "portable-atomic"

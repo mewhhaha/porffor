@@ -40,7 +40,7 @@ require_pub_use() {
 # so implementation cannot creep back into a crate root that is supposed to hold
 # nothing but `mod`, `use` and `pub use`. Counting documentation against that
 # budget makes the guard punish the one thing a re-export surface most needs.
-# Measured at batch 6: `porffor-ir/src/lib.rs` was 169 raw lines and RED against
+# Measured at batch 6: `lila-ir/src/lib.rs` was 169 raw lines and RED against
 # a budget of 140, while its code was 140 lines exactly — every line over the
 # limit was a doc comment pointing a re-exported contract type at its
 # `docs/rust-rewrite/contracts/` file, added by the theory rounds. Raising the
@@ -88,17 +88,29 @@ check_no_inline_legacy_includes() {
   fi
 }
 
-ir_lib="crates/porffor-ir/src/lib.rs"
-wasm_lib="crates/porffor-aot-wasm/src/lib.rs"
-wasm_builtins_mod="crates/porffor-aot-wasm/src/builtins/mod.rs"
-wasm_intrinsics_mod="crates/porffor-aot-wasm/src/intrinsics/mod.rs"
+check_raw_line_budget() {
+  file="$1"
+  max_lines="$2"
+  lines="$(wc -l < "$file")"
+  if [ "$lines" -gt "$max_lines" ]; then
+    fail "$file has $lines raw lines; expected at most $max_lines"
+  fi
+}
+
+ir_lib="crates/lila-ir/src/lib.rs"
+ir_builtins="crates/lila-ir/src/builtins.rs"
+ir_lowering="crates/lila-ir/src/lowering.rs"
+wasm_lib="crates/lila-aot-wasm/src/lib.rs"
+wasm_builtins_mod="crates/lila-aot-wasm/src/builtins/mod.rs"
+wasm_standard_builtins="crates/lila-aot-wasm/src/builtins/standard.rs"
+wasm_intrinsics_mod="crates/lila-aot-wasm/src/intrinsics/mod.rs"
 
 require_file "$ir_lib"
 require_file "$wasm_lib"
 require_file "$wasm_builtins_mod"
 
 for module in analysis builtins diagnostics early_errors ir lowering lowering_helpers names operations; do
-  require_file "crates/porffor-ir/src/${module}.rs"
+  require_file "crates/lila-ir/src/${module}.rs"
   require_module_decl "$ir_lib" "$module"
 done
 
@@ -109,11 +121,11 @@ require_pub_use "$ir_lib" '^pub use operations::' 'shared operation enums'
 # loop above cannot cover it: declaring `mod modules;` without the directory,
 # or adding a submodule without registering it, is exactly the failure this
 # catches.
-ir_modules_mod="crates/porffor-ir/src/modules/mod.rs"
+ir_modules_mod="crates/lila-ir/src/modules/mod.rs"
 require_file "$ir_modules_mod"
 require_module_decl "$ir_lib" "modules"
 for module in dynamic early graph link namespace record source; do
-  require_file "crates/porffor-ir/src/modules/${module}.rs"
+  require_file "crates/lila-ir/src/modules/${module}.rs"
   require_module_decl "$ir_modules_mod" "$module"
 done
 check_no_inline_legacy_includes "$ir_modules_mod"
@@ -131,15 +143,87 @@ require_pub_use "$ir_lib" '^pub use modules::\{' 'the module-record surface'
 check_orchestration_surface "$ir_lib" 160
 check_no_inline_legacy_includes "$ir_lib"
 
+# T02's pure builtin-shape boundary. Keeping these 98 metadata constructors in
+# a child module leaves lowering.rs responsible for orchestration and semantic
+# lowering rather than making it the mandatory edit point for every builtin.
+ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
+require_file "$ir_builtin_shapes"
+require_module_decl "$ir_lowering" "builtin_shapes"
+check_no_inline_legacy_includes "$ir_lowering"
+# Measured immediately after extraction: 31,979 raw lines. This deliberately
+# leaves only 21 lines of headroom; new builtin shape metadata belongs in the
+# child, and further lowering families should be extracted rather than growing
+# the remaining store again.
+check_raw_line_budget "$ir_lowering" 32000
+
+# T02's StandardBuiltinId registry. One macro row owns declaration order,
+# function-index order, global installation order and every metadata field.
+# Keeping the invocation in a real child module preserves an ownership seam;
+# `include!` would merely hide the same monolith from line counts.
+ir_builtin_catalog="crates/lila-ir/src/builtins/catalog.rs"
+require_file "$ir_builtin_catalog"
+require_module_decl "$ir_builtins" "catalog"
+require_pub_use "$ir_builtins" '^pub use catalog::StandardBuiltinId;' 'the standard builtin ID'
+require_pub_use "$ir_builtins" '^pub use catalog::StandardBuiltinInstaller;' 'the standard builtin installer class'
+check_no_inline_legacy_includes "$ir_builtins"
+if ! grep -q '^macro_rules! standard_builtin_catalog' "$ir_builtins"; then
+  fail "$ir_builtins must generate StandardBuiltinId from standard_builtin_catalog"
+fi
+if ! grep -q '^standard_builtin_catalog!' "$ir_builtin_catalog"; then
+  fail "$ir_builtin_catalog must be the single standard builtin catalog invocation"
+fi
+if ! grep -q 'function: FunctionOrdinal(' "$ir_builtin_catalog" \
+  || ! grep -q 'global: GlobalOrdinal(' "$ir_builtin_catalog" \
+  || ! grep -q 'installer: None' "$ir_builtin_catalog"; then
+  fail "$ir_builtin_catalog must encode dense function/global ordinals and mandatory installer classes"
+fi
+# T24's host-builtin surface registry. Identity, callable/global name, function
+# id, exposure class and realm scope come from one row source; the machinery
+# stays in builtins.rs while the rows live in a real child module.
+ir_host_builtin_catalog="crates/lila-ir/src/builtins/host_catalog.rs"
+require_file "$ir_host_builtin_catalog"
+require_module_decl "$ir_builtins" "host_catalog"
+require_pub_use "$ir_builtins" '^pub use host_catalog::HostBuiltinId;' 'the host builtin ID'
+check_no_inline_legacy_includes "$ir_host_builtin_catalog"
+if ! grep -q '^macro_rules! host_builtin_catalog' "$ir_builtins"; then
+  fail "$ir_builtins must generate HostBuiltinId from host_builtin_catalog"
+fi
+if ! grep -q '^host_builtin_catalog!' "$ir_host_builtin_catalog"; then
+  fail "$ir_host_builtin_catalog must be the single host builtin catalog invocation"
+fi
+host_builtin_catalog_rows="$(grep -Ec '^    [A-Za-z][A-Za-z0-9]* \{$' "$ir_host_builtin_catalog")"
+if [[ "$host_builtin_catalog_rows" != "19" ]]; then
+  fail "$ir_host_builtin_catalog must contain the reviewed 19-row host builtin catalog (found $host_builtin_catalog_rows)"
+fi
+# Measured after the host-surface consolidation: 1,741 raw lines. Metadata rows
+# belong in their catalogs; shared machinery should shrink rather than regrow.
+check_raw_line_budget "$ir_builtins" 1750
+
 for module in abi control_flow data emit environments expressions functions heap module modules objects operations planning; do
-  require_file "crates/porffor-aot-wasm/src/${module}.rs"
+  require_file "crates/lila-aot-wasm/src/${module}.rs"
   require_module_decl "$wasm_lib" "$module"
 done
 
-for module in array binary_data bootstrap date errors host iterators json reflect standard string; do
-  require_file "crates/porffor-aot-wasm/src/builtins/${module}.rs"
+for module in array binary_data bootstrap date errors host iterators json math object proxy reflect standard string; do
+  require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
+
+wasm_builtin_bootstrap="crates/lila-aot-wasm/src/builtins/bootstrap.rs"
+if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; then
+  fail "$wasm_builtin_bootstrap must dispatch through the catalog installer class"
+fi
+
+
+# T02's Object, Proxy and Math builtin body boundaries. The exhaustive
+# StandardBuiltinId dispatch remains in standard.rs, but family bodies are
+# one-line delegates so unrelated builtin work no longer collides with ~11k
+# lines of Object descriptor/prototype implementation, the Proxy lifecycle or
+# the Math emitter family.
+check_no_inline_legacy_includes "$wasm_standard_builtins"
+# Measured immediately after Math extraction: 36,807 raw lines. Keep a small
+# margin for dispatch-only additions; substantive bodies belong in family modules.
+check_raw_line_budget "$wasm_standard_builtins" 37000
 
 # The Temporal record/constructor/accessor vs prototype-method-body boundary.
 # `temporal.rs` and `temporal_plain_date_time.rs` hold the heap record, the
@@ -150,7 +234,7 @@ done
 # written, and that surface is the third `*_methods.rs` split of the same kind.
 for module in temporal temporal_plain_date_time temporal_plain_date_time_methods \
               temporal_zoned_date_time_methods; do
-  require_file "crates/porffor-aot-wasm/src/builtins/${module}.rs"
+  require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
 
@@ -161,14 +245,14 @@ done
 require_file "$wasm_intrinsics_mod"
 require_module_decl "$wasm_lib" "intrinsics"
 for module in array binary_data collections date errors function iterator numeric object promise proxy regexp string symbol temporal; do
-  require_file "crates/porffor-aot-wasm/src/intrinsics/${module}.rs"
+  require_file "crates/lila-aot-wasm/src/intrinsics/${module}.rs"
   require_module_decl "$wasm_intrinsics_mod" "$module"
 done
 check_no_inline_legacy_includes "$wasm_intrinsics_mod"
 
 require_pub_use "$wasm_lib" '^pub use emit::emit;' 'the Wasm emit entry point'
 # 180 against a CODE-ONLY count, measured 101 at batch 6 (118 raw). Unlike the
-# `porffor-ir` budget above this one was never near its limit, so the switch to a
+# `lila-ir` budget above this one was never near its limit, so the switch to a
 # code-only count did not need a matching adjustment.
 check_orchestration_surface "$wasm_lib" 180
 check_no_inline_legacy_includes "$wasm_lib"

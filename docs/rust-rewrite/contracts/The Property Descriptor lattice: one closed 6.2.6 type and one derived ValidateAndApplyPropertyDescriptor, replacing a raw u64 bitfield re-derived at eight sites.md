@@ -57,12 +57,12 @@ would otherwise produce a wrong retrofit, a decoration type, or — in one case
 | Distinct `*_DESCRIPTOR_KIND_OFFSET` heap slots sharing this one word format | **9** | `heap.rs:292, 295, 653, 662, 666, 669, 676, 679, 696` |
 | Descriptor-kind **write** sites (`store_*_at_offset(.., *_DESCRIPTOR_KIND_OFFSET, ..)`) | `objects.rs` 99, `array.rs` 48, `standard.rs` 21, `json.rs` 3, `control_flow.rs` 3, `heap.rs` 3 | `rg -B2` |
 | Array/arguments `[[DefineOwnProperty]]` derivation sites the note routes | **8**, not six | `standard.rs:2454, 2741, 3007, 3432`; `array.rs:3709, 3821, 4062, 4463` |
-| `IntrinsicPropertyAttributes` references outside `porffor-runtime` | **1**, a `pub use` re-export at `porffor-engine/src/lib.rs:984`. **No backend reads it.** | `rg` |
-| `INTRINSIC_PROPERTY_DESCRIPTORS` rows | **46** | `porffor-runtime/src/lib.rs:485` |
-| `porffor-runtime/Cargo.toml` `[dependencies]` | **absent entirely** | `cat` |
-| `porffor-aot-wasm` → `porffor-ir` dependency | **present** (`porffor-aot-wasm/Cargo.toml`) | `cat` |
+| `IntrinsicPropertyAttributes` references outside `lila-runtime` | **1**, a `pub use` re-export at `lila-engine/src/lib.rs:984`. **No backend reads it.** | `rg` |
+| `INTRINSIC_PROPERTY_DESCRIPTORS` rows | **46** | `lila-runtime/src/lib.rs:485` |
+| `lila-runtime/Cargo.toml` `[dependencies]` | **absent entirely** | `cat` |
+| `lila-aot-wasm` → `lila-ir` dependency | **present** (`lila-aot-wasm/Cargo.toml`) | `cat` |
 | test262 corpus files in §6 that exist at the current pin | **11 of 11** | checked by path |
-| Sibling theory-first modules already landed in `porffor-ir` | **2** (`numeric_conversions.rs`, `reference.rs`), both declared `pub mod` **inside `ir.rs`** (`:34`, `:23`), not in `lib.rs` | `rg` |
+| Sibling theory-first modules already landed in `lila-ir` | **2** (`numeric_conversions.rs`, `reference.rs`), both declared `pub mod` **inside `ir.rs`** (`:34`, `:23`), not in `lib.rs` | `rg` |
 
 ### 0.2 The one-sentence claim
 
@@ -212,7 +212,11 @@ anywhere else — concretely, at `objects.rs:14241-14356`, and not in the
 existing-entry branch at `objects.rs:13669-14196`. Applying defaults on the
 existing-entry path is precisely mistake class **M2**.
 
-### 1.4 The nine spellings of the partition in this tree, measured
+### 1.4 The nine pre-migration spellings of the partition, measured
+
+This table preserves the audit that motivated the lattice. Rows called out as
+landed below are historical counterexamples, not descriptions of current
+product code.
 
 | # | Site | Spelling | Cases it can express |
 |---|---|---|---|
@@ -222,7 +226,7 @@ existing-entry path is precisely mistake class **M2**.
 | 4 | `objects.rs:1504-1526` `kind_present_local` — a *runtime* OR-fold over the four presence locals, used to skip the kind check when the incoming descriptor is generic | i64 local | Generic vs not, at run time |
 | 5 | `objects.rs:13575-13579` `let descriptor_kind = if has_data { DATA } else { ACCESSOR }` | `bool` (`data.is_some()`) | Data, Accessor. **No `Generic`.** |
 | 6 | `objects.rs:14036-14064` the four-way `is_some()` conjunction that ORs the accessor bit back in when all four value-side presence flags are runtime-false | four `Option`s + runtime conjunction | a *correction*, only when all four locals are `Some` |
-| 7 | `standard.rs:3441` `accessor: bool` (`fn emit_store_arguments_length_descriptor_kind`, `:3432`) | `bool` | Data, Accessor. **No `Generic`.** |
+| 7 | historical `standard.rs:3441` `accessor: bool` (`emit_store_arguments_length_descriptor_kind`) | `bool` | Data, Accessor. **No `Generic`.** Removed on 2026-08-12. |
 | 8 | `lowering.rs:25611` `generic_property_descriptor_shape()` — one object shape naming **all six keys** | shape literal | asserts Data ∧ Accessor simultaneously |
 | 9 | `lowering.rs:26130-26163` `match property { ObjectShapeProperty::Data(..) => .., ObjectShapeProperty::Accessor{..} => .. }` | exhaustive 2-arm match | Data, Accessor — **and this one is correct**, see §5.6 |
 
@@ -231,7 +235,7 @@ exhaustive match over a closed two-case enum, and it produces the right key sets
 for both cases without a single `&'static str` list assembled by hand. It is
 also, measured, the only one of the nine that does.
 
-A tenth, in a different crate: `porffor-runtime/src/lib.rs:159-164`
+A tenth, in a different crate: `lila-runtime/src/lib.rs:159-164`
 `IntrinsicPropertyAttributes { writable, enumerable, configurable }` — three
 bare `bool`s, no accessor case, no presence notion. §5.8 gives its measured
 reachability and this contract's declared decision.
@@ -483,7 +487,7 @@ one false assertion for another. The right replacement there is
 
 ### 1.9 Where `namespace.rs` actually sits — ToPropertyDescriptor's *domain*, not FromPropertyDescriptor's codomain
 
-`crates/porffor-ir/src/modules/namespace.rs` builds module-namespace exotic
+`crates/lila-ir/src/modules/namespace.rs` builds module-namespace exotic
 objects by concatenating JavaScript source text. Measured, there are **three**
 descriptor builders in product code, not four:
 
@@ -541,21 +545,21 @@ rather than a conformance delta.
 
 | # | Invariant | Construct | Kills | Lives in |
 |---|---|---|---|---|
-| I1 | The 6.2.6.1–3 partition is closed and has three cases | `enum PropertyDescriptorKind { Data, Accessor, Generic }`, exhaustive matches, **no `_` arm anywhere in the workspace** | M5 | `porffor-ir` |
-| I2 | A stored property is `Data` or `Accessor`, and `Accessor` has no `[[Writable]]` | `enum CompleteDescriptor<C> { Data{..}, Accessor{..} }` — `Accessor` has no `writable` field | M1 | `porffor-ir` |
-| I3 | Presence is one closed 3-state question per field (**partial** — see below) | `enum Presence<T, R> { Absent, Present(T), Runtime { present: R, value: T } }` | M2, M5 | `porffor-ir` |
-| I4 | A partial descriptor is one value, not 15 positional parameters | `struct PartialDescriptor<C>` with six `Presence` fields | M2 | `porffor-ir` |
-| I5 | The partition is a theorem about *validated* descriptors | `struct ValidatedDescriptor<C>(PartialDescriptor<C>)`, static constructor validates 6.2.6.5 step 9 | — | `porffor-ir` |
-| I6 | `classify` is the only derivation of the partition | `fn classify(&ValidatedDescriptor<C>) -> DescriptorClassification`, and the seed decision in `emit_object_define_entry_validated` derives from the two `KindTerms` rather than from `[[Value]]` | M5 | `porffor-ir` (+ the one consumer) |
-| I7 | The stored word is a value with exactly two constructors | `struct DescriptorWord(u64)`; `of_data(writable, enumerable, configurable)`, `of_accessor(enumerable, configurable)` | M1 | `porffor-aot-wasm/heap.rs` |
-| I8 | A mask is not a value | `struct DescriptorMask(u64)`, composites allowed, no conversion to `DescriptorWord` | (protects §1.7 fact 2) | `porffor-aot-wasm/heap.rs` |
-| I9 | The exotic flags are an orthogonal axis with a payload | `struct DescriptorFlags`, `struct MappedSlot(u32)`, disjointness `const _: () = assert!(..)`, **and the three `functions.rs` consumers** (`DescriptorWord::with_flags` at the mapped-arguments writer, `MappedSlot::SHIFT` at both readers) | — | `porffor-aot-wasm/heap.rs` + `functions.rs` |
-| I10 | The six legacy constants are derivations, and the wire format is pinned | `pub(crate) const OBJECT_DESCRIPTOR_* : u64 = <derivation>;` + `const _: () = assert!(.. == <literal>);` | — | `porffor-aot-wasm/heap.rs` |
-| I11 | A runtime-built word cannot acquire a writable bit on an accessor path | `struct DescriptorKindLocal<K: DescriptorKindMarker>`; `set_writable_if_nonzero`/`carry_writable_from_existing` exist **only** on `K = DataKind`, **and the kind-agnostic builders take `AttributeBit`** (`{Enumerable, Configurable}`) rather than `DescriptorBit`, so `DescriptorBit::Writable` cannot reach an accessor-seeded word by any route | M1 (runtime half) | `porffor-aot-wasm/objects.rs` |
-| I12 | The six field names are a closed domain | `enum DescriptorField { Value, Writable, Get, Set, Enumerable, Configurable }` with `const fn key(self) -> &'static str` | M7 | `porffor-ir` |
-| I13 | FromPropertyDescriptor's two codomain shapes | `CompleteDescriptor::keys() -> [DescriptorField; 4]`, and `PartialDescriptor::present_fields()` for the partial case | M6 | `porffor-ir` |
-| I14 | Descriptor source text is built from the field domain, not from string literals | `struct DescriptorSourceText` over `PartialDescriptor<SourceText>` where `SourceText::RuntimeFlag = core::convert::Infallible` | M7 | `porffor-ir` (consumed in `modules/namespace.rs`) |
-| I15 | The 6.2.6.5 field-read order is a table, not a hand-written literal | `const TO_PROPERTY_DESCRIPTOR_ORDER: [DescriptorField; 6]` + `const _: () = assert!(..)` that every variant appears exactly once, **and `emit_to_property_descriptor_object` iterates it** (with 6.2.6.4's own `DescriptorField::ALL` order driving the FromPropertyDescriptor loop below it) | partial M4 | `porffor-ir` + `porffor-aot-wasm/objects.rs` |
+| I1 | The 6.2.6.1–3 partition is closed and has three cases | `enum PropertyDescriptorKind { Data, Accessor, Generic }`, exhaustive matches, **no `_` arm anywhere in the workspace** | M5 | `lila-ir` |
+| I2 | A stored property is `Data` or `Accessor`, and `Accessor` has no `[[Writable]]` | `enum CompleteDescriptor<C> { Data{..}, Accessor{..} }` — `Accessor` has no `writable` field | M1 | `lila-ir` |
+| I3 | Presence is one closed 3-state question per field (**partial** — see below) | `enum Presence<T, R> { Absent, Present(T), Runtime { present: R, value: T } }` | M2, M5 | `lila-ir` |
+| I4 | A partial descriptor is one value, not 15 positional parameters | `struct PartialDescriptor<C>` with six `Presence` fields | M2 | `lila-ir` |
+| I5 | The partition is a theorem about *validated* descriptors | `struct ValidatedDescriptor<C>(PartialDescriptor<C>)`, static constructor validates 6.2.6.5 step 9 | — | `lila-ir` |
+| I6 | `classify` is the only derivation of the partition | `fn classify(&ValidatedDescriptor<C>) -> DescriptorClassification`, and the seed decision in `emit_object_define_entry_validated` derives from the two `KindTerms` rather than from `[[Value]]` | M5 | `lila-ir` (+ the one consumer) |
+| I7 | The stored word is a value with exactly two constructors | `struct DescriptorWord(u64)`; `of_data(writable, enumerable, configurable)`, `of_accessor(enumerable, configurable)` | M1 | `lila-aot-wasm/heap.rs` |
+| I8 | A mask is not a value | `struct DescriptorMask(u64)`, composites allowed, no conversion to `DescriptorWord` | (protects §1.7 fact 2) | `lila-aot-wasm/heap.rs` |
+| I9 | The exotic flags are an orthogonal axis with a payload | `struct DescriptorFlags`, `struct MappedSlot(u32)`, disjointness `const _: () = assert!(..)`, **and the three `functions.rs` consumers** (`DescriptorWord::with_flags` at the mapped-arguments writer, `MappedSlot::SHIFT` at both readers) | — | `lila-aot-wasm/heap.rs` + `functions.rs` |
+| I10 | The six legacy constants are derivations, and the wire format is pinned | `pub(crate) const OBJECT_DESCRIPTOR_* : u64 = <derivation>;` + `const _: () = assert!(.. == <literal>);` | — | `lila-aot-wasm/heap.rs` |
+| I11 | A runtime-built word cannot acquire a writable bit on an accessor path | `struct DescriptorKindLocal<K: DescriptorKindMarker>`; `set_writable_if_nonzero`/`carry_writable_from_existing` exist **only** on `K = DataKind`, **and the kind-agnostic builders take `AttributeBit`** (`{Enumerable, Configurable}`) rather than `DescriptorBit`, so `DescriptorBit::Writable` cannot reach an accessor-seeded word by any route | M1 (runtime half) | `lila-aot-wasm/objects.rs` |
+| I12 | The six field names are a closed domain | `enum DescriptorField { Value, Writable, Get, Set, Enumerable, Configurable }` with `const fn key(self) -> &'static str` | M7 | `lila-ir` |
+| I13 | FromPropertyDescriptor's two codomain shapes | `CompleteDescriptor::keys() -> [DescriptorField; 4]`, and `PartialDescriptor::present_fields()` for the partial case | M6 | `lila-ir` |
+| I14 | Descriptor source text is built from the field domain, not from string literals | `struct DescriptorSourceText` over `PartialDescriptor<SourceText>` where `SourceText::RuntimeFlag = core::convert::Infallible` | M7 | `lila-ir` (consumed in `modules/namespace.rs`) |
+| I15 | The 6.2.6.5 field-read order is a table, not a hand-written literal | `const TO_PROPERTY_DESCRIPTOR_ORDER: [DescriptorField; 6]` + `const _: () = assert!(..)` that every variant appears exactly once, **and `emit_to_property_descriptor_object` iterates it** (with 6.2.6.4's own `DescriptorField::ALL` order driving the FromPropertyDescriptor loop below it) | partial M4 | `lila-ir` + `lila-aot-wasm/objects.rs` |
 
 **I3 is discharged for the contradictory pair and OPEN for the `Present`/step-4
 conflation.** `Presence::Runtime` requires a value carrier, so
@@ -577,10 +581,10 @@ Ledger:
 | LN1 | M3: which comparison a *body* emits (`SameValue` vs `F64Eq`) | The obligation is a property of the emitted Wasm instruction sequence. `emit_tagged_payload_same_value_i32` is a correctly *named* helper called at 28 sites; nothing in Rust distinguishes calling it from calling `emit_tagged_payload_equality_i32`, which is also correct at 3 of those sites (10.1.6.3 step 4.d compares `[[Get]]`/`[[Set]]`, which are objects, where the two agree). A type could only help by making the *operand* carry "this is a `[[Value]]`", and the operand is a pair of `u32` Wasm local indices. |
 | LN2 | M4: HasProperty-then-Get, six times, in 6.2.6.5 order | I15 makes *omission* and *reordering* of the six fields a compile error. It cannot make "used an own-slot probe instead of `emit_object_has_property_with_key_tag_i32`" a compile error, because both are `&mut self` methods returning `Result<(), EmitError>` with identical shapes. |
 | LN3 | `ValidatedDescriptor::from_runtime_checked` | Two call sites (`standard.rs:11572`, `:11905`) discharge 6.2.6.5 step 9 by an *emitted Wasm check* at `standard.rs:11363-11380`, in a file this lane may not edit. The escape hatch's value is that `rg from_runtime_checked` enumerates the obligation-by-convention sites, and the count is exactly two. Upgrading it to a witness token requires owning `standard.rs`. **Note-routed.** |
-| LN4 | `porffor-runtime`'s `IntrinsicPropertyAttributes` | See §5.8. No dependency edge, no shared crate, and the tie would have to live in `porffor-engine`, which is unowned. |
+| LN4 | `lila-runtime`'s `IntrinsicPropertyAttributes` | See §5.8. No dependency edge, no shared crate, and the tie would have to live in `lila-engine`, which is unowned. |
 | LN5 | The emitted Wasm's own arithmetic | `DescriptorWord` proves every *constant* seed. I11 proves that a writable bit cannot be OR'd in on a statically-accessor path. Neither proves the `I64Or`/`I64And` sequence in a `Dynamic`-kind body is the right one; that is one function's body, `DescriptorWordEmitter::<Dynamic>::set_writable_if`, and it must be right once. |
 | LN6 | `emit_validate_array_named_descriptor`'s `requested_data_descriptor: bool` | Its **only** two call sites are `array.rs:4141` and `:4544`, in an unowned file. Changing the parameter type breaks them. **Note-routed**; the body's bit handling lands this round. |
-| LN7 | The 8 array/arguments derivation sites | `standard.rs:2454, 2741, 3007, 3432`; `array.rs:3709, 3821, 4062, 4463`. Unowned. **Note-routed**, with the retrofit instructions and the §6.5 trace that proves them. |
+| LN7 | The 8 array/arguments derivation sites | The named Array validator and Arguments `length` kind carrier have landed. Index/callee derivation and remaining raw application sites stay note-routed; §4.5 records the historical coordinates and current replacement shape. |
 | LN8 | `lowering.rs`'s three shape sites | Shared hub; batch 5 is in `standard.rs` this round and `lowering.rs` is the crate's largest contention surface. **Note-routed** with the exact replacement per site (§4.5). |
 | LN9 | The seed when **both** 6.2.6 sides are run-time-possible | The stored kind is then genuinely a run-time value, and the emitter assembles the word in one Wasm local with a compile-time typestate, so there is no representation for "either". The case is reachable only through `from_runtime_checked`, whose emitted 6.2.6.5 step-9 throw dominates both callers and leaves exactly one side live per branch; the seed is taken from the operand the caller materialised. A caller that materialises operands on both sides needs a run-time seed and a run-time `stored_kind()`, which is a larger change than a seed derivation. |
 | LN10 | `Presence::Present` exempts a field from 10.1.6.3 step 4 | Step 4 fires on *Desc has the field*, not on "the program discovered it". A `Present` field is exempt only because the compiler chose the value too — true of `emit_object_define_accessor_with_flag_local` and of `emit_object_define_entry`'s two `Present` slots, false of anything a program supplies. The same fact exempts a **statically-true side** from step 6.a/7.a. Closing it needs a `DischargesStepFour` witness threaded through `ValidatedDescriptor` and produced only by the owned helpers, plus the run-time-emitting arms that witness's absence would demand — a design, not an edit. Every arm and `emit_descriptor_kind_change_throw`'s exhaustive four-case `match` now state the exemption at the point of risk instead of reaching it through `runtime_flags().is_empty()`. |
@@ -713,7 +717,7 @@ Three things this buys, each checkable:
 ```rust
 /// What a descriptor's fields are made of, in one lowering context.
 ///
-/// Deliberately not sealed: `porffor-aot-wasm` adds its own impl. The trait has
+/// Deliberately not sealed: `lila-aot-wasm` adds its own impl. The trait has
 /// no methods, so an impl cannot misbehave.
 pub trait DescriptorCarrier {
     /// Carrier for `[[Value]]`, `[[Get]]`, `[[Set]]`.
@@ -735,7 +739,7 @@ impl DescriptorCarrier for SourceText {
 }
 ```
 
-and, in `porffor-aot-wasm` (`objects.rs`, owned region):
+and, in `lila-aot-wasm` (`objects.rs`, owned region):
 
 ```rust
 /// A tagged value living in two Wasm locals: `(payload, tag)`.
@@ -1010,7 +1014,7 @@ makes the parameter unnecessary as well as dangerous.
 
 ### 2.7 `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` — I7, I8, I9
 
-These live in `crates/porffor-aot-wasm/src/heap.rs`, **additively**: the six
+These live in `crates/lila-aot-wasm/src/heap.rs`, **additively**: the six
 existing `pub(crate) const`s keep their names, their types (`u64`) and their
 values, and gain derivations.
 
@@ -1160,7 +1164,7 @@ silent, total corruption of every object's property attributes.
 
 **The hard constraint, restated as an acceptance test.** This edit must be
 purely additive: no existing constant may change name, type or value. The check
-is `cargo check -p porffor-aot-wasm` producing zero errors **without any edit to
+is `cargo check -p lila-aot-wasm` producing zero errors **without any edit to
 `builtins/intl_datetimeformat.rs` (2 refs), `builtins/array.rs` (76 refs),
 `builtins/standard.rs` (76 refs), `functions.rs` (17 refs), `control_flow.rs`
 (3), `builtins/json.rs` (2), `emit.rs` (1), `builtins/string.rs` (11),
@@ -1268,7 +1272,7 @@ embedding is injective and that it cannot reach `[[Writable]]`.
    type would have to distinguish "this method performs a `[[Get]]`-visible
    lookup" from "this method reads an own slot", which is a property of the
    emitted Wasm.
-3. **`porffor-runtime`'s parallel model (LN4).** §5.8.
+3. **`lila-runtime`'s parallel model (LN4).** §5.8.
 4. **The array/arguments derivations (LN7) and the `lowering.rs` shapes
    (LN8).** Unowned files. The types land; the retrofit is note-routed with
    per-site instructions and a dry-run trace (§6.5) that proves them before
@@ -1301,15 +1305,15 @@ that fails silently.
 
 | Step | File | Change | Compiles alone? |
 |---|---|---|---|
-| **1** | `crates/porffor-ir/src/property_descriptor.rs` (NEW) | I1–I6, I12–I15: `DescriptorField`, `Presence`, `DescriptorCarrier`, `SourceText`, `PartialDescriptor`, `ValidatedDescriptor`, `PropertyDescriptorKind`, `DescriptorClassification`, `classify`, `CompleteDescriptor`, `complete_property_descriptor`, `TO_PROPERTY_DESCRIPTOR_ORDER`, `DescriptorSourceText` | Yes — depends on nothing |
-| **2** | `crates/porffor-ir/src/lib.rs` | **Two lines only**: `mod property_descriptor;` in the `mod` block at `:56-78`, and one appended `pub use crate::property_descriptor::{..};` block after `:151` | Yes |
-| **3** | `crates/porffor-ir/src/modules/namespace.rs` | Route the three builders (`:348-368`, `:371-378`, `:742-749`) through `DescriptorSourceText`. **Byte-identical output required.** | Yes |
-| **4** | `crates/porffor-aot-wasm/src/heap.rs` | I7–I10, **additive**: `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot`, the 8 derivations, the 11 `const _` assertions | Yes |
-| **5** | `crates/porffor-aot-wasm/src/objects.rs` §A | `WasmLocals` carrier + `TaggedLocals`; rewrite `object_data_descriptor_kind` (`:45-61`) and `object_accessor_descriptor_kind` (`:63-72`) as one-line delegations to `DescriptorWord`. **Signatures unchanged** — `functions.rs:3017` is unowned | Yes |
-| **6** | `crates/porffor-aot-wasm/src/objects.rs` §B | `emit_validate_array_named_descriptor` (`:1446-1650`) body only: replace the three raw bit expressions at `:1528`, `:1543`, `:1562` with `DescriptorMask` tests. **Signature unchanged** — `array.rs:4141`/`:4544` are unowned (LN6) | Yes |
-| **7** | `crates/porffor-aot-wasm/src/objects.rs` §C | `DescriptorWordEmitter<K>` (I11) | Yes |
-| **8** | `crates/porffor-aot-wasm/src/objects.rs` §D | `emit_object_define_entry` (`:13533-14372`): 15 descriptor parameters → `ValidatedDescriptor<WasmLocals>`; the four-way conjunction at `:13726` and the corrective block at `:14036` → exhaustive `match`es | **No** — needs step 9 in the same patch |
-| **9** | `crates/porffor-aot-wasm/src/objects.rs` §E + `builtins/standard.rs` **(2 lines each, adapter only)** | The four call sites. `objects.rs:13422` and `:13511` are owned. `standard.rs:11572` and `:11905` are **not** — see §4.4 for the seam that keeps this lane out of that file | See §4.4 |
+| **1** | `crates/lila-ir/src/property_descriptor.rs` (NEW) | I1–I6, I12–I15: `DescriptorField`, `Presence`, `DescriptorCarrier`, `SourceText`, `PartialDescriptor`, `ValidatedDescriptor`, `PropertyDescriptorKind`, `DescriptorClassification`, `classify`, `CompleteDescriptor`, `complete_property_descriptor`, `TO_PROPERTY_DESCRIPTOR_ORDER`, `DescriptorSourceText` | Yes — depends on nothing |
+| **2** | `crates/lila-ir/src/lib.rs` | **Two lines only**: `mod property_descriptor;` in the `mod` block at `:56-78`, and one appended `pub use crate::property_descriptor::{..};` block after `:151` | Yes |
+| **3** | `crates/lila-ir/src/modules/namespace.rs` | Route the three builders (`:348-368`, `:371-378`, `:742-749`) through `DescriptorSourceText`. **Byte-identical output required.** | Yes |
+| **4** | `crates/lila-aot-wasm/src/heap.rs` | I7–I10, **additive**: `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot`, the 8 derivations, the 11 `const _` assertions | Yes |
+| **5** | `crates/lila-aot-wasm/src/objects.rs` §A | `WasmLocals` carrier + `TaggedLocals`; rewrite `object_data_descriptor_kind` (`:45-61`) and `object_accessor_descriptor_kind` (`:63-72`) as one-line delegations to `DescriptorWord`. **Signatures unchanged** — `functions.rs:3017` is unowned | Yes |
+| **6** | `crates/lila-aot-wasm/src/objects.rs` §B | `emit_validate_array_named_descriptor` (`:1446-1650`) body only: replace the three raw bit expressions at `:1528`, `:1543`, `:1562` with `DescriptorMask` tests. **Signature unchanged** — `array.rs:4141`/`:4544` are unowned (LN6) | Yes |
+| **7** | `crates/lila-aot-wasm/src/objects.rs` §C | `DescriptorWordEmitter<K>` (I11) | Yes |
+| **8** | `crates/lila-aot-wasm/src/objects.rs` §D | `emit_object_define_entry` (`:13533-14372`): 15 descriptor parameters → `ValidatedDescriptor<WasmLocals>`; the four-way conjunction at `:13726` and the corrective block at `:14036` → exhaustive `match`es | **No** — needs step 9 in the same patch |
+| **9** | `crates/lila-aot-wasm/src/objects.rs` §E + `builtins/standard.rs` **(2 lines each, adapter only)** | The four call sites. `objects.rs:13422` and `:13511` are owned. `standard.rs:11572` and `:11905` are **not** — see §4.4 for the seam that keeps this lane out of that file | See §4.4 |
 | **10** | `docs/rust-rewrite/contracts/…` (this file) + `target/lane-notes/property-descriptor-lattice-theory-integration.md` | The note carries LN6, LN7, LN8, LN3 and the §4.6 reader-side change | Yes |
 
 ### 4.2 Step 3 — `namespace.rs`, byte-identity required
@@ -1360,7 +1364,7 @@ rendered text and will fail loudly on any spacing change:
 `:1144` `"get: () => value,"`, `:1167` `"\"b\", { get: () => a,"`,
 `:1186` the full `Symbol.toStringTag` line, `:1259` `"get: () => {}"`,
 `:1294`, `:1447`, `:1453`, `:1566`. **Eight assertions**; `cargo test -p
-porffor-ir modules::namespace` is the check, and it is a rung-1 command the
+lila-ir modules::namespace` is the check, and it is a rung-1 command the
 integrator runs, not this lane.
 
 One deliberate non-change: the `defineProperty` **call** wrapper
@@ -1527,11 +1531,21 @@ regression.
 | `standard.rs:2454` `emit_arguments_define_data_index` | positional; kind implied by name | `ValidatedDescriptor<WasmLocals>` + `classify` |
 | `standard.rs:2741` `emit_arguments_define_accessor_index` | ditto | ditto |
 | `standard.rs:3007` `emit_arguments_define_callee` | ditto | ditto |
-| `standard.rs:3432` `emit_store_arguments_length_descriptor_kind` | **`accessor: bool` at `:3441`** | `PropertyDescriptorKind` — the `Generic` arm is the one that is missing today |
+| `standard.rs:3432` `emit_store_arguments_length_descriptor_kind` | **historical `accessor: bool` at `:3441`** | `PropertyDescriptorKind`, including `Generic` preservation |
 | `array.rs:3709` `emit_array_define_data_index` | name | `ValidatedDescriptor` |
 | `array.rs:3821` `emit_array_define_accessor_index` | name | ditto |
 | `array.rs:4062` `emit_array_define_named_data_descriptor` | name + `emit_validate_array_named_descriptor(.., true, ..)` at `:4141` | `PropertyDescriptorKind::Data` |
 | `array.rs:4463` `emit_array_define_named_accessor_descriptor` | name + `emit_validate_array_named_descriptor(.., false, ..)` at `:4544` | `PropertyDescriptorKind::Accessor` |
+
+The Arguments `length` migration landed on 2026-08-12. `Generic` is
+preservation, not the false spelling of `accessor`: a generic update may
+replace `[[Enumerable]]` or `[[Configurable]]`, but it keeps the existing
+data/accessor kind and keeps `[[Writable]]` exactly when that existing kind is
+data. The backend branches from the run-time `[[Value]]`/`[[Writable]]` and
+`[[Get]]`/`[[Set]]` presence predicates into the closed
+`PropertyDescriptorKind` domain before it writes the stored word. The durable
+mapped-arguments fixture defines an accessor `arguments.length`, applies
+`{ enumerable: true }`, and proves the getter/setter survive.
 
 The last two are the LN6 flip, and §6.5's trace
 (`15.2.3.6-4-199.js`) is what proves the instruction before another batch
@@ -1569,7 +1583,7 @@ loop body byte-identical.
 
 **(e) The mapped-slot readers (§4.6).**
 
-**(f) `porffor-runtime` (LN4, §5.8).**
+**(f) `lila-runtime` (LN4, §5.8).**
 
 ### 4.6 The `MappedSlot::SHIFT` readers
 
@@ -1593,14 +1607,14 @@ constant without changing the three literals.
   `DESCRIPTOR_KIND_OFFSET` references and 2 `ARRAY_DESCRIPTOR_NORMAL_DATA`
   references, which is exactly why step 4 is additive.
 - **`builtins/host.rs`** (9 `emit_object_define_accessor` call sites) and
-  **`crates/porffor-aot-wasm/src/functions.rs`** (2 more, plus
+  **`crates/lila-aot-wasm/src/functions.rs`** (2 more, plus
   `object_data_descriptor_kind` at `:3017`, plus the three mapped-slot sites).
   Signatures frozen; §4.3, §4.6.
 - **Proxy `[[DefineOwnProperty]]` invariant checks (10.5.6 steps 10–16).**
   Declared out of scope by the brief and by this contract. The *shape* claims at
   `lowering.rs:27816`/`:28453` are note-routed (§4.5b); the invariant checks are
   not touched at all.
-- **`porffor-spec-exec`.** No descriptor work this round; the crate is named in
+- **`lila-spec-exec`.** No descriptor work this round; the crate is named in
   the campaign scope but has no site in this area.
 
 ### 4.8 Region disjointness inside `objects.rs`
@@ -1908,21 +1922,21 @@ correct. The check that actually discriminates is the *shape*, not the program:
 after the retrofit, `generic_property_descriptor_shape` must have **no call
 site**, which is a compile error (`dead_code`) rather than a test.
 
-### 5.8 `porffor-runtime`'s second model: the declared decision is **no dependency edge**, and the reason is that the model is **unconsumed**
+### 5.8 `lila-runtime`'s second model: the declared decision is **no dependency edge**, and the reason is that the model is **unconsumed**
 
 Measured facts, all verified:
 
-- `crates/porffor-runtime/Cargo.toml` has **no `[dependencies]` section at
+- `crates/lila-runtime/Cargo.toml` has **no `[dependencies]` section at
   all**. It is a leaf crate.
-- `porffor-ir` depends on `boa_ast`, `boa_interner`, `boa_parser`,
-  `icu_properties`, `num-bigint`, `num-traits`, `porffor-front`, `regress`,
+- `lila-ir` depends on `boa_ast`, `boa_interner`, `boa_parser`,
+  `icu_properties`, `num-bigint`, `num-traits`, `lila-front`, `regress`,
   `serde_json` — including a **JavaScript parser**.
-- `porffor-runtime` is depended on by exactly **one** crate: `porffor-engine`.
+- `lila-runtime` is depended on by exactly **one** crate: `lila-engine`.
 - `IntrinsicPropertyAttributes` has **13 references**, of which **12 are inside
-  `porffor-runtime/src/lib.rs`** (2 of those in `#[cfg(test)]` at `:1167` and
-  `:1226`) and **1 is a `pub use` re-export** at `porffor-engine/src/lib.rs:984`.
+  `lila-runtime/src/lib.rs`** (2 of those in `#[cfg(test)]` at `:1167` and
+  `:1226`) and **1 is a `pub use` re-export** at `lila-engine/src/lib.rs:984`.
 - `INTRINSIC_PROPERTY_DESCRIPTORS` (46 rows) is likewise only re-exported
-  (`porffor-engine/src/lib.rs:987`). **No backend reads it.**
+  (`lila-engine/src/lib.rs:987`). **No backend reads it.**
 - The AOT backend derives the same spec fact independently, at
   `functions.rs:3017`:
   `object_data_descriptor_kind(false, false, meta.length_name_configurable)` —
@@ -1931,14 +1945,14 @@ Measured facts, all verified:
   what `IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_CONFIGURABLE`
   (`:167-171`) says.
 
-**The decision.** Do **not** give `porffor-runtime` a dependency on
-`porffor-ir`. Buying a `boa_parser` edge for a leaf table crate, in order to
+**The decision.** Do **not** give `lila-runtime` a dependency on
+`lila-ir`. Buying a `boa_parser` edge for a leaf table crate, in order to
 share a three-`bool` struct that no consumer reads, inverts the dependency
 graph for no correctness gain.
 
 **And do not "tie the two by const assertion" either**, because a const
 assertion cannot cross a crate boundary in the absence of a dependency, and the
-only crate that can see both types is `porffor-engine` — which this lane does
+only crate that can see both types is `lila-engine` — which this lane does
 not own. Placing the tie there is a real option; it is **note-routed**, not
 performed here.
 
@@ -1947,10 +1961,10 @@ privacy is module-scoped: making `IntrinsicPropertyAttributes`'s fields private
 blocks nothing, since all 46 rows are built by `const fn`s in the same module
 (`:429-483`) and the tests are a descendant module. There is **no plausible
 mistake that becomes a compile error** from any edit confined to
-`porffor-runtime/src/lib.rs`. Per AGENTS.md — "If it does not, the type is
+`lila-runtime/src/lib.rs`. Per AGENTS.md — "If it does not, the type is
 decoration and a plain function is better" — the honest answer is a ledger row.
 
-**LN4, in full.** `porffor-runtime`'s `IntrinsicPropertyAttributes` and its 46
+**LN4, in full.** `lila-runtime`'s `IntrinsicPropertyAttributes` and its 46
 `INTRINSIC_PROPERTY_DESCRIPTORS` rows are a **second, parallel, currently
 unconsumed** encoding of the same spec facts the AOT backend derives at
 `functions.rs:3017` and at 4 other sites. They are data-only, have no accessor
@@ -1961,10 +1975,10 @@ preference order:
    "If something is unreachable from the product path, that should fail to
    build, not merely fail to run. Code with no call site has been written here
    more than once; it compiled … because it was `pub`." Deleting requires
-   editing `porffor-engine/src/lib.rs:984, 987`.
-2. **If a consumer is imminent: tie in `porffor-engine`.** A `const _: () =
-   assert!(...)` there can see `porffor_runtime::IntrinsicPropertyAttributes`
-   and `porffor_ir::property_descriptor::CompleteDescriptor` simultaneously, and
+   editing `lila-engine/src/lib.rs:984, 987`.
+2. **If a consumer is imminent: tie in `lila-engine`.** A `const _: () =
+   assert!(...)` there can see `lila_runtime::IntrinsicPropertyAttributes`
+   and `lila_ir::property_descriptor::CompleteDescriptor` simultaneously, and
    can pin `BUILTIN_FUNCTION_LENGTH_NAME_CONFIGURABLE` against the canonical
    10.2.x triple.
 
@@ -1973,17 +1987,17 @@ its exact content: **two independent statements of "a builtin function's
 `length` and `name` are non-writable, non-enumerable, and configurable iff
 `length_name_configurable`", 3 crates apart, with nothing checking they agree.**
 
-### 5.9 `porffor-ir/src/lib.rs` vs `ir.rs` — following ownership, against local convention
+### 5.9 `lila-ir/src/lib.rs` vs `ir.rs` — following ownership, against local convention
 
 The two sibling theory-first modules already in this crate declare themselves
 **inside `ir.rs`**: `pub mod reference;` at `ir.rs:23`, `pub mod
 numeric_conversions;` at `ir.rs:34`. Because `lib.rs:84` is `pub use ir::*;`,
-both are reachable as `porffor_ir::reference::…` and
-`porffor_ir::numeric_conversions::…`.
+both are reachable as `lila_ir::reference::…` and
+`lila_ir::numeric_conversions::…`.
 
 This contract places `mod property_descriptor;` in **`lib.rs`** instead, because
 `ir.rs` is not in this area's `files_owned` and `lib.rs` is (line-scoped). The
-public path is then `porffor_ir::property_descriptor::…` via the appended
+public path is then `lila_ir::property_descriptor::…` via the appended
 `pub use`, which is the same shape from a consumer's point of view.
 
 **Merge hazard, stated so the integrator sees it:** other lanes append to the
@@ -2308,8 +2322,8 @@ dead `pub` code in the interim.
 The encoder's work is done when all of the following hold. Each is checkable
 without a conformance run.
 
-1. **Rung 0 is clean.** `cargo check -p porffor-ir` and `cargo check -p
-   porffor-aot-wasm` produce zero errors, with **no edit** to any file outside
+1. **Rung 0 is clean.** `cargo check -p lila-ir` and `cargo check -p
+   lila-aot-wasm` produce zero errors, with **no edit** to any file outside
    this area's `files_owned` except the two identifier renames named in §4.4 —
    and those are applied by the integrator, not the lane.
 2. **The heap change is additive.** All eight constants in §2.8 keep their
@@ -2354,16 +2368,16 @@ without a conformance run.
 ## 12. Round-4 integration gate (integrator record)
 
 Tree `1939975ad` + the working-tree hunks, branch `claude/test-driven-rust-opus-pp6giw`.
-Batch 5 held the build lock (`cargo build -p porffor-cli`, then
-`cargo test -p porffor-test262 --lib`); every command below queued on it rather
+Batch 5 held the build lock (`cargo build -p lila-cli`, then
+`cargo test -p lila-test262 --lib`); every command below queued on it rather
 than pre-empting it.
 
 ### 12.1 Compile gate
 
 | Command | Result |
 |---|---|
-| `cargo check -p porffor-ir` | **exit 0**, 6 warnings — the same six as the batch-4 baseline, line numbers shifted |
-| `cargo check -p porffor-aot-wasm` | **exit 0**, 25 warnings — baseline was 26 |
+| `cargo check -p lila-ir` | **exit 0**, 6 warnings — the same six as the batch-4 baseline, line numbers shifted |
+| `cargo check -p lila-aot-wasm` | **exit 0**, 25 warnings — baseline was 26 |
 | `cargo xc` (`check --workspace --all-targets`) | **exit 0**, 0 errors |
 | `cargo fmt --all -- --check` | initially **not clean**; see §12.3 |
 
@@ -2373,7 +2387,7 @@ failure mode — the `Presence` or-pattern bindings, the `const fn` on
 in `objects.rs`, the generic `Debug` bounds — compiled as written. The one
 prediction that did land was the *formatting* one, not a type one.
 
-No new warning anywhere in the workspace. `porffor-aot-wasm` is one warning
+No new warning anywhere in the workspace. `lila-aot-wasm` is one warning
 **below** baseline: `functions.rs`'s `unused variable: receiver_is_array` is
 gone, from a concurrent lane, not from this contract.
 
@@ -2416,3 +2430,43 @@ it provably could not touch `intl_datetimeformat.rs`, `temporal*.rs`,
   `builtins/standard.rs`, `builtins/array.rs`, `functions.rs` and `lowering.rs`
   — outside this campaign's declared spec/IR layer, each with an emitted-byte
   delta that only rung G can check. They stay routed, not silently dropped.
+
+---
+
+## 13. T10 array named-property integration
+
+This section supersedes the historical **LN6** routing above for the array
+named-property validator. The earlier sections remain unchanged as the design
+and integration record for the tree in which that row was still open.
+
+The two array named-property entry points now construct the canonical
+`PartialDescriptor<WasmLocals>` directly at the consumer boundary and call
+`validate()` before validation emission. The data entry point can name only
+`[[Value]]`/`[[Writable]]`; the accessor entry point can name only
+`[[Get]]`/`[[Set]]`. Their shared `array_descriptor_field` constructor always
+supplies the value carrier required by `Presence::Runtime`, so the former
+`(None, Some(present_local))` contradiction has no representation.
+
+`emit_validate_array_named_descriptor` now accepts only a
+`ValidatedDescriptor<WasmLocals>`. It derives both side predicates through the
+one `classify` function and consumes the six `Presence` fields for the
+field-specific 10.1.6.3 checks. Consequently:
+
+- `requested_data_descriptor: bool` is deleted;
+- the six positional value/flag/accessor fragments are deleted from the
+  validator signature;
+- the hand-written OR over value/writable/get/set presence locals is deleted;
+- generic descriptors request no kind change because neither derived
+  `KindTerms` side is possible;
+- data and accessor kind-change obligations are emitted independently from
+  their respective derived side terms.
+
+This is a consumed seam, not a second descriptor model: the same validated
+value that rules out a statically mixed data/accessor record drives the actual
+array validation emitter. It does not yet replace the raw descriptor-word
+application in the rest of `builtins/array.rs`, and it deliberately retains
+the documented LN10 behavior for `Presence::Present`. Those remain T10 work.
+
+This integration was dry-written. `rustfmt`, source-shape checks and diff checks
+were run; Cargo compilation, focused tests and emitted-Wasm comparison were
+left to the shared verification lease.

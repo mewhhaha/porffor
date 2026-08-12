@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "t25/generated/integer-arithmetic-v1/seed-0000000000000001-checks-04-depth-2",
+  "goal": "script",
+  "observation_contract": "self_checking_no_output",
+  "filename": "differential/v1/generated/integer-arithmetic-v1/seed-0000000000000001-checks-04-depth-2.js",
+  "timeout_ms": 5000,
+  "source": "if (((8 - 23) - (-4 - -2)) !== -13) {\n  throw \"lila differential arithmetic check 00\";\n}\nif (((-27 + -25) - (-8 + 5)) !== -49) {\n  throw \"lila differential arithmetic check 01\";\n}\nif (((-17 - -31) + (10 + -31)) !== -7) {\n  throw \"lila differential arithmetic check 02\";\n}\nif (((-31 - 1) + (2 - -1)) !== -29) {\n  throw \"lila differential arithmetic check 03\";\n}\n"
+}
