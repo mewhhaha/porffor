@@ -24964,18 +24964,6 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(typed_receiver_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_typed_array_witness(
-                &typed_view,
-                TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
-                    length_local: len_local,
-                },
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
             function.instruction(&Instruction::I64Const(self.strings.payload("length")));
             function.instruction(&Instruction::LocalSet(key_local));
             self.emit_object_read(
@@ -24999,7 +24987,6 @@ impl<'a> FunctionBuilder<'a> {
                 len_local,
                 function,
             )?;
-            function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
         }
