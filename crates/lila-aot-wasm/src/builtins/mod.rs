@@ -4,6 +4,7 @@ mod async_disposable_stack;
 mod async_iterator;
 mod bigint;
 mod binary_data;
+mod boolean;
 mod bootstrap;
 mod collections;
 mod date;

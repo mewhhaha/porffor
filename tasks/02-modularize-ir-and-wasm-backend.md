@@ -19,7 +19,7 @@ hotspots.
 
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Seven previously coupled builtin stores now have separate owners:
+Eight previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -55,6 +55,13 @@ Seven previously coupled builtin stores now have separate owners:
   general BigInt conversion, allocation and stringification helpers remain
   with their existing operation and heap owners. The catalog dispatch keeps
   six typed delegates, and `standard.rs` fell from 36,313 to 35,647 lines.
+- `lila-aot-wasm/src/builtins/boolean.rs` owns all three Boolean intrinsic
+  bodies behind a private closed `BooleanBuiltin` domain. The constructor keeps
+  the same argument/result-local ordering previously shared with Number and
+  String, while the two prototype methods keep their boxed-receiver checks and
+  realm-local TypeError route together. After the intervening T20 residue
+  consolidation, the extraction reduced `standard.rs` from 35,532 to 35,439
+  lines.
 
 The central feature-enabled CLI compile, which covers `lila-aot-wasm` and
 `lila-intl`, and the focused builtin catalog tests pass. The source moves were
@@ -69,6 +76,9 @@ covered by the exact String/Symbol hook fixture through the product Wasm
 backend. The BigInt move is statically source-equivalent and boundary-checked;
 its centralized feature-enabled compile and the exact constructor/fixed-width,
 wrapper-coercion and cross-realm prototype behavior checkpoints are green.
+The Boolean move is statically instruction-sequence equivalent and
+boundary-checked; its compile, focused fixture, and real Boolean shard gates
+remain queued behind the active resource-bounded matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -98,7 +108,7 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy, Math, Symbol and BigInt 2026-08-13:** their
+- **Resolved for Object, Proxy, Math, Symbol, BigInt and Boolean 2026-08-13:** their
   bodies are family modules; Reflect already has the same boundary. Other large
   inline families should follow the same exhaustive-delegate shape.
 
