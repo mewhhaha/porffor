@@ -365,7 +365,7 @@ fn inspect_reports_phase_eighteen_global_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("global_bindings=65"));
+    assert!(stdout.contains("global_bindings=66"));
     assert!(stdout.contains("global_this_uses=4"));
     assert!(stdout.contains("top_level_this_uses=1"));
     assert!(stdout.contains("global_default_this_calls=2"));
