@@ -32,6 +32,16 @@ encode those same receiver, conversion and assertion contracts. The remaining
 explicit until the T13 policy permits a static-source replacement or the
 pinned cases are classified unsupported.
 
+Seven direct Sputnik `String.prototype.slice` cases
+(`S15.5.4.13_A1_T1`, `T2`, `T4`, `T6`, `T7`, `T14` and `T15`) now also run
+their pinned sources with only the shared `sta-preamble.js` definition required
+by their `Test262Error` assertions. The remaining slice rewrites are limited to
+`T5`, whose pinned body constructs source dynamically through `Function()`, and
+`T8` through `T13`, whose custom receiver/coercion and abrupt-completion paths
+remain explicit until the general compiler path proves them. The source and
+harness-preservation contract is statically green; exact execution of the seven
+restored leaves remains queued behind the active current-pin matrix.
+
 The direct `String.fromCharCode` lowering now consumes the shared exact
 `ToUint32` residue emitter before selecting the low 16 bits. It no longer
 narrows to a saturating signed `i64` first, so infinities and finite magnitudes

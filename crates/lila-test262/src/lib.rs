@@ -13010,34 +13010,6 @@ function __lilaCheck(value, message) {
 "#;
 
     match path.rsplit('/').next().unwrap_or_default() {
-        "S15.5.4.13_A1_T15.js" => Some(format!(
-            r#"{prelude}var __num = 11.001002;
-Number.prototype.slice = String.prototype.slice;
-
-__lilaCheck(String.prototype.slice.call(__num) === "11.001002", "number receiver slice");
-"#
-        )),
-        "S15.5.4.13_A1_T1.js" => Some(format!(
-            r#"{prelude}var __instance = new Object(true);
-__instance.slice = String.prototype.slice;
-
-__lilaCheck(__instance.slice(false, true) === "t", "Object(true) receiver slice");
-"#
-        )),
-        "S15.5.4.13_A1_T2.js" => Some(format!(
-            r#"{prelude}var __instance = new Boolean;
-__instance.slice = String.prototype.slice;
-var x;
-
-__lilaCheck(__instance.slice(function() {{
-  return true;
-}}(), x) === "alse", "Boolean receiver slice");
-"#
-        )),
-        "S15.5.4.13_A1_T4.js" => Some(format!(
-            r#"{prelude}__lilaCheck("gnulluna".slice(null, -3) === "gnull", "null start negative end");
-"#
-        )),
         "S15.5.4.13_A1_T5.js" => Some(format!(
             r#"{prelude}var __func = {{
   toString: function() {{
@@ -13047,17 +13019,6 @@ __lilaCheck(__instance.slice(function() {{
 __func.slice = String.prototype.slice;
 
 __lilaCheck(__func.slice(null, 5) === "gnull", "function-like receiver slice");
-"#
-        )),
-        "S15.5.4.13_A1_T6.js" => Some(format!(
-            r#"{prelude}var __instance = new String("undefined");
-var x;
-
-__lilaCheck(__instance.slice(x, 3) === "und", "String wrapper undefined start");
-"#
-        )),
-        "S15.5.4.13_A1_T7.js" => Some(format!(
-            r#"{prelude}__lilaCheck("undefined".slice("e", undefined) === "undefined", "string start NaN");
 "#
         )),
         "S15.5.4.13_A1_T8.js" => Some(format!(
@@ -13145,10 +13106,6 @@ try {{
 }} catch (error) {{
   __lilaCheck(error === "inend", "end toString throw");
 }}
-"#
-        )),
-        "S15.5.4.13_A1_T14.js" => Some(format!(
-            r#"{prelude}__lilaCheck("report".slice(function() {{}}()) === "report", "undefined start");
 "#
         )),
         _ => None,
@@ -29307,7 +29264,7 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_string_slice_legacy_cases_use_static_wasm_aot_rewrite() {
+    fn materialize_remaining_string_slice_legacy_cases_use_static_wasm_aot_rewrite() {
         let mut store = PreludeStore::default();
         store.insert(
             "assert.js".to_string(),
@@ -29317,19 +29274,39 @@ assert.sameValue(descriptor.configurable, true);
 
         for (file, original, expected_fragment) in [
             (
-                "S15.5.4.13_A1_T1.js",
-                "var __instance = new Object(true);\n__instance.slice = String.prototype.slice;",
-                "Object(true) receiver slice",
-            ),
-            (
                 "S15.5.4.13_A1_T5.js",
                 "Function.prototype.slice = String.prototype.slice;\nFunction().slice(__func, 5);",
                 "__func.slice(null, 5)",
             ),
             (
-                "S15.5.4.13_A1_T15.js",
-                "Number.prototype.slice = String.prototype.slice;\n__num.slice();",
-                "String.prototype.slice.call(__num)",
+                "S15.5.4.13_A1_T8.js",
+                "var __obj = { toString: function() {} };",
+                "__str.slice(-4, void 0)",
+            ),
+            (
+                "S15.5.4.13_A1_T9.js",
+                "var __obj = { valueOf: function() {}, toString: void 0 };",
+                "new String(__obj).slice(undefined, __obj)",
+            ),
+            (
+                "S15.5.4.13_A1_T10.js",
+                "var __obj = { valueOf: function() { return 2; } };",
+                "__str.slice(__obj, __str.slice(0, 1))",
+            ),
+            (
+                "S15.5.4.13_A1_T11.js",
+                "throw new Test262Error('original T11');",
+                "error === \"instart\"",
+            ),
+            (
+                "S15.5.4.13_A1_T12.js",
+                "throw new Test262Error('original T12');",
+                "start toString throw",
+            ),
+            (
+                "S15.5.4.13_A1_T13.js",
+                "throw new Test262Error('original T13');",
+                "end toString throw",
             ),
         ] {
             let mut case = synthetic_case(&format!("built-ins/String/prototype/slice/{file}"));
@@ -29341,9 +29318,56 @@ assert.sameValue(descriptor.configurable, true);
             assert!(materialized.used_preludes.is_empty());
             assert!(!materialized.source.contains("assert used"));
             assert!(!materialized.source.contains("Function().slice"));
-            assert!(!materialized.source.contains("__num.slice()"));
             assert!(materialized.source.contains("function Test262Error"));
             assert!(materialized.source.contains(expected_fragment));
+        }
+    }
+
+    #[test]
+    fn materialize_retired_string_slice_rewrites_preserve_pinned_sources() {
+        let preamble = "function Test262Error(message) { this.message = message || ''; }\n";
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta-preamble.js".to_string(),
+            preamble.to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "sta.js".to_string(),
+            "throw 'full sta must not be used';\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let test_root = repo_root().join("test262/vendor/test262/test");
+
+        for file in [
+            "S15.5.4.13_A1_T1.js",
+            "S15.5.4.13_A1_T2.js",
+            "S15.5.4.13_A1_T4.js",
+            "S15.5.4.13_A1_T6.js",
+            "S15.5.4.13_A1_T7.js",
+            "S15.5.4.13_A1_T14.js",
+            "S15.5.4.13_A1_T15.js",
+        ] {
+            let path = format!("built-ins/String/prototype/slice/{file}");
+            let source_path = test_root.join(&path);
+            let original_source = fs::read_to_string(&source_path)
+                .expect("pinned String.prototype.slice case should read");
+            let case = parse_test_case(path.clone(), source_path, original_source.clone());
+
+            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
+            let materialized =
+                materialize_test(&case, &store).expect("pinned slice case should materialize");
+
+            assert_eq!(
+                materialized.used_preludes,
+                vec![("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged)],
+                "{path}"
+            );
+            assert_eq!(
+                materialized.source,
+                format!("{preamble}{original_source}"),
+                "{path}"
+            );
         }
     }
 
