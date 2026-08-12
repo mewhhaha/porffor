@@ -1,3 +1,5 @@
+#![deny(unused_must_use)]
+
 use super::*;
 use lila_ir::{NativeErrorKind, StaticRegExpCompilation};
 
@@ -58,9 +60,174 @@ pub(crate) enum ToPrimitiveAbruptRoute {
     /// Close the named iterator while preserving the current thrown value,
     /// then return that completion from the current function.
     IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
-    /// The ToPrimitive runtime helper itself returns the raw completion tuple;
-    /// its caller owns routing after `store_call_results` installs it.
-    HelperResultTuple,
+}
+
+/// A tagged `ToPrimitive` result whose possible throw still needs an owner.
+///
+/// The fields are private and every exit consumes the token. The raw emission
+/// functions that construct it are private to this module; callers in other
+/// backend modules can either choose a [`ToPrimitiveAbruptRoute`] through the
+/// routed wrappers or use the one complete runtime-helper-tuple wrapper. With
+/// `unused_must_use` denied for this module, adding an internal raw call and
+/// forgetting its continuation is a build error rather than a latent ignored
+/// completion.
+#[derive(Debug)]
+#[must_use = "a pending ToPrimitive completion must be routed or consumed by its composite"]
+struct PendingToPrimitiveCompletion {
+    operation: MayThrowOperation,
+    payload_local: u32,
+    tag_local: u32,
+}
+
+impl PendingToPrimitiveCompletion {
+    fn new(operation: MayThrowOperation, payload_local: u32, tag_local: u32) -> Self {
+        debug_assert_eq!(operation, MayThrowOperation::TO_PRIMITIVE);
+        Self {
+            operation,
+            payload_local,
+            tag_local,
+        }
+    }
+
+    fn route(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        route: ToPrimitiveAbruptRoute,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let Self {
+            operation,
+            payload_local,
+            tag_local,
+        } = self;
+        builder.finish_to_primitive_operation(operation, route, payload_local, tag_local, function)
+    }
+
+    /// Finish the object branch of the ordinary ToNumber composite. A throw
+    /// leaves the original payload on the Wasm value stack; a normal primitive
+    /// continues through primitive ToNumber.
+    fn emit_number_payload(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let Self {
+            operation: _,
+            payload_local,
+            tag_local,
+        } = self;
+        function.instruction(&Instruction::LocalGet(builder.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::Else);
+        builder.emit_primitive_to_number_payload(tag_local, payload_local, function)?;
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Finish the object branch of the non-returning ToNumber composite. The
+    /// surrounding operation owns propagation and therefore needs the thrown
+    /// value installed in the builder result locals before its placeholder NaN.
+    fn emit_number_payload_without_return(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let Self {
+            operation: _,
+            payload_local,
+            tag_local,
+        } = self;
+        function.instruction(&Instruction::LocalGet(builder.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalSet(builder.result_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalSet(builder.result_tag_local));
+        builder.emit_nan_payload(function);
+        function.instruction(&Instruction::Else);
+        builder.emit_primitive_to_number_payload_without_throw_return(
+            tag_local,
+            payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Finish the Number-constructor object branch, whose primitive BigInt case
+    /// is deliberately accepted while the pending ToPrimitive throw is not.
+    fn emit_number_payload_allow_bigint(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let Self {
+            operation: _,
+            payload_local,
+            tag_local,
+        } = self;
+        function.instruction(&Instruction::LocalGet(builder.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::Else);
+        builder.emit_primitive_to_number_payload_allow_bigint(
+            tag_local,
+            payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Finish the object branch of the outlined ToString composite. The throw
+    /// payload bypasses primitive stringification and remains owned by the
+    /// surrounding helper result tuple.
+    fn emit_string_payload(
+        self,
+        builder: &mut FunctionBuilder<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let Self {
+            operation: _,
+            payload_local,
+            tag_local,
+        } = self;
+        function.instruction(&Instruction::LocalGet(builder.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::Else);
+        builder.emit_primitive_to_string_payload(payload_local, tag_local, function)?;
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Emit the standard four-slot helper result. This is deliberately not a
+    /// route enum case: the only caller obtains it through a wrapper that emits
+    /// the entire tuple, so no general product call site can request raw state.
+    fn emit_runtime_helper_result_tuple(
+        self,
+        builder: &FunctionBuilder<'_>,
+        function: &mut Function,
+    ) {
+        let Self {
+            operation: _,
+            payload_local,
+            tag_local,
+        } = self;
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalGet(builder.completion_local));
+        function.instruction(&Instruction::LocalGet(builder.completion_aux_local));
+    }
 }
 
 fn validate_spec_operation_operands(
@@ -181,7 +348,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 Ok(())
             }
-            ToPrimitiveAbruptRoute::HelperResultTuple => Ok(()),
         }
     }
 
@@ -2800,6 +2966,26 @@ impl<'a> FunctionBuilder<'a> {
         route: ToPrimitiveAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_tagged_to_primitive_locals_pending(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?
+        .route(self, route, function)
+    }
+
+    fn emit_tagged_to_primitive_locals_pending(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input_payload_local: u32,
+        input_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<PendingToPrimitiveCompletion, EmitError> {
         let operation = MayThrowOperation::TO_PRIMITIVE;
         if self.emit_value_to_primitive_via_helper_if_outlined(
             hint,
@@ -2809,24 +2995,22 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         ) {
-            return self.finish_to_primitive_operation(
+            return Ok(PendingToPrimitiveCompletion::new(
                 operation,
-                route,
                 payload_local,
                 tag_local,
-                function,
-            );
+            ));
         }
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_to_primitive_locals(
+        self.emit_object_to_primitive_locals_inner(
             hint,
             input_payload_local,
+            ValueKind::Object,
             payload_local,
             tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -2855,12 +3039,12 @@ impl<'a> FunctionBuilder<'a> {
         // same @@toPrimitive/valueOf/toString hook chain as a plain object
         // (see `emit_function_to_primitive_locals`), rather than passing the
         // function through unchanged as if it were already a primitive.
-        self.emit_function_to_primitive_locals(
+        self.emit_object_to_primitive_locals_inner(
             hint,
             input_payload_local,
+            ValueKind::Function,
             payload_local,
             tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -2872,7 +3056,40 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.finish_to_primitive_operation(operation, route, payload_local, tag_local, function)
+        Ok(PendingToPrimitiveCompletion::new(
+            operation,
+            payload_local,
+            tag_local,
+        ))
+    }
+
+    /// Emit a complete ToPrimitive runtime-helper result tuple.
+    ///
+    /// This is the only cross-module raw-completion surface. It does not expose
+    /// the pending token or its locals: the wrapper emits all four ABI slots
+    /// before returning, so a product caller cannot request an unowned raw
+    /// `ToPrimitive` result.
+    pub(crate) fn emit_to_primitive_runtime_helper_result_tuple(
+        &mut self,
+        hint: ToPrimitiveHint,
+        input_payload_local: u32,
+        input_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        let pending = self.emit_tagged_to_primitive_locals_pending(
+            hint,
+            input_payload_local,
+            input_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        pending.emit_runtime_helper_result_tuple(self, function);
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        Ok(())
     }
 
     pub(crate) fn emit_object_to_primitive_locals(
@@ -2884,6 +3101,24 @@ impl<'a> FunctionBuilder<'a> {
         route: ToPrimitiveAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_object_to_primitive_locals_pending(
+            hint,
+            object_local,
+            payload_local,
+            tag_local,
+            function,
+        )?
+        .route(self, route, function)
+    }
+
+    fn emit_object_to_primitive_locals_pending(
+        &mut self,
+        hint: ToPrimitiveHint,
+        object_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<PendingToPrimitiveCompletion, EmitError> {
         let operation = MayThrowOperation::TO_PRIMITIVE;
         self.emit_object_to_primitive_locals_inner(
             hint,
@@ -2893,7 +3128,11 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.finish_to_primitive_operation(operation, route, payload_local, tag_local, function)
+        Ok(PendingToPrimitiveCompletion::new(
+            operation,
+            payload_local,
+            tag_local,
+        ))
     }
 
     /// Same as `emit_object_to_primitive_locals`, but for a value already
@@ -2913,6 +3152,24 @@ impl<'a> FunctionBuilder<'a> {
         route: ToPrimitiveAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_function_to_primitive_locals_pending(
+            hint,
+            object_local,
+            payload_local,
+            tag_local,
+            function,
+        )?
+        .route(self, route, function)
+    }
+
+    fn emit_function_to_primitive_locals_pending(
+        &mut self,
+        hint: ToPrimitiveHint,
+        object_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<PendingToPrimitiveCompletion, EmitError> {
         let operation = MayThrowOperation::TO_PRIMITIVE;
         self.emit_object_to_primitive_locals_inner(
             hint,
@@ -2922,10 +3179,14 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.finish_to_primitive_operation(operation, route, payload_local, tag_local, function)
+        Ok(PendingToPrimitiveCompletion::new(
+            operation,
+            payload_local,
+            tag_local,
+        ))
     }
 
-    pub(crate) fn emit_object_to_primitive_locals_inner(
+    fn emit_object_to_primitive_locals_inner(
         &mut self,
         hint: ToPrimitiveHint,
         object_local: u32,
@@ -4478,26 +4739,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         let primitive_payload_local = self.reserve_temp_local();
         let primitive_tag_local = self.reserve_temp_local();
-        self.emit_object_to_primitive_locals(
+        let pending = self.emit_object_to_primitive_locals_pending(
             ToPrimitiveHint::Number,
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_number_payload(
-            primitive_tag_local,
-            primitive_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        pending.emit_number_payload(self, function)?;
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);
@@ -4560,30 +4809,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         let primitive_payload_local = self.reserve_temp_local();
         let primitive_tag_local = self.reserve_temp_local();
-        self.emit_object_to_primitive_locals(
+        let pending = self.emit_object_to_primitive_locals_pending(
             ToPrimitiveHint::Number,
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_nan_payload(function);
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_number_payload_without_throw_return(
-            primitive_tag_local,
-            primitive_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        pending.emit_number_payload_without_return(self, function)?;
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);
@@ -4749,33 +4982,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         let primitive_payload_local = self.reserve_temp_local();
         let primitive_tag_local = self.reserve_temp_local();
-        self.emit_object_to_primitive_locals(
+        let pending = self.emit_object_to_primitive_locals_pending(
             ToPrimitiveHint::Number,
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
             function,
         )?;
         // A ToPrimitive throw here leaves completion=THROW with the error in
         // `primitive_payload_local`/`primitive_tag_local` (Object-tagged) rather
-        // than branching (see `emit_object_to_primitive_locals_locals_inner`).
+        // than branching (see `emit_object_to_primitive_locals_inner`).
         // Skip the further primitive->number conversion in that case so it
         // doesn't reinterpret the error object as a NaN-producing primitive and
         // silently mask the throw; callers of this function are responsible for
         // checking `self.completion_local` and propagating.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_number_payload_allow_bigint(
-            primitive_tag_local,
-            primitive_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        pending.emit_number_payload_allow_bigint(self, function)?;
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);
@@ -8011,34 +8232,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         let primitive_payload_local = self.reserve_temp_local();
         let primitive_tag_local = self.reserve_temp_local();
-        self.emit_object_to_primitive_locals(
+        let pending = self.emit_object_to_primitive_locals_pending(
             ToPrimitiveHint::String,
             payload_local,
             primitive_payload_local,
             primitive_tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
             function,
         )?;
         // A ToPrimitive throw here leaves completion=THROW with the error
         // (Object-tagged) in `primitive_payload_local`/`primitive_tag_local`
         // rather than branching (see
-        // `emit_object_to_primitive_locals_locals_inner`). Feeding an
+        // `emit_object_to_primitive_locals_inner`). Feeding an
         // Object-tagged value into `emit_primitive_to_string_payload` hits its
         // unrecognized-tag `unreachable` trap, so skip that call on throw;
         // callers of this function are responsible for checking
         // `self.completion_local` and propagating.
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::Else);
-        self.emit_primitive_to_string_payload(
-            primitive_payload_local,
-            primitive_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        pending.emit_string_payload(self, function)?;
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
         function.instruction(&Instruction::Else);

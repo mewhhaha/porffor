@@ -20,18 +20,21 @@ Typed abrupt routing now covers `GetV` inside `GetMethod`, the `ToNumber` of
 `Number.prototype.toFixed` argument zero, and every caller of the shared tagged
 `ToPrimitive` emitter. The sole tagged emitter requires a closed
 `ToPrimitiveAbruptRoute`: route to the active handler, return the current
-function, close a named iterator and return, or deliberately surface the raw
-completion tuple from the runtime helper. Adding a route requires an exhaustive
-match update, and a new caller cannot omit the decision. The duplicate tagged
-`_without_throw_propagation` entry point is gone.
+function, or close a named iterator and return. Adding a route requires an
+exhaustive match update, and a new caller cannot omit the decision. The
+duplicate tagged `_without_throw_propagation` entry point is gone.
 
 The same route is also mandatory at the lower object/function-specialized
 ToPrimitive seam. Its byte-identical `_without_throw_propagation` twin is gone,
-and callers that intentionally leave a completion for a surrounding numeric or
-string composite must select `HelperResultTuple` explicitly. Array element
-stringification now selects active-handler routing before primitive-to-string
-conversion, so an abrupt user coercion cannot be consumed as an ordinary
-primitive payload.
+and the former generic raw-completion route is gone. Private raw emitters now
+return a `#[must_use]` `PendingToPrimitiveCompletion` with private fields. Every
+internal numeric/string composite consumes that token in its exact guarded
+continuation; the runtime-helper generator reaches only a dedicated wrapper
+that emits all four ABI result slots. `unused_must_use` is denied in the module,
+so a new internal raw call that omits its continuation fails to build. Array
+element stringification selects active-handler routing before
+primitive-to-string conversion, so an abrupt user coercion cannot be consumed
+as an ordinary primitive payload.
 
 This migration also fixes the Temporal month-code coercion path: a user value
 thrown by `toString` now escapes unchanged instead of being overwritten by the

@@ -17,9 +17,9 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
-### Landed 2026-08-12: builtin metadata, Object, Proxy and Math body boundaries
+### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Four previously coupled builtin stores now have separate owners:
+Five previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -43,6 +43,12 @@ Four previously coupled builtin stores now have separate owners:
   min/max direction is a two-case private enum rather than a generic builtin
   ID. After the Object, Proxy and Math moves, `standard.rs` has fallen from
   49,179 to 36,807 lines.
+- `lila-aot-wasm/src/builtins/symbol.rs` owns all seven Symbol bodies and the
+  three shared Symbol receiver/description helpers behind a private closed
+  `SymbolBuiltin` domain. `String(symbol)` reaches the one helper it shares
+  through a parent-private method; the remaining helpers cannot escape the
+  family. The catalog dispatch keeps seven typed delegates, and `standard.rs`
+  fell from 36,789 to 36,313 lines without changing an emitted instruction.
 
 The central feature-enabled CLI compile, which covers `lila-aot-wasm` and
 `lila-intl`, and the focused builtin catalog tests pass. The source moves were
@@ -51,7 +57,10 @@ prevents these stores from being folded back into their parents. The later
 Proxy move is source-equivalent by a static body comparison and is included in
 the green compile checkpoint and product-artifact boundary proof. The Math move
 is statically source-equivalent, boundary-checked, and covered by that compile
-checkpoint.
+checkpoint. The later Symbol move is statically source-equivalent and
+boundary-checked, passes the centralized feature-enabled CLI compile, and is
+covered by the exact String/Symbol hook fixture through the product Wasm
+backend.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -81,9 +90,9 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy and Math 2026-08-12:** their bodies are family
-  modules; Reflect already has the same boundary. Other large inline families
-  should follow the same exhaustive-delegate shape.
+- **Resolved for Object, Proxy, Math and Symbol 2026-08-13:** their bodies are
+  family modules; Reflect already has the same boundary. Other large inline
+  families should follow the same exhaustive-delegate shape.
 
 ### Landed 2026-08-12: catalog-owned bootstrap routing
 

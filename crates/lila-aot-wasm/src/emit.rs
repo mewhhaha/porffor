@@ -4211,7 +4211,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_string_payload(0, 1, &mut function)?;
         // A Symbol/ToPrimitive throw deep inside (see
-        // `emit_object_to_primitive_locals_locals_inner`) leaves completion=THROW
+        // `emit_object_to_primitive_locals_inner`) leaves completion=THROW
         // with the real error already in `self.result_local` without branching;
         // only commit the computed string payload over `self.result_local` on
         // the normal-completion path, else the throw would be silently replaced
@@ -4349,20 +4349,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
-        let primitive_payload_local = self.reserve_temp_local();
-        let primitive_tag_local = self.reserve_temp_local();
-        self.emit_tagged_to_primitive_locals(
-            hint,
-            0,
-            1,
-            primitive_payload_local,
-            primitive_tag_local,
-            ToPrimitiveAbruptRoute::HelperResultTuple,
-            &mut function,
-        )?;
+        self.emit_to_primitive_runtime_helper_result_tuple(hint, 0, 1, &mut function)?;
         self.pop_scope();
-        // The output locals are returned **unconditionally**, and this is the
-        // one place this helper deliberately does *not* copy
+        // The pending-completion consumer in `operations.rs` returns its output
+        // locals **unconditionally**, and this is the one place this helper
+        // deliberately does *not* copy
         // `compile_value_to_string_helper`.
         //
         // That helper needs a `completion == THROW` guard because
@@ -4375,8 +4366,8 @@ impl<'a> FunctionBuilder<'a> {
         // hook-read arm and the `@@toPrimitive` arm both `local.set` them from
         // the failing value, and `emit_throw_runtime_error` takes them as its
         // out-params. That is not an inference: it is the contract the tagged
-        // emitter's active-handler route and this helper-result-tuple route
-        // both depend on. Returning `self.result_local` instead would be
+        // emitter's active-handler route and the helper-tuple consumer both
+        // depend on. Returning `self.result_local` instead would be
         // strictly *worse* than the inline body, because the hook-read throw
         // arm leaves the error in the output locals without routing it through
         // `emit_throw_from_locals`.
@@ -4385,14 +4376,9 @@ impl<'a> FunctionBuilder<'a> {
         // `result_local`/`result_tag_local` on throw, so callers that read the
         // current completion instead of the output locals (
         // `emit_return_current_completion_if_throw` in `emit_value_to_bigint_locals`)
-        // see what they saw before.
-        function.instruction(&Instruction::LocalGet(primitive_payload_local));
-        function.instruction(&Instruction::LocalGet(primitive_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        // see what they saw before. The wrapper has already emitted those two
+        // locals followed by the completion and auxiliary slots.
         function.instruction(&Instruction::End);
-        self.release_temp_local(primitive_tag_local);
-        self.release_temp_local(primitive_payload_local);
         Ok(self.finish_function(function))
     }
 

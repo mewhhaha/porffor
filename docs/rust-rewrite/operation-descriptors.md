@@ -63,12 +63,19 @@ Three bounded slices now use typed routing:
 3. Every shared `ToPrimitive` entry point, including the object- and
    function-specialized lower seam, requires every caller to pass a
    `ToPrimitiveAbruptRoute`. The closed routes are active-handler propagation,
-   current-function return, iterator-close-and-return with its complete local
-   witness, and a deliberate raw result tuple for a surrounding composite or
-   runtime helper. Its match is exhaustive, and both former byte-identical
-   `_without_throw_propagation` entry points have been deleted. A specialized
-   caller can no longer invoke OrdinaryToPrimitive and merely hope a later
-   statement notices its completion.
+   current-function return and iterator-close-and-return with its complete local
+   witness. Its match is exhaustive, and both former byte-identical
+   `_without_throw_propagation` entry points have been deleted.
+
+   The raw-helper route is no longer an enum case. Private raw emitters return a
+   `#[must_use]` `PendingToPrimitiveCompletion` whose fields are private and
+   whose exits consume it. Exact numeric and string composite consumers emit
+   their existing completion guards; a dedicated runtime-helper wrapper emits
+   the complete four-slot tuple without exposing either the token or its
+   locals. This module denies `unused_must_use`, turning an omitted internal
+   continuation into a build error. A specialized caller can no longer invoke
+   OrdinaryToPrimitive and merely hope a later statement notices its
+   completion.
 
 The ToPrimitive migration preserves each existing coercion and abrupt-routing
 order. It also closes one real omitted route: Temporal month-code coercion now
@@ -85,9 +92,9 @@ work and continue to use their existing local routing sequences.
 - Property internal-method dispatch and proxy correctness still depend on T10
   and T11.
 - Feature-local primitive-to-number/string conversions remain open migration
-  work. The object/function ToPrimitive seam itself is closed: even callers
-  that deliberately retain a raw completion must say so with
-  `HelperResultTuple`.
+  work. The object/function ToPrimitive seam itself is closed: raw completion
+  ownership cannot cross the module boundary, and every internal composite must
+  consume its pending token.
 
 The cheapest meaningful integration checkpoint is:
 

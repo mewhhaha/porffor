@@ -23,6 +23,7 @@ mod reflect;
 mod regexp;
 mod standard;
 mod string;
+mod symbol;
 mod temporal;
 mod temporal_duration;
 mod temporal_duration_methods;
