@@ -310,6 +310,182 @@ mod string_code_unit_access {
     }
 }
 
+mod annexb_unescape_output {
+    use super::*;
+
+    /// A lead surrogate whose following UTF-16 unit has not been decoded yet.
+    ///
+    /// The field is private and the type is intentionally non-`Copy`: the
+    /// decoder can only finish and pack the output by consuming this witness
+    /// through [`PendingLeadLocal::finish_into_payload`], which also releases
+    /// the Wasm local.
+    #[must_use = "a pending Annex B unescape lead must be flushed"]
+    pub(super) struct PendingLeadLocal(u32);
+
+    impl PendingLeadLocal {
+        pub(super) fn reserve(builder: &mut FunctionBuilder<'_>, function: &mut Function) -> Self {
+            let local = builder.reserve_temp_local();
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(local));
+            Self(local)
+        }
+
+        /// Consume one decoded scalar-or-code-unit through the UTF-16 output
+        /// stream. Raw astral input is projected to two units so pairing works
+        /// uniformly across raw and `%uXXXX` token boundaries.
+        pub(super) fn consume_scalar(
+            &self,
+            builder: &mut FunctionBuilder<'_>,
+            scalar_local: u32,
+            dst_pos_local: u32,
+            encode_temp_local: u32,
+            function: &mut Function,
+        ) {
+            let scalar_bits_local = builder.reserve_temp_local();
+            let unit_local = builder.reserve_temp_local();
+
+            function.instruction(&Instruction::LocalGet(scalar_local));
+            function.instruction(&Instruction::I64Const(0xFFFF));
+            function.instruction(&Instruction::I64GtU);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(scalar_local));
+            function.instruction(&Instruction::I64Const(0x10000));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::LocalSet(scalar_bits_local));
+
+            function.instruction(&Instruction::LocalGet(scalar_bits_local));
+            function.instruction(&Instruction::I64Const(10));
+            function.instruction(&Instruction::I64ShrU);
+            function.instruction(&Instruction::I64Const(0xD800));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(unit_local));
+            self.consume_unit(
+                builder,
+                unit_local,
+                dst_pos_local,
+                encode_temp_local,
+                function,
+            );
+
+            function.instruction(&Instruction::LocalGet(scalar_bits_local));
+            function.instruction(&Instruction::I64Const(0x3FF));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Const(0xDC00));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(unit_local));
+            self.consume_unit(
+                builder,
+                unit_local,
+                dst_pos_local,
+                encode_temp_local,
+                function,
+            );
+            function.instruction(&Instruction::Else);
+            self.consume_unit(
+                builder,
+                scalar_local,
+                dst_pos_local,
+                encode_temp_local,
+                function,
+            );
+            function.instruction(&Instruction::End);
+
+            builder.release_temp_local(unit_local);
+            builder.release_temp_local(scalar_bits_local);
+        }
+
+        fn consume_unit(
+            &self,
+            builder: &mut FunctionBuilder<'_>,
+            unit_local: u32,
+            dst_pos_local: u32,
+            encode_temp_local: u32,
+            function: &mut Function,
+        ) {
+            let consumed_local = builder.reserve_temp_local();
+            let scalar_local = builder.reserve_temp_local();
+
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(consumed_local));
+            function.instruction(&Instruction::LocalGet(self.0));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            builder.emit_is_low_surrogate_i32(unit_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(self.0));
+            function.instruction(&Instruction::I64Const(0xD800));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Const(10));
+            function.instruction(&Instruction::I64Shl);
+            function.instruction(&Instruction::LocalGet(unit_local));
+            function.instruction(&Instruction::I64Const(0xDC00));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::I64Const(0x10000));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(scalar_local));
+            builder.emit_store_utf8_codepoint(
+                dst_pos_local,
+                scalar_local,
+                encode_temp_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::LocalSet(consumed_local));
+            function.instruction(&Instruction::Else);
+            builder.emit_store_utf8_codepoint(dst_pos_local, self.0, encode_temp_local, function);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.0));
+            function.instruction(&Instruction::End);
+
+            function.instruction(&Instruction::LocalGet(consumed_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            builder.emit_is_high_surrogate_i32(unit_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(unit_local));
+            function.instruction(&Instruction::LocalSet(self.0));
+            function.instruction(&Instruction::Else);
+            builder.emit_store_utf8_codepoint(
+                dst_pos_local,
+                unit_local,
+                encode_temp_local,
+                function,
+            );
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+
+            builder.release_temp_local(scalar_local);
+            builder.release_temp_local(consumed_local);
+        }
+
+        pub(super) fn finish_into_payload(
+            self,
+            builder: &mut FunctionBuilder<'_>,
+            dst_offset_local: u32,
+            dst_pos_local: u32,
+            output_len_local: u32,
+            encode_temp_local: u32,
+            function: &mut Function,
+        ) {
+            function.instruction(&Instruction::LocalGet(self.0));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            builder.emit_store_utf8_codepoint(dst_pos_local, self.0, encode_temp_local, function);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalGet(dst_pos_local));
+            function.instruction(&Instruction::LocalGet(dst_offset_local));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::LocalSet(output_len_local));
+            builder.emit_pack_string_payload(dst_offset_local, output_len_local, function);
+            builder.release_temp_local(self.0);
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UriCodecKind {
     Uri,
@@ -19574,7 +19750,9 @@ impl<'a> FunctionBuilder<'a> {
         let third_hex_local = self.reserve_temp_local();
         let fourth_hex_local = self.reserve_temp_local();
         let codepoint_local = self.reserve_temp_local();
+        let advance_local = self.reserve_temp_local();
         let temp_local = self.reserve_temp_local();
+        let pending_lead = annexb_unescape_output::PendingLeadLocal::reserve(self, function);
 
         self.emit_unpack_string_payload(
             input_string_local,
@@ -19670,7 +19848,7 @@ impl<'a> FunctionBuilder<'a> {
             codepoint_local,
             function,
         );
-        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
+        pending_lead.consume_scalar(self, codepoint_local, dst_pos_local, temp_local, function);
         self.emit_increment_local(index_local, 6, function);
         function.instruction(&Instruction::Br(3));
         function.instruction(&Instruction::End);
@@ -19705,24 +19883,40 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(second_hex_local));
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(codepoint_local));
-        self.emit_store_utf8_codepoint(dst_pos_local, codepoint_local, temp_local, function);
+        pending_lead.consume_scalar(self, codepoint_local, dst_pos_local, temp_local, function);
         self.emit_increment_local(index_local, 3, function);
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_store_byte_local(dst_pos_local, byte_local, function);
-        self.emit_increment_local(dst_pos_local, 1, function);
-        self.emit_increment_local(index_local, 1, function);
+        self.emit_decode_utf8_scalar_at_index(
+            src_offset_local,
+            index_local,
+            src_len_local,
+            byte_local,
+            codepoint_local,
+            advance_local,
+            temp_local,
+            function,
+        );
+        pending_lead.consume_scalar(self, codepoint_local, dst_pos_local, temp_local, function);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(advance_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(dst_pos_local));
-        function.instruction(&Instruction::LocalGet(dst_offset_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(src_len_local));
-        self.emit_pack_string_payload(dst_offset_local, src_len_local, function);
+        pending_lead.finish_into_payload(
+            self,
+            dst_offset_local,
+            dst_pos_local,
+            src_len_local,
+            temp_local,
+            function,
+        );
 
         self.release_temp_local(temp_local);
+        self.release_temp_local(advance_local);
         self.release_temp_local(codepoint_local);
         self.release_temp_local(fourth_hex_local);
         self.release_temp_local(third_hex_local);

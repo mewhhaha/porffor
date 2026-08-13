@@ -75,6 +75,23 @@ invalid conversion hook. See
 bounded semantic closure only; the focused runtime and current-pin Error gates
 remain deferred to the centralized verification pass.
 
+Annex B `unescape` now materializes its result through one private UTF-16
+output coordinator. Previously, each `%uXXXX` was encoded independently, so a
+decoded lead/trail pair such as `%uD801%uDC01` became two WTF-8 surrogate
+payloads and compared unequal to the equivalent astral String. The private,
+non-`Copy`, `must_use` pending-lead witness delays the only ambiguous unit;
+its consuming finalizer flushes a lone lead before it measures and packs the
+completed output, while a following trail is combined into canonical UTF-8.
+Decoded escapes and raw input share this path, including decoded/raw
+boundaries, and raw astral scalars are projected through their two UTF-16 units
+before materialization. The existing product fixture now pins paired and lone
+code units directly, non-pairing, mixed-boundary, malformed/raw-multibyte and
+raw-astral cases, while a structural test forbids the decoder from bypassing
+the coordinator or packing before finalization. See
+`docs/rust-rewrite/contracts/annexb-unescape-output.md`. This is a static-only
+implementation freeze; focused runtime and current-pin Annex B gates remain
+deferred to the centralized verification pass.
+
 Error/global/Annex B metadata and legacy behavior still appears in other
 exact-path materializations, dynamic-source cases remain visible exclusions,
 and the full assigned trees lack current complete Wasm-AOT closure.
