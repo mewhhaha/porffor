@@ -5166,7 +5166,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(outcome_tag_local));
             self.emit_settle_promise_record(
                 promise_record_local,
-                PROMISE_STATE_FULFILLED,
+                PromiseSettlement::Fulfill,
                 self.scratch_local,
                 outcome_tag_local,
                 function,
@@ -5245,7 +5245,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(outcome_tag_local));
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseSettlement::Fulfill,
             self.scratch_local,
             outcome_tag_local,
             function,
@@ -6006,7 +6006,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(outcome_tag_local));
             self.emit_settle_promise_record(
                 promise_record_local,
-                PROMISE_STATE_FULFILLED,
+                PromiseSettlement::Fulfill,
                 self.scratch_local,
                 outcome_tag_local,
                 function,
@@ -6075,7 +6075,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(outcome_tag_local));
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseSettlement::Fulfill,
             self.scratch_local,
             outcome_tag_local,
             function,
@@ -7774,7 +7774,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_promise_finally_value_thunk(true, function)?;
             }
             StandardBuiltinId::PromiseResolve => {
-                self.emit_promise_static_settle(PROMISE_STATE_FULFILLED, function)?;
+                self.emit_promise_static_settle(PromiseSettlement::Fulfill, function)?;
             }
             StandardBuiltinId::PromiseWithResolvers => {
                 self.emit_promise_with_resolvers(function)?;
@@ -7783,7 +7783,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_promise_try(function)?;
             }
             StandardBuiltinId::PromiseReject => {
-                self.emit_promise_static_settle(PROMISE_STATE_REJECTED, function)?;
+                self.emit_promise_static_settle(PromiseSettlement::Reject, function)?;
             }
             StandardBuiltinId::PromiseAll => {
                 self.emit_promise_all(function)?;
@@ -7807,10 +7807,10 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_promise_all_resolve_element(function)?;
             }
             StandardBuiltinId::PromiseAllSettledResolveElement => {
-                self.emit_promise_all_settled_element(PROMISE_STATE_FULFILLED, function)?;
+                self.emit_promise_all_settled_element(PromiseSettlement::Fulfill, function)?;
             }
             StandardBuiltinId::PromiseAllSettledRejectElement => {
-                self.emit_promise_all_settled_element(PROMISE_STATE_REJECTED, function)?;
+                self.emit_promise_all_settled_element(PromiseSettlement::Reject, function)?;
             }
             StandardBuiltinId::PromiseAnyRejectElement => {
                 self.emit_promise_any_reject_element(function)?;
@@ -7819,19 +7819,19 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_promise_all_keyed_resolve_element(function)?;
             }
             StandardBuiltinId::PromiseAllSettledKeyedResolveElement => {
-                self.emit_promise_all_settled_keyed_element(PROMISE_STATE_FULFILLED, function)?;
+                self.emit_promise_all_settled_keyed_element(PromiseSettlement::Fulfill, function)?;
             }
             StandardBuiltinId::PromiseAllSettledKeyedRejectElement => {
-                self.emit_promise_all_settled_keyed_element(PROMISE_STATE_REJECTED, function)?;
+                self.emit_promise_all_settled_keyed_element(PromiseSettlement::Reject, function)?;
             }
             StandardBuiltinId::PromiseCapabilityExecutor => {
                 self.emit_promise_capability_executor(function)?;
             }
             StandardBuiltinId::PromiseResolveFunction => {
-                self.emit_promise_resolving_function(PROMISE_STATE_FULFILLED, function)?;
+                self.emit_promise_resolving_function(PromiseSettlement::Fulfill, function)?;
             }
             StandardBuiltinId::PromiseRejectFunction => {
-                self.emit_promise_resolving_function(PROMISE_STATE_REJECTED, function)?;
+                self.emit_promise_resolving_function(PromiseSettlement::Reject, function)?;
             }
             StandardBuiltinId::EvalFunction => {
                 let arg_payload_local = self.reserve_temp_local();
@@ -21447,7 +21447,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_settle_promise_record(
                     promise_record_local,
-                    PROMISE_STATE_REJECTED,
+                    PromiseSettlement::Reject,
                     self.result_local,
                     self.result_tag_local,
                     function,

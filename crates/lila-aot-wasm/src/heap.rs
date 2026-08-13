@@ -895,7 +895,7 @@ pub(crate) const HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_SYMBOL_ID_OFFSET: u64 = 24;
-pub(crate) const HEAP_PROMISE_STATE_OFFSET: u64 = 0;
+const HEAP_PROMISE_STATE_OFFSET: u64 = 0;
 pub(crate) const HEAP_PROMISE_RESULT_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_PROMISE_RESULT_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_PROMISE_FULFILL_REACTIONS_OFFSET: u64 = 24;
@@ -1150,6 +1150,45 @@ macro_rules! promise_wire_domain {
         <[()]>::len(&[$(promise_wire_domain!(@unit $variant)),+])
     };
     (@unit $variant:ident) => { () };
+}
+
+// The closed domain stored in a Promise record's `[[PromiseState]]` word.
+//
+// Every raw access to this word stays behind the typed heap helpers below.
+// Consumers strictly decode it before routing so an unknown word cannot be
+// mistaken for rejection merely because it is neither pending nor fulfilled.
+promise_wire_domain!(PromiseState, 0, {
+    Pending = 0,
+    Fulfilled = 1,
+    Rejected = 2,
+});
+
+/// A terminal direction accepted by Promise settlement producers.
+///
+/// This is deliberately distinct from [`PromiseState`]: a caller settling a
+/// Promise must choose fulfilment or rejection and cannot supply `Pending`.
+/// It is also distinct from [`PromiseReactionType`], whose matching wire words
+/// belong to a different specification record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromiseSettlement {
+    Fulfill,
+    Reject,
+}
+
+impl PromiseSettlement {
+    pub(crate) const fn state(self) -> PromiseState {
+        match self {
+            Self::Fulfill => PromiseState::Fulfilled,
+            Self::Reject => PromiseState::Rejected,
+        }
+    }
+
+    pub(crate) const fn is_rejected(self) -> bool {
+        match self {
+            Self::Fulfill => false,
+            Self::Reject => true,
+        }
+    }
 }
 
 // The closed domain stored in a Promise reaction record's `type` word.
@@ -1652,9 +1691,6 @@ pub(crate) const ASYNC_GENERATOR_BODY_STATUS_AWAIT: u64 = 2;
 pub(crate) const ASYNC_GENERATOR_BODY_STATUS_YIELD: u64 = 3;
 pub(crate) const ASYNC_GENERATOR_BODY_STATUS_COMPLETE: u64 = 4;
 pub(crate) const ASYNC_GENERATOR_BODY_STATUS_THROW: u64 = 5;
-pub(crate) const PROMISE_STATE_PENDING: u64 = 0;
-pub(crate) const PROMISE_STATE_FULFILLED: u64 = 1;
-pub(crate) const PROMISE_STATE_REJECTED: u64 = 2;
 pub(crate) const FUNCTION_FLAG_CONSTRUCTABLE: u64 = 1;
 pub(crate) const FUNCTION_FLAG_CLASS_CONSTRUCTOR: u64 = 2;
 pub(crate) const FUNCTION_FLAG_BOUND: u64 = 4;
@@ -5631,6 +5667,68 @@ impl<'a> FunctionBuilder<'a> {
         (size + 7) & !7
     }
 
+    /// Initialize a Promise record in the sole valid non-terminal state.
+    pub(crate) fn emit_initialize_promise_state(
+        &self,
+        promise_record_local: u32,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            promise_record_local,
+            HEAP_PROMISE_STATE_OFFSET,
+            PromiseState::Pending.word(),
+            function,
+        );
+    }
+
+    /// Store a terminal Promise state selected by the closed settlement domain.
+    pub(crate) fn emit_store_promise_settlement(
+        &self,
+        promise_record_local: u32,
+        settlement: PromiseSettlement,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            promise_record_local,
+            HEAP_PROMISE_STATE_OFFSET,
+            settlement.state().word(),
+            function,
+        );
+    }
+
+    /// Load and strictly validate a Promise record's lifecycle state word.
+    ///
+    /// The known stable word remains in `state_word_local` for the caller's
+    /// emitted dispatch. An unknown word is an impossible Promise record and
+    /// traps rather than falling through as rejection.
+    pub(crate) fn emit_load_promise_state_strict(
+        &self,
+        promise_record_local: u32,
+        state_word_local: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(
+            promise_record_local,
+            HEAP_PROMISE_STATE_OFFSET,
+            state_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for state in PromiseState::ALL {
+            function.instruction(&Instruction::LocalGet(state_word_local));
+            function.instruction(&Instruction::I64Const(state.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+    }
+
     /// Store the completion with which an ordinary async function resumes.
     ///
     /// The activation offset and wire word stay inside this boundary so a
@@ -5785,6 +5883,124 @@ mod tests {
                 PromiseReactionRealmSource::Captured,
             ]
         );
+    }
+
+    #[test]
+    fn promise_lifecycle_wire_domain_is_closed() {
+        assert_eq!(PromiseState::ALL.map(PromiseState::word), [0, 1, 2]);
+        assert_eq!(
+            [PromiseSettlement::Fulfill, PromiseSettlement::Reject].map(PromiseSettlement::state),
+            [PromiseState::Fulfilled, PromiseState::Rejected]
+        );
+        assert_eq!(
+            [PromiseSettlement::Fulfill, PromiseSettlement::Reject]
+                .map(PromiseSettlement::is_rejected),
+            [false, true]
+        );
+    }
+
+    #[test]
+    fn promise_lifecycle_owns_every_raw_state_access() {
+        let heap_source = include_str!("heap.rs");
+        let heap_implementation = heap_source
+            .split_once("#[cfg(test)]")
+            .expect("heap tests should follow the implementation")
+            .0;
+        let promise_source = include_str!("builtins/promise.rs");
+        let consumer_sources = [
+            promise_source,
+            include_str!("builtins/standard.rs"),
+            include_str!("builtins/async_iterator.rs"),
+            include_str!("builtins/async_disposable_stack.rs"),
+            include_str!("control_flow.rs"),
+            include_str!("functions.rs"),
+        ];
+
+        assert!(heap_implementation.contains("const HEAP_PROMISE_STATE_OFFSET: u64 = 0;"));
+        assert_eq!(
+            heap_implementation.matches("HEAP_PROMISE_STATE_OFFSET").count(),
+            5,
+            "only the declaration, layout, initializer, terminal store and strict load own the raw offset"
+        );
+        for source in consumer_sources {
+            assert!(!source.contains("HEAP_PROMISE_STATE_OFFSET"));
+            assert!(!source.contains(concat!("PROMISE_STATE_", "PENDING")));
+            assert!(!source.contains(concat!("PROMISE_STATE_", "FULFILLED")));
+            assert!(!source.contains(concat!("PROMISE_STATE_", "REJECTED")));
+            assert!(!source.contains("promise_state: u64"));
+        }
+
+        let decoder = heap_implementation
+            .split_once("pub(crate) fn emit_load_promise_state_strict(")
+            .expect("strict Promise-state decoder should exist")
+            .1
+            .split_once("/// Store the completion with which an ordinary async function resumes.")
+            .expect("strict Promise-state decoder should have a stable boundary")
+            .0;
+        assert_eq!(decoder.matches("HEAP_PROMISE_STATE_OFFSET").count(), 1);
+        assert_eq!(decoder.matches("PromiseState::ALL").count(), 1);
+        assert_eq!(decoder.matches("Instruction::Unreachable").count(), 1);
+
+        let settlement = promise_source
+            .split_once("pub(crate) fn emit_settle_promise_record(")
+            .expect("typed Promise settlement should exist")
+            .1
+            .split_once("/// Appends `promise_record_local`")
+            .expect("Promise settlement should have a stable boundary")
+            .0;
+        assert!(settlement.contains("settlement: PromiseSettlement"));
+        assert_eq!(
+            settlement
+                .matches("emit_load_promise_state_strict(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            settlement.matches("emit_store_promise_settlement(").count(),
+            1
+        );
+        let capture = settlement
+            .find("match settlement")
+            .expect("settlement must select and capture one reaction list");
+        let result = settlement
+            .find("HEAP_PROMISE_RESULT_PAYLOAD_OFFSET")
+            .expect("settlement must store its result");
+        let clear = settlement
+            .find("for offset in [")
+            .expect("settlement must clear both obsolete reaction lists");
+        let state = settlement
+            .find("emit_store_promise_settlement(")
+            .expect("settlement must store its terminal state");
+        let tracker = settlement
+            .find("emit_track_unhandled_rejection(")
+            .expect("rejection must enter host tracking");
+        let enqueue = settlement
+            .find("emit_enqueue_promise_reaction_list(")
+            .expect("settlement must enqueue the captured reactions");
+        assert!(capture < result && result < clear && clear < state);
+        assert!(state < tracker && tracker < enqueue);
+
+        let router = promise_source
+            .split_once("fn emit_route_promise_reaction_pair(")
+            .expect("one Promise reaction-pair router should exist")
+            .1
+            .split_once("fn emit_intrinsic_promise_resolve_to_locals(")
+            .expect("Promise reaction router should have a stable boundary")
+            .0;
+        assert_eq!(router.matches("emit_load_promise_state_strict(").count(), 1);
+        assert_eq!(router.matches("PromiseState::ALL").count(), 1);
+        assert_eq!(router.matches("PromiseState::Pending =>").count(), 1);
+        assert_eq!(router.matches("PromiseState::Fulfilled =>").count(), 1);
+        assert_eq!(router.matches("PromiseState::Rejected =>").count(), 1);
+        assert_eq!(router.matches("Instruction::Unreachable").count(), 1);
+        assert_eq!(
+            promise_source
+                .matches("emit_route_promise_reaction_pair(")
+                .count(),
+            4,
+            "the one definition must serve ordinary then, await and async-generator return-await"
+        );
+        assert!(!promise_source.contains("state: u64"));
     }
 
     #[test]

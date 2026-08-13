@@ -59,6 +59,24 @@ separate five-way resume-kind behavior stays explicit rather than being folded
 into an integer tuple. This is also a record-integrity boundary: the existing
 valid 0/1 behavior is unchanged, while illegal internal words fail closed.
 
+Promise records now store `[[PromiseState]]` through one closed three-variant
+`PromiseState::{Pending, Fulfilled, Rejected}` wire domain. The raw offset is
+private to typed initialization, terminal-store and strict-load helpers, and an
+unknown word traps instead of falling through as rejection. The separate
+`PromiseSettlement::{Fulfill, Reject}` domain is accepted by every terminal
+producer and Promise-direction helper, so `Pending` or an arbitrary integer can
+no longer be supplied where a terminal choice is required. Promise reaction
+`[[Type]]` remains distinct despite sharing the two terminal wire words.
+
+One exhaustive reaction-pair router now owns the pending/fulfilled/rejected
+behavior shared by ordinary `then`, async `await` and async-generator
+return-await. Terminal settlement captures the selected reaction list, stores
+the result, clears both obsolete lists, stores the typed state, performs
+rejection tracking when required, and only then enqueues the captured reactions.
+This closes the Promise lifecycle record and transition-order boundary; it is
+not a claim of broader queue ownership, suspended-body support, GC completion or
+full Promise conformance.
+
 Main Script completion now has one closed exit policy. While source statements
 are emitted, every otherwise-terminal abrupt completion targets a code-sink
 tracked host-checkpoint block instead of returning from the Wasm export. The
@@ -83,9 +101,10 @@ The typed callback-word/realm policy's durable layout contract is green, as are
 the engine contracts proving that reaction jobs run after synchronous code in
 registration order and that thenable-resolution jobs are asynchronous and
 settle once. The ordinary async resume-completion contract has been added for
-central verification; its focused compile/runtime checks remain queued behind
-the live current-pin matrix. Those checks are not a substitute for the full
-Promise/async Test262 filters.
+central verification, as has the typed Promise-lifecycle contract. Their
+focused compile/runtime checks remain queued behind the live current-pin
+matrix. Those checks are not a substitute for the full Promise/async Test262
+filters.
 
 ## Objective
 

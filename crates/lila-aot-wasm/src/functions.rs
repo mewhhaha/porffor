@@ -7168,7 +7168,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_settle_promise_record(
                 async_promise_record_local,
-                PROMISE_STATE_REJECTED,
+                PromiseSettlement::Reject,
                 async_body_payload_local,
                 async_body_tag_local,
                 function,

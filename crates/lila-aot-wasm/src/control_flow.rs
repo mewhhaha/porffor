@@ -6582,7 +6582,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_settle_promise_record(
             rejected_promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             self.result_local,
             self.result_tag_local,
             function,
@@ -6824,7 +6824,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_settle_promise_record(
             rejected_promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             self.result_local,
             self.result_tag_local,
             function,

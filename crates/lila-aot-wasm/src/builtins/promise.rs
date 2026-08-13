@@ -101,12 +101,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(promise_payload_local));
         self.emit_heap_alloc_const(HEAP_PROMISE_RECORD_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(promise_record_local));
-        self.store_i64_const_at_offset(
-            promise_record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            PROMISE_STATE_PENDING,
-            function,
-        );
+        self.emit_initialize_promise_state(promise_record_local, function);
         self.store_i64_const_at_offset(
             promise_record_local,
             HEAP_PROMISE_RESULT_TAG_OFFSET,
@@ -574,7 +569,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             then_payload_local,
             then_tag_local,
             function,
@@ -599,7 +594,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             then_payload_local,
             then_tag_local,
             function,
@@ -620,7 +615,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseSettlement::Fulfill,
             value_payload_local,
             value_tag_local,
             function,
@@ -631,7 +626,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseSettlement::Fulfill,
             value_payload_local,
             value_tag_local,
             function,
@@ -647,27 +642,26 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_settle_promise_record(
         &mut self,
         promise_record_local: u32,
-        state: u64,
+        settlement: PromiseSettlement,
         value_payload_local: u32,
         value_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let state_local = self.reserve_temp_local();
         let reaction_list_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            state_local,
-            function,
-        );
+        self.emit_load_promise_state_strict(promise_record_local, state_local, function);
         function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_PENDING as i64));
+        function.instruction(&Instruction::I64Const(PromiseState::Pending.word() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
+
+        self.load_i64_to_local_from_offset(
             promise_record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            state,
+            match settlement {
+                PromiseSettlement::Fulfill => HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
+                PromiseSettlement::Reject => HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
+            },
+            reaction_list_local,
             function,
         );
         self.store_i64_local_at_offset(
@@ -682,27 +676,24 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            promise_record_local,
-            if state == PROMISE_STATE_FULFILLED {
-                HEAP_PROMISE_FULFILL_REACTIONS_OFFSET
-            } else {
-                HEAP_PROMISE_REJECT_REACTIONS_OFFSET
-            },
-            reaction_list_local,
-            function,
-        );
+        for offset in [
+            HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
+            HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
+        ] {
+            self.store_i64_const_at_offset(promise_record_local, offset, 0, function);
+        }
+        self.emit_store_promise_settlement(promise_record_local, settlement, function);
+        if settlement.is_rejected() {
+            // 27.2.1.7 RejectPromise step 7 runs before the captured reject
+            // reactions are triggered.
+            self.emit_track_unhandled_rejection(promise_record_local, function);
+        }
         self.emit_enqueue_promise_reaction_list(
             reaction_list_local,
             value_payload_local,
             value_tag_local,
             function,
         )?;
-        if state == PROMISE_STATE_REJECTED {
-            // 27.2.1.7 RejectPromise step 7: if [[IsHandled]] is false, notify
-            // the host that a rejection went untracked.
-            self.emit_track_unhandled_rejection(promise_record_local, function);
-        }
         function.instruction(&Instruction::End);
         self.release_temp_local(reaction_list_local);
         self.release_temp_local(state_local);
@@ -788,12 +779,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(record_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            state_local,
-            function,
-        );
+        self.emit_load_promise_state_strict(record_local, state_local, function);
         self.load_i64_to_local_from_offset(
             record_local,
             HEAP_PROMISE_IS_HANDLED_OFFSET,
@@ -801,7 +787,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_REJECTED as i64));
+        function.instruction(&Instruction::I64Const(PromiseState::Rejected.word() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(is_handled_local));
         function.instruction(&Instruction::I64Eqz);
@@ -1391,6 +1377,82 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(list_head_local);
     }
 
+    /// Perform the complete `PerformPromiseThen` state dispatch for one
+    /// fulfil/reject reaction pair.
+    ///
+    /// The comparison chain is derived from the closed wire domain and every
+    /// state selects behavior through an exhaustive Rust match. The strict
+    /// load traps before an invalid record can fall through as rejection.
+    fn emit_route_promise_reaction_pair(
+        &mut self,
+        promise_record_local: u32,
+        fulfill_reaction_local: u32,
+        reject_reaction_local: u32,
+        result_payload_local: u32,
+        result_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let state_word_local = self.reserve_temp_local();
+        self.emit_load_promise_state_strict(promise_record_local, state_word_local, function);
+        self.load_i64_to_local_from_offset(
+            promise_record_local,
+            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
+            result_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            promise_record_local,
+            HEAP_PROMISE_RESULT_TAG_OFFSET,
+            result_tag_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for state in PromiseState::ALL {
+            function.instruction(&Instruction::LocalGet(state_word_local));
+            function.instruction(&Instruction::I64Const(state.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            match state {
+                PromiseState::Pending => {
+                    self.emit_append_promise_reaction(
+                        promise_record_local,
+                        HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
+                        fulfill_reaction_local,
+                        function,
+                    );
+                    self.emit_append_promise_reaction(
+                        promise_record_local,
+                        HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
+                        reject_reaction_local,
+                        function,
+                    );
+                }
+                PromiseState::Fulfilled => self.emit_enqueue_promise_reaction_job(
+                    fulfill_reaction_local,
+                    result_payload_local,
+                    result_tag_local,
+                    function,
+                )?,
+                PromiseState::Rejected => self.emit_enqueue_promise_reaction_job(
+                    reject_reaction_local,
+                    result_payload_local,
+                    result_tag_local,
+                    function,
+                )?,
+            }
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        self.release_temp_local(state_word_local);
+        Ok(())
+    }
+
     fn emit_intrinsic_promise_resolve_to_locals(
         &mut self,
         value_payload_local: u32,
@@ -1835,7 +1897,6 @@ impl<'a> FunctionBuilder<'a> {
         let rejected_promise_constructor_tag_local = self.reserve_temp_local();
         let resolve_error_payload_local = self.reserve_temp_local();
         let resolve_error_tag_local = self.reserve_temp_local();
-        let source_state_local = self.reserve_temp_local();
         let source_result_payload_local = self.reserve_temp_local();
         let source_result_tag_local = self.reserve_temp_local();
         let fulfill_reaction_local = self.reserve_temp_local();
@@ -1881,7 +1942,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_settle_promise_record(
             awaited_promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             resolve_error_payload_local,
             resolve_error_tag_local,
             function,
@@ -1913,60 +1974,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.load_i64_to_local_from_offset(
+        self.emit_route_promise_reaction_pair(
             awaited_promise_record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            source_state_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            awaited_promise_record_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            source_result_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            awaited_promise_record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            source_result_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(source_state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_PENDING as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_append_promise_reaction(
-            awaited_promise_record_local,
-            HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
             fulfill_reaction_local,
-            function,
-        );
-        self.emit_append_promise_reaction(
-            awaited_promise_record_local,
-            HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
-            reject_reaction_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(source_state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_enqueue_promise_reaction_job(
-            fulfill_reaction_local,
-            source_result_payload_local,
-            source_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_enqueue_promise_reaction_job(
             reject_reaction_local,
             source_result_payload_local,
             source_result_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         self.store_i64_const_at_offset(
             awaited_promise_record_local,
             HEAP_PROMISE_IS_HANDLED_OFFSET,
@@ -1979,7 +1994,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(fulfill_reaction_local);
         self.release_temp_local(source_result_tag_local);
         self.release_temp_local(source_result_payload_local);
-        self.release_temp_local(source_state_local);
         self.release_temp_local(resolve_error_tag_local);
         self.release_temp_local(resolve_error_payload_local);
         self.release_temp_local(rejected_promise_constructor_tag_local);
@@ -2000,7 +2014,6 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let resolved_promise_record_local = self.reserve_temp_local();
-        let source_state_local = self.reserve_temp_local();
         let source_result_payload_local = self.reserve_temp_local();
         let source_result_tag_local = self.reserve_temp_local();
         let fulfill_reaction_local = self.reserve_temp_local();
@@ -2049,60 +2062,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.load_i64_to_local_from_offset(
+        self.emit_route_promise_reaction_pair(
             resolved_promise_record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            source_state_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            resolved_promise_record_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            source_result_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            resolved_promise_record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            source_result_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(source_state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_PENDING as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_append_promise_reaction(
-            resolved_promise_record_local,
-            HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
             fulfill_reaction_local,
-            function,
-        );
-        self.emit_append_promise_reaction(
-            resolved_promise_record_local,
-            HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
-            reject_reaction_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(source_state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_enqueue_promise_reaction_job(
-            fulfill_reaction_local,
-            source_result_payload_local,
-            source_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_enqueue_promise_reaction_job(
             reject_reaction_local,
             source_result_payload_local,
             source_result_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         self.store_i64_const_at_offset(
             resolved_promise_record_local,
             HEAP_PROMISE_IS_HANDLED_OFFSET,
@@ -2117,7 +2084,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(fulfill_reaction_local);
         self.release_temp_local(source_result_tag_local);
         self.release_temp_local(source_result_payload_local);
-        self.release_temp_local(source_state_local);
         self.release_temp_local(resolved_promise_record_local);
         Ok(())
     }
@@ -2139,7 +2105,6 @@ impl<'a> FunctionBuilder<'a> {
         let valid_receiver_local = self.reserve_temp_local();
         let brand_local = self.reserve_temp_local();
         let source_record_local = self.reserve_temp_local();
-        let source_state_local = self.reserve_temp_local();
         let source_result_payload_local = self.reserve_temp_local();
         let source_result_tag_local = self.reserve_temp_local();
         let on_fulfilled_payload_local = self.reserve_temp_local();
@@ -2237,60 +2202,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.load_i64_to_local_from_offset(
+        self.emit_route_promise_reaction_pair(
             source_record_local,
-            HEAP_PROMISE_STATE_OFFSET,
-            source_state_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            source_record_local,
-            HEAP_PROMISE_RESULT_PAYLOAD_OFFSET,
-            source_result_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            source_record_local,
-            HEAP_PROMISE_RESULT_TAG_OFFSET,
-            source_result_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(source_state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_PENDING as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_append_promise_reaction(
-            source_record_local,
-            HEAP_PROMISE_FULFILL_REACTIONS_OFFSET,
             fulfill_reaction_local,
-            function,
-        );
-        self.emit_append_promise_reaction(
-            source_record_local,
-            HEAP_PROMISE_REJECT_REACTIONS_OFFSET,
-            reject_reaction_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(source_state_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_enqueue_promise_reaction_job(
-            fulfill_reaction_local,
-            source_result_payload_local,
-            source_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_enqueue_promise_reaction_job(
             reject_reaction_local,
             source_result_payload_local,
             source_result_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         self.store_i64_const_at_offset(
             source_record_local,
             HEAP_PROMISE_IS_HANDLED_OFFSET,
@@ -2317,7 +2236,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(on_fulfilled_payload_local);
         self.release_temp_local(source_result_tag_local);
         self.release_temp_local(source_result_payload_local);
-        self.release_temp_local(source_state_local);
         self.release_temp_local(source_record_local);
         self.release_temp_local(brand_local);
         self.release_temp_local(valid_receiver_local);
@@ -2889,7 +2807,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             body_payload_local,
             body_tag_local,
             function,
@@ -3011,7 +2929,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             value_payload_local,
             value_tag_local,
             function,
@@ -4097,7 +4015,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             call_payload_local,
             call_tag_local,
             function,
@@ -4402,7 +4320,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_promise_static_settle(
         &mut self,
-        state: u64,
+        settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let constructor_payload_local = self.this_payload_local.ok_or_else(|| {
@@ -4430,80 +4348,83 @@ impl<'a> FunctionBuilder<'a> {
         let undefined_tag_local = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        if state == PROMISE_STATE_FULFILLED {
-            self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_type_error(
-                "Promise.resolve receiver is not an object",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match settlement {
+            PromiseSettlement::Fulfill => {
+                self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Promise.resolve receiver is not an object",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
 
-            let brand_local = self.reserve_temp_local();
-            let constructor_key_local = self.reserve_temp_local();
-            let value_constructor_payload_local = self.reserve_temp_local();
-            let value_constructor_tag_local = self.reserve_temp_local();
-            function.instruction(&Instruction::LocalGet(value_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                value_payload_local,
-                HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                brand_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(brand_local));
-            function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_PROMISE as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
-            function.instruction(&Instruction::LocalSet(constructor_key_local));
-            self.emit_object_read(
-                value_payload_local,
-                value_tag_local,
-                value_payload_local,
-                value_tag_local,
-                constructor_key_local,
-                value_constructor_payload_local,
-                value_constructor_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(self.completion_local));
-            function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(value_constructor_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::LocalGet(value_constructor_tag_local));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(value_constructor_tag_local));
-            function.instruction(&Instruction::LocalGet(constructor_tag_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(value_constructor_payload_local));
-            function.instruction(&Instruction::LocalGet(constructor_payload_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(value_payload_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::LocalGet(value_tag_local));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.set_completion_kind(CompletionKind::Normal, function);
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            self.release_temp_local(value_constructor_tag_local);
-            self.release_temp_local(value_constructor_payload_local);
-            self.release_temp_local(constructor_key_local);
-            self.release_temp_local(brand_local);
+                let brand_local = self.reserve_temp_local();
+                let constructor_key_local = self.reserve_temp_local();
+                let value_constructor_payload_local = self.reserve_temp_local();
+                let value_constructor_tag_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    value_payload_local,
+                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                    brand_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(brand_local));
+                function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_PROMISE as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+                function.instruction(&Instruction::LocalSet(constructor_key_local));
+                self.emit_object_read(
+                    value_payload_local,
+                    value_tag_local,
+                    value_payload_local,
+                    value_tag_local,
+                    constructor_key_local,
+                    value_constructor_payload_local,
+                    value_constructor_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.completion_local));
+                function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(value_constructor_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_constructor_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(value_constructor_tag_local));
+                function.instruction(&Instruction::LocalGet(constructor_tag_local));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(value_constructor_payload_local));
+                function.instruction(&Instruction::LocalGet(constructor_payload_local));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.set_completion_kind(CompletionKind::Normal, function);
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                self.release_temp_local(value_constructor_tag_local);
+                self.release_temp_local(value_constructor_payload_local);
+                self.release_temp_local(constructor_key_local);
+                self.release_temp_local(brand_local);
+            }
+            PromiseSettlement::Reject => {}
         }
 
         self.emit_new_promise_capability(
@@ -4557,17 +4478,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(undefined_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(undefined_tag_local));
+        let (settle_payload_local, settle_tag_local) = match settlement {
+            PromiseSettlement::Fulfill => (resolve_payload_local, resolve_tag_local),
+            PromiseSettlement::Reject => (reject_payload_local, reject_tag_local),
+        };
         self.emit_function_or_proxy_call_leave_throw_completion(
-            if state == PROMISE_STATE_FULFILLED {
-                resolve_payload_local
-            } else {
-                reject_payload_local
-            },
-            if state == PROMISE_STATE_FULFILLED {
-                resolve_tag_local
-            } else {
-                reject_tag_local
-            },
+            settle_payload_local,
+            settle_tag_local,
             undefined_payload_local,
             undefined_tag_local,
             &[(value_payload_local, value_tag_local)],
@@ -4983,21 +4900,21 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_promise_all_keyed_element(false, PROMISE_STATE_FULFILLED, function)
+        self.emit_promise_all_keyed_element(false, PromiseSettlement::Fulfill, function)
     }
 
     pub(crate) fn emit_promise_all_settled_keyed_element(
         &mut self,
-        state: u64,
+        settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_promise_all_keyed_element(true, state, function)
+        self.emit_promise_all_keyed_element(true, settlement, function)
     }
 
     fn emit_promise_all_keyed_element(
         &mut self,
         settled_record: bool,
-        state: u64,
+        settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let element_context_local = self.reserve_temp_local();
@@ -5063,10 +4980,9 @@ impl<'a> FunctionBuilder<'a> {
             let record_payload_local = self.reserve_temp_local();
             let status_payload_local = self.reserve_temp_local();
             let status_tag_local = self.reserve_temp_local();
-            let (status, result_property) = if state == PROMISE_STATE_FULFILLED {
-                ("fulfilled", "value")
-            } else {
-                ("rejected", "reason")
+            let (status, result_property) = match settlement {
+                PromiseSettlement::Fulfill => ("fulfilled", "value"),
+                PromiseSettlement::Reject => ("rejected", "reason"),
             };
             self.emit_alloc_plain_object_with_prototype(
                 None,
@@ -5350,7 +5266,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_promise_all_settled_element(
         &mut self,
-        state: u64,
+        settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let element_context_local = self.reserve_temp_local();
@@ -5408,10 +5324,9 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
 
-        let (status, result_property) = if state == PROMISE_STATE_FULFILLED {
-            ("fulfilled", "value")
-        } else {
-            ("rejected", "reason")
+        let (status, result_property) = match settlement {
+            PromiseSettlement::Fulfill => ("fulfilled", "value"),
+            PromiseSettlement::Reject => ("rejected", "reason"),
         };
         self.emit_alloc_plain_object_with_prototype(
             None,
@@ -7909,7 +7824,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_promise_resolving_function(
         &mut self,
-        state: u64,
+        settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let resolving_context_local = self.reserve_temp_local();
@@ -7949,22 +7864,21 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        if state == PROMISE_STATE_FULFILLED {
-            self.emit_resolve_promise_record(
+        match settlement {
+            PromiseSettlement::Fulfill => self.emit_resolve_promise_record(
                 promise_payload_local,
                 promise_record_local,
                 value_payload_local,
                 value_tag_local,
                 function,
-            )?;
-        } else {
-            self.emit_settle_promise_record(
+            )?,
+            PromiseSettlement::Reject => self.emit_settle_promise_record(
                 promise_record_local,
-                state,
+                settlement,
                 value_payload_local,
                 value_tag_local,
                 function,
-            )?;
+            )?,
         }
         function.instruction(&Instruction::End);
 

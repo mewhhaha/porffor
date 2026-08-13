@@ -638,7 +638,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_async_disposable_stack_settle_undefined(
             promise_record_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseSettlement::Fulfill,
             function,
         )?;
         self.emit_async_disposable_stack_return_promise(
@@ -1108,7 +1108,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_async_disposable_stack_settle_undefined(
             promise_record_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseSettlement::Fulfill,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -1126,7 +1126,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             error_payload_local,
             error_tag_local,
             function,
@@ -1596,7 +1596,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_async_disposable_stack_settle_undefined(
         &mut self,
         promise_record_local: u32,
-        promise_state: u64,
+        settlement: PromiseSettlement,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let undefined_payload_local = self.reserve_temp_local();
@@ -1608,7 +1608,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(undefined_tag_local));
         self.emit_settle_promise_record(
             promise_record_local,
-            promise_state,
+            settlement,
             undefined_payload_local,
             undefined_tag_local,
             function,
@@ -1640,7 +1640,7 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_settle_promise_record(
             promise_record_local,
-            PROMISE_STATE_REJECTED,
+            PromiseSettlement::Reject,
             error_payload_local,
             error_tag_local,
             function,
