@@ -1,11 +1,12 @@
 //! Typed schema vocabulary for the Wasm-GC object model.
 //!
-//! Encoding stays in the central module type registry; this module supplies
-//! the typed schema it consumes. T05's object-model cutover must be atomic:
-//! until that cutover, JavaScript objects remain on the existing linear-memory
-//! path. These types let the emitter describe the replacement without
-//! representing a GC reference as an integer or confusing a linear-memory
-//! address with one.
+//! This module owns the typed schema and the final raw Wasm-GC encoding
+//! boundary. Registration borrows the central module sections, while function
+//! emission receives only opaque lifecycle operations. T05's object-model
+//! cutover must be atomic: until that cutover, JavaScript objects remain on the
+//! existing linear-memory path. These types let the emitter describe the
+//! replacement without representing a GC reference as an integer or confusing
+//! a linear-memory address with one.
 
 #![allow(
     dead_code,
@@ -13,6 +14,13 @@
 )]
 
 use core::marker::PhantomData;
+
+use wasm_encoder::{
+    BlockType, ConstExpr, FieldType, GlobalSection, GlobalType, HeapType, Instruction, RefType,
+    StorageType, TypeSection, ValType,
+};
+
+use crate::Function;
 
 mod sealed {
     pub trait Sealed {}
@@ -36,14 +44,14 @@ pub(crate) struct GcTypeIndex<T: GcHeapType> {
 }
 
 impl<T: GcHeapType> GcTypeIndex<T> {
-    pub(crate) const fn new(raw: u32) -> Self {
+    const fn new(raw: u32) -> Self {
         Self {
             raw,
             ty: PhantomData,
         }
     }
 
-    pub(crate) const fn raw(self) -> u32 {
+    const fn raw(self) -> u32 {
         self.raw
     }
 }
@@ -65,11 +73,11 @@ impl<T: GcHeapType> Copy for GcTypeIndex<T> {}
 pub(crate) struct GcFieldOrdinal(u32);
 
 impl GcFieldOrdinal {
-    pub(crate) const fn new(raw: u32) -> Self {
+    const fn new(raw: u32) -> Self {
         Self(raw)
     }
 
-    pub(crate) const fn raw(self) -> u32 {
+    const fn raw(self) -> u32 {
         self.0
     }
 }
@@ -164,7 +172,7 @@ impl<T: GcHeapType> GcRootGlobal<T> {
         }
     }
 
-    pub(crate) const fn raw(self) -> u32 {
+    const fn raw(self) -> u32 {
         self.raw
     }
 }
@@ -281,14 +289,14 @@ where
     Mutability: GcFieldMutability,
     Nullability: GcFieldNullability,
 {
-    pub(crate) const fn new(ordinal: GcFieldOrdinal) -> Self {
+    const fn new(ordinal: GcFieldOrdinal) -> Self {
         Self {
             ordinal,
             shape: PhantomData,
         }
     }
 
-    pub(crate) const fn ordinal(self) -> GcFieldOrdinal {
+    const fn ordinal(self) -> GcFieldOrdinal {
         self.ordinal
     }
 }
@@ -323,48 +331,17 @@ pub(crate) struct RuntimeGcAnchorSchema {
 
 impl RuntimeGcAnchorSchema {
     /// Bumped only when the emitted GC value ABI changes incompatibly.
-    pub(crate) const ABI_VERSION: i32 = 1;
-    pub(crate) const FIELD_COUNT: u32 = 1;
-    pub(crate) const ABI_VERSION_FIELD: GcField<RuntimeGcAnchor, I32Value, Immutable, NonNullable> =
+    const ABI_VERSION: i32 = 1;
+    const FIELD_COUNT: u32 = 1;
+    const ABI_VERSION_FIELD: GcField<RuntimeGcAnchor, I32Value, Immutable, NonNullable> =
         GcField::new(GcFieldOrdinal::new(0));
 
-    pub(crate) const fn new(type_index: GcTypeIndex<RuntimeGcAnchor>) -> Self {
+    const fn new(type_index: GcTypeIndex<RuntimeGcAnchor>) -> Self {
         Self { type_index }
     }
 
-    pub(crate) const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchor> {
+    const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchor> {
         self.type_index
-    }
-}
-
-/// The anchor type paired with the sole runtime GC root global.
-///
-/// Construction takes the typed anchor index, so the global's concrete
-/// reference type cannot silently drift to another registered layout. Only a
-/// complete runtime module schema constructs this value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGcAnchorRootSchema {
-    global: GcRootGlobal<RuntimeGcAnchor>,
-    anchor_type_index: GcTypeIndex<RuntimeGcAnchor>,
-}
-
-impl RuntimeGcAnchorRootSchema {
-    pub(crate) const fn new(
-        global_index: u32,
-        anchor_type_index: GcTypeIndex<RuntimeGcAnchor>,
-    ) -> Self {
-        Self {
-            global: GcRootGlobal::new(global_index),
-            anchor_type_index,
-        }
-    }
-
-    pub(crate) const fn global(self) -> GcRootGlobal<RuntimeGcAnchor> {
-        self.global
-    }
-
-    pub(crate) const fn anchor_type_index(self) -> GcTypeIndex<RuntimeGcAnchor> {
-        self.anchor_type_index
     }
 }
 
@@ -375,21 +352,208 @@ pub(crate) struct RuntimeGcAnchorHolderSchema {
 }
 
 impl RuntimeGcAnchorHolderSchema {
-    pub(crate) const FIELD_COUNT: u32 = 1;
-    pub(crate) const ANCHOR_FIELD: GcField<
+    const FIELD_COUNT: u32 = 1;
+    const ANCHOR_FIELD: GcField<
         RuntimeGcAnchorHolder,
         GcRef<RuntimeGcAnchor>,
         Immutable,
         NonNullable,
     > = GcField::new(GcFieldOrdinal::new(0));
 
-    pub(crate) const fn new(type_index: GcTypeIndex<RuntimeGcAnchorHolder>) -> Self {
+    const fn new(type_index: GcTypeIndex<RuntimeGcAnchorHolder>) -> Self {
         Self { type_index }
     }
 
-    pub(crate) const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchorHolder> {
+    const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchorHolder> {
         self.type_index
     }
+}
+
+/// The runtime-visible GC portion of the module's central type registry.
+///
+/// Registration and root binding are the only operations exposed to module
+/// assembly. Raw type indices and field ordinals never leave this module, so a
+/// caller cannot guess an index or pair a field with a different owner before
+/// encoding. Root binding accepts the planned global slot, then keeps the
+/// typed root's construction and extraction private.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeModuleTypes {
+    gc_anchor: RuntimeGcAnchorSchema,
+    gc_anchor_holder: RuntimeGcAnchorHolderSchema,
+}
+
+impl RuntimeModuleTypes {
+    pub(crate) fn register(types: &mut TypeSection) -> Self {
+        let gc_anchor = RuntimeGcAnchorSchema::new(gc_struct_with_i32_field(
+            types,
+            RuntimeGcAnchorSchema::ABI_VERSION_FIELD,
+        ));
+        let gc_anchor_holder = RuntimeGcAnchorHolderSchema::new(gc_struct_with_ref_field(
+            types,
+            RuntimeGcAnchorHolderSchema::ANCHOR_FIELD,
+            gc_anchor.type_index(),
+        ));
+
+        Self {
+            gc_anchor,
+            gc_anchor_holder,
+        }
+    }
+
+    pub(crate) const fn bind_root(self, global_index: u32) -> RuntimeModuleSchema {
+        RuntimeModuleSchema {
+            types: self,
+            gc_anchor_root: GcRootGlobal::new(global_index),
+        }
+    }
+}
+
+/// Complete, opaque runtime GC schema carried only by the main-function role.
+///
+/// The anchor type is stored once in `types`; the root adds only its typed
+/// global index. Declaration, initialization and cleanup therefore cannot
+/// acquire two independently supplied indices for the same anchor layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeModuleSchema {
+    types: RuntimeModuleTypes,
+    gc_anchor_root: GcRootGlobal<RuntimeGcAnchor>,
+}
+
+impl RuntimeModuleSchema {
+    /// Appends the sole runtime GC root after every previously registered
+    /// global. Module assembly cannot encode the root's raw type or index.
+    pub(crate) fn append_root_global(self, globals: &mut GlobalSection) {
+        assert_eq!(
+            globals.len(),
+            self.gc_anchor_root.raw(),
+            "runtime GC root must be appended after every pre-existing global"
+        );
+        let anchor_type = HeapType::Concrete(self.types.gc_anchor.type_index().raw());
+        globals.global(
+            GlobalType {
+                val_type: ValType::Ref(RefType {
+                    nullable: true,
+                    heap_type: anchor_type,
+                }),
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::ref_null(anchor_type),
+        );
+    }
+
+    /// Constructs the capability anchor and holder, traverses the holder's
+    /// typed strong edge and establishes the main-lifetime root.
+    pub(crate) fn emit_initialize_anchor_root(self, function: &mut Function) {
+        function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
+        emit_struct_new(function, self.types.gc_anchor.type_index());
+        emit_struct_new(function, self.types.gc_anchor_holder.type_index());
+        emit_struct_get(
+            function,
+            self.types.gc_anchor_holder.type_index(),
+            RuntimeGcAnchorHolderSchema::ANCHOR_FIELD,
+        );
+        emit_root_set(function, self.gc_anchor_root);
+    }
+
+    /// Verifies the capability anchor ABI and clears the main-lifetime root.
+    pub(crate) fn emit_verify_and_clear_anchor_root(self, function: &mut Function) {
+        emit_root_get(function, self.gc_anchor_root);
+        function.instruction(&Instruction::RefAsNonNull);
+        emit_struct_get(
+            function,
+            self.types.gc_anchor.type_index(),
+            RuntimeGcAnchorSchema::ABI_VERSION_FIELD,
+        );
+        function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
+        function.instruction(&Instruction::I32Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        emit_ref_null(function, self.types.gc_anchor.type_index());
+        emit_root_set(function, self.gc_anchor_root);
+    }
+}
+
+fn gc_struct_with_i32_field<T, Mutability>(
+    types: &mut TypeSection,
+    field: GcField<T, I32Value, Mutability, NonNullable>,
+) -> GcTypeIndex<T>
+where
+    T: GcHeapType,
+    Mutability: GcFieldMutability,
+{
+    assert_eq!(
+        field.ordinal().raw(),
+        0,
+        "a one-field GC struct must declare field ordinal zero"
+    );
+    let index = GcTypeIndex::new(types.len());
+    types.ty().struct_([FieldType {
+        element_type: StorageType::Val(ValType::I32),
+        mutable: Mutability::MUTABLE,
+    }]);
+    index
+}
+
+fn gc_struct_with_ref_field<Owner, Target, Mutability, Nullability>(
+    types: &mut TypeSection,
+    field: GcField<Owner, GcRef<Target>, Mutability, Nullability>,
+    target: GcTypeIndex<Target>,
+) -> GcTypeIndex<Owner>
+where
+    Owner: GcHeapType,
+    Target: GcHeapType,
+    Mutability: GcFieldMutability,
+    Nullability: GcFieldNullability,
+    GcRef<Target>: GcFieldValue<Owner, Nullability>,
+{
+    assert_eq!(
+        field.ordinal().raw(),
+        0,
+        "a one-field GC struct must declare field ordinal zero"
+    );
+    let index = GcTypeIndex::new(types.len());
+    types.ty().struct_([FieldType {
+        element_type: StorageType::Val(ValType::Ref(RefType {
+            nullable: Nullability::NULLABLE,
+            heap_type: HeapType::Concrete(target.raw()),
+        })),
+        mutable: Mutability::MUTABLE,
+    }]);
+    index
+}
+
+fn emit_struct_new<T: GcHeapType>(function: &mut Function, ty: GcTypeIndex<T>) {
+    function.instruction(&Instruction::StructNew(ty.raw()));
+}
+
+fn emit_struct_get<Owner, Value, Mutability, Nullability>(
+    function: &mut Function,
+    owner: GcTypeIndex<Owner>,
+    field: GcField<Owner, Value, Mutability, Nullability>,
+) where
+    Owner: GcHeapType,
+    Value: GcFieldValue<Owner, Nullability>,
+    Mutability: GcFieldMutability,
+    Nullability: GcFieldNullability,
+{
+    function.instruction(&Instruction::StructGet {
+        struct_type_index: owner.raw(),
+        field_index: field.ordinal().raw(),
+    });
+}
+
+fn emit_root_get<T: GcHeapType>(function: &mut Function, root: GcRootGlobal<T>) {
+    function.instruction(&Instruction::GlobalGet(root.raw()));
+}
+
+fn emit_root_set<T: GcHeapType>(function: &mut Function, root: GcRootGlobal<T>) {
+    function.instruction(&Instruction::GlobalSet(root.raw()));
+}
+
+fn emit_ref_null<T: GcHeapType>(function: &mut Function, ty: GcTypeIndex<T>) {
+    function.instruction(&Instruction::RefNull(HeapType::Concrete(ty.raw())));
 }
 
 const _: () = assert!(RuntimeGcAnchorSchema::FIELD_COUNT == 1);

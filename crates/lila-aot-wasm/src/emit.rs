@@ -23,12 +23,11 @@ use lila_ir::{
 // hole the sink exists to close.
 use wasm_encoder::{
     ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, FunctionSection,
-    GlobalType, HeapType, ImportSection, Instruction, MemorySection, MemoryType, Module, RefType,
+    GlobalType, ImportSection, Instruction, MemorySection, MemoryType, Module, RefType,
     TableSection, TableType, ValType,
 };
 
 use super::*;
-use crate::gc_types::{RuntimeGcAnchorHolderSchema, RuntimeGcAnchorSchema};
 use lila_intl::{embedded_locale_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION};
 
 #[derive(Debug, Clone, Copy)]
@@ -3672,9 +3671,6 @@ impl<'a> FunctionBuilder<'a> {
         let FunctionModuleState::Main(module_schema) = self.module_state else {
             return;
         };
-        let anchor = module_schema.gc_anchor();
-        let holder = module_schema.gc_anchor_holder();
-        let root = module_schema.gc_anchor_root();
 
         // Construct the anchor, make it reachable through the holder's
         // immutable non-null reference field, then transfer that edge into the
@@ -3682,14 +3678,7 @@ impl<'a> FunctionBuilder<'a> {
         // Keeping the value as a Wasm reference is the point: this capability
         // root must not introduce an integer handle beside the future GC
         // object model.
-        function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
-        function.instruction(&Instruction::StructNew(anchor.type_index().raw()));
-        function.instruction(&Instruction::StructNew(holder.type_index().raw()));
-        function.instruction(&Instruction::StructGet {
-            struct_type_index: holder.type_index().raw(),
-            field_index: RuntimeGcAnchorHolderSchema::ANCHOR_FIELD.ordinal().raw(),
-        });
-        function.instruction(&Instruction::GlobalSet(root.global().raw()));
+        module_schema.emit_initialize_anchor_root(function);
     }
 
     /// Verifies and clears the capability root on a real main exit.
@@ -3701,24 +3690,7 @@ impl<'a> FunctionBuilder<'a> {
         let FunctionModuleState::Main(module_schema) = self.module_state else {
             return;
         };
-        let anchor = module_schema.gc_anchor();
-        let root = module_schema.gc_anchor_root();
-
-        function.instruction(&Instruction::GlobalGet(root.global().raw()));
-        function.instruction(&Instruction::RefAsNonNull);
-        function.instruction(&Instruction::StructGet {
-            struct_type_index: anchor.type_index().raw(),
-            field_index: RuntimeGcAnchorSchema::ABI_VERSION_FIELD.ordinal().raw(),
-        });
-        function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
-        function.instruction(&Instruction::I32Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::RefNull(HeapType::Concrete(
-            root.anchor_type_index().raw(),
-        )));
-        function.instruction(&Instruction::GlobalSet(root.global().raw()));
+        module_schema.emit_verify_and_clear_anchor_root(function);
     }
 
     fn ensure_heap_ptr_after_static_data(&self, function: &mut Function) {

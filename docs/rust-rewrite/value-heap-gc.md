@@ -113,6 +113,17 @@ The capability-anchor subset of this vocabulary is now wired through the
 central type-section registry, not an individual builtin. The remaining
 semantic layouts stay schema-only until the atomic object-model cutover.
 
+The schema module is also the sole raw Wasm-GC encoder boundary. Type-index and
+field-ordinal construction/extraction, plus typed GC-root construction and
+extraction, stay private there. Module assembly computes the root's planned
+global slot from the complete global count, but can bind and append that root
+only through opaque schema operations. Function emission can initialize or
+verify and clear the capability root, but it cannot extract interchangeable
+`u32` indices or construct `struct.new`/`struct.get` instructions itself. The
+typed accessor boundary pairs a field with its owner and, for reference
+fields, with its target type through Rust generics before the final
+`wasm_encoder` call.
+
 ## Runtime GC anchor
 
 `RuntimeGcAnchor` and `RuntimeGcAnchorHolder` are the first executable schema
@@ -144,6 +155,10 @@ without introducing a live semantic object or changing the current heap.
 order. A complete `RuntimeModuleSchema` combines those types with the typed
 root; only the main-function role can carry it. The global-section builder
 cannot finish without appending the root at the index recorded by that schema.
+The schema owns the raw declaration, access and lifecycle instructions as one
+opaque operation surface, so a holder field cannot be paired with the anchor
+type, a type index cannot be used as a global index, and a second index for the
+same anchor layout cannot drift from the type used by the root declaration.
 
 The holder becomes unreachable as soon as its edge is transferred to the
 global. The anchor then remains live only through the global until the shared
@@ -271,6 +286,11 @@ the latter condition with the capability anchor below.
   allocate, retain it through the final job checkpoint, and verify/clear it on
   every shared main exit without moving existing global indices (landed;
   runtime-boundary verification remains).
+- Keep raw GC type-index and field-ordinal construction/extraction, typed-root
+  construction/extraction and struct instructions inside the schema module;
+  module assembly supplies the planned raw global slot only to opaque root
+  binding, and function emitters consume only opaque lifecycle operations
+  (landed; compile and focused runtime verification remain).
 
 Gate: a module containing the anchor/holder/root probe validates and executes
 on the pinned lower bound, and fails clearly when GC is disabled. This proves

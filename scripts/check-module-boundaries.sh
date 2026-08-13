@@ -221,10 +221,38 @@ fi
 # than regrow.
 check_raw_line_budget "$ir_builtins" 1760
 
-for module in abi control_flow data emit environments expressions functions heap module modules objects operations planning; do
+for module in abi control_flow data emit environments expressions functions gc_types heap module modules objects operations planning; do
   require_file "crates/lila-aot-wasm/src/${module}.rs"
   require_module_decl "$wasm_lib" "$module"
 done
+
+# T05's typed Wasm-GC schema is the sole raw struct-instruction boundary. The
+# encoder dependency necessarily accepts interchangeable u32 immediates, so
+# direct StructNew/Get/Set construction anywhere else would discard the
+# owner/field/target types before the final encoding step.
+wasm_gc_types="crates/lila-aot-wasm/src/gc_types.rs"
+gc_instruction_escapes="$(
+  find crates/lila-aot-wasm/src -type f -name '*.rs' ! -path "$wasm_gc_types" -print0 \
+    | xargs -0 grep -En 'Instruction::Struct(New|Get|Set)' || true
+)"
+if [ -n "$gc_instruction_escapes" ]; then
+  fail "raw Wasm-GC struct instructions must stay in $wasm_gc_types: $gc_instruction_escapes"
+fi
+require_fixed_string_count \
+  "$wasm_gc_types" \
+  'function.instruction(&Instruction::StructNew(' \
+  1 \
+  'typed StructNew encoder boundary'
+require_fixed_string_count \
+  "$wasm_gc_types" \
+  'function.instruction(&Instruction::StructGet {' \
+  1 \
+  'typed StructGet encoder boundary'
+require_fixed_string_count \
+  "$wasm_gc_types" \
+  'function.instruction(&Instruction::StructSet {' \
+  0 \
+  'typed StructSet encoder boundary before a mutable GC field exists'
 
 for module in array bigint binary_data boolean bootstrap date errors function \
               global_numeric host iterators json math object proxy reflect \

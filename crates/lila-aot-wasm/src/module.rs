@@ -1,14 +1,9 @@
 use super::*;
 use lila_ir::NativeErrorKind;
-use wasm_encoder::{
-    ConstExpr, FieldType, GlobalSection, GlobalType, HeapType, RefType, StorageType, TypeSection,
-};
+use wasm_encoder::{ConstExpr, GlobalSection, GlobalType, TypeSection};
 
-use crate::gc_types::{
-    GcField, GcFieldMutability, GcFieldNullability, GcFieldValue, GcHeapType, GcRef, GcTypeIndex,
-    I32Value, NonNullable, RuntimeGcAnchorHolderSchema, RuntimeGcAnchorRootSchema,
-    RuntimeGcAnchorSchema,
-};
+pub(crate) use crate::gc_types::RuntimeModuleSchema;
+use crate::gc_types::RuntimeModuleTypes;
 
 pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
 pub(crate) const COMPLETION_KIND_EXPORT: &str = "completion_kind";
@@ -228,82 +223,6 @@ pub(crate) const HOST_RANDOM_F64_IMPORT_TYPE_INDEX: u32 = HOST_WALL_CLOCK_MILLIS
 pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_FUNCTION_INDEX: u32 = 0;
 pub(crate) const HOST_PRINT_IMPORT_FUNCTION_INDEX: u32 = 1;
 
-/// The runtime-visible part of the module's central Wasm type registry.
-///
-/// Function emitters receive this value instead of reconstructing type indices
-/// from constants. It is copyable schema, not a second section encoder: the
-/// one [`ModuleTypeRegistry`] remains the sole owner of the encoded types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeModuleTypes {
-    gc_anchor: RuntimeGcAnchorSchema,
-    gc_anchor_holder: RuntimeGcAnchorHolderSchema,
-}
-
-impl RuntimeModuleTypes {
-    /// Registers runtime GC layouts in dependency order.
-    ///
-    /// The holder's field builder consumes the anchor's typed index, so the
-    /// strong edge cannot be declared against a guessed or not-yet-registered
-    /// target type.
-    fn register(types: &mut ModuleTypeSectionBuilder) -> Self {
-        let gc_anchor = RuntimeGcAnchorSchema::new(
-            types.gc_struct_with_i32_field(RuntimeGcAnchorSchema::ABI_VERSION_FIELD),
-        );
-        let gc_anchor_holder = RuntimeGcAnchorHolderSchema::new(types.gc_struct_with_ref_field(
-            RuntimeGcAnchorHolderSchema::ANCHOR_FIELD,
-            gc_anchor.type_index(),
-        ));
-
-        Self {
-            gc_anchor,
-            gc_anchor_holder,
-        }
-    }
-
-    pub(crate) const fn gc_anchor(self) -> RuntimeGcAnchorSchema {
-        self.gc_anchor
-    }
-
-    pub(crate) const fn gc_anchor_holder(self) -> RuntimeGcAnchorHolderSchema {
-        self.gc_anchor_holder
-    }
-}
-
-/// Complete runtime schema carried only by the main-function role.
-///
-/// A main body cannot be constructed from type indices alone: it must also
-/// carry the typed global that roots the capability anchor across the whole
-/// invocation. Internal functions receive neither this schema nor the root.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeModuleSchema {
-    types: RuntimeModuleTypes,
-    gc_anchor_root: RuntimeGcAnchorRootSchema,
-}
-
-impl RuntimeModuleSchema {
-    const fn new(types: RuntimeModuleTypes, gc_anchor_root_global_index: u32) -> Self {
-        Self {
-            types,
-            gc_anchor_root: RuntimeGcAnchorRootSchema::new(
-                gc_anchor_root_global_index,
-                types.gc_anchor().type_index(),
-            ),
-        }
-    }
-
-    pub(crate) const fn gc_anchor(self) -> RuntimeGcAnchorSchema {
-        self.types.gc_anchor()
-    }
-
-    pub(crate) const fn gc_anchor_holder(self) -> RuntimeGcAnchorHolderSchema {
-        self.types.gc_anchor_holder()
-    }
-
-    pub(crate) const fn gc_anchor_root(self) -> RuntimeGcAnchorRootSchema {
-        self.gc_anchor_root
-    }
-}
-
 /// The one type section and the typed indices assigned while constructing it.
 pub(crate) struct ModuleTypeRegistry {
     section: TypeSection,
@@ -367,7 +286,7 @@ impl ModuleTypeRegistry {
         types.function([ValType::I64, ValType::I64, ValType::I64], [ValType::I64]);
         types.function([], [ValType::F64]);
 
-        let runtime = RuntimeModuleTypes::register(&mut types);
+        let runtime = RuntimeModuleTypes::register(&mut types.section);
 
         Self {
             section: types.finish(),
@@ -379,7 +298,7 @@ impl ModuleTypeRegistry {
         &self,
         gc_anchor_root_global_index: u32,
     ) -> RuntimeModuleSchema {
-        RuntimeModuleSchema::new(self.runtime, gc_anchor_root_global_index)
+        self.runtime.bind_root(gc_anchor_root_global_index)
     }
 
     pub(crate) const fn section(&self) -> &TypeSection {
@@ -387,13 +306,11 @@ impl ModuleTypeRegistry {
     }
 }
 
-/// Single-use assignment point for all type-section indices.
+/// Single-use owner of the module type section.
 ///
-/// The typed GC field builders capture the section's actual next index before
-/// appending a type and return it with its heap-layout marker attached. A
-/// reference field additionally consumes its target's typed index. Callers
-/// therefore cannot guess an integer that silently drifts when an earlier type
-/// is added or name the wrong target layout for a strong edge.
+/// Function signatures are appended here. The opaque runtime-GC registration
+/// operation borrows the same section once, so GC types follow those signatures
+/// without exposing their assigned indices back to module assembly.
 struct ModuleTypeSectionBuilder {
     section: TypeSection,
 }
@@ -413,55 +330,6 @@ impl ModuleTypeSectionBuilder {
         R::IntoIter: ExactSizeIterator,
     {
         self.section.ty().function(params, results);
-    }
-
-    fn gc_struct_with_i32_field<T, Mutability>(
-        &mut self,
-        field: GcField<T, I32Value, Mutability, NonNullable>,
-    ) -> GcTypeIndex<T>
-    where
-        T: GcHeapType,
-        Mutability: GcFieldMutability,
-    {
-        assert_eq!(
-            field.ordinal().raw(),
-            0,
-            "a one-field GC struct must declare field ordinal zero"
-        );
-        let index = GcTypeIndex::new(self.section.len());
-        self.section.ty().struct_([FieldType {
-            element_type: StorageType::Val(ValType::I32),
-            mutable: Mutability::MUTABLE,
-        }]);
-        index
-    }
-
-    fn gc_struct_with_ref_field<Owner, Target, Mutability, Nullability>(
-        &mut self,
-        field: GcField<Owner, GcRef<Target>, Mutability, Nullability>,
-        target: GcTypeIndex<Target>,
-    ) -> GcTypeIndex<Owner>
-    where
-        Owner: GcHeapType,
-        Target: GcHeapType,
-        Mutability: GcFieldMutability,
-        Nullability: GcFieldNullability,
-        GcRef<Target>: GcFieldValue<Owner, Nullability>,
-    {
-        assert_eq!(
-            field.ordinal().raw(),
-            0,
-            "a one-field GC struct must declare field ordinal zero"
-        );
-        let index = GcTypeIndex::new(self.section.len());
-        self.section.ty().struct_([FieldType {
-            element_type: StorageType::Val(ValType::Ref(RefType {
-                nullable: Nullability::NULLABLE,
-                heap_type: HeapType::Concrete(target.raw()),
-            })),
-            mutable: Mutability::MUTABLE,
-        }]);
-        index
     }
 
     fn finish(self) -> TypeSection {
@@ -492,24 +360,7 @@ impl ModuleGlobalSectionBuilder {
     }
 
     pub(crate) fn finish(mut self, runtime: RuntimeModuleSchema) -> GlobalSection {
-        let root = runtime.gc_anchor_root();
-        assert_eq!(
-            self.section.len(),
-            root.global().raw(),
-            "runtime GC root must be appended after every pre-existing global"
-        );
-        let anchor_type = HeapType::Concrete(root.anchor_type_index().raw());
-        self.section.global(
-            GlobalType {
-                val_type: ValType::Ref(RefType {
-                    nullable: true,
-                    heap_type: anchor_type,
-                }),
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::ref_null(anchor_type),
-        );
+        runtime.append_root_global(&mut self.section);
         self.section
     }
 }

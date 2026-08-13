@@ -2466,46 +2466,61 @@ pick(true);"#,
         .expect("root-lifecycle fixture should emit");
         expect_valid_module(&artifact, 1);
 
+        let mut module_types = Vec::new();
         let mut root = None;
         let mut global_count = 0_u32;
         for payload in Parser::new(0).parse_all(&artifact.bytes) {
-            let Payload::GlobalSection(reader) = payload.expect("module should parse") else {
-                continue;
-            };
-            for (index, global) in reader.into_iter().enumerate() {
-                let global = global.expect("global should decode");
-                global_count += 1;
-                let wasmparser::ValType::Ref(reference_type) = global.ty.content_type else {
-                    continue;
-                };
-                assert!(root.is_none(), "the capability root is the sole GC global");
-                assert!(
-                    global.ty.mutable,
-                    "the root must support establish and clear"
-                );
-                assert!(!global.ty.shared, "the per-instance root is not shared");
-                assert!(
-                    reference_type.is_nullable(),
-                    "the cleared root must be null"
-                );
-                let wasmparser::HeapType::Concrete(anchor_type) = reference_type.heap_type() else {
-                    panic!("the root must retain the concrete anchor type");
-                };
-                let anchor_type = anchor_type
-                    .as_module_index()
-                    .expect("the emitted anchor type uses a module index");
-                let mut init = global.init_expr.get_operators_reader();
-                assert!(matches!(
-                    init.read().expect("root initializer should decode"),
-                    Operator::RefNull {
-                        hty: wasmparser::HeapType::Concrete(initializer_type)
-                    } if initializer_type.as_module_index() == Some(anchor_type)
-                ));
-                assert!(matches!(
-                    init.read().expect("root initializer should end"),
-                    Operator::End
-                ));
-                root = Some((index as u32, anchor_type));
+            match payload.expect("module should parse") {
+                Payload::TypeSection(reader) => {
+                    for group in reader {
+                        module_types.extend(
+                            group
+                                .expect("runtime type group should decode")
+                                .into_types(),
+                        );
+                    }
+                }
+                Payload::GlobalSection(reader) => {
+                    for (index, global) in reader.into_iter().enumerate() {
+                        let global = global.expect("global should decode");
+                        global_count += 1;
+                        let wasmparser::ValType::Ref(reference_type) = global.ty.content_type
+                        else {
+                            continue;
+                        };
+                        assert!(root.is_none(), "the capability root is the sole GC global");
+                        assert!(
+                            global.ty.mutable,
+                            "the root must support establish and clear"
+                        );
+                        assert!(!global.ty.shared, "the per-instance root is not shared");
+                        assert!(
+                            reference_type.is_nullable(),
+                            "the cleared root must be null"
+                        );
+                        let wasmparser::HeapType::Concrete(anchor_type) =
+                            reference_type.heap_type()
+                        else {
+                            panic!("the root must retain the concrete anchor type");
+                        };
+                        let anchor_type = anchor_type
+                            .as_module_index()
+                            .expect("the emitted anchor type uses a module index");
+                        let mut init = global.init_expr.get_operators_reader();
+                        assert!(matches!(
+                            init.read().expect("root initializer should decode"),
+                            Operator::RefNull {
+                                hty: wasmparser::HeapType::Concrete(initializer_type)
+                            } if initializer_type.as_module_index() == Some(anchor_type)
+                        ));
+                        assert!(matches!(
+                            init.read().expect("root initializer should end"),
+                            Operator::End
+                        ));
+                        root = Some((index as u32, anchor_type));
+                    }
+                }
+                _ => {}
             }
         }
         let (root_global, anchor_type) = root.expect("module must declare the typed GC root");
@@ -2528,6 +2543,8 @@ pick(true);"#,
         }
 
         let mut events = Vec::new();
+        let mut holder_type = None;
+        let mut constructed_types = Vec::new();
         for payload in Parser::new(0).parse_all(&artifact.bytes) {
             let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
                 continue;
@@ -2538,9 +2555,29 @@ pick(true);"#,
             {
                 let event = match operator.expect("main operator should decode") {
                     Operator::StructGet {
-                        struct_type_index, ..
-                    } if struct_type_index == anchor_type => Some(RootEvent::AnchorFieldGet),
-                    Operator::StructGet { .. } => Some(RootEvent::HolderFieldGet),
+                        struct_type_index,
+                        field_index,
+                    } if struct_type_index == anchor_type => {
+                        assert_eq!(field_index, 0, "the anchor ABI field is ordinal zero");
+                        Some(RootEvent::AnchorFieldGet)
+                    }
+                    Operator::StructGet {
+                        struct_type_index,
+                        field_index,
+                    } => {
+                        assert_eq!(field_index, 0, "the holder strong edge is ordinal zero");
+                        assert!(
+                            holder_type
+                                .replace(struct_type_index)
+                                .is_none_or(|existing| existing == struct_type_index),
+                            "main must not access two candidate holder layouts"
+                        );
+                        Some(RootEvent::HolderFieldGet)
+                    }
+                    Operator::StructNew { struct_type_index } => {
+                        constructed_types.push(struct_type_index);
+                        None
+                    }
                     Operator::GlobalGet { global_index } if global_index == root_global => {
                         Some(RootEvent::RootGet)
                     }
@@ -2565,6 +2602,55 @@ pick(true);"#,
             }
             break;
         }
+
+        let holder_type = holder_type.expect("main must traverse the typed holder field");
+        assert_eq!(
+            holder_type,
+            anchor_type + 1,
+            "the holder must be registered immediately after its anchor dependency"
+        );
+        assert_eq!(
+            constructed_types,
+            [anchor_type, holder_type],
+            "main must construct the registered anchor and then its holder"
+        );
+        let anchor = module_types
+            .get(anchor_type as usize)
+            .expect("root must name a declared anchor type")
+            .unwrap_struct();
+        assert_eq!(anchor.fields.len(), 1, "the anchor has one ABI field");
+        assert!(
+            !anchor.fields[0].mutable,
+            "the anchor ABI field is immutable"
+        );
+        assert_eq!(
+            anchor.fields[0].element_type,
+            wasmparser::StorageType::Val(wasmparser::ValType::I32),
+            "the anchor ABI field is an i32"
+        );
+        let holder = module_types
+            .get(holder_type as usize)
+            .expect("holder access must name a declared type")
+            .unwrap_struct();
+        assert_eq!(holder.fields.len(), 1, "the holder has one strong edge");
+        assert!(!holder.fields[0].mutable, "the holder edge is immutable");
+        let wasmparser::StorageType::Val(wasmparser::ValType::Ref(holder_reference)) =
+            holder.fields[0].element_type
+        else {
+            panic!("the holder field must be a typed reference");
+        };
+        assert!(
+            !holder_reference.is_nullable(),
+            "the holder's anchor edge must be non-null"
+        );
+        let wasmparser::HeapType::Concrete(holder_target) = holder_reference.heap_type() else {
+            panic!("the holder field must name the concrete anchor type");
+        };
+        assert_eq!(
+            holder_target.as_module_index(),
+            Some(anchor_type),
+            "the holder field and root must name the same anchor layout"
+        );
 
         let initial_set = events
             .iter()

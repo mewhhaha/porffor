@@ -20,7 +20,10 @@ existing globals, so no established index moves and an internal function
 cannot acquire it. Main constructs both structs before any call, transfers the
 holder's edge into the root, keeps it through source execution and the final
 job checkpoint, then verifies the anchor ABI and clears the root on every real
-main exit.
+main exit. The schema module is the sole raw Wasm-GC encoder boundary: module
+assembly consumes opaque type-registration/root-binding operations, and
+function emission consumes opaque initialization/cleanup operations instead of
+extracting interchangeable type, field and global `u32` indices.
 
 The product implementation is still the bump-allocated linear-memory object
 model. Its layout, root, weak-edge and collector tables remain passive metadata;
@@ -74,6 +77,13 @@ heap migration, reclamation, cycle collection or weak reachability.
   anchor's typed index when encoding that field. The main probe transfers that
   edge into the typed root before any call and verifies/clears it only at the
   shared main exit; the final job checkpoint deliberately does not clear it.
+- Raw GC type-index and field-ordinal construction/extraction, typed root
+  construction/extraction and `struct.new`/`struct.get` instructions are
+  private to `gc_types.rs`. Module assembly supplies the planned raw global
+  slot only to the opaque root-binding operation. `RuntimeModuleSchema` then
+  exposes the complete root-emission and lifecycle operations, so
+  owner/field/target mismatches fail at the Rust boundary instead of surviving
+  until Wasm validation.
 - `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` is the
   closed collector truth consumed by configuration, trace reporting and typed
   `EngineError` context; both native compiler profiles share that policy.
