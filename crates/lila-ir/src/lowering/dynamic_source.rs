@@ -144,6 +144,25 @@ impl ScriptLowerer<'_> {
         })
     }
 
+    pub(super) fn record_constructable_dynamic_source_targets(
+        &mut self,
+        function_ids: &BTreeSet<FunctionId>,
+        args: &[Expression],
+    ) -> bool {
+        let function_ids = function_ids
+            .iter()
+            .filter(|function_id| {
+                self.function_signatures
+                    .get(*function_id)
+                    .is_some_and(|signature| {
+                        signature.protocol.is_constructable()
+                            && signature.protocol.flavor() != FunctionFlavor::Arrow
+                    })
+            })
+            .collect::<Vec<_>>();
+        self.record_dynamic_source_targets(function_ids, BuiltinCallContext::Construct, args)
+    }
+
     pub(super) fn record_optional_dynamic_source(
         &mut self,
         function_id: &FunctionId,

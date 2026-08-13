@@ -18077,9 +18077,8 @@ impl<'a> ScriptLowerer<'a> {
             let Some(args) = self.lower_call_args_expanding_spread(new_expr.arguments()) else {
                 return TypedExpr::undefined();
             };
-            if self.record_dynamic_source_targets(
+            if self.record_constructable_dynamic_source_targets(
                 &callee.function_targets,
-                BuiltinCallContext::Construct,
                 new_expr.arguments(),
             ) {
                 return TypedExpr::undefined();

@@ -11109,6 +11109,19 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn multi_target_construct_ignores_non_constructable_dynamic_source_identities() {
+        let program = lower_script("let C = unknown ? eval : Array; new C('source');");
+        assert!(
+            !program.diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.unsupported_feature(),
+                Some(UnsupportedFeature::DynamicSource(_))
+            )),
+            "{:?}",
+            program.diagnostics
+        );
+    }
+
+    #[test]
     fn realm_eval_script_is_a_test262_only_typed_host_capability() {
         let name = HostBuiltinId::RealmEvalScript
             .global_name()
