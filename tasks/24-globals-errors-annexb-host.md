@@ -75,6 +75,26 @@ invalid conversion hook. See
 bounded semantic closure only; the focused runtime and current-pin Error gates
 remain deferred to the centralized verification pass.
 
+`Error` construction now gives `OrdinaryCreateFromConstructor` one typed
+owner.  The generic construct dispatcher sends the allocating Error builtin
+directly to its body, preventing a second observable `NewTarget.prototype`
+read and an unrelated `%Object.prototype%` preallocation.  A private,
+non-`Copy`, `must_use` prototype witness couples payload and representation
+tag; its only instance allocator uses the tagged prototype operation.  A
+primitive prototype selects the required `%Error.prototype%` slot only after
+`GetFunctionRealm(NewTarget)`, never a per-function snapshot or entry global.
+Entry and created realms both publish that slot through the closed
+realm-intrinsics domain, and created Error functions carry their active
+identity so call-without-`new` still performs its active function's observable
+prototype Get before selecting the same realm. A focused fixture pins fallback
+identity, custom Object/Function/Array/Arguments prototypes, the explicit
+one-Get path, abrupt and revocation routes, Error branding and message
+installation; the immutable active intrinsic's common Get transition is
+source-pinned. See
+`docs/rust-rewrite/contracts/error-constructor-realm-prototype.md`.  This is a
+static implementation checkpoint: focused runtime and current-pin verification
+are deferred, and the adjacent native-error-family fallbacks remain open.
+
 Annex B `unescape` now materializes its result through one private UTF-16
 output coordinator. Previously, each `%uXXXX` was encoded independently, so a
 decoded lead/trail pair such as `%uD801%uDC01` became two WTF-8 surrogate

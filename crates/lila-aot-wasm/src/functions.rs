@@ -61,6 +61,7 @@ pub(crate) struct RealmArrayPrototypeLocal(u32);
 pub(crate) enum NonArrayRealmIntrinsicSlot {
     ThrowTypeError,
     TypeErrorPrototype,
+    ErrorPrototype,
     GeneratorFunctionConstructor,
     AsyncFunctionConstructor,
     AsyncGeneratorFunctionConstructor,
@@ -106,13 +107,15 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
 
 /// The fallback selected after `Get(NewTarget, "prototype")` produces a
 /// primitive. The variants keep entry-global, function-snapshot, optional
-/// realm-slot and required resolved-realm semantics distinct at each caller.
+/// realm-slot, required resolved-realm, and undefined-NewTarget active-function
+/// semantics distinct at each caller.
 #[derive(Clone, Copy)]
 pub(crate) enum NewTargetPrototypeFallback {
     CurrentGlobal,
     FunctionSnapshot(u64),
     RealmIntrinsic(u64),
     RequiredResolvedRealmOrdinary(OrdinaryDefaultPrototype),
+    RequiredResolvedRealmOrdinaryActive(OrdinaryDefaultPrototype),
 }
 
 impl NonArrayRealmIntrinsicSlot {
@@ -120,6 +123,7 @@ impl NonArrayRealmIntrinsicSlot {
         match self {
             Self::ThrowTypeError => HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
             Self::TypeErrorPrototype => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            Self::ErrorPrototype => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET,
             Self::GeneratorFunctionConstructor => {
                 HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET
             }
@@ -488,6 +492,7 @@ impl ResolvedFunctionRealmLocal {
 #[derive(Clone, Copy)]
 pub(crate) enum OrdinaryDefaultPrototype {
     Object,
+    Error,
     String,
     Number,
     Boolean,
@@ -499,6 +504,7 @@ impl OrdinaryDefaultPrototype {
     const fn offset(self) -> u64 {
         match self {
             Self::Object => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            Self::Error => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET,
             Self::String => HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
             Self::Number => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
             Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
@@ -3094,6 +3100,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::SetConstructor,
             StandardBuiltinId::TemporalZonedDateTimeConstructor,
             StandardBuiltinId::IteratorConstructor,
+            StandardBuiltinId::ErrorConstructor,
         ]
         .into_iter()
         .filter_map(|builtin| {

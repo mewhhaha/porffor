@@ -2960,6 +2960,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(ERROR_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            ERROR_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::ErrorPrototype,
+            function,
+        );
         let native_error_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(ERROR_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(native_error_prototype_local));

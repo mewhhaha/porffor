@@ -4109,6 +4109,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(typed_array_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(error_prototype_local));
+        self.emit_store_non_array_realm_intrinsic(
+            realm_record_local,
+            NonArrayRealmIntrinsicSlot::ErrorPrototype,
+            error_prototype_local,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(eval_error_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
@@ -6832,6 +6838,12 @@ impl<'a> FunctionBuilder<'a> {
                 constructor_local,
                 function,
             )?;
+            self.store_i64_local_at_offset(
+                constructor_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                constructor_local,
+                function,
+            );
             if meta.name != ERROR_NAME {
                 self.store_i64_local_at_offset(
                     constructor_local,

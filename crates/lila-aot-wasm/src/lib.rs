@@ -620,7 +620,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 352;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 360;",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -659,7 +659,9 @@ mod tests {
             .split_once("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(intrinsic) => {")
             .expect("required resolved-realm policy arm should exist")
             .1
-            .split_once("NewTargetPrototypeFallback::RealmIntrinsic(offset) => {")
+            .split_once(
+                "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(intrinsic) => {",
+            )
             .expect("required resolved-realm policy arm should be bounded")
             .0;
         assert_eq!(
@@ -766,6 +768,176 @@ mod tests {
             host.matches("self.emit_store_realm_date_prototype(")
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn error_constructor_realm_prototype_is_required_tagged_and_published() {
+        let heap = include_str!("heap.rs");
+        let functions = include_str!("functions.rs");
+        let errors = include_str!("builtins/errors.rs");
+        let error_constructor = include_str!("builtins/errors/constructor.rs");
+        let bootstrap = include_str!("builtins/bootstrap.rs");
+        let host = include_str!("builtins/host.rs");
+
+        let domain = functions
+            .split_once("enum OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype domain should exist")
+            .1
+            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
+            .expect("ordinary default-prototype domain should be bounded")
+            .0;
+        let offsets = functions
+            .split_once("impl OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype offset map should exist")
+            .1
+            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
+            .expect("ordinary default-prototype offset map should be bounded")
+            .0;
+        assert_eq!(domain.matches("    Error,").count(), 1);
+        assert_eq!(
+            offsets
+                .matches("Self::Error => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET")
+                .count(),
+            1
+        );
+
+        for required in [
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 360;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
+            "name: \"%Error.prototype%\"",
+            "offset: HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET",
+        ] {
+            assert!(
+                heap.contains(required),
+                "Error realm layout must contain {required}"
+            );
+        }
+
+        let witness = error_constructor
+            .split_once("struct ErrorConstructorPrototypeLocals {")
+            .expect("Error constructor prototype witness should exist")
+            .1
+            .split_once("impl<'a> FunctionBuilder<'a> {")
+            .expect("Error constructor prototype witness should be bounded")
+            .0;
+        assert!(witness.contains("payload: u32"));
+        assert!(witness.contains("tag: u32"));
+        assert!(!witness.contains("derive(Clone"));
+        assert!(!witness.contains("derive(Copy"));
+        assert!(error_constructor.contains(
+            "#[must_use = \"the resolved Error prototype must be used for allocation and released\"]"
+        ));
+
+        let constructor = errors
+            .split_once("NativeErrorKind::Error => {")
+            .expect("Error constructor body should exist")
+            .1
+            .split_once("            },\n            ErrorBuiltin::PrototypeToString")
+            .expect("Error constructor body should be bounded")
+            .0;
+        assert_eq!(
+            constructor
+                .matches("emit_error_constructor_prototype(function)")
+                .count(),
+            1
+        );
+        assert_eq!(constructor.matches("&prototype").count(), 2);
+        assert_eq!(
+            constructor
+                .matches("release_error_constructor_prototype(prototype)")
+                .count(),
+            1
+        );
+        assert!(!constructor.contains("emit_error_new_target_prototype_to_local("));
+
+        let producer = error_constructor
+            .split_once("fn emit_error_constructor_prototype(")
+            .expect("Error prototype producer should exist")
+            .1
+            .split_once("fn release_error_constructor_prototype(")
+            .expect("Error prototype producer should be bounded")
+            .0;
+        for required in [
+            "emit_new_target_prototype_to_locals(",
+            "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(",
+            "OrdinaryDefaultPrototype::Error",
+        ] {
+            assert_eq!(producer.matches(required).count(), 1, "{required}");
+        }
+        assert!(!producer.contains("FunctionSnapshot"));
+        assert!(!producer.contains("CurrentGlobal"));
+
+        let shared_resolution = errors
+            .split_once("    pub(crate) fn emit_new_target_prototype_to_locals(")
+            .expect("shared new-target prototype resolver should exist")
+            .1
+            .split_once("    pub(crate) fn emit_aggregate_error_new_target_prototype_to_local(")
+            .expect("shared new-target prototype resolver should be bounded")
+            .0;
+        assert_eq!(shared_resolution.matches("emit_object_read(").count(), 1);
+        let active_selection = shared_resolution
+            .find("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(_) =>")
+            .expect("active Error fallback arm should exist");
+        let guarded_get = shared_resolution
+            .find("LocalGet(should_get_prototype_local)")
+            .expect("the common prototype Get should be guarded");
+        let common_get = shared_resolution
+            .find("emit_object_read(")
+            .expect("the common prototype Get should exist");
+        assert!(active_selection < guarded_get && guarded_get < common_get);
+        assert!(shared_resolution.contains("StandardBuiltinId::ErrorConstructor"));
+        assert!(shared_resolution.contains("LocalSet(should_get_prototype_local)"));
+
+        let allocator = error_constructor
+            .split_once("fn emit_alloc_error_instance_from_locals(")
+            .expect("Error instance allocator should exist")
+            .1
+            .split_once("fn emit_error_constructor_prototype(")
+            .expect("Error instance allocator should be bounded")
+            .0;
+        assert_eq!(
+            allocator
+                .matches("emit_alloc_plain_object_with_prototype_and_tag(")
+                .count(),
+            1
+        );
+        assert!(!allocator.contains("emit_alloc_plain_object_with_prototype("));
+        assert!(allocator.contains("Some(prototype.payload)"));
+        assert!(allocator.contains("Some(prototype.tag)"));
+
+        let direct = functions
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct
+                .matches("StandardBuiltinId::ErrorConstructor")
+                .count(),
+            1,
+            "Error must bypass generic preallocation and its observable prototype Get"
+        );
+
+        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            ERROR_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::ErrorPrototype";
+        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
+        let created_publication = "emit_store_non_array_realm_intrinsic(\n            realm_record_local,\n            NonArrayRealmIntrinsicSlot::ErrorPrototype,\n            error_prototype_local";
+        assert_eq!(host.matches(created_publication).count(), 1);
+        let created_constructors = host
+            .split_once("for index in 0..error_constructor_metas.len() {")
+            .expect("created-realm Error constructor loop should exist")
+            .1
+            .split_once("let error_is_error_payload_local")
+            .expect("created-realm Error constructor loop should be bounded")
+            .0;
+        assert_eq!(
+            created_constructors
+                .matches("HEAP_FUNCTION_ENV_HANDLE_OFFSET")
+                .count(),
+            1,
+            "every created-realm Error constructor must carry its active function identity"
         );
     }
 
@@ -1008,7 +1180,7 @@ mod tests {
             .split_once("fn emit_error_to_string_value_to_string_local(")
             .expect("Error.prototype.toString conversion boundary should exist")
             .1
-            .split_once("pub(crate) fn emit_alloc_error_instance_from_locals(")
+            .split_once("pub(crate) fn emit_install_error_cause_from_arg(")
             .expect("the conversion boundary should have a bounded body")
             .0;
 

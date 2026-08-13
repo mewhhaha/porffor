@@ -226,6 +226,26 @@ fn run_wasm_backend_succeeds_for_error_constructor_properties_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_uses_new_target_realm_for_error_prototype() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_error_constructor_realm_prototype.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_throwtypeerror_intrinsic_properties_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

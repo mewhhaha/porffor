@@ -228,7 +228,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 304;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 352;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 360;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -712,6 +712,7 @@ pub(crate) const HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET: u64 = 320;
 pub(crate) const HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET: u64 = 328;
 pub(crate) const HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET: u64 = 336;
 pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;
+pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -3090,6 +3091,13 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         record: "realm-intrinsics",
         name: "%Date.prototype%",
         offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Error.prototype%",
+        offset: HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -6390,7 +6398,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 352);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 360);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
         assert_eq!(
             HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
@@ -6398,6 +6406,7 @@ mod tests {
         );
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET, 336);
         assert_eq!(HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET, 344);
+        assert_eq!(HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET, 352);
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 72);
         assert_eq!(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, 48);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 56);
@@ -6681,6 +6690,11 @@ mod tests {
         assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
             slot.name == "%Date.prototype%"
                 && slot.offset == HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET
+                && slot.pointer
+        }));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%Error.prototype%"
+                && slot.offset == HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET
                 && slot.pointer
         }));
         assert!(HEAP_BIGINT_LAYOUT.iter().any(|slot| {

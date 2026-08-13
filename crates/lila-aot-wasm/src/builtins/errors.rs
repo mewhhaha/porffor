@@ -2,6 +2,8 @@ use super::super::*;
 use crate::functions::{FunctionRealmRevokedRoute, NewTargetPrototypeFallback};
 use lila_ir::NativeErrorKind;
 
+mod constructor;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ErrorBuiltin {
     IsError,
@@ -65,8 +67,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::GlobalGet(constructor_global_index));
         function.instruction(&Instruction::LocalSet(new_target_payload_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::LocalSet(new_target_payload_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(new_target_tag_local));
         function.instruction(&Instruction::End);
@@ -293,20 +302,14 @@ impl<'a> FunctionBuilder<'a> {
                     let arg_payload_local = self.reserve_temp_local();
                     let arg_tag_local = self.reserve_temp_local();
                     let message_payload_local = self.reserve_temp_local();
-                    let prototype_payload_local = self.reserve_temp_local();
                     self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                    self.emit_error_new_target_prototype_to_local(
-                        error_prototype_global_index(error_kind),
-                        Some(error_realm_prototype_offset(error_kind)),
-                        prototype_payload_local,
-                        function,
-                    )?;
+                    let prototype = self.emit_error_constructor_prototype(function)?;
                     function.instruction(&Instruction::LocalGet(arg_tag_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                     function.instruction(&Instruction::I64Eq);
                     function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_alloc_error_instance_from_locals(
-                        prototype_payload_local,
+                        &prototype,
                         None,
                         self.result_local,
                         self.result_tag_local,
@@ -317,7 +320,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
                     function.instruction(&Instruction::LocalSet(message_payload_local));
                     self.emit_alloc_error_instance_from_locals(
-                        prototype_payload_local,
+                        &prototype,
                         Some(message_payload_local),
                         self.result_local,
                         self.result_tag_local,
@@ -325,7 +328,7 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                     self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
                     function.instruction(&Instruction::End);
-                    self.release_temp_local(prototype_payload_local);
+                    self.release_error_constructor_prototype(prototype);
                     self.release_temp_local(message_payload_local);
                     self.release_temp_local(arg_tag_local);
                     self.release_temp_local(arg_payload_local);
@@ -517,48 +520,6 @@ impl<'a> FunctionBuilder<'a> {
             string_payload_local,
             function,
         )
-    }
-
-    pub(crate) fn emit_alloc_error_instance_from_locals(
-        &mut self,
-        prototype_payload_local: u32,
-        message_payload_local: Option<u32>,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let object_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-        if let Some(message_payload_local) = message_payload_local {
-            function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_object_define_data(
-                object_local,
-                key_local,
-                message_payload_local,
-                value_tag_local,
-                function,
-            )?;
-        }
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(object_local);
-        Ok(())
     }
 
     pub(crate) fn emit_install_error_cause_from_arg(
@@ -783,7 +744,10 @@ impl<'a> FunctionBuilder<'a> {
         let realm_source_payload_local = self.reserve_temp_local();
         let proxy_handler_payload_local = self.reserve_temp_local();
         let proxy_target_tag_local = self.reserve_temp_local();
+        let should_get_prototype_local = self.reserve_temp_local();
 
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(should_get_prototype_local));
         self.compile_new_target_to_locals(
             new_target_payload_local,
             new_target_tag_local,
@@ -828,11 +792,39 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(prototype_tag_local));
+        match fallback {
+            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(_) => {
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::GlobalGet(
+                    standard_builtin_constructor_global_index(StandardBuiltinId::ErrorConstructor)
+                        .expect("Error constructor global must exist"),
+                ));
+                function.instruction(&Instruction::LocalSet(new_target_payload_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::LocalSet(new_target_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(new_target_tag_local));
+            }
+            _ => {
+                function.instruction(&Instruction::GlobalGet(default_prototype_global_index));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(prototype_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(should_get_prototype_local));
+            }
+        }
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(should_get_prototype_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
         function.instruction(&Instruction::LocalSet(prototype_key_local));
         self.emit_object_read(
@@ -876,6 +868,16 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
+            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinaryActive(intrinsic) => {
+                self.emit_required_new_target_realm_ordinary_prototype(
+                    new_target_payload_local,
+                    new_target_tag_local,
+                    intrinsic,
+                    prototype_payload_local,
+                    prototype_tag_local,
+                    function,
+                )?;
+            }
             NewTargetPrototypeFallback::RealmIntrinsic(offset) => {
                 let prototype_realm_result = self.emit_get_function_realm(
                     new_target_payload_local,
@@ -905,6 +907,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(should_get_prototype_local);
         self.release_temp_local(proxy_target_tag_local);
         self.release_temp_local(proxy_handler_payload_local);
         self.release_temp_local(realm_source_payload_local);
