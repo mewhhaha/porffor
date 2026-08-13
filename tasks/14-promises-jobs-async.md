@@ -38,6 +38,15 @@ Both callback lookups select the enqueue-time current realm for a revoked Proxy,
 and the drain maps a null job realm to its saved host-checkpoint realm instead
 of installing zero or leaking the preceding job's realm.
 
+The reaction record's `[[Type]]` is now a separate closed
+`PromiseReactionType::{Fulfill, Reject}` domain rather than a raw Promise-state
+word. All three producer pairs must select the type before construction. The
+reaction-job runner decodes the stable wire words 1/2 once into a normalized
+rejection flag, traps an unknown word, and threads that flag through all six
+callback shapes. No callback independently treats an invalid word as its own
+fallback. This is a record-integrity boundary; valid reaction behavior and the
+wire encoding are unchanged.
+
 Main Script completion now has one closed exit policy. While source statements
 are emitted, every otherwise-terminal abrupt completion targets a code-sink
 tracked host-checkpoint block instead of returning from the Wasm export. The

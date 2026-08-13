@@ -1270,7 +1270,7 @@ impl<'a> FunctionBuilder<'a> {
         capability_record_local: u32,
         handler_payload_local: u32,
         handler_tag_local: u32,
-        reaction_type: u64,
+        reaction_type: PromiseReactionType,
         callback_kind: PromiseReactionCallbackKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1327,7 +1327,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             reaction_record_local,
             HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type,
+            reaction_type.word(),
             function,
         );
         Ok(())
@@ -1899,7 +1899,7 @@ impl<'a> FunctionBuilder<'a> {
             reaction_capability_record_local,
             on_fulfilled_payload_local,
             on_fulfilled_tag_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseReactionType::Fulfill,
             reaction_callback_kind,
             function,
         )?;
@@ -1908,7 +1908,7 @@ impl<'a> FunctionBuilder<'a> {
             reaction_capability_record_local,
             on_rejected_payload_local,
             on_rejected_tag_local,
-            PROMISE_STATE_REJECTED,
+            PromiseReactionType::Reject,
             reaction_callback_kind,
             function,
         )?;
@@ -2035,7 +2035,7 @@ impl<'a> FunctionBuilder<'a> {
             activation_local,
             undefined_payload_local,
             undefined_tag_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseReactionType::Fulfill,
             PromiseReactionCallbackKind::AsyncGeneratorAwaitReturn,
             function,
         )?;
@@ -2044,7 +2044,7 @@ impl<'a> FunctionBuilder<'a> {
             activation_local,
             undefined_payload_local,
             undefined_tag_local,
-            PROMISE_STATE_REJECTED,
+            PromiseReactionType::Reject,
             PromiseReactionCallbackKind::AsyncGeneratorAwaitReturn,
             function,
         )?;
@@ -2223,7 +2223,7 @@ impl<'a> FunctionBuilder<'a> {
             capability_record_local,
             on_fulfilled_payload_local,
             on_fulfilled_tag_local,
-            PROMISE_STATE_FULFILLED,
+            PromiseReactionType::Fulfill,
             PromiseReactionCallbackKind::Default,
             function,
         )?;
@@ -2232,7 +2232,7 @@ impl<'a> FunctionBuilder<'a> {
             capability_record_local,
             on_rejected_payload_local,
             on_rejected_tag_local,
-            PROMISE_STATE_REJECTED,
+            PromiseReactionType::Reject,
             PromiseReactionCallbackKind::Default,
             function,
         )?;
@@ -2779,6 +2779,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_run_async_continuation_job(
         &mut self,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
@@ -2790,7 +2791,6 @@ impl<'a> FunctionBuilder<'a> {
         let this_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
-        let reaction_type_local = self.reserve_temp_local();
         let completed_local = self.reserve_temp_local();
         let body_payload_local = self.reserve_temp_local();
         let body_tag_local = self.reserve_temp_local();
@@ -2832,12 +2832,6 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type_local,
-            function,
-        );
         self.store_i64_local_at_offset(
             activation_local,
             HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
@@ -2850,21 +2844,20 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_REJECTED as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.store_i64_const_at_offset(
             activation_local,
             HEAP_ASYNC_RESUME_KIND_OFFSET,
-            ASYNC_RESUME_KIND_REJECT,
+            ASYNC_RESUME_KIND_FULFILL,
             function,
         );
         function.instruction(&Instruction::Else);
         self.store_i64_const_at_offset(
             activation_local,
             HEAP_ASYNC_RESUME_KIND_OFFSET,
-            ASYNC_RESUME_KIND_FULFILL,
+            ASYNC_RESUME_KIND_REJECT,
             function,
         );
         function.instruction(&Instruction::End);
@@ -2922,7 +2915,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(body_tag_local);
         self.release_temp_local(body_payload_local);
         self.release_temp_local(completed_local);
-        self.release_temp_local(reaction_type_local);
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(this_tag_local);
@@ -3218,6 +3210,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_run_async_generator_await_job(
         &mut self,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
@@ -3227,7 +3220,6 @@ impl<'a> FunctionBuilder<'a> {
         let body_status_local = self.reserve_temp_local();
         let active_request_local = self.reserve_temp_local();
         let queue_head_local = self.reserve_temp_local();
-        let reaction_type_local = self.reserve_temp_local();
         let resume_kind_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
@@ -3290,27 +3282,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_RESUME_KIND_FULFILL as i64,
         ));
         function.instruction(&Instruction::LocalSet(resume_kind_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_REJECTED as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
         ));
@@ -3359,7 +3338,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_start_async_generator_body(activation_local, function)?;
 
         self.release_temp_local(resume_kind_local);
-        self.release_temp_local(reaction_type_local);
         self.release_temp_local(queue_head_local);
         self.release_temp_local(active_request_local);
         self.release_temp_local(body_status_local);
@@ -3371,6 +3349,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_run_async_generator_await_return_job(
         &mut self,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
@@ -3383,15 +3362,8 @@ impl<'a> FunctionBuilder<'a> {
             activation_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            completion_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(completion_kind_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
         function.instruction(&Instruction::LocalSet(completion_kind_local));
@@ -3416,6 +3388,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_run_async_generator_yield_return_job(
         &mut self,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
@@ -3425,7 +3398,6 @@ impl<'a> FunctionBuilder<'a> {
         let body_status_local = self.reserve_temp_local();
         let active_request_local = self.reserve_temp_local();
         let queue_head_local = self.reserve_temp_local();
-        let reaction_type_local = self.reserve_temp_local();
         let resume_kind_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
@@ -3488,27 +3460,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
 
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_RESUME_KIND_RETURN as i64,
         ));
         function.instruction(&Instruction::LocalSet(resume_kind_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_REJECTED as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(
             ASYNC_GENERATOR_RESUME_KIND_THROW as i64,
         ));
@@ -3536,7 +3495,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_start_async_generator_body(activation_local, function)?;
 
         self.release_temp_local(resume_kind_local);
-        self.release_temp_local(reaction_type_local);
         self.release_temp_local(queue_head_local);
         self.release_temp_local(active_request_local);
         self.release_temp_local(body_status_local);
@@ -3548,12 +3506,12 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_run_async_generator_yield_job(
         &mut self,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let activation_local = self.reserve_temp_local();
-        let reaction_type_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
             reaction_record_local,
@@ -3561,15 +3519,8 @@ impl<'a> FunctionBuilder<'a> {
             activation_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         let resume_body_local = self.reserve_temp_local();
         self.emit_complete_async_generator_yield(
@@ -3609,7 +3560,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_start_async_generator_body(activation_local, function)?;
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(reaction_type_local);
         self.release_temp_local(activation_local);
         Ok(())
     }
@@ -3745,6 +3695,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         kind: PromiseReactionCallbackKind,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
@@ -3752,12 +3703,14 @@ impl<'a> FunctionBuilder<'a> {
         match kind {
             PromiseReactionCallbackKind::Default => self.emit_run_default_promise_reaction_job(
                 reaction_record_local,
+                reaction_is_rejected_local,
                 argument_payload_local,
                 argument_tag_local,
                 function,
             ),
             PromiseReactionCallbackKind::AsyncFunction => self.emit_run_async_continuation_job(
                 reaction_record_local,
+                reaction_is_rejected_local,
                 argument_payload_local,
                 argument_tag_local,
                 function,
@@ -3765,6 +3718,7 @@ impl<'a> FunctionBuilder<'a> {
             PromiseReactionCallbackKind::AsyncGeneratorAwaitReturn => self
                 .emit_run_async_generator_await_return_job(
                     reaction_record_local,
+                    reaction_is_rejected_local,
                     argument_payload_local,
                     argument_tag_local,
                     function,
@@ -3772,6 +3726,7 @@ impl<'a> FunctionBuilder<'a> {
             PromiseReactionCallbackKind::AsyncGeneratorAwait => self
                 .emit_run_async_generator_await_job(
                     reaction_record_local,
+                    reaction_is_rejected_local,
                     argument_payload_local,
                     argument_tag_local,
                     function,
@@ -3779,6 +3734,7 @@ impl<'a> FunctionBuilder<'a> {
             PromiseReactionCallbackKind::AsyncGeneratorYield => self
                 .emit_run_async_generator_yield_job(
                     reaction_record_local,
+                    reaction_is_rejected_local,
                     argument_payload_local,
                     argument_tag_local,
                     function,
@@ -3786,10 +3742,38 @@ impl<'a> FunctionBuilder<'a> {
             PromiseReactionCallbackKind::AsyncGeneratorYieldReturn => self
                 .emit_run_async_generator_yield_return_job(
                     reaction_record_local,
+                    reaction_is_rejected_local,
                     argument_payload_local,
                     argument_tag_local,
                     function,
                 ),
+        }
+    }
+
+    fn emit_decode_promise_reaction_type(
+        &self,
+        reaction_type_word_local: u32,
+        reaction_is_rejected_local: u32,
+        function: &mut Function,
+    ) {
+        let mut open_dispatch_arms = 0;
+        for reaction_type in PromiseReactionType::ALL {
+            function.instruction(&Instruction::LocalGet(reaction_type_word_local));
+            function.instruction(&Instruction::I64Const(reaction_type.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(if reaction_type.is_rejected() {
+                1
+            } else {
+                0
+            }));
+            function.instruction(&Instruction::LocalSet(reaction_is_rejected_local));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
         }
     }
 
@@ -3801,10 +3785,23 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let callback_kind_local = self.reserve_temp_local();
+        let reaction_type_word_local = self.reserve_temp_local();
+        let reaction_is_rejected_local = self.reserve_temp_local();
         self.load_i64_to_local_from_offset(
             reaction_record_local,
             HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
             callback_kind_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            reaction_record_local,
+            HEAP_PROMISE_REACTION_TYPE_OFFSET,
+            reaction_type_word_local,
+            function,
+        );
+        self.emit_decode_promise_reaction_type(
+            reaction_type_word_local,
+            reaction_is_rejected_local,
             function,
         );
 
@@ -3817,6 +3814,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_run_promise_reaction_callback(
                 kind,
                 reaction_record_local,
+                reaction_is_rejected_local,
                 argument_payload_local,
                 argument_tag_local,
                 function,
@@ -3829,6 +3827,8 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
+        self.release_temp_local(reaction_is_rejected_local);
+        self.release_temp_local(reaction_type_word_local);
         self.release_temp_local(callback_kind_local);
         Ok(())
     }
@@ -3836,6 +3836,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_run_default_promise_reaction_job(
         &mut self,
         reaction_record_local: u32,
+        reaction_is_rejected_local: u32,
         argument_payload_local: u32,
         argument_tag_local: u32,
         function: &mut Function,
@@ -3847,7 +3848,6 @@ impl<'a> FunctionBuilder<'a> {
         let reject_tag_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
         let handler_tag_local = self.reserve_temp_local();
-        let reaction_type_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
         let undefined_payload_local = self.reserve_temp_local();
@@ -3901,13 +3901,6 @@ impl<'a> FunctionBuilder<'a> {
             handler_tag_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            reaction_record_local,
-            HEAP_PROMISE_REACTION_TYPE_OFFSET,
-            reaction_type_local,
-            function,
-        );
-
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(undefined_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -3950,9 +3943,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(call_tag_local));
         function.instruction(&Instruction::LocalSet(selected_argument_tag_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(reaction_type_local));
-        function.instruction(&Instruction::I64Const(PROMISE_STATE_FULFILLED as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(resolve_payload_local));
         function.instruction(&Instruction::LocalSet(selected_function_payload_local));
@@ -4000,7 +3992,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(undefined_payload_local);
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
-        self.release_temp_local(reaction_type_local);
         self.release_temp_local(handler_tag_local);
         self.release_temp_local(handler_payload_local);
         self.release_temp_local(reject_tag_local);

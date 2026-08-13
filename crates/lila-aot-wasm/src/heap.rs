@@ -1141,6 +1141,27 @@ macro_rules! promise_wire_domain {
     (@unit $variant:ident) => { () };
 }
 
+// The closed domain stored in a Promise reaction record's `type` word.
+//
+// A reaction is selected for exactly one terminal Promise path. It cannot be
+// pending, even though its stable wire words intentionally match the fulfilled
+// and rejected Promise-state words. The job runner decodes this domain once;
+// no callback shape may reinterpret the raw word independently.
+promise_wire_domain!(PromiseReactionType, 1, {
+    Fulfill = 1,
+    Reject = 2,
+});
+
+impl PromiseReactionType {
+    /// The normalized runtime branch consumed by every reaction callback.
+    pub(crate) const fn is_rejected(self) -> bool {
+        match self {
+            Self::Fulfill => false,
+            Self::Reject => true,
+        }
+    }
+}
+
 // The closed domain stored in a Promise reaction record's `callback_kind`
 // word.
 //
@@ -5645,7 +5666,15 @@ mod tests {
     use wasmparser::{Operator, Parser, Payload};
 
     #[test]
-    fn promise_reaction_callback_words_and_realm_policies_are_stable() {
+    fn promise_reaction_wire_domains_and_realm_policies_are_stable() {
+        assert_eq!(
+            PromiseReactionType::ALL.map(PromiseReactionType::word),
+            [1, 2]
+        );
+        assert_eq!(
+            PromiseReactionType::ALL.map(PromiseReactionType::is_rejected),
+            [false, true]
+        );
         assert_eq!(
             PromiseReactionCallbackKind::ALL.map(PromiseReactionCallbackKind::word),
             [0, 1, 2, 3, 4, 5]
