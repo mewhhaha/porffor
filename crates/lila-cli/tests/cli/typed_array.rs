@@ -1046,3 +1046,24 @@ fn run_wasm_backend_succeeds_for_supported_typedarray_to_string_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
 }
+
+#[test]
+fn run_wasm_backend_succeeds_for_typedarray_join_buffer_witness_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_typedarray_join_buffer_witness.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"), "{stdout}");
+}

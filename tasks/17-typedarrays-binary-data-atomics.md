@@ -88,6 +88,20 @@ resizable length, whole-element flooring and permanently-done behavior. The rema
 validators and full integer-indexed/iterator closure remain open; this is a
 source-invariant correction and does not claim a new baseline pass.
 
+`%TypedArray%.prototype.join` now uses the validated-method-entry projection of
+that same buffer witness. Its compiler performs the receiver-brand check first,
+loads one immutable view record, and consumes the witness's element length
+directly instead of reconstructing private slots, calling the legacy raw
+validator and dividing byte length itself. Detached and out-of-bounds failures
+therefore use the executing builtin's Realm, including when a created Realm's
+`join` is borrowed onto an entry-Realm receiver. Separator coercion remains
+after the initially captured length, and later integer-indexed reads remain
+live. The focused
+[join buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-join-buffer-witness.md)
+and CLI fixture pin Realm identity, fixed and tracking resize behavior, BigInt,
+and whole-element flooring. Remaining raw validators, the shared indexed
+`Get`, Test262 rewrites and full binary-data closure remain separate work.
+
 ## Objective
 
 Implement the complete binary-data stack, integer-indexed exotic semantics and real agent/Atomics behavior. Replace rejection-only SharedArrayBuffer behavior and harness simulations with general backing-store and host concurrency support.
