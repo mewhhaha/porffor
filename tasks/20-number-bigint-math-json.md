@@ -69,6 +69,20 @@ while the loop applies `ToNumber` left-to-right to every argument even after
 and CLI fixture cover arguments beyond the old cap, signed zero, later
 coercion and later abrupt completion. This batch has run only static gates for
 that seam while the repository-wide conformance matrix owns the verifier. The
+`Math.hypot` backend now likewise consumes the complete runtime argument
+vector. A private non-copy completed-reduction witness makes the full
+left-to-right `ToNumber` pass a prerequisite for result selection, while
+Infinity and NaN observations never terminate the argument loop. Finite
+nonzero values use a scaled sum of squares so representable large and tiny
+inputs do not overflow or underflow merely because an intermediate was
+squared. The focused
+[hypot reduction contract](../docs/rust-rewrite/contracts/math-hypot-argument-reduction.md)
+and registered CLI fixture cover contributions and observable coercions after
+the old seven-argument cap, Infinity-over-NaN precedence, abrupt completion,
+positive-zero output and large/tiny finite vectors. This batch has run only
+static gates for that seam; the focused Wasm fixture, pinned `Math/hypot` tree
+and broader Math gates remain deferred, and this is not a correctly-rounded
+last-bit, current-pin baseline-delta, complete Math or T20 closure claim. The
 JSON reviver frame protocol now has a theory source of
 truth at `docs/rust-rewrite/contracts/json-reviver-frame.md`. Its dynamic frame
 stores closed typed states and an explicit nested-versus-root property role;
