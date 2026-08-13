@@ -29,6 +29,14 @@ without sharing or losing resumable evidence. Generated text backlogs include
 the same task, feature-tag, failure-hash and slow-subtree groupings as the JSON
 artifact.
 
+Failure kind, outcome and origin also remain closed types at the snapshot and
+backlog boundaries. Unknown classification labels or count-map keys reject the
+artifact rather than being coerced to a catch-all or dropped. Read-only version
+4 evidence has one explicit migration exception because that schema predates
+outcomes: missing failure outcomes and outcome counts are derived from its
+recorded evidence. Versions 5 and 6 require a recognized outcome on every
+failure and an outcome-count map on every snapshot and aggregate entry.
+
 One provenance field remains deliberately outside the current snapshot schema:
 snapshots record the Lila producer/schema, backend, pins, matrix strategy and
 manifest hashes, but not the compiler source commit or executable digest. Until
@@ -87,6 +95,9 @@ The current README explicitly says the last complete real-suite publication is s
 ## Integrity requirements
 
 - Totals across outcomes, failure kinds, origins, entries, and completed paths must reconcile exactly.
+- Snapshot and backlog classification labels and count-map keys must decode
+  into the closed failure-kind, outcome and origin domains. Only version 4 may
+  omit a per-failure outcome, through its explicit read-only migration.
 - A matrix is publishable only when all planned nodes are present and every case in the manifest appears once.
 - Aggregate publication reopens every node snapshot and reconciles its exact
   completed/failure sets and classification counts with the aggregate entry.

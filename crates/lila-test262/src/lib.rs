@@ -17,7 +17,8 @@ use lila_engine::{
     EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, RealmBuilder, RunOptions,
 };
 use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, TaskId, UnsupportedFeature};
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod attempt_journal;
 pub mod differential;
@@ -210,22 +211,33 @@ impl HostHooks for CapturingTest262Output {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum FailureKind {
+    #[serde(rename = "Parser")]
     Parser,
+    #[serde(rename = "EarlyError")]
     EarlyError,
+    #[serde(rename = "Lowering")]
     Lowering,
+    #[serde(rename = "Runtime")]
     Runtime,
+    #[serde(rename = "WasmBackend")]
     WasmBackend,
+    #[serde(rename = "HostHarness")]
     HostHarness,
+    #[serde(rename = "Unsupported")]
     Unsupported,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum OutcomeKind {
+    #[serde(rename = "Success")]
     Success,
+    #[serde(rename = "NotImplemented")]
     NotImplemented,
+    #[serde(rename = "Crash")]
     Crash,
+    #[serde(rename = "Bug")]
     Bug,
 }
 
@@ -271,13 +283,19 @@ impl FailureKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum FailureOrigin {
+    #[serde(rename = "unknown")]
     Unknown,
+    #[serde(rename = "local-harness")]
     LocalHarness,
+    #[serde(rename = "boa-runtime")]
     BoaRuntime,
+    #[serde(rename = "boa-parser")]
     BoaParser,
+    #[serde(rename = "icu-intl")]
     IcuIntl,
+    #[serde(rename = "spec-exec-host")]
     SpecExecHost,
 }
 
@@ -301,6 +319,92 @@ impl FailureOrigin {
             FailureOrigin::SpecExecHost => "spec-exec-host",
         }
     }
+}
+
+/// Stable text used for taxonomy values at JSON object-key boundaries.
+///
+/// The snapshots historically stored classification counts in
+/// `BTreeMap<String, _>`, whose serialized key order was lexical. The maps are
+/// typed now, but sorting by this label preserves the bytes of valid artifacts
+/// instead of changing their key order to enum declaration order.
+trait TaxonomyWireLabel {
+    fn wire_label(&self) -> &'static str;
+}
+
+impl TaxonomyWireLabel for FailureKind {
+    fn wire_label(&self) -> &'static str {
+        (*self).as_str()
+    }
+}
+
+impl TaxonomyWireLabel for OutcomeKind {
+    fn wire_label(&self) -> &'static str {
+        (*self).as_str()
+    }
+}
+
+impl TaxonomyWireLabel for FailureOrigin {
+    fn wire_label(&self) -> &'static str {
+        (*self).as_str()
+    }
+}
+
+fn serialize_taxonomy_counts<K, S>(
+    counts: &BTreeMap<K, usize>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    K: Ord + TaxonomyWireLabel,
+    S: Serializer,
+{
+    let mut entries = counts.iter().collect::<Vec<_>>();
+    entries.sort_by_key(|(key, _)| key.wire_label());
+
+    let mut map = serializer.serialize_map(Some(entries.len()))?;
+    for (key, count) in entries {
+        map.serialize_entry(key.wire_label(), count)?;
+    }
+    map.end()
+}
+
+fn deserialize_taxonomy_counts<'de, K, D>(deserializer: D) -> Result<BTreeMap<K, usize>, D::Error>
+where
+    K: Ord + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    BTreeMap::<K, usize>::deserialize(deserializer)
+}
+
+fn serialize_optional_taxonomy_counts<K, S>(
+    counts: &Option<BTreeMap<K, usize>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    K: Ord + TaxonomyWireLabel,
+    S: Serializer,
+{
+    match counts {
+        Some(counts) => serialize_taxonomy_counts(counts, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_optional_taxonomy_counts<'de, K, D>(
+    deserializer: D,
+) -> Result<Option<BTreeMap<K, usize>>, D::Error>
+where
+    K: Ord + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    BTreeMap::<K, usize>::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_optional_taxonomy_value<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -716,9 +820,9 @@ pub struct BacklogRecord {
     pub includes: Vec<String>,
     pub negative_phase: Option<String>,
     pub negative_type: Option<String>,
-    pub failure_kind: String,
-    pub outcome: String,
-    pub origin: String,
+    pub failure_kind: FailureKind,
+    pub outcome: OutcomeKind,
+    pub origin: FailureOrigin,
     pub normalized_detail: String,
     pub detail_hash: u64,
     pub duration_ms: Option<u128>,
@@ -1029,16 +1133,29 @@ struct SnapshotFile {
     run_kind: String,
     total: usize,
     passed: usize,
-    counts_per_kind: BTreeMap<String, usize>,
-    #[serde(default)]
-    counts_per_outcome: BTreeMap<String, usize>,
+    #[serde(
+        serialize_with = "serialize_taxonomy_counts",
+        deserialize_with = "deserialize_taxonomy_counts"
+    )]
+    counts_per_kind: BTreeMap<FailureKind, usize>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_taxonomy_counts",
+        deserialize_with = "deserialize_optional_taxonomy_counts"
+    )]
+    counts_per_outcome: Option<BTreeMap<OutcomeKind, usize>>,
     slowest_tests: Vec<SnapshotSlowTest>,
     timeout_list: Vec<String>,
     failures: Vec<SnapshotFailureRecord>,
     completed_paths: Vec<String>,
     matrix_path: Vec<String>,
     completed_nodes: Vec<String>,
-    aggregate_counts_so_far: BTreeMap<String, usize>,
+    #[serde(
+        serialize_with = "serialize_taxonomy_counts",
+        deserialize_with = "deserialize_taxonomy_counts"
+    )]
+    aggregate_counts_so_far: BTreeMap<FailureKind, usize>,
     aggregate_entries: Vec<SnapshotAggregateEntry>,
 }
 
@@ -1076,10 +1193,14 @@ struct SnapshotSlowTest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnapshotFailureRecord {
     test_path: String,
-    kind: String,
-    #[serde(default)]
-    outcome: String,
-    origin: String,
+    kind: FailureKind,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_taxonomy_value"
+    )]
+    outcome: Option<OutcomeKind>,
+    origin: FailureOrigin,
     detail: String,
     detail_hash: u64,
     #[serde(default)]
@@ -1095,10 +1216,23 @@ struct SnapshotAggregateEntry {
     total: usize,
     passed: usize,
     failed: usize,
-    counts_per_kind: BTreeMap<String, usize>,
-    #[serde(default)]
-    counts_per_outcome: BTreeMap<String, usize>,
-    counts_per_origin: BTreeMap<String, usize>,
+    #[serde(
+        serialize_with = "serialize_taxonomy_counts",
+        deserialize_with = "deserialize_taxonomy_counts"
+    )]
+    counts_per_kind: BTreeMap<FailureKind, usize>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_taxonomy_counts",
+        deserialize_with = "deserialize_optional_taxonomy_counts"
+    )]
+    counts_per_outcome: Option<BTreeMap<OutcomeKind, usize>>,
+    #[serde(
+        serialize_with = "serialize_taxonomy_counts",
+        deserialize_with = "deserialize_taxonomy_counts"
+    )]
+    counts_per_origin: BTreeMap<FailureOrigin, usize>,
     manifest_hash: u64,
 }
 
@@ -18841,9 +18975,7 @@ fn load_resume_matrix_node_summary(
         }
     }
 
-    let Some(snapshot) = snapshot_from_file(file) else {
-        return Ok(None);
-    };
+    let snapshot = snapshot_from_file(file)?;
     Ok(Some(TopLevelRunSummary {
         node_id: entry.node_id.clone(),
         node_kind: entry.node_kind,
@@ -21549,8 +21681,8 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
         run_kind: snapshot.run_kind.clone(),
         total: snapshot.total,
         passed: snapshot.passed,
-        counts_per_kind: encode_kind_counts(&snapshot.counts_per_kind),
-        counts_per_outcome: encode_outcome_counts(&snapshot.counts_per_outcome),
+        counts_per_kind: complete_kind_counts(&snapshot.counts_per_kind),
+        counts_per_outcome: Some(complete_outcome_counts(&snapshot.counts_per_outcome)),
         slowest_tests: snapshot
             .slowest_tests
             .iter()
@@ -21565,9 +21697,9 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
             .iter()
             .map(|failure| SnapshotFailureRecord {
                 test_path: failure.test_path.clone(),
-                kind: failure.kind.as_str().to_string(),
-                outcome: failure.outcome.as_str().to_string(),
-                origin: failure.origin.as_str().to_string(),
+                kind: failure.kind,
+                outcome: Some(failure.outcome),
+                origin: failure.origin,
                 detail: failure.detail.clone(),
                 detail_hash: failure.detail_hash,
                 duration_ms: failure.duration_ms,
@@ -21576,7 +21708,7 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
         completed_paths: snapshot.completed_paths.clone(),
         matrix_path: snapshot.matrix_path.clone(),
         completed_nodes: snapshot.completed_nodes.clone(),
-        aggregate_counts_so_far: encode_kind_counts(&snapshot.aggregate_counts_so_far),
+        aggregate_counts_so_far: complete_kind_counts(&snapshot.aggregate_counts_so_far),
         aggregate_entries: snapshot
             .aggregate_entries
             .iter()
@@ -21588,55 +21720,78 @@ fn snapshot_to_file(snapshot: &ProgressSnapshot) -> SnapshotFile {
                 total: entry.total,
                 passed: entry.passed,
                 failed: entry.failed,
-                counts_per_kind: encode_kind_counts(&entry.counts_per_kind),
-                counts_per_outcome: encode_outcome_counts(&entry.counts_per_outcome),
-                counts_per_origin: encode_origin_counts(&entry.counts_per_origin),
+                counts_per_kind: complete_kind_counts(&entry.counts_per_kind),
+                counts_per_outcome: Some(complete_outcome_counts(&entry.counts_per_outcome)),
+                counts_per_origin: complete_origin_counts(&entry.counts_per_origin),
                 manifest_hash: entry.manifest_hash,
             })
             .collect(),
     }
 }
 
-fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
-    let artifact_kind = file.artifact_kind().ok()?;
+fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
+    let artifact_kind = file.artifact_kind()?;
     let failures = file
         .failures
         .into_iter()
-        .map(|failure| {
-            let kind = decode_kind(&failure.kind);
-            // Legacy version 4 records carry no outcome; derive it from the
-            // recorded kind and detail with the same classifier used at write
-            // time for current snapshots.
-            let outcome =
-                if artifact_kind.needs_legacy_outcome_migration() && failure.outcome.is_empty() {
-                    classify_failure_outcome(kind, &failure.detail)
-                } else {
-                    decode_outcome(&failure.outcome, kind)
-                };
-            FailureRecord {
+        .map(|failure| -> Result<_, String> {
+            let outcome = snapshot_failure_outcome(
+                artifact_kind,
+                &failure.test_path,
+                failure.kind,
+                failure.outcome,
+                &failure.detail,
+            )?;
+            Ok(FailureRecord {
                 test_path: failure.test_path,
-                kind,
+                kind: failure.kind,
                 outcome,
-                origin: decode_origin(&failure.origin),
+                origin: failure.origin,
                 detail: failure.detail,
                 detail_hash: failure.detail_hash,
                 duration_ms: failure.duration_ms,
-            }
+            })
         })
-        .collect::<Vec<_>>();
-    let counts_per_outcome = if file.counts_per_outcome.is_empty() && !failures.is_empty() {
-        // Legacy snapshot with recorded failures: rebuild the outcome counts
-        // from the derived per-failure outcomes plus the recorded pass count.
-        let mut counts = empty_outcome_counts();
-        counts.insert(OutcomeKind::Success, file.passed);
-        for failure in &failures {
-            *counts.entry(failure.outcome).or_insert(0) += 1;
-        }
-        counts
-    } else {
-        decode_outcome_counts(&file.counts_per_outcome, file.passed)
-    };
-    Some(ProgressSnapshot {
+        .collect::<Result<Vec<_>, _>>()?;
+    let counts_per_outcome = snapshot_outcome_counts(
+        artifact_kind,
+        "snapshot",
+        file.counts_per_outcome,
+        file.passed,
+        &failures,
+    )?;
+    let aggregate_entries = file
+        .aggregate_entries
+        .into_iter()
+        .map(|entry| -> Result<_, String> {
+            let context = format!("aggregate entry {}", entry.node_id);
+            let counts_per_outcome = snapshot_outcome_counts(
+                artifact_kind,
+                &context,
+                entry.counts_per_outcome,
+                entry.passed,
+                &[],
+            )?;
+            Ok(TopLevelRunSummary {
+                node_id: entry.node_id,
+                node_kind: match entry.node_kind.as_str() {
+                    "chunk-leaf" => MatrixNodeKind::ChunkLeaf,
+                    _ => MatrixNodeKind::FilterLeaf,
+                },
+                filter: entry.filter,
+                matrix_path: entry.matrix_path,
+                total: entry.total,
+                passed: entry.passed,
+                failed: entry.failed,
+                counts_per_kind: complete_kind_counts(&entry.counts_per_kind),
+                counts_per_outcome,
+                counts_per_origin: complete_origin_counts(&entry.counts_per_origin),
+                manifest_hash: entry.manifest_hash,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ProgressSnapshot {
         snapshot_version: file.snapshot_version,
         matrix_strategy_version: file.matrix_strategy_version,
         execution_backend: match file.execution_backend.as_str() {
@@ -21651,7 +21806,7 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
         run_kind: file.run_kind,
         total: file.total,
         passed: file.passed,
-        counts_per_kind: decode_kind_counts(&file.counts_per_kind),
+        counts_per_kind: complete_kind_counts(&file.counts_per_kind),
         counts_per_outcome,
         slowest_tests: file
             .slowest_tests
@@ -21663,128 +21818,88 @@ fn snapshot_from_file(file: SnapshotFile) -> Option<ProgressSnapshot> {
         completed_paths: file.completed_paths,
         matrix_path: file.matrix_path,
         completed_nodes: file.completed_nodes,
-        aggregate_counts_so_far: decode_kind_counts(&file.aggregate_counts_so_far),
-        aggregate_entries: file
-            .aggregate_entries
-            .into_iter()
-            .map(|entry| TopLevelRunSummary {
-                node_id: entry.node_id,
-                node_kind: match entry.node_kind.as_str() {
-                    "chunk-leaf" => MatrixNodeKind::ChunkLeaf,
-                    _ => MatrixNodeKind::FilterLeaf,
-                },
-                filter: entry.filter,
-                matrix_path: entry.matrix_path,
-                total: entry.total,
-                passed: entry.passed,
-                failed: entry.failed,
-                counts_per_kind: decode_kind_counts(&entry.counts_per_kind),
-                counts_per_outcome: decode_outcome_counts(&entry.counts_per_outcome, entry.passed),
-                counts_per_origin: decode_origin_counts(&entry.counts_per_origin),
-                manifest_hash: entry.manifest_hash,
-            })
-            .collect(),
+        aggregate_counts_so_far: complete_kind_counts(&file.aggregate_counts_so_far),
+        aggregate_entries,
     })
 }
 
-fn encode_kind_counts(counts: &BTreeMap<FailureKind, usize>) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
-    for kind in FailureKind::ALL {
-        out.insert(
-            kind.as_str().to_string(),
-            counts.get(&kind).copied().unwrap_or(0),
-        );
+fn snapshot_failure_outcome(
+    artifact_kind: SnapshotArtifactKind,
+    test_path: &str,
+    kind: FailureKind,
+    outcome: Option<OutcomeKind>,
+    detail: &str,
+) -> Result<OutcomeKind, String> {
+    match (artifact_kind, outcome) {
+        (SnapshotArtifactKind::LegacyV4, None) => Ok(classify_failure_outcome(kind, detail)),
+        (SnapshotArtifactKind::LegacyV4, Some(_)) => Err(format!(
+            "snapshot version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION} failure {test_path} must omit outcome data"
+        )),
+        (SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::CurrentLilaV6, Some(outcome)) => {
+            Ok(outcome)
+        }
+        (SnapshotArtifactKind::LegacyV5, None) => Err(format!(
+            "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
+        )),
+        (SnapshotArtifactKind::CurrentLilaV6, None) => Err(format!(
+            "snapshot version {SNAPSHOT_VERSION} failure {test_path} is missing required outcome data"
+        )),
     }
-    out
 }
 
-fn decode_kind_counts(counts: &BTreeMap<String, usize>) -> BTreeMap<FailureKind, usize> {
-    let mut out = BTreeMap::new();
-    for kind in FailureKind::ALL {
-        out.insert(kind, counts.get(kind.as_str()).copied().unwrap_or(0));
-    }
-    out
-}
-
-fn encode_outcome_counts(counts: &BTreeMap<OutcomeKind, usize>) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
-    for outcome in OutcomeKind::ALL {
-        out.insert(
-            outcome.as_str().to_string(),
-            counts.get(&outcome).copied().unwrap_or(0),
-        );
-    }
-    out
-}
-
-fn decode_outcome_counts(
-    counts: &BTreeMap<String, usize>,
+fn snapshot_outcome_counts(
+    artifact_kind: SnapshotArtifactKind,
+    context: &str,
+    counts: Option<BTreeMap<OutcomeKind, usize>>,
     passed: usize,
-) -> BTreeMap<OutcomeKind, usize> {
-    let mut out = empty_outcome_counts();
-    for outcome in OutcomeKind::ALL {
-        out.insert(outcome, counts.get(outcome.as_str()).copied().unwrap_or(0));
-    }
-    if counts.is_empty() {
-        out.insert(OutcomeKind::Success, passed);
-    }
-    out
-}
-
-fn encode_origin_counts(counts: &BTreeMap<FailureOrigin, usize>) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
-    for origin in FailureOrigin::ALL {
-        out.insert(
-            origin.as_str().to_string(),
-            counts.get(&origin).copied().unwrap_or(0),
-        );
-    }
-    out
-}
-
-fn decode_origin_counts(counts: &BTreeMap<String, usize>) -> BTreeMap<FailureOrigin, usize> {
-    let mut out = BTreeMap::new();
-    for origin in FailureOrigin::ALL {
-        out.insert(origin, counts.get(origin.as_str()).copied().unwrap_or(0));
-    }
-    out
-}
-
-fn decode_kind(kind: &str) -> FailureKind {
-    match kind {
-        "Parser" => FailureKind::Parser,
-        "EarlyError" => FailureKind::EarlyError,
-        "Lowering" => FailureKind::Lowering,
-        "Runtime" => FailureKind::Runtime,
-        "WasmBackend" => FailureKind::WasmBackend,
-        "HostHarness" => FailureKind::HostHarness,
-        "Unsupported" => FailureKind::Unsupported,
-        _ => FailureKind::Runtime,
+    failures: &[FailureRecord],
+) -> Result<BTreeMap<OutcomeKind, usize>, String> {
+    match (artifact_kind, counts) {
+        (SnapshotArtifactKind::LegacyV4, None) => {
+            let mut counts = empty_outcome_counts();
+            counts.insert(OutcomeKind::Success, passed);
+            for failure in failures {
+                *counts.entry(failure.outcome).or_insert(0) += 1;
+            }
+            Ok(counts)
+        }
+        (SnapshotArtifactKind::LegacyV4, Some(_)) => Err(format!(
+            "snapshot version {LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION} {context} must omit outcome counts"
+        )),
+        (
+            SnapshotArtifactKind::LegacyV5 | SnapshotArtifactKind::CurrentLilaV6,
+            Some(counts),
+        ) => Ok(complete_outcome_counts(&counts)),
+        (SnapshotArtifactKind::LegacyV5, None) => Err(format!(
+            "snapshot version {LEGACY_PRE_LILA_SNAPSHOT_VERSION} {context} is missing required outcome counts"
+        )),
+        (SnapshotArtifactKind::CurrentLilaV6, None) => Err(format!(
+            "snapshot version {SNAPSHOT_VERSION} {context} is missing required outcome counts"
+        )),
     }
 }
 
-fn decode_outcome(outcome: &str, kind: FailureKind) -> OutcomeKind {
-    match outcome {
-        "Success" => OutcomeKind::Success,
-        "NotImplemented" => OutcomeKind::NotImplemented,
-        "Crash" => OutcomeKind::Crash,
-        "Bug" => OutcomeKind::Bug,
-        _ => match kind {
-            FailureKind::Unsupported => OutcomeKind::NotImplemented,
-            _ => OutcomeKind::Bug,
-        },
-    }
+fn complete_kind_counts(counts: &BTreeMap<FailureKind, usize>) -> BTreeMap<FailureKind, usize> {
+    FailureKind::ALL
+        .into_iter()
+        .map(|kind| (kind, counts.get(&kind).copied().unwrap_or(0)))
+        .collect()
 }
 
-fn decode_origin(origin: &str) -> FailureOrigin {
-    match origin {
-        "local-harness" => FailureOrigin::LocalHarness,
-        "boa-runtime" => FailureOrigin::BoaRuntime,
-        "boa-parser" => FailureOrigin::BoaParser,
-        "icu-intl" => FailureOrigin::IcuIntl,
-        "spec-exec-host" => FailureOrigin::SpecExecHost,
-        _ => FailureOrigin::Unknown,
-    }
+fn complete_outcome_counts(counts: &BTreeMap<OutcomeKind, usize>) -> BTreeMap<OutcomeKind, usize> {
+    OutcomeKind::ALL
+        .into_iter()
+        .map(|outcome| (outcome, counts.get(&outcome).copied().unwrap_or(0)))
+        .collect()
+}
+
+fn complete_origin_counts(
+    counts: &BTreeMap<FailureOrigin, usize>,
+) -> BTreeMap<FailureOrigin, usize> {
+    FailureOrigin::ALL
+        .into_iter()
+        .map(|origin| (origin, counts.get(&origin).copied().unwrap_or(0)))
+        .collect()
 }
 
 fn render_snapshot_json(snapshot: &ProgressSnapshot) -> String {
@@ -21928,7 +22043,7 @@ fn load_resume_aggregate_snapshot(
         )
         .is_ok()
         {
-            return Ok(snapshot_from_file(file));
+            return snapshot_from_file(file).map(Some);
         }
         candidates.push(exact_path);
     }
@@ -21972,7 +22087,7 @@ fn load_resume_aggregate_snapshot(
         )
         .is_ok()
         {
-            return Ok(snapshot_from_file(file));
+            return snapshot_from_file(file).map(Some);
         }
         current = candidates.next();
     }
@@ -22061,9 +22176,7 @@ fn load_previous_snapshot(
     // hard boundary rather than an absent checkpoint. Treating it as absent
     // would let the next checkpoint overwrite evidence in place.
     file.require_current(&path, "resume checkpoint")?;
-    let Some(mut snapshot) = snapshot_from_file(file) else {
-        return Ok(None);
-    };
+    let mut snapshot = snapshot_from_file(file)?;
     snapshot.manifest_hash = manifest_hash;
     Ok(Some(snapshot))
 }
@@ -22674,7 +22787,7 @@ fn validate_complete_aggregate_evidence(
             ));
         };
         let node_snapshot = snapshot_from_file(file)
-            .ok_or_else(|| format!("unsupported snapshot version in {}", node_path.display()))?;
+            .map_err(|err| format!("invalid snapshot data in {}: {err}", node_path.display()))?;
         validate_complete_node_contract(&node_snapshot, node, entry, &node_path)?;
     }
     Ok(())
@@ -22690,9 +22803,9 @@ fn load_and_validate_resolved_aggregate_evidence(
         .file
         .artifact_kind()
         .expect("resolved snapshots have already passed schema validation");
-    let mut snapshot = snapshot_from_file(resolved.file.clone()).ok_or_else(|| {
+    let mut snapshot = snapshot_from_file(resolved.file.clone()).map_err(|err| {
         format!(
-            "unsupported snapshot version in {}",
+            "invalid snapshot data in {}: {err}",
             resolved.snapshot_paths.json_path.display()
         )
     })?;
@@ -22825,9 +22938,9 @@ pub fn load_aggregate_progress_summary(
         .artifact_kind()
         .expect("resolved snapshots have already passed schema validation")
         .needs_legacy_outcome_migration();
-    let mut snapshot = snapshot_from_file(resolved.file).ok_or_else(|| {
+    let mut snapshot = snapshot_from_file(resolved.file).map_err(|err| {
         format!(
-            "unsupported snapshot version in {}",
+            "invalid snapshot data in {}: {err}",
             resolved.snapshot_paths.json_path.display()
         )
     })?;
@@ -22961,7 +23074,7 @@ pub fn load_matrix_failure_details(
         return Err(format!("missing matrix node snapshot {}", path.display()));
     };
     let snapshot = snapshot_from_file(file)
-        .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
+        .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))?;
 
     let groups = group_failures_by_detail_identity(&snapshot.failures);
 
@@ -23118,9 +23231,9 @@ pub fn generate_backlog(
                 includes,
                 negative_phase,
                 negative_type,
-                failure_kind: failure.kind.as_str().to_string(),
-                outcome: failure.outcome.as_str().to_string(),
-                origin: failure.origin.as_str().to_string(),
+                failure_kind: failure.kind,
+                outcome: failure.outcome,
+                origin: failure.origin,
                 // Hash the normalized detail so the backlog is byte-identical
                 // across machines even when raw details embed absolute paths
                 // or timing data.
@@ -23494,7 +23607,7 @@ fn load_completed_node_snapshot(
         return Ok(None);
     }
     snapshot_from_file(file)
-        .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))
+        .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))
         .map(Some)
 }
 
@@ -23539,7 +23652,7 @@ fn migrate_legacy_aggregate_outcome_counts(
             ));
         };
         let node_snapshot = snapshot_from_file(file)
-            .ok_or_else(|| format!("unsupported snapshot version in {}", path.display()))?;
+            .map_err(|err| format!("invalid snapshot data in {}: {err}", path.display()))?;
         if node_snapshot.passed != entry.passed || node_snapshot.failures.len() != entry.failed {
             return Err(format!(
                 "legacy aggregate snapshot migration failed: node snapshot {} records passed={} failures={} but the aggregate entry {} records passed={} failed={}",
@@ -33897,12 +34010,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let mut file =
             read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
         file.passed = file.total.saturating_sub(1);
-        file.counts_per_kind.insert("Runtime".to_string(), 1);
+        file.counts_per_kind.insert(FailureKind::Runtime, 1);
         file.failures = vec![SnapshotFailureRecord {
             test_path: "language/pass/runtime-refresh.js".to_string(),
-            kind: "Runtime".to_string(),
-            outcome: "Bug".to_string(),
-            origin: FailureOrigin::SpecExecHost.as_str().to_string(),
+            kind: FailureKind::Runtime,
+            outcome: Some(OutcomeKind::Bug),
+            origin: FailureOrigin::SpecExecHost,
             detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
             detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
             duration_ms: Some(17),
@@ -33972,12 +34085,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let mut file =
             read_snapshot_file(&node_snapshot_path).expect("node snapshot file should parse");
         file.passed = file.total.saturating_sub(1);
-        file.counts_per_kind.insert("Runtime".to_string(), 1);
+        file.counts_per_kind.insert(FailureKind::Runtime, 1);
         file.failures = vec![SnapshotFailureRecord {
             test_path: "language/pass/runtime-refresh.js".to_string(),
-            kind: "Runtime".to_string(),
-            outcome: "Bug".to_string(),
-            origin: FailureOrigin::SpecExecHost.as_str().to_string(),
+            kind: FailureKind::Runtime,
+            outcome: Some(OutcomeKind::Bug),
+            origin: FailureOrigin::SpecExecHost,
             detail: "[origin:spec-exec-host] refreshed snapshot".to_string(),
             detail_hash: hash_detail("[origin:spec-exec-host] refreshed snapshot"),
             duration_ms: Some(17),
@@ -34058,9 +34171,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         file.counts_per_kind = BTreeMap::new();
         file.aggregate_counts_so_far = BTreeMap::new();
         for kind in FailureKind::ALL {
-            file.counts_per_kind.insert(kind.as_str().to_string(), 0);
-            file.aggregate_counts_so_far
-                .insert(kind.as_str().to_string(), 0);
+            file.counts_per_kind.insert(kind, 0);
+            file.aggregate_counts_so_far.insert(kind, 0);
         }
         fs::write(
             &aggregate_path,
@@ -34293,7 +34405,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         file.failures.clear();
         file.counts_per_kind = BTreeMap::new();
         for kind in FailureKind::ALL {
-            file.counts_per_kind.insert(kind.as_str().to_string(), 0);
+            file.counts_per_kind.insert(kind, 0);
         }
         fs::write(
             &aggregate_path,
@@ -35944,6 +36056,65 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         .expect("snapshot should write");
     }
 
+    fn read_snapshot_value_for_test(path: &Path) -> serde_json::Value {
+        let raw = fs::read_to_string(path).expect("snapshot should read");
+        serde_json::from_str(&raw).expect("snapshot should parse as raw json")
+    }
+
+    fn write_snapshot_value_for_test(path: &Path, value: &serde_json::Value) {
+        fs::write(
+            path,
+            serde_json::to_string_pretty(value).expect("snapshot json should serialize"),
+        )
+        .expect("snapshot should write");
+    }
+
+    fn decode_snapshot_value_for_test(
+        value: &serde_json::Value,
+    ) -> Result<ProgressSnapshot, String> {
+        let file = serde_json::from_value::<SnapshotFile>(value.clone())
+            .map_err(|err| format!("failed to decode snapshot json: {err}"))?;
+        snapshot_from_file(file)
+    }
+
+    fn set_snapshot_version_for_test(value: &mut serde_json::Value, version: u32) {
+        value["snapshot_version"] = serde_json::json!(version);
+        let object = value.as_object_mut().expect("snapshot should be an object");
+        if version == SNAPSHOT_VERSION {
+            object.insert(
+                "producer".to_string(),
+                serde_json::json!(ArtifactProducer::CURRENT.as_str()),
+            );
+        } else {
+            object.remove("producer");
+        }
+    }
+
+    fn assert_json_count_key_order(json: &str, field: &str, occurrence: usize, expected: &[&str]) {
+        let marker = format!(r#""{field}": {{"#);
+        let start = json
+            .match_indices(&marker)
+            .nth(occurrence)
+            .unwrap_or_else(|| panic!("missing occurrence {occurrence} of {field}"))
+            .0
+            + marker.len();
+        let body = &json[start..];
+        let body = &body[..body.find('}').expect("count map should close")];
+        let mut previous = None;
+        for key in expected {
+            let position = body
+                .find(&format!(r#""{key}""#))
+                .unwrap_or_else(|| panic!("missing {key} in {field}"));
+            if let Some(previous) = previous {
+                assert!(
+                    previous < position,
+                    "{field} keys are not in the stable lexical order {expected:?}"
+                );
+            }
+            previous = Some(position);
+        }
+    }
+
     #[test]
     fn verified_aggregate_rejects_tampered_node_evidence_end_to_end() {
         let config = tiny_failing_suite_config("verified-node-evidence");
@@ -36050,6 +36221,317 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn verified_aggregate_rejects_unknown_taxonomy_values_and_zero_count_keys() {
+        let config = tiny_failing_suite_config("verified-taxonomy-evidence");
+        let run_config = RunConfig {
+            snapshot_name: "verified-taxonomy-evidence".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("original aggregate should verify");
+        let aggregate_path = verified.snapshot_paths.json_path;
+        let (_, node_path, _) =
+            intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
+        let original_node = read_snapshot_value_for_test(&node_path);
+        let original_aggregate = read_snapshot_value_for_test(&aggregate_path);
+
+        let assert_rejected = |label: &str| {
+            let err = load_verified_aggregate_summary(
+                &config,
+                &run_config.snapshot_name,
+                ExecutionBackend::SpecExec,
+            )
+            .expect_err("an unknown taxonomy spelling must reject the evidence");
+            assert!(err.contains(label), "expected {label:?} in {err:?}");
+        };
+
+        for (field, label) in [
+            ("kind", "FutureKind"),
+            ("outcome", "FutureOutcome"),
+            ("origin", "future-origin"),
+        ] {
+            let mut tampered = original_node.clone();
+            tampered["failures"][0][field] = serde_json::json!(label);
+            write_snapshot_value_for_test(&node_path, &tampered);
+            assert_rejected(label);
+        }
+
+        for (field, label) in [
+            ("counts_per_kind", "FutureKind"),
+            ("counts_per_outcome", "FutureOutcome"),
+        ] {
+            let mut tampered = original_node.clone();
+            tampered[field]
+                .as_object_mut()
+                .expect("classification counts should be an object")
+                .insert(label.to_string(), serde_json::json!(0));
+            write_snapshot_value_for_test(&node_path, &tampered);
+            assert_rejected(label);
+        }
+
+        write_snapshot_value_for_test(&node_path, &original_node);
+        let mut tampered = original_aggregate.clone();
+        tampered["aggregate_entries"][0]["counts_per_origin"]
+            .as_object_mut()
+            .expect("origin counts should be an object")
+            .insert("future-origin".to_string(), serde_json::json!(0));
+        write_snapshot_value_for_test(&aggregate_path, &tampered);
+        assert_rejected("future-origin");
+
+        write_snapshot_value_for_test(&aggregate_path, &original_aggregate);
+        load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("restored evidence should verify");
+    }
+
+    #[test]
+    fn snapshot_version_four_accepts_only_omitted_outcome_data() {
+        let config = tiny_failing_suite_config("legacy-outcome-shape");
+        let run_config = RunConfig {
+            snapshot_name: "legacy-outcome-shape".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("original aggregate should verify");
+        let (_, node_path, _) =
+            intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
+        let original_node = read_snapshot_value_for_test(&node_path);
+        let original_aggregate = read_snapshot_value_for_test(&verified.snapshot_paths.json_path);
+
+        let mut omitted = original_node.clone();
+        set_snapshot_version_for_test(&mut omitted, LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
+        omitted
+            .as_object_mut()
+            .expect("snapshot should be an object")
+            .remove("counts_per_outcome");
+        omitted["failures"][0]
+            .as_object_mut()
+            .expect("failure should be an object")
+            .remove("outcome");
+        let migrated = decode_snapshot_value_for_test(&omitted)
+            .expect("version 4 may omit outcome fields for read-only migration");
+        assert_eq!(migrated.failures[0].outcome, OutcomeKind::Bug);
+        assert_eq!(
+            migrated
+                .counts_per_outcome
+                .get(&OutcomeKind::Success)
+                .copied(),
+            Some(migrated.passed)
+        );
+        assert_eq!(
+            migrated.counts_per_outcome.get(&OutcomeKind::Bug).copied(),
+            Some(1)
+        );
+
+        let mut present_failure = original_node.clone();
+        set_snapshot_version_for_test(&mut present_failure, LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
+        present_failure
+            .as_object_mut()
+            .expect("snapshot should be an object")
+            .remove("counts_per_outcome");
+        let err = decode_snapshot_value_for_test(&present_failure)
+            .expect_err("version 4 must not carry per-failure outcome data");
+        assert!(
+            err.contains("must omit outcome data"),
+            "unexpected error: {err}"
+        );
+
+        let mut present_counts = original_node.clone();
+        set_snapshot_version_for_test(&mut present_counts, LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION);
+        present_counts["failures"][0]
+            .as_object_mut()
+            .expect("failure should be an object")
+            .remove("outcome");
+        let err = decode_snapshot_value_for_test(&present_counts)
+            .expect_err("version 4 must not carry outcome counts");
+        assert!(
+            err.contains("must omit outcome counts"),
+            "unexpected error: {err}"
+        );
+
+        let mut null_failure = omitted.clone();
+        null_failure["failures"][0]["outcome"] = serde_json::Value::Null;
+        let err = decode_snapshot_value_for_test(&null_failure)
+            .expect_err("explicit null is not an omitted version 4 outcome");
+        assert!(
+            err.contains("invalid type: null"),
+            "unexpected error: {err}"
+        );
+
+        let mut null_counts = omitted.clone();
+        null_counts["counts_per_outcome"] = serde_json::Value::Null;
+        let err = decode_snapshot_value_for_test(&null_counts)
+            .expect_err("explicit null is not an omitted version 4 count map");
+        assert!(
+            err.contains("invalid type: null"),
+            "unexpected error: {err}"
+        );
+
+        let mut omitted_entry_counts = original_aggregate.clone();
+        set_snapshot_version_for_test(
+            &mut omitted_entry_counts,
+            LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION,
+        );
+        omitted_entry_counts
+            .as_object_mut()
+            .expect("snapshot should be an object")
+            .remove("counts_per_outcome");
+        for entry in omitted_entry_counts["aggregate_entries"]
+            .as_array_mut()
+            .expect("aggregate entries should be an array")
+        {
+            entry
+                .as_object_mut()
+                .expect("aggregate entry should be an object")
+                .remove("counts_per_outcome");
+        }
+        decode_snapshot_value_for_test(&omitted_entry_counts)
+            .expect("version 4 may omit aggregate-entry outcome counts");
+
+        let mut present_entry_counts = original_aggregate.clone();
+        set_snapshot_version_for_test(
+            &mut present_entry_counts,
+            LEGACY_PRE_OUTCOME_SNAPSHOT_VERSION,
+        );
+        present_entry_counts
+            .as_object_mut()
+            .expect("snapshot should be an object")
+            .remove("counts_per_outcome");
+        let err = decode_snapshot_value_for_test(&present_entry_counts)
+            .expect_err("version 4 must not carry aggregate-entry outcome counts");
+        assert!(
+            err.contains("aggregate entry") && err.contains("must omit outcome counts"),
+            "unexpected error: {err}"
+        );
+
+        let mut null_entry_counts = omitted_entry_counts;
+        null_entry_counts["aggregate_entries"][0]["counts_per_outcome"] = serde_json::Value::Null;
+        let err = decode_snapshot_value_for_test(&null_entry_counts)
+            .expect_err("explicit null is not an omitted version 4 aggregate-entry count map");
+        assert!(
+            err.contains("invalid type: null"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn snapshot_versions_five_and_six_require_outcome_data_in_every_location() {
+        let config = tiny_failing_suite_config("required-outcome-evidence");
+        let run_config = RunConfig {
+            snapshot_name: "required-outcome-evidence".to_string(),
+            execution_backend: ExecutionBackend::SpecExec,
+            ..RunConfig::default()
+        };
+        run_top_level_matrix(&config, run_config.clone()).expect("matrix should run");
+        let verified = load_verified_aggregate_summary(
+            &config,
+            &run_config.snapshot_name,
+            ExecutionBackend::SpecExec,
+        )
+        .expect("original aggregate should verify");
+        let (_, node_path, _) =
+            intentional_failure_node_snapshot(&config, &run_config.snapshot_name);
+        let original_node = read_snapshot_value_for_test(&node_path);
+        let original_aggregate = read_snapshot_value_for_test(&verified.snapshot_paths.json_path);
+
+        for version in [LEGACY_PRE_LILA_SNAPSHOT_VERSION, SNAPSHOT_VERSION] {
+            let mut valid_node = original_node.clone();
+            set_snapshot_version_for_test(&mut valid_node, version);
+            decode_snapshot_value_for_test(&valid_node)
+                .unwrap_or_else(|err| panic!("valid version {version} node should decode: {err}"));
+
+            let mut missing_failure_outcome = valid_node.clone();
+            missing_failure_outcome["failures"][0]
+                .as_object_mut()
+                .expect("failure should be an object")
+                .remove("outcome");
+            let err = decode_snapshot_value_for_test(&missing_failure_outcome)
+                .expect_err("versions 5 and 6 require every failure outcome");
+            assert!(
+                err.contains(&format!("snapshot version {version}"))
+                    && err.contains("missing required outcome data"),
+                "unexpected rejection: {err}"
+            );
+
+            let mut null_failure_outcome = valid_node.clone();
+            null_failure_outcome["failures"][0]["outcome"] = serde_json::Value::Null;
+            let err = decode_snapshot_value_for_test(&null_failure_outcome)
+                .expect_err("explicit null must not satisfy a required failure outcome");
+            assert!(
+                err.contains("invalid type: null"),
+                "unexpected error: {err}"
+            );
+
+            let mut missing_outcome_counts = valid_node.clone();
+            missing_outcome_counts
+                .as_object_mut()
+                .expect("snapshot should be an object")
+                .remove("counts_per_outcome");
+            let err = decode_snapshot_value_for_test(&missing_outcome_counts)
+                .expect_err("versions 5 and 6 require outcome counts");
+            assert!(
+                err.contains(&format!("snapshot version {version}"))
+                    && err.contains("missing required outcome counts"),
+                "unexpected rejection: {err}"
+            );
+
+            let mut null_outcome_counts = valid_node;
+            null_outcome_counts["counts_per_outcome"] = serde_json::Value::Null;
+            let err = decode_snapshot_value_for_test(&null_outcome_counts)
+                .expect_err("explicit null must not satisfy required outcome counts");
+            assert!(
+                err.contains("invalid type: null"),
+                "unexpected error: {err}"
+            );
+
+            let mut valid_aggregate = original_aggregate.clone();
+            set_snapshot_version_for_test(&mut valid_aggregate, version);
+            decode_snapshot_value_for_test(&valid_aggregate).unwrap_or_else(|err| {
+                panic!("valid version {version} aggregate should decode: {err}")
+            });
+
+            let mut missing_entry_counts = valid_aggregate.clone();
+            missing_entry_counts["aggregate_entries"][0]
+                .as_object_mut()
+                .expect("aggregate entry should be an object")
+                .remove("counts_per_outcome");
+            let err = decode_snapshot_value_for_test(&missing_entry_counts)
+                .expect_err("versions 5 and 6 require aggregate-entry outcome counts");
+            assert!(
+                err.contains(&format!("snapshot version {version}"))
+                    && err.contains("aggregate entry")
+                    && err.contains("missing required outcome counts"),
+                "unexpected rejection: {err}"
+            );
+
+            let mut null_entry_counts = valid_aggregate;
+            null_entry_counts["aggregate_entries"][0]["counts_per_outcome"] =
+                serde_json::Value::Null;
+            let err = decode_snapshot_value_for_test(&null_entry_counts)
+                .expect_err("explicit null must not satisfy aggregate-entry outcome counts");
+            assert!(
+                err.contains("invalid type: null"),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn verified_fallback_resolution_ignores_envelope_valid_corrupt_candidate() {
         let config = tiny_failing_suite_config("verified-fallback-evidence");
         let valid = RunConfig {
@@ -36116,6 +36598,31 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             serde_json::from_str(&first).expect("backlog json should parse");
         assert_eq!(first_json["records"][0]["owner_task_id"], "T16");
         assert_eq!(first_json["records"][0]["debt_category"], "semantic");
+        assert_eq!(
+            first_json["records"][0]["failure_kind"],
+            record.failure_kind.as_str()
+        );
+        assert_eq!(first_json["records"][0]["outcome"], record.outcome.as_str());
+        assert_eq!(first_json["records"][0]["origin"], record.origin.as_str());
+        assert_eq!(
+            serde_json::from_str::<BacklogArtifact>(&first)
+                .expect("generated backlog should deserialize"),
+            artifact
+        );
+        for (field, label) in [
+            ("failure_kind", "FutureKind"),
+            ("outcome", "FutureOutcome"),
+            ("origin", "future-origin"),
+        ] {
+            let mut tampered = first_json.clone();
+            tampered["records"][0][field] = serde_json::json!(label);
+            let err = serde_json::from_value::<BacklogArtifact>(tampered)
+                .expect_err("unknown backlog taxonomy labels must be rejected");
+            assert!(
+                err.to_string().contains(label),
+                "expected {label:?} in {err:?}"
+            );
+        }
         let (second_artifact, second_paths) = generate_backlog(
             &config,
             &run_config.snapshot_name,
@@ -36536,7 +37043,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("legacy backlog should generate");
         assert_eq!(artifact.records.len(), 1);
-        assert_eq!(artifact.records[0].outcome, "Bug");
+        assert_eq!(artifact.records[0].outcome, OutcomeKind::Bug);
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -38091,6 +38598,156 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         );
         assert_eq!(failure.origin, FailureOrigin::BoaRuntime);
         assert!(failure.detail.starts_with("[origin:boa-runtime] "));
+    }
+
+    #[test]
+    fn failure_taxonomy_wire_domains_round_trip_and_reject_unknown_labels() {
+        for kind in FailureKind::ALL {
+            let json = serde_json::to_string(&kind).expect("failure kind should serialize");
+            assert_eq!(json, format!(r#""{}""#, kind.as_str()));
+            assert_eq!(
+                serde_json::from_str::<FailureKind>(&json)
+                    .expect("failure kind should deserialize"),
+                kind
+            );
+        }
+        for outcome in OutcomeKind::ALL {
+            let json = serde_json::to_string(&outcome).expect("outcome should serialize");
+            assert_eq!(json, format!(r#""{}""#, outcome.as_str()));
+            assert_eq!(
+                serde_json::from_str::<OutcomeKind>(&json).expect("outcome should deserialize"),
+                outcome
+            );
+        }
+        for origin in FailureOrigin::ALL {
+            let json = serde_json::to_string(&origin).expect("failure origin should serialize");
+            assert_eq!(json, format!(r#""{}""#, origin.as_str()));
+            assert_eq!(
+                serde_json::from_str::<FailureOrigin>(&json)
+                    .expect("failure origin should deserialize"),
+                origin
+            );
+        }
+
+        assert!(serde_json::from_str::<FailureKind>(r#""FutureKind""#).is_err());
+        assert!(serde_json::from_str::<OutcomeKind>(r#""FutureOutcome""#).is_err());
+        assert!(serde_json::from_str::<FailureOrigin>(r#""future-origin""#).is_err());
+        assert!(serde_json::from_str::<FailureOrigin>(r#""Unknown""#).is_err());
+        assert_eq!(
+            serde_json::from_str::<FailureOrigin>(r#""unknown""#)
+                .expect("the explicit unknown origin is a recognized value"),
+            FailureOrigin::Unknown
+        );
+    }
+
+    #[test]
+    fn current_snapshot_writer_emits_complete_lexically_ordered_taxonomy_maps() {
+        let snapshot = ProgressSnapshot {
+            snapshot_version: SNAPSHOT_VERSION,
+            matrix_strategy_version: MATRIX_STRATEGY_VERSION,
+            execution_backend: ExecutionBackend::SpecExec,
+            pinned_revisions: PinnedRevisions {
+                ecma262: "ecma262-test-pin".to_string(),
+                test262: "test262-test-pin".to_string(),
+            },
+            manifest_hash: 1,
+            run_kind: "aggregate-matrix".to_string(),
+            total: 0,
+            passed: 0,
+            counts_per_kind: BTreeMap::new(),
+            counts_per_outcome: BTreeMap::new(),
+            slowest_tests: Vec::new(),
+            timeout_list: Vec::new(),
+            failures: Vec::new(),
+            completed_paths: Vec::new(),
+            matrix_path: vec!["top-level".to_string()],
+            completed_nodes: vec!["language".to_string()],
+            aggregate_counts_so_far: BTreeMap::new(),
+            aggregate_entries: vec![TopLevelRunSummary {
+                node_id: "language".to_string(),
+                node_kind: MatrixNodeKind::FilterLeaf,
+                filter: "language".to_string(),
+                matrix_path: vec!["language".to_string()],
+                total: 0,
+                passed: 0,
+                failed: 0,
+                counts_per_kind: BTreeMap::new(),
+                counts_per_outcome: BTreeMap::new(),
+                counts_per_origin: BTreeMap::new(),
+                manifest_hash: 2,
+            }],
+        };
+        let json = render_snapshot_json(&snapshot);
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("current snapshot json should parse");
+        assert_eq!(
+            value["snapshot_version"].as_u64(),
+            Some(u64::from(SNAPSHOT_VERSION))
+        );
+        assert_eq!(value["producer"], ArtifactProducer::CURRENT.as_str());
+
+        // These are the lexical orders emitted by the former
+        // `BTreeMap<String, _>` representation. Typed maps must retain them so
+        // valid current snapshots remain byte-stable.
+        let kind_keys = [
+            "EarlyError",
+            "HostHarness",
+            "Lowering",
+            "Parser",
+            "Runtime",
+            "Unsupported",
+            "WasmBackend",
+        ];
+        let outcome_keys = ["Bug", "Crash", "NotImplemented", "Success"];
+        let origin_keys = [
+            "boa-parser",
+            "boa-runtime",
+            "icu-intl",
+            "local-harness",
+            "spec-exec-host",
+            "unknown",
+        ];
+        let assert_complete_keys = |pointer: &str, expected: &[&str]| {
+            let mut actual = value
+                .pointer(pointer)
+                .unwrap_or_else(|| panic!("missing {pointer}"))
+                .as_object()
+                .unwrap_or_else(|| panic!("{pointer} should be an object"))
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            actual.sort();
+            assert_eq!(
+                actual,
+                expected
+                    .iter()
+                    .map(|key| (*key).to_string())
+                    .collect::<Vec<_>>(),
+                "{pointer} must contain every closed taxonomy key"
+            );
+        };
+
+        for pointer in [
+            "/counts_per_kind",
+            "/aggregate_counts_so_far",
+            "/aggregate_entries/0/counts_per_kind",
+        ] {
+            assert_complete_keys(pointer, &kind_keys);
+        }
+        for pointer in [
+            "/counts_per_outcome",
+            "/aggregate_entries/0/counts_per_outcome",
+        ] {
+            assert_complete_keys(pointer, &outcome_keys);
+        }
+        assert_complete_keys("/aggregate_entries/0/counts_per_origin", &origin_keys);
+
+        assert_json_count_key_order(&json, "counts_per_kind", 0, &kind_keys);
+        assert_json_count_key_order(&json, "counts_per_kind", 1, &kind_keys);
+        assert_json_count_key_order(&json, "aggregate_counts_so_far", 0, &kind_keys);
+        assert_json_count_key_order(&json, "counts_per_outcome", 0, &outcome_keys);
+        assert_json_count_key_order(&json, "counts_per_outcome", 1, &outcome_keys);
+        assert_json_count_key_order(&json, "counts_per_origin", 0, &origin_keys);
     }
 
     #[test]

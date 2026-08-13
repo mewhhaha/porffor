@@ -39,6 +39,9 @@ Begin formal closure only when:
 - Include all selected top-level roots, flags, negative tests, modules and async tests supported by the repository's conformance definition.
 - A case appears exactly once in the manifest and aggregate.
 - `Unsupported`, parser/lowering/backend failure, runtime failure, host failure, crash, bug and timeout are all non-passing outcomes.
+- Unknown failure-kind, outcome, origin, or classification-count wire spellings
+  invalidate the evidence. The explicit `unknown` origin remains a recognized
+  non-passing taxonomy value that must burn down to zero.
 - Fake-suite counts remain separate smoke-test metrics and never contribute to the real-suite numerator or denominator.
 - Pin changes invalidate stale aggregate evidence and require a fresh complete matrix.
 
