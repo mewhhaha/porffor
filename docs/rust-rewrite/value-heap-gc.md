@@ -115,14 +115,24 @@ semantic layouts stay schema-only until the atomic object-model cutover.
 
 The schema module is also the sole raw Wasm-GC encoder boundary. Type-index and
 field-ordinal construction/extraction, plus typed GC-root construction and
-extraction, stay private there. Module assembly computes the root's planned
-global slot from the complete global count, but can bind and append that root
-only through opaque schema operations. Function emission can initialize or
-verify and clear the capability root, but it cannot extract interchangeable
-`u32` indices or construct `struct.new`/`struct.get` instructions itself. The
-typed accessor boundary pairs a field with its owner and, for reference
-fields, with its target type through Rust generics before the final
-`wasm_encoder` call.
+extraction, stay private there. Module assembly first emits every fixed and
+dynamic scalar global into one open builder. One consume-once finalization owns
+the type registry and that builder: it derives the root slot from the encoded
+section's actual length, appends the typed root, and returns an opaque,
+non-cloneable package containing the finalized sections and their private
+`RuntimeModuleSchema`. There is no planned raw root index or copyable schema for
+another caller to recompute, supply or pair with a different section. A
+dedicated main-compilation transition consumes that exact package, compiles main
+internally against its private lifecycle, and retains the main body in the
+package's code-section builder. After the remaining bodies are supplied, the
+sealed compiled package has one consuming module-assembly operation; it emits
+its type, global and code sections around the other owned core sections in Wasm
+section order. No independent main/type/global/code append surface exists, so
+two finalized packages cannot be split and recombined through normal assembly.
+Function emission cannot extract interchangeable `u32` indices or construct
+`struct.new`/`struct.get` instructions itself. The typed accessor boundary pairs
+a field with its owner and, for reference fields, with its target type through
+Rust generics before the final `wasm_encoder` call.
 
 ## Runtime GC anchor
 
@@ -152,13 +162,20 @@ That sequence makes the Wasm validator and runtime exercise a concrete strong
 GC edge, a real Wasm global root and struct construction/field traversal,
 without introducing a live semantic object or changing the current heap.
 `ModuleTypeRegistry` owns the section and assigns both indices in dependency
-order. A complete `RuntimeModuleSchema` combines those types with the typed
-root; only the main-function role can carry it. The global-section builder
-cannot finish without appending the root at the index recorded by that schema.
-The schema owns the raw declaration, access and lifecycle instructions as one
-opaque operation surface, so a holder field cannot be paired with the anchor
-type, a type index cannot be used as a global index, and a second index for the
-same anchor layout cannot drift from the type used by the root declaration.
+order. Consuming the type registry and open global-section builder is the only
+way to obtain the finalized runtime package: the same operation binds the root
+to the section's actual next index, appends it, and seals the section against
+further globals. The private schema is neither `Copy` nor exposed. The only main
+compiler input is a closed plan constructed by the emitter; the main-compilation
+transition consumes it internally against the package's exact globals and
+immediately stores the resulting main in package-owned code. The resulting
+compiled package is the only owner of those type, global and code sections, and
+a single consume-once append operation emits all three. That package owns raw
+declaration, access, lifecycle and assembly as one opaque operation surface, so
+a holder field cannot be paired with the anchor type, a type index cannot be
+used as a global index, and neither a separately predicted root index/schema nor
+a main compiled against another package can drift from the completed global
+section.
 
 The holder becomes unreachable as soon as its edge is transferred to the
 global. The anchor then remains live only through the global until the shared
@@ -288,9 +305,10 @@ the latter condition with the capability anchor below.
   runtime-boundary verification remains).
 - Keep raw GC type-index and field-ordinal construction/extraction, typed-root
   construction/extraction and struct instructions inside the schema module;
-  module assembly supplies the planned raw global slot only to opaque root
-  binding, and function emitters consume only opaque lifecycle operations
-  (landed; compile and focused runtime verification remain).
+  consuming the type/global builders derives and appends the sole root from the
+  actual encoded section length, and main borrows only that exact non-cloneable
+  package's opaque lifecycle operations (landed; compile and focused runtime
+  verification remain).
 
 Gate: a module containing the anchor/holder/root probe validates and executes
 on the pinned lower bound, and fails clearly when GC is disabled. This proves

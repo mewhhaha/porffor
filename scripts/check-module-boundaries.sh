@@ -254,6 +254,90 @@ require_fixed_string_count \
   0 \
   'typed StructSet encoder boundary before a mutable GC field exists'
 
+# T05's runtime root is derived only while the complete scalar/dynamic global
+# section is consumed. Keeping its raw constructor at one site prevents the old
+# independently predicted u32 slot from returning under another name.
+require_fixed_string_count \
+  "$wasm_gc_types" \
+  'GcRootGlobal::new(' \
+  1 \
+  'typed GC root construction site in the global-section finalizer'
+if grep -R -Eq 'runtime_gc_root_global_index|fn bind_root\(' crates/lila-aot-wasm/src; then
+  fail 'the runtime GC root must be derived from the finalized global section, not a planned raw index'
+fi
+if ! grep -Fq 'pub(crate) fn finalize_globals(' "$wasm_gc_types" \
+  || ! grep -Fq 'gc_anchor_root: GcRootGlobal::new(globals.len()),' "$wasm_gc_types" \
+  || ! grep -Fq 'impl Section for FinalizedModuleGlobals' "$wasm_gc_types"; then
+  fail "$wasm_gc_types must derive the root from the actual global count and encode the opaque sealed section"
+fi
+if grep -Eq 'pub\(crate\).*RuntimeModuleSchema|fn (runtime_schema|section)\(&self\).*GlobalSection' "$wasm_gc_types"; then
+  fail "$wasm_gc_types must not expose a copyable runtime schema or the cloneable raw global section"
+fi
+gc_schema_escapes="$(
+  find crates/lila-aot-wasm/src -type f -name '*.rs' ! -path "$wasm_gc_types" -print0 \
+    | xargs -0 grep -Fn 'RuntimeModuleSchema' || true
+)"
+if [ -n "$gc_schema_escapes" ]; then
+  fail "the private runtime GC schema must not escape $wasm_gc_types: $gc_schema_escapes"
+fi
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/module.rs \
+  'runtime.finalize_globals(self.section)' \
+  1 \
+  'global-section builder finalization through the typed runtime registry'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/emit.rs \
+  'module_types.finalize_globals(globals)' \
+  1 \
+  'complete module global-section finalization site'
+if ! grep -Fq "Main(&'a FinalizedModuleGlobals)" crates/lila-aot-wasm/src/emit.rs \
+  || ! grep -Fq 'module_sections.compile_main(MainFunctionCompilation::new(' crates/lila-aot-wasm/src/emit.rs \
+  || ! grep -Fq 'compilation.compile_into(&self.globals, &mut code)?' crates/lila-aot-wasm/src/module.rs \
+  || ! grep -Fq 'code.push(EmittedFunction::new(FunctionIdentity::Main, main));' crates/lila-aot-wasm/src/emit.rs \
+  || ! grep -Fq 'CompiledModulePackage::append_remaining_functions;' crates/lila-aot-wasm/src/module.rs; then
+  fail 'main must compile into package-owned code through its exact finalized globals'
+fi
+for rejected_surface in runtime_globals push_main_to append_types_to append_globals_to; do
+  if grep -Fq "${rejected_surface}(" crates/lila-aot-wasm/src/module.rs; then
+    fail "the finalized module package must not expose split assembly surface: ${rejected_surface}"
+  fi
+done
+if grep -Fq 'impl FnOnce(&FinalizedModuleGlobals)' crates/lila-aot-wasm/src/module.rs; then
+  fail 'the finalized module package must use the closed main compiler, not an arbitrary callback'
+fi
+if grep -Fq 'CompilingModulePackage' crates/lila-aot-wasm/src/module.rs; then
+  fail 'main compilation must return the one compiled package, not an independently consumable code package'
+fi
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/module.rs \
+  'pub(crate) fn append_to_module(' \
+  1 \
+  'consume-once compiled-package assembly transition'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/emit.rs \
+  'module_package.append_to_module(' \
+  1 \
+  'compiled-package assembly consumer'
+for sealed_section in types globals code; do
+  sealed_section_escapes="$(
+    find crates/lila-aot-wasm/src -type f -name '*.rs' ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
+      | xargs -0 grep -Fn "module.section(&${sealed_section})" || true
+  )"
+  if [ -n "$sealed_section_escapes" ]; then
+    fail "sealed runtime ${sealed_section} section escaped consume-once package assembly: ${sealed_section_escapes}"
+  fi
+done
+global_section_constructor_escapes="$(
+  find crates/lila-aot-wasm/src -type f -name '*.rs' \
+    ! -path 'crates/lila-aot-wasm/src/module.rs' \
+    ! -path "$wasm_gc_types" -print0 \
+    | xargs -0 grep -Fn 'GlobalSection::new()' || true
+)"
+if [ -n "$global_section_constructor_escapes" ] \
+  || sed '/^#\[cfg(test)\]/,$d' "$wasm_gc_types" | grep -Fq 'GlobalSection::new()'; then
+  fail "production GlobalSection construction must stay in crates/lila-aot-wasm/src/module.rs: $global_section_constructor_escapes"
+fi
+
 for module in array bigint binary_data boolean bootstrap date errors function \
               global_numeric host iterators json math number object proxy reflect \
               standard string symbol uri; do

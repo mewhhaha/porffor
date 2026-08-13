@@ -193,22 +193,105 @@ impl CompletionExit {
 
 /// Construction role of one emitted function.
 ///
-/// The main role necessarily carries the schema assigned by the module's type
-/// registry. `Self::new` derives the return ABI from this value, so a caller
-/// cannot construct a main body without its module schema or attach that
-/// schema to an internal function.
-#[derive(Debug, Clone, Copy)]
-enum FunctionModuleState {
-    Main(RuntimeModuleSchema),
+/// The main role necessarily borrows the exact sealed global package that the
+/// module later encodes. `Self::new` derives the return ABI from this value, so
+/// a caller cannot construct a main body without its rooted section or extract
+/// a copyable schema to pair with another section.
+#[derive(Clone, Copy)]
+enum FunctionModuleState<'a> {
+    Main(&'a FinalizedModuleGlobals),
     Internal,
 }
 
-impl FunctionModuleState {
+impl FunctionModuleState<'_> {
     const fn return_abi(self) -> ReturnAbi {
         match self {
             Self::Main(_) => ReturnAbi::MainExport,
             Self::Internal => ReturnAbi::MultiValue,
         }
+    }
+}
+
+/// Closed inputs for compiling the one exported main body.
+///
+/// Fields and construction stay in this module. [`FinalizedModuleSections`]
+/// consumes the plan and supplies its own private globals to `compile_into`, so
+/// module assembly cannot pass an arbitrary callback that ignores package A
+/// while compiling against package B.
+pub(crate) struct MainFunctionCompilation<'a> {
+    script: &'a ScriptIr,
+    strings: &'a StringPool,
+    functions: &'a FunctionMetaRegistry,
+    uses_heap: bool,
+    runtime_bootstrap_plan: RuntimeBootstrapPlan,
+    heap_alloc_function_index: Option<u32>,
+    object_append_data_property_function_index: Option<u32>,
+    object_append_accessor_property_function_index: Option<u32>,
+    function_object_alloc_function_index: Option<u32>,
+    plain_object_alloc_function_index: Option<u32>,
+    array_alloc_function_index: Option<u32>,
+    first_wasm_index: u32,
+}
+
+impl<'a> MainFunctionCompilation<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        script: &'a ScriptIr,
+        strings: &'a StringPool,
+        functions: &'a FunctionMetaRegistry,
+        uses_heap: bool,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
+        first_wasm_index: u32,
+    ) -> Self {
+        Self {
+            script,
+            strings,
+            functions,
+            uses_heap,
+            runtime_bootstrap_plan,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
+            first_wasm_index,
+        }
+    }
+
+    pub(crate) const fn first_wasm_index(&self) -> u32 {
+        self.first_wasm_index
+    }
+
+    pub(crate) fn compile_into(
+        self,
+        module_globals: &FinalizedModuleGlobals,
+        code: &mut ModuleCode,
+    ) -> Result<u32, EmitError> {
+        let mut builder = FunctionBuilder::new_main(
+            self.script,
+            self.strings,
+            self.functions,
+            self.uses_heap,
+            self.runtime_bootstrap_plan,
+            self.heap_alloc_function_index,
+            self.object_append_data_property_function_index,
+            self.object_append_accessor_property_function_index,
+            self.function_object_alloc_function_index,
+            self.plain_object_alloc_function_index,
+            self.array_alloc_function_index,
+            module_globals,
+        );
+        let main = builder.compile()?;
+        let emitted_local_count = builder.emitted_local_count();
+        code.push(EmittedFunction::new(FunctionIdentity::Main, main));
+        Ok(emitted_local_count)
     }
 }
 
@@ -350,7 +433,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) script_global_bindings: Option<&'a GlobalBindingPlan>,
     pub(crate) uses_heap: bool,
     pub(crate) completion_exit: CompletionExit,
-    module_state: FunctionModuleState,
+    module_state: FunctionModuleState<'a>,
     numeric_error_realm_source: NumericErrorRealmSource,
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
@@ -1142,19 +1225,108 @@ fn emit_script_with_forced_builtins(
     let uses_function_table = true;
     let module_types = ModuleTypeRegistry::new(uses_function_table);
     let module_guard_count = module_unit_guard_count(script);
-    let fixed_global_count = if uses_heap {
-        GLOBAL_INDEX_REGISTRY.len() as u32
-    } else {
-        throw_error_message_global_index(false) + 1
-    };
-    let runtime_gc_root_global_index = fixed_global_count
-        .checked_add(
-            u32::try_from(string_pool.template_objects.len())
-                .expect("template-object global count fits u32"),
-        )
-        .and_then(|count| count.checked_add(module_guard_count))
-        .expect("module global count fits u32");
-    let runtime_module_schema = module_types.runtime_schema(runtime_gc_root_global_index);
+
+    // Every fixed and dynamic scalar-global count is now known. Build and
+    // consume the section immediately so main can borrow its exact rooted
+    // package while retaining the previous main-first body compilation order.
+    let mut globals = ModuleGlobalSectionBuilder::new();
+    globals.global(
+        GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
+            shared: false,
+        },
+        &ConstExpr::i32_const(ValueKind::Undefined.tag()),
+    );
+    globals.global(
+        GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
+            shared: false,
+        },
+        &ConstExpr::i32_const(COMPLETION_KIND_NORMAL as i32),
+    );
+    globals.global(
+        GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
+            shared: false,
+        },
+        &ConstExpr::i32_const(0),
+    );
+    if uses_heap {
+        globals.global(
+            GlobalType {
+                val_type: ValType::I64,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i64_const(align_heap_start(string_pool.bytes.len()) as i64),
+        );
+        globals.global(
+            GlobalType {
+                val_type: ValType::I64,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i64_const(0),
+        );
+        for _ in 0..59 {
+            globals.global(
+                GlobalType {
+                    val_type: ValType::I64,
+                    mutable: true,
+                    shared: false,
+                },
+                &ConstExpr::i64_const(0),
+            );
+        }
+    }
+    globals.global(
+        GlobalType {
+            val_type: ValType::I64,
+            mutable: true,
+            shared: false,
+        },
+        &ConstExpr::i64_const(0),
+    );
+    if uses_heap {
+        for _ in THROW_ERROR_NAME_HEAP_GLOBAL_INDEX + 1..GLOBAL_INDEX_REGISTRY.len() as u32 {
+            globals.global(
+                GlobalType {
+                    val_type: ValType::I64,
+                    mutable: true,
+                    shared: false,
+                },
+                &ConstExpr::i64_const(0),
+            );
+        }
+    }
+    for _ in &string_pool.template_objects {
+        globals.global(
+            GlobalType {
+                val_type: ValType::I64,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i64_const(0),
+        );
+    }
+    // One "already evaluated" guard per module unit, immediately after the
+    // template-object globals so no existing index moves. Zero means "not yet
+    // evaluated"; `FunctionBuilder::emit_module_unit_once` sets it.
+    for _ in 0..module_guard_count {
+        globals.global(
+            GlobalType {
+                val_type: ValType::I32,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i32_const(0),
+        );
+    }
+    let module_sections = module_types.finalize_globals(globals);
+
     let callable_function_count = script.functions.len()
         + emitted_standard_builtins.len()
         + usize::from(has_shared_stub)
@@ -1175,7 +1347,8 @@ fn emit_script_with_forced_builtins(
         heap_alloc_function_index.map(|base| RuntimeHelperId::PlainObjectAlloc.index(base));
     let array_alloc_function_index =
         heap_alloc_function_index.map(|base| RuntimeHelperId::ArrayAlloc.index(base));
-    let mut main_builder = FunctionBuilder::new_main(
+
+    let mut module_package = module_sections.compile_main(MainFunctionCompilation::new(
         script,
         &string_pool,
         &function_metas,
@@ -1187,9 +1360,9 @@ fn emit_script_with_forced_builtins(
         function_object_alloc_function_index,
         plain_object_alloc_function_index,
         array_alloc_function_index,
-        runtime_module_schema,
-    );
-    let main_function = main_builder.compile()?;
+        imported_function_count,
+    ))?;
+
     // Every element is an `EmittedFunction`: a body that already knows which
     // source-level function it belongs to and how many bytes it encodes to.
     let mut compiled_functions: Vec<EmittedFunction> = Vec::with_capacity(callable_function_count);
@@ -2086,109 +2259,6 @@ fn emit_script_with_forced_builtins(
         throw_error_message_global_index(uses_heap),
     );
 
-    let mut globals = ModuleGlobalSectionBuilder::new();
-    globals.global(
-        GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i32_const(ValueKind::Undefined.tag()),
-    );
-    globals.global(
-        GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i32_const(COMPLETION_KIND_NORMAL as i32),
-    );
-    globals.global(
-        GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i32_const(0),
-    );
-    if uses_heap {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(align_heap_start(string_pool.bytes.len()) as i64),
-        );
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(0),
-        );
-        for _ in 0..59 {
-            globals.global(
-                GlobalType {
-                    val_type: ValType::I64,
-                    mutable: true,
-                    shared: false,
-                },
-                &ConstExpr::i64_const(0),
-            );
-        }
-    }
-    globals.global(
-        GlobalType {
-            val_type: ValType::I64,
-            mutable: true,
-            shared: false,
-        },
-        &ConstExpr::i64_const(0),
-    );
-    if uses_heap {
-        for _ in THROW_ERROR_NAME_HEAP_GLOBAL_INDEX + 1..GLOBAL_INDEX_REGISTRY.len() as u32 {
-            globals.global(
-                GlobalType {
-                    val_type: ValType::I64,
-                    mutable: true,
-                    shared: false,
-                },
-                &ConstExpr::i64_const(0),
-            );
-        }
-    }
-    for _ in &string_pool.template_objects {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I64,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i64_const(0),
-        );
-    }
-    // One "already evaluated" guard per module unit, immediately after the
-    // template-object globals so no existing index moves. Zero means "not yet
-    // evaluated"; `FunctionBuilder::emit_module_unit_once` sets it.
-    for _ in 0..module_guard_count {
-        globals.global(
-            GlobalType {
-                val_type: ValType::I32,
-                mutable: true,
-                shared: false,
-            },
-            &ConstExpr::i32_const(0),
-        );
-    }
-    let globals = globals.finish(runtime_module_schema);
-
-    let mut code = ModuleCode::new(imported_function_count);
-    code.push(EmittedFunction::new(FunctionIdentity::Main, main_function));
-    for function in compiled_functions {
-        code.push(function);
-    }
     if uses_heap {
         for helper in RuntimeHelperId::ALL {
             if !helper.is_emitted(helper_emission) {
@@ -2200,7 +2270,7 @@ fn emit_script_with_forced_builtins(
                     helper.debug_name()
                 )
             });
-            code.push(EmittedFunction::new(
+            compiled_functions.push(EmittedFunction::new(
                 FunctionIdentity::RuntimeHelper(helper),
                 body,
             ));
@@ -2211,7 +2281,164 @@ fn emit_script_with_forced_builtins(
         "compiled runtime helper bodies were never emitted: {:?}",
         helper_bodies.keys().collect::<Vec<_>>()
     );
-    let (code, function_table) = code.finish();
+    module_package.append_remaining_functions(compiled_functions);
+
+    let mut imports = ImportSection::new();
+    imports.import(
+        HOST_IMPORT_MODULE,
+        HOST_IMPORT_AGENT_CAN_SUSPEND,
+        wasm_encoder::EntityType::Function(HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX),
+    );
+    if uses_host_print {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_PRINT_LINE_UTF8,
+            wasm_encoder::EntityType::Function(HOST_PRINT_IMPORT_TYPE_INDEX),
+        );
+    }
+    if uses_number_pow_import {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_NUMBER_POW,
+            wasm_encoder::EntityType::Function(HOST_NUMBER_POW_IMPORT_TYPE_INDEX),
+        );
+    }
+    if uses_wall_clock_millis {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_WALL_CLOCK_MILLIS,
+            wasm_encoder::EntityType::Function(HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX),
+        );
+    }
+    if uses_shared_memory {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_SHARED_MEMORY_ALLOC,
+            wasm_encoder::EntityType::Function(HEAP_ALLOC_TYPE_INDEX),
+        );
+        if uses_atomics_wait_async {
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
+                wasm_encoder::EntityType::Function(HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX),
+            );
+            imports.import(
+                HOST_IMPORT_MODULE,
+                HOST_IMPORT_SLEEP_NANOS,
+                wasm_encoder::EntityType::Function(HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX),
+            );
+        }
+        let initial_pages = initial_memory_pages(string_pool.bytes.len(), uses_heap);
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_PRIVATE_MEMORY,
+            wasm_encoder::EntityType::Memory(MemoryType {
+                minimum: initial_pages,
+                maximum: None,
+                memory64: false,
+                shared: false,
+                page_size_log2: None,
+            }),
+        );
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_SHARED_MEMORY,
+            wasm_encoder::EntityType::Memory(MemoryType {
+                minimum: 1,
+                maximum: Some(16_384),
+                memory64: false,
+                shared: true,
+                page_size_log2: None,
+            }),
+        );
+    }
+    if uses_agent_host {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_AGENT_CALL,
+            wasm_encoder::EntityType::Function(HOST_AGENT_CALL_IMPORT_TYPE_INDEX),
+        );
+    }
+    if uses_intl_host {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_INTL_CALL,
+            wasm_encoder::EntityType::Function(HOST_INTL_CALL_IMPORT_TYPE_INDEX),
+        );
+    }
+    if uses_random_f64 {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_RANDOM_F64,
+            wasm_encoder::EntityType::Function(HOST_RANDOM_F64_IMPORT_TYPE_INDEX),
+        );
+    }
+
+    let tables = if uses_function_table {
+        let mut tables = TableSection::new();
+        tables.table(TableType {
+            element_type: RefType::FUNCREF,
+            minimum: callable_function_count as u64,
+            maximum: Some(callable_function_count as u64),
+            table64: false,
+            shared: false,
+        });
+        Some(tables)
+    } else {
+        None
+    };
+
+    let mut memories = None;
+    let mut data = None;
+    if !string_pool.bytes.is_empty() || uses_heap {
+        if !uses_shared_memory {
+            let mut section = MemorySection::new();
+            section.memory(MemoryType {
+                minimum: initial_memory_pages(string_pool.bytes.len(), uses_heap),
+                maximum: None,
+                memory64: false,
+                shared: false,
+                page_size_log2: None,
+            });
+            memories = Some(section);
+        }
+        exports.export("memory", ExportKind::Memory, 0);
+        if !string_pool.bytes.is_empty() {
+            let mut section = DataSection::new();
+            section.active(
+                0,
+                &ConstExpr::i32_const(STATIC_DATA_OFFSET as i32),
+                string_pool.bytes.iter().copied(),
+            );
+            data = Some(section);
+        }
+    }
+
+    let elements = if uses_function_table {
+        let mut elements = ElementSection::new();
+        let first_callable_wasm_index = imported_function_count + 1;
+        let function_indexes = (first_callable_wasm_index
+            ..first_callable_wasm_index + callable_function_count as u32)
+            .collect::<Vec<_>>();
+        elements.active(
+            Some(0),
+            &ConstExpr::i32_const(0),
+            Elements::Functions(Cow::Owned(function_indexes)),
+        );
+        Some(elements)
+    } else {
+        None
+    };
+
+    let declared_function_count = functions.len();
+    let main_emitted_local_count = module_package.main_emitted_local_count();
+    let mut module = Module::new();
+    let function_table = module_package.append_to_module(
+        &mut module,
+        ModuleAssemblySections::new(
+            imports, functions, tables, memories, exports, elements, data,
+        ),
+    );
     // The function section and the code section must describe the same number
     // of functions, or wasmtime rejects the module as malformed. This compares
     // the code section's own record count against `FunctionSection`'s own
@@ -2224,125 +2451,15 @@ fn emit_script_with_forced_builtins(
     // could never fire on any input.
     assert_eq!(
         u32::try_from(function_table.records().len()).expect("emitted function count fits u32"),
-        functions.len(),
+        declared_function_count,
         "code section entries must match the function section declarations"
     );
-
-    let mut module = Module::new();
-    module.section(module_types.section());
-    {
-        let mut imports = ImportSection::new();
-        imports.import(
-            HOST_IMPORT_MODULE,
-            HOST_IMPORT_AGENT_CAN_SUSPEND,
-            wasm_encoder::EntityType::Function(HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX),
-        );
-        if uses_host_print {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_PRINT_LINE_UTF8,
-                wasm_encoder::EntityType::Function(HOST_PRINT_IMPORT_TYPE_INDEX),
-            );
-        }
-        if uses_number_pow_import {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_NUMBER_POW,
-                wasm_encoder::EntityType::Function(HOST_NUMBER_POW_IMPORT_TYPE_INDEX),
-            );
-        }
-        if uses_wall_clock_millis {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_WALL_CLOCK_MILLIS,
-                wasm_encoder::EntityType::Function(HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX),
-            );
-        }
-        if uses_shared_memory {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_SHARED_MEMORY_ALLOC,
-                wasm_encoder::EntityType::Function(HEAP_ALLOC_TYPE_INDEX),
-            );
-            if uses_atomics_wait_async {
-                imports.import(
-                    HOST_IMPORT_MODULE,
-                    HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
-                    wasm_encoder::EntityType::Function(
-                        HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX,
-                    ),
-                );
-                imports.import(
-                    HOST_IMPORT_MODULE,
-                    HOST_IMPORT_SLEEP_NANOS,
-                    wasm_encoder::EntityType::Function(HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX),
-                );
-            }
-            let initial_pages = initial_memory_pages(string_pool.bytes.len(), uses_heap);
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_PRIVATE_MEMORY,
-                wasm_encoder::EntityType::Memory(MemoryType {
-                    minimum: initial_pages,
-                    maximum: None,
-                    memory64: false,
-                    shared: false,
-                    page_size_log2: None,
-                }),
-            );
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_SHARED_MEMORY,
-                wasm_encoder::EntityType::Memory(MemoryType {
-                    minimum: 1,
-                    maximum: Some(16_384),
-                    memory64: false,
-                    shared: true,
-                    page_size_log2: None,
-                }),
-            );
-        }
-        if uses_agent_host {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_AGENT_CALL,
-                wasm_encoder::EntityType::Function(HOST_AGENT_CALL_IMPORT_TYPE_INDEX),
-            );
-        }
-        if uses_intl_host {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_INTL_CALL,
-                wasm_encoder::EntityType::Function(HOST_INTL_CALL_IMPORT_TYPE_INDEX),
-            );
-        }
-        if uses_random_f64 {
-            imports.import(
-                HOST_IMPORT_MODULE,
-                HOST_IMPORT_RANDOM_F64,
-                wasm_encoder::EntityType::Function(HOST_RANDOM_F64_IMPORT_TYPE_INDEX),
-            );
-        }
-        module.section(&imports);
-    }
-    module.section(&functions);
-    if uses_function_table {
-        let mut tables = TableSection::new();
-        tables.table(TableType {
-            element_type: RefType::FUNCREF,
-            minimum: callable_function_count as u64,
-            maximum: Some(callable_function_count as u64),
-            table64: false,
-            shared: false,
-        });
-        module.section(&tables);
-    }
 
     let mut debug_dump = vec![
         "module: js-aot".to_string(),
         "export func: main -> i64".to_string(),
         format!("static result kind: {}", script.result_kind().as_str()),
-        format!("locals: {}", main_builder.emitted_local_count()),
+        format!("locals: {main_emitted_local_count}"),
         format!("internal functions: {}", callable_function_count),
         // Derived from the same table the bodies were pushed into, so it
         // cannot go stale the way the previous hand-written `27` did: the
@@ -2499,48 +2616,13 @@ fn emit_script_with_forced_builtins(
     }
 
     if !string_pool.bytes.is_empty() || uses_heap {
-        if !uses_shared_memory {
-            let mut memories = MemorySection::new();
-            memories.memory(MemoryType {
-                minimum: initial_memory_pages(string_pool.bytes.len(), uses_heap),
-                maximum: None,
-                memory64: false,
-                shared: false,
-                page_size_log2: None,
-            });
-            module.section(&memories);
-        }
-        exports.export("memory", ExportKind::Memory, 0);
         if uses_shared_memory {
             debug_dump.push("memory: exported private linear memory".to_string());
         } else {
             debug_dump.push("memory: exported linear memory".to_string());
         }
 
-        let mut data = DataSection::new();
-        data.active(
-            0,
-            &ConstExpr::i32_const(STATIC_DATA_OFFSET as i32),
-            string_pool.bytes.iter().copied(),
-        );
-        module.section(&globals);
-        module.section(&exports);
-        if uses_function_table {
-            let mut elements = ElementSection::new();
-            let first_callable_wasm_index = imported_function_count + 1;
-            let function_indexes = (first_callable_wasm_index
-                ..first_callable_wasm_index + callable_function_count as u32)
-                .collect::<Vec<_>>();
-            elements.active(
-                Some(0),
-                &ConstExpr::i32_const(0),
-                Elements::Functions(Cow::Owned(function_indexes)),
-            );
-            module.section(&elements);
-        }
-        module.section(&code);
         if !string_pool.bytes.is_empty() {
-            module.section(&data);
             debug_dump.push("data segments: 1".to_string());
         } else {
             debug_dump.push("data segments: 0".to_string());
@@ -2549,22 +2631,6 @@ fn emit_script_with_forced_builtins(
             debug_dump.push("heap: enabled".to_string());
         }
     } else {
-        module.section(&globals);
-        module.section(&exports);
-        if uses_function_table {
-            let mut elements = ElementSection::new();
-            let first_callable_wasm_index = imported_function_count + 1;
-            let function_indexes = (first_callable_wasm_index
-                ..first_callable_wasm_index + callable_function_count as u32)
-                .collect::<Vec<_>>();
-            elements.active(
-                Some(0),
-                &ConstExpr::i32_const(0),
-                Elements::Functions(Cow::Owned(function_indexes)),
-            );
-            module.section(&elements);
-        }
-        module.section(&code);
         debug_dump.push("memory: none".to_string());
         debug_dump.push("data segments: 0".to_string());
     }
@@ -2665,7 +2731,7 @@ impl<'a> FunctionBuilder<'a> {
         function_object_alloc_function_index: Option<u32>,
         plain_object_alloc_function_index: Option<u32>,
         array_alloc_function_index: Option<u32>,
-        module_schema: RuntimeModuleSchema,
+        module_globals: &'a FinalizedModuleGlobals,
     ) -> Self {
         Self::new(
             &script.body,
@@ -2682,7 +2748,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             Some(&script.global_bindings),
             uses_heap,
-            FunctionModuleState::Main(module_schema),
+            FunctionModuleState::Main(module_globals),
             NumericErrorRealmSource::GlobalFallback,
             false,
             runtime_bootstrap_plan,
@@ -2879,7 +2945,7 @@ impl<'a> FunctionBuilder<'a> {
         self_binding_name: Option<String>,
         script_global_bindings: Option<&'a GlobalBindingPlan>,
         uses_heap: bool,
-        module_state: FunctionModuleState,
+        module_state: FunctionModuleState<'a>,
         numeric_error_realm_source: NumericErrorRealmSource,
         is_derived_constructor: bool,
         runtime_bootstrap_plan: RuntimeBootstrapPlan,
@@ -3676,7 +3742,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn initialize_runtime_gc_anchor_root(&self, function: &mut Function) {
-        let FunctionModuleState::Main(module_schema) = self.module_state else {
+        let FunctionModuleState::Main(module_globals) = self.module_state else {
             return;
         };
 
@@ -3686,19 +3752,19 @@ impl<'a> FunctionBuilder<'a> {
         // Keeping the value as a Wasm reference is the point: this capability
         // root must not introduce an integer handle beside the future GC
         // object model.
-        module_schema.emit_initialize_anchor_root(function);
+        module_globals.emit_initialize_anchor_root(function);
     }
 
     /// Verifies and clears the capability root on a real main exit.
     ///
     /// `emit_return_current_completion` calls this only after declining the
     /// temporary main-job-checkpoint branch, so pending jobs retain the root.
-    /// Internal functions carry no `RuntimeModuleSchema` and emit nothing.
+    /// Internal functions carry no finalized global package and emit nothing.
     pub(crate) fn verify_and_clear_runtime_gc_anchor_root(&self, function: &mut Function) {
-        let FunctionModuleState::Main(module_schema) = self.module_state else {
+        let FunctionModuleState::Main(module_globals) = self.module_state else {
             return;
         };
-        module_schema.emit_verify_and_clear_anchor_root(function);
+        module_globals.emit_verify_and_clear_anchor_root(function);
     }
 
     fn ensure_heap_ptr_after_static_data(&self, function: &mut Function) {

@@ -1,8 +1,13 @@
 use super::*;
 use lila_ir::NativeErrorKind;
-use wasm_encoder::{ConstExpr, GlobalSection, GlobalType, TypeSection};
+use wasm_encoder::{
+    ConstExpr, DataSection, ElementSection, ExportSection, FunctionSection, GlobalSection,
+    GlobalType, ImportSection, MemorySection, Module, TableSection, TypeSection,
+};
 
-pub(crate) use crate::gc_types::RuntimeModuleSchema;
+use crate::emit::MainFunctionCompilation;
+use crate::emitted_function::ModuleFunctionTable;
+pub(crate) use crate::gc_types::FinalizedModuleGlobals;
 use crate::gc_types::RuntimeModuleTypes;
 
 pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
@@ -294,17 +299,166 @@ impl ModuleTypeRegistry {
         }
     }
 
-    pub(crate) const fn runtime_schema(
-        &self,
-        gc_anchor_root_global_index: u32,
-    ) -> RuntimeModuleSchema {
-        self.runtime.bind_root(gc_anchor_root_global_index)
-    }
-
-    pub(crate) const fn section(&self) -> &TypeSection {
-        &self.section
+    /// Consumes every scalar/dynamic global and returns the sealed section with
+    /// the runtime schema derived from its actual final scalar index.
+    pub(crate) fn finalize_globals(
+        self,
+        globals: ModuleGlobalSectionBuilder,
+    ) -> FinalizedModuleSections {
+        let Self { section, runtime } = self;
+        FinalizedModuleSections {
+            types: section,
+            globals: globals.finish(runtime),
+        }
     }
 }
+
+/// The type and global sections finalized as one consume-once package.
+///
+/// Consuming [`ModuleTypeRegistry`] prevents a second global package from being
+/// finalized against the same typed registry. The only next transition accepts
+/// the emitter's closed main-compilation plan, compiles it against this exact
+/// package and starts package-owned code with that main body.
+pub(crate) struct FinalizedModuleSections {
+    types: TypeSection,
+    globals: FinalizedModuleGlobals,
+}
+
+impl FinalizedModuleSections {
+    pub(crate) fn compile_main(
+        self,
+        compilation: MainFunctionCompilation<'_>,
+    ) -> Result<CompiledModulePackage, EmitError> {
+        let mut code = ModuleCode::new(compilation.first_wasm_index());
+        let main_emitted_local_count = compilation.compile_into(&self.globals, &mut code)?;
+        Ok(CompiledModulePackage {
+            types: self.types,
+            globals: self.globals,
+            code,
+            main_emitted_local_count,
+        })
+    }
+}
+
+/// Type, rooted globals and code whose first body is main compiled against that
+/// exact root, sealed together behind one consuming assembly operation.
+///
+/// None of the three Wasm sections has an independent append method. Remaining
+/// bodies extend package-owned code by mutable borrow; only the final assembly
+/// transition consumes the package. Normal Rust code therefore cannot combine
+/// A's main with B's types or globals or reuse either package for another
+/// module.
+pub(crate) struct CompiledModulePackage {
+    types: TypeSection,
+    globals: FinalizedModuleGlobals,
+    code: ModuleCode,
+    main_emitted_local_count: u32,
+}
+
+impl CompiledModulePackage {
+    pub(crate) fn append_remaining_functions(&mut self, remaining_functions: Vec<EmittedFunction>) {
+        for function in remaining_functions {
+            self.code.push(function);
+        }
+    }
+
+    pub(crate) const fn main_emitted_local_count(&self) -> u32 {
+        self.main_emitted_local_count
+    }
+
+    pub(crate) fn append_to_module(
+        self,
+        module: &mut Module,
+        sections: ModuleAssemblySections,
+    ) -> ModuleFunctionTable {
+        let Self {
+            types,
+            globals,
+            code,
+            main_emitted_local_count: _,
+        } = self;
+        let (code, function_table) = code.finish();
+        let ModuleAssemblySections {
+            imports,
+            functions,
+            tables,
+            memories,
+            exports,
+            elements,
+            data,
+        } = sections;
+
+        module.section(&types);
+        module.section(&imports);
+        module.section(&functions);
+        if let Some(tables) = tables {
+            module.section(&tables);
+        }
+        if let Some(memories) = memories {
+            module.section(&memories);
+        }
+        module.section(&globals);
+        module.section(&exports);
+        if let Some(elements) = elements {
+            module.section(&elements);
+        }
+        module.section(&code);
+        if let Some(data) = data {
+            module.section(&data);
+        }
+
+        function_table
+    }
+}
+
+/// The non-runtime core sections that must be interleaved with one compiled
+/// runtime package according to Wasm's canonical section order.
+pub(crate) struct ModuleAssemblySections {
+    imports: ImportSection,
+    functions: FunctionSection,
+    tables: Option<TableSection>,
+    memories: Option<MemorySection>,
+    exports: ExportSection,
+    elements: Option<ElementSection>,
+    data: Option<DataSection>,
+}
+
+impl ModuleAssemblySections {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        imports: ImportSection,
+        functions: FunctionSection,
+        tables: Option<TableSection>,
+        memories: Option<MemorySection>,
+        exports: ExportSection,
+        elements: Option<ElementSection>,
+        data: Option<DataSection>,
+    ) -> Self {
+        Self {
+            imports,
+            functions,
+            tables,
+            memories,
+            exports,
+            elements,
+            data,
+        }
+    }
+}
+
+// These function-pointer assignments are compile-time lifecycle gates. Main
+// compilation and module assembly must consume their package states, while
+// adding the already-compiled internal bodies may only borrow the one compiled
+// package. A future edit that weakens those ownership transitions no longer
+// matches these function types and fails to compile.
+const _: for<'a> fn(
+    FinalizedModuleSections,
+    MainFunctionCompilation<'a>,
+) -> Result<CompiledModulePackage, EmitError> = FinalizedModuleSections::compile_main;
+const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>) =
+    CompiledModulePackage::append_remaining_functions;
+const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections) -> ModuleFunctionTable =
+    CompiledModulePackage::append_to_module;
 
 /// Single-use owner of the module type section.
 ///
@@ -340,9 +494,10 @@ impl ModuleTypeSectionBuilder {
 /// The sole construction path for the module global section.
 ///
 /// The inner encoder is private and this wrapper is not a Wasm section. A
-/// caller must finish it with the complete runtime module schema before the
-/// result can be attached to a module, which makes omission of the GC root a
-/// compile error rather than an out-of-band convention.
+/// caller must finish it through the type registry before the result can be
+/// attached to a module. Finalization both appends the GC root and creates the
+/// only matching runtime schema, which makes omission or a separately planned
+/// root index a compile error rather than an out-of-band convention.
 pub(crate) struct ModuleGlobalSectionBuilder {
     section: GlobalSection,
 }
@@ -359,9 +514,8 @@ impl ModuleGlobalSectionBuilder {
         self
     }
 
-    pub(crate) fn finish(mut self, runtime: RuntimeModuleSchema) -> GlobalSection {
-        runtime.append_root_global(&mut self.section);
-        self.section
+    fn finish(self, runtime: RuntimeModuleTypes) -> FinalizedModuleGlobals {
+        runtime.finalize_globals(self.section)
     }
 }
 
@@ -2186,6 +2340,51 @@ impl std::error::Error for EmitError {}
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn finalized_runtime_sections_have_one_unsplittable_assembly_surface() {
+        let module_source = include_str!("module.rs");
+        let emit_source = include_str!("emit.rs");
+
+        assert_eq!(
+            module_source
+                .matches(concat!("pub(crate) fn append_", "to_module("))
+                .count(),
+            1,
+            "the sealed package must have one consuming module-assembly transition"
+        );
+        for rejected_surface in [
+            "push_main_to",
+            "append_types_to",
+            "append_globals_to",
+            concat!("CompilingModule", "Package"),
+            concat!("impl FnOnce(&Finalized", "ModuleGlobals)"),
+        ] {
+            assert!(
+                !module_source.contains(rejected_surface),
+                "split package surface returned: {rejected_surface}"
+            );
+        }
+        assert!(module_source.contains("compilation.compile_into(&self.globals, &mut code)?"));
+        assert!(module_source.contains("CompiledModulePackage::append_remaining_functions;"));
+        assert_eq!(
+            emit_source
+                .matches("module_package.append_to_module(")
+                .count(),
+            1,
+            "the emitter must consume exactly one sealed package"
+        );
+        for raw_append in [
+            "module.section(&types)",
+            "module.section(&globals)",
+            "module.section(&code)",
+        ] {
+            assert!(
+                !emit_source.contains(raw_append),
+                "runtime section escaped its sealed package: {raw_append}"
+            );
+        }
+    }
 
     #[test]
     fn global_index_registry_is_unique_and_dense() {

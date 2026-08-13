@@ -14,16 +14,24 @@ is now the checked-in architecture and phased cutover contract. The new
 values, mutability, nullability, strong GC references and owner-typed linear
 spans at compile time. The central `ModuleTypeRegistry` appends
 `RuntimeGcAnchor` and then `RuntimeGcAnchorHolder` from that typed schema. The
-holder has one immutable, non-null `GcRef<RuntimeGcAnchor>` field. A complete
-`RuntimeModuleSchema` also assigns one unexported typed root global after all
-existing globals, so no established index moves and an internal function
-cannot acquire it. Main constructs both structs before any call, transfers the
-holder's edge into the root, keeps it through source execution and the final
-job checkpoint, then verifies the anchor ABI and clears the root on every real
-main exit. The schema module is the sole raw Wasm-GC encoder boundary: module
-assembly consumes opaque type-registration/root-binding operations, and
-function emission consumes opaque initialization/cleanup operations instead of
-extracting interchangeable type, field and global `u32` indices.
+holder has one immutable, non-null `GcRef<RuntimeGcAnchor>` field. Consuming the
+type registry and open global-section builder derives one unexported typed root
+from the section's actual next index, appends it after every existing global,
+and returns one opaque, non-cloneable package containing both finalized
+sections and the root lifecycle. A dedicated consuming transition compiles main
+internally against that exact package and retains it in package-owned code; no
+arbitrary callback can substitute another package. Once the remaining bodies
+are supplied, a single consuming assembly operation emits the package's type,
+global and code sections inseparably in Wasm section order. Callers cannot
+predict a raw root index, extract or copy its schema, clone its raw global
+section, append a later global, split two packages across main/type/global/code,
+or give an internal function the root lifecycle. Main constructs both structs
+before any call, transfers the holder's edge into the root, keeps it through
+source execution and the final job checkpoint, then verifies the anchor ABI and
+clears the root on every real main exit. The schema module is the sole raw
+Wasm-GC encoder boundary: module assembly consumes one opaque compiled package,
+and function emission consumes opaque initialization/cleanup operations instead
+of extracting interchangeable type, field and global `u32` indices.
 
 The product implementation is still the bump-allocated linear-memory object
 model. Its layout, root, weak-edge and collector tables remain passive metadata;
@@ -65,8 +73,11 @@ heap migration, reclamation, cycle collection or weak reachability.
 - `GcRef<T>` deliberately has no integer representation and denotes only a
   strong edge; no false weak-reference marker exists.
 - `GcRootGlobal<T>` names only a mutable, nullable Wasm global containing a
-  strong reference to `T`; the global-section builder cannot finish without
-  appending the root required by main's complete module schema.
+  strong reference to `T`; consuming the type/global builders derives the root
+  from the actual section length, appends it, and returns one opaque finalized
+  package. Its closed main compiler consumes that package into package-owned
+  code, and the sealed result exposes no independent main/type/global/code
+  assembly operations.
 - `LinearAddr<Owner>` and checked `LinearSpan<Owner>` distinguish byte storage
   from object identity and name its sole GC owner.
 - `RuntimeGcAnchorSchema` fixes one immutable `i32` ABI-version field; its type
@@ -79,11 +90,12 @@ heap migration, reclamation, cycle collection or weak reachability.
   shared main exit; the final job checkpoint deliberately does not clear it.
 - Raw GC type-index and field-ordinal construction/extraction, typed root
   construction/extraction and `struct.new`/`struct.get` instructions are
-  private to `gc_types.rs`. Module assembly supplies the planned raw global
-  slot only to the opaque root-binding operation. `RuntimeModuleSchema` then
-  exposes the complete root-emission and lifecycle operations, so
-  owner/field/target mismatches fail at the Rust boundary instead of surviving
-  until Wasm validation.
+  private to `gc_types.rs`. No module-assembly API accepts a planned root slot;
+  consuming the actual global section creates its private, paired
+  `RuntimeModuleSchema`. Only the opaque package exposes complete lifecycle and
+  consume-once assembly operations, so owner/field/target/root-index and
+  cross-package main/type/global/code pairing mistakes fail at the Rust boundary
+  instead of surviving until Wasm validation.
 - `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` is the
   closed collector truth consumed by configuration, trace reporting and typed
   `EngineError` context; both native compiler profiles share that policy.

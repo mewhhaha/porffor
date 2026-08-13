@@ -3018,6 +3018,59 @@ pick(true);"#,
     }
 
     #[test]
+    fn runtime_gc_root_follows_the_actual_fixed_and_template_globals() {
+        let cases = [
+            (
+                "fixed globals only",
+                "1;",
+                GLOBAL_INDEX_REGISTRY.len() as u32,
+            ),
+            (
+                "one template-object global",
+                r#"function tag(parts) { return parts[0]; } tag`one`;"#,
+                GLOBAL_INDEX_REGISTRY.len() as u32 + 1,
+            ),
+            (
+                "two template-object globals",
+                r#"function tag(parts) { return parts[0]; } tag`one`; tag`two`;"#,
+                GLOBAL_INDEX_REGISTRY.len() as u32 + 2,
+            ),
+        ];
+
+        for (label, source, expected_root_index) in cases {
+            let artifact = emit_script(source)
+                .unwrap_or_else(|error| panic!("{label} source should emit: {error}"));
+            expect_valid_module(&artifact, 0);
+
+            let mut global_count = 0_u32;
+            let mut reference_globals = Vec::new();
+            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+                let Payload::GlobalSection(reader) = payload.expect("module should parse") else {
+                    continue;
+                };
+                for (index, global) in reader.into_iter().enumerate() {
+                    let global = global.expect("global should decode");
+                    global_count += 1;
+                    if matches!(global.ty.content_type, wasmparser::ValType::Ref(_)) {
+                        reference_globals.push(index as u32);
+                    }
+                }
+            }
+
+            assert_eq!(
+                reference_globals,
+                [expected_root_index],
+                "{label} must have one typed root at the actual next global index"
+            );
+            assert_eq!(
+                global_count,
+                expected_root_index + 1,
+                "{label} must seal the global section immediately after its root"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_gc_anchor_is_rooted_across_main_and_cleared_on_exit() {
         let artifact = emit_script(
             "function allocate() { return { value: 1 }; } allocate(); Promise.resolve(0);",

@@ -16,8 +16,8 @@
 use core::marker::PhantomData;
 
 use wasm_encoder::{
-    BlockType, ConstExpr, FieldType, GlobalSection, GlobalType, HeapType, Instruction, RefType,
-    StorageType, TypeSection, ValType,
+    BlockType, ConstExpr, Encode, FieldType, GlobalSection, GlobalType, HeapType, Instruction,
+    RefType, Section, StorageType, TypeSection, ValType,
 };
 
 use crate::Function;
@@ -371,12 +371,13 @@ impl RuntimeGcAnchorHolderSchema {
 
 /// The runtime-visible GC portion of the module's central type registry.
 ///
-/// Registration and root binding are the only operations exposed to module
-/// assembly. Raw type indices and field ordinals never leave this module, so a
-/// caller cannot guess an index or pair a field with a different owner before
-/// encoding. Root binding accepts the planned global slot, then keeps the
-/// typed root's construction and extraction private.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Registration and global-section finalization are the only operations
+/// exposed to module assembly. Raw type indices and field ordinals never leave
+/// this module, so a caller cannot guess an index or pair a field with a
+/// different owner before encoding. Finalizing the complete scalar global
+/// section derives and appends the sole typed root, then keeps its construction
+/// and extraction private.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeModuleTypes {
     gc_anchor: RuntimeGcAnchorSchema,
     gc_anchor_holder: RuntimeGcAnchorHolderSchema,
@@ -400,10 +401,18 @@ impl RuntimeModuleTypes {
         }
     }
 
-    pub(crate) const fn bind_root(self, global_index: u32) -> RuntimeModuleSchema {
-        RuntimeModuleSchema {
+    /// Consumes the complete open global section, derives the root from its
+    /// actual next index, appends it, and seals the section together with the
+    /// only matching runtime schema.
+    pub(crate) fn finalize_globals(self, mut globals: GlobalSection) -> FinalizedModuleGlobals {
+        let runtime_schema = RuntimeModuleSchema {
             types: self,
-            gc_anchor_root: GcRootGlobal::new(global_index),
+            gc_anchor_root: GcRootGlobal::new(globals.len()),
+        };
+        runtime_schema.append_root_global(&mut globals);
+        FinalizedModuleGlobals {
+            section: globals,
+            runtime_schema,
         }
     }
 }
@@ -413,16 +422,18 @@ impl RuntimeModuleTypes {
 /// The anchor type is stored once in `types`; the root adds only its typed
 /// global index. Declaration, initialization and cleanup therefore cannot
 /// acquire two independently supplied indices for the same anchor layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeModuleSchema {
+#[derive(Debug, PartialEq, Eq)]
+struct RuntimeModuleSchema {
     types: RuntimeModuleTypes,
     gc_anchor_root: GcRootGlobal<RuntimeGcAnchor>,
 }
 
 impl RuntimeModuleSchema {
     /// Appends the sole runtime GC root after every previously registered
-    /// global. Module assembly cannot encode the root's raw type or index.
-    pub(crate) fn append_root_global(self, globals: &mut GlobalSection) {
+    /// global. Only [`RuntimeModuleTypes::finalize_globals`] can bind and invoke
+    /// this operation, so module assembly cannot encode the root's raw type or
+    /// index or append another global after it.
+    fn append_root_global(&self, globals: &mut GlobalSection) {
         assert_eq!(
             globals.len(),
             self.gc_anchor_root.raw(),
@@ -444,7 +455,7 @@ impl RuntimeModuleSchema {
 
     /// Constructs the capability anchor and holder, traverses the holder's
     /// typed strong edge and establishes the main-lifetime root.
-    pub(crate) fn emit_initialize_anchor_root(self, function: &mut Function) {
+    fn emit_initialize_anchor_root(&self, function: &mut Function) {
         function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
         emit_struct_new(function, self.types.gc_anchor.type_index());
         emit_struct_new(function, self.types.gc_anchor_holder.type_index());
@@ -457,7 +468,7 @@ impl RuntimeModuleSchema {
     }
 
     /// Verifies the capability anchor ABI and clears the main-lifetime root.
-    pub(crate) fn emit_verify_and_clear_anchor_root(self, function: &mut Function) {
+    fn emit_verify_and_clear_anchor_root(&self, function: &mut Function) {
         emit_root_get(function, self.gc_anchor_root);
         function.instruction(&Instruction::RefAsNonNull);
         emit_struct_get(
@@ -472,6 +483,42 @@ impl RuntimeModuleSchema {
         function.instruction(&Instruction::End);
         emit_ref_null(function, self.types.gc_anchor.type_index());
         emit_root_set(function, self.gc_anchor_root);
+    }
+}
+
+/// A global section sealed after the runtime root, paired with the only schema
+/// whose typed global index names that section.
+///
+/// The raw section and schema are both private. This value implements the Wasm
+/// section traits itself, and main holds a reference to this exact package for
+/// its opaque lifecycle operations. No caller can clone the raw
+/// [`GlobalSection`], append another global, extract a copyable schema, or pair
+/// lifecycle instructions from one package with another package's section.
+pub(crate) struct FinalizedModuleGlobals {
+    section: GlobalSection,
+    runtime_schema: RuntimeModuleSchema,
+}
+
+impl FinalizedModuleGlobals {
+    pub(crate) fn emit_initialize_anchor_root(&self, function: &mut Function) {
+        self.runtime_schema.emit_initialize_anchor_root(function);
+    }
+
+    pub(crate) fn emit_verify_and_clear_anchor_root(&self, function: &mut Function) {
+        self.runtime_schema
+            .emit_verify_and_clear_anchor_root(function);
+    }
+}
+
+impl Encode for FinalizedModuleGlobals {
+    fn encode(&self, sink: &mut Vec<u8>) {
+        self.section.encode(sink);
+    }
+}
+
+impl Section for FinalizedModuleGlobals {
+    fn id(&self) -> u8 {
+        self.section.id()
     }
 }
 
@@ -560,3 +607,39 @@ const _: () = assert!(RuntimeGcAnchorSchema::FIELD_COUNT == 1);
 const _: () = assert!(RuntimeGcAnchorSchema::ABI_VERSION_FIELD.ordinal().raw() == 0);
 const _: () = assert!(RuntimeGcAnchorHolderSchema::FIELD_COUNT == 1);
 const _: () = assert!(RuntimeGcAnchorHolderSchema::ANCHOR_FIELD.ordinal().raw() == 0);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalized_globals_bind_the_root_to_the_actual_next_index() {
+        for existing_global_count in [0_u32, 1, 7] {
+            let mut types = TypeSection::new();
+            let runtime = RuntimeModuleTypes::register(&mut types);
+            let mut globals = GlobalSection::new();
+            for _ in 0..existing_global_count {
+                globals.global(
+                    GlobalType {
+                        val_type: ValType::I64,
+                        mutable: true,
+                        shared: false,
+                    },
+                    &ConstExpr::i64_const(0),
+                );
+            }
+
+            let finalized = runtime.finalize_globals(globals);
+            assert_eq!(
+                finalized.runtime_schema.gc_anchor_root.raw(),
+                existing_global_count,
+                "the typed root must bind the encoded section's actual next index"
+            );
+            assert_eq!(
+                finalized.section.len(),
+                existing_global_count + 1,
+                "finalization must append exactly one root"
+            );
+        }
+    }
+}
