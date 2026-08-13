@@ -416,6 +416,161 @@ mod tests {
     }
 
     #[test]
+    fn string_char_access_structurally_uses_typed_utf16_units() {
+        let string = include_str!("builtins/string.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let array = include_str!("builtins/array.rs");
+        let helper = string
+            .split_once("mod string_code_unit_access {")
+            .expect("String code-unit access local domain should exist")
+            .1
+            .split_once("pub(crate) enum UriCodecKind")
+            .expect("String code-unit access domain should end before URI codecs")
+            .0;
+        let char_at_wrapper = string
+            .split_once("pub(crate) fn emit_string_char_at_from_locals(")
+            .expect("shared charAt locals entry point should exist")
+            .1
+            .split_once("pub(crate) fn emit_string_at_from_locals(")
+            .expect("charAt locals entry point should have a bounded body")
+            .0;
+        let at_wrapper = string
+            .split_once("pub(crate) fn emit_string_at_from_locals(")
+            .expect("shared at locals entry point should exist")
+            .1
+            .split_once("pub(crate) fn emit_string_at_method_call(")
+            .expect("at locals entry point should have a bounded body")
+            .0;
+        let direct_char_at = string
+            .split_once("pub(crate) fn emit_string_char_at_method_call(")
+            .expect("optimized direct charAt emitter should exist")
+            .1
+            .split_once("pub(crate) fn emit_string_match_method_call(")
+            .expect("optimized direct charAt emitter should have a bounded body")
+            .0;
+        let direct_builtin = array
+            .split_once("pub(crate) fn emit_array_direct_builtin_method_call(")
+            .expect("shared direct builtin caller should exist")
+            .1
+            .split_once("pub(crate) fn emit_array_push_method_call(")
+            .expect("shared direct builtin caller should have a bounded body")
+            .0;
+        let standard_char_at = standard
+            .split_once("StandardBuiltinId::StringPrototypeCharAt => {")
+            .expect("standard charAt arm should exist")
+            .1
+            .split_once("StandardBuiltinId::StringPrototypeAt => {")
+            .expect("standard charAt arm should have a bounded body")
+            .0;
+        let standard_at = standard
+            .split_once("StandardBuiltinId::StringPrototypeAt => {")
+            .expect("standard at arm should exist")
+            .1
+            .split_once("StandardBuiltinId::StringPrototypeCharCodeAt => {")
+            .expect("standard at arm should have a bounded body")
+            .0;
+
+        for local in ["UnitIndexLocal", "UnitLengthLocal", "OneUnitLocal"] {
+            assert_eq!(
+                helper.matches(&format!("struct {local}")).count(),
+                1,
+                "the char-access domain must own one opaque {local}"
+            );
+            assert!(
+                helper.contains(&format!("struct {local}(u32);")),
+                "{local} must keep its raw local handle private"
+            );
+        }
+        assert_eq!(helper.matches("#[must_use]").count(), 3);
+        assert!(!helper.contains("derive(Clone, Copy)"));
+        assert!(helper.contains("index: &UnitIndexLocal,"));
+        assert!(helper.contains("one: &OneUnitLocal,"));
+        assert_eq!(
+            helper
+                .matches("emit_utf16_code_unit_range_payload_from_locals(")
+                .count(),
+            1,
+            "the typed one-unit materializer must have one authoritative UTF-16 range call"
+        );
+        for forbidden in [
+            "emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(",
+            "emit_string_slice_payload_from_locals(",
+            "emit_decode_utf8_scalar_at_index(",
+        ] {
+            assert!(
+                !helper.contains(forbidden),
+                "the char-access coordinator must not contain alternate materialization `{forbidden}`"
+            );
+        }
+        assert_eq!(helper.matches("pub(super) fn emit_char_at(").count(), 1);
+        assert_eq!(helper.matches("pub(super) fn emit_at(").count(), 1);
+        assert!(helper.contains("Method::CharAt => {"));
+        assert!(helper.contains("Method::At => {"));
+        assert!(!helper.contains("_ =>"));
+        assert!(helper.contains("Instruction::I64TruncSatF64S"));
+
+        assert_eq!(
+            char_at_wrapper
+                .matches("string_code_unit_access::emit_char_at(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            at_wrapper
+                .matches("string_code_unit_access::emit_at(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            direct_char_at
+                .matches("self.emit_array_direct_builtin_method_call(")
+                .count(),
+            1
+        );
+        assert!(direct_char_at.contains("StandardBuiltinId::StringPrototypeCharAt,"));
+        let receiver_evaluation = direct_builtin
+            .find("self.compile_expr_to_locals(")
+            .expect("direct builtin caller must evaluate its receiver");
+        let argument_evaluation = direct_builtin
+            .find("self.emit_call_args_vector(args, function)")
+            .expect("direct builtin caller must evaluate its complete argument list");
+        let builtin_entry = direct_builtin
+            .find("self.emit_direct_js_call_with_argv(")
+            .expect("direct builtin caller must enter the standard builtin after evaluation");
+        assert!(
+            receiver_evaluation < argument_evaluation && argument_evaluation < builtin_entry,
+            "receiver and complete argument evaluation must precede receiver/index coercion"
+        );
+
+        assert_eq!(
+            standard_char_at
+                .matches("self.emit_string_char_at_from_locals(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            standard_at
+                .matches("self.emit_string_at_from_locals(")
+                .count(),
+            1
+        );
+        for body in [direct_char_at, standard_char_at, standard_at] {
+            for forbidden in [
+                "emit_value_to_string_payload(",
+                "emit_value_to_number_payload(",
+                "emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(",
+                "emit_utf16_code_unit_range_payload_from_locals(",
+                "emit_string_slice_payload_from_locals(",
+            ] {
+                assert!(
+                    !body.contains(forbidden),
+                    "char-access call sites must delegate coercion and materialization, not call `{forbidden}`"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn error_prototype_to_string_has_typed_ordered_observable_phases() {
         let source = include_str!("builtins/errors.rs");
         let operations = include_str!("operations.rs");

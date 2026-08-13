@@ -98,6 +98,218 @@ mod empty_string_split_units {
     }
 }
 
+mod string_code_unit_access {
+    use super::*;
+
+    #[must_use]
+    struct UnitIndexLocal(u32);
+
+    #[must_use]
+    struct UnitLengthLocal(u32);
+
+    #[must_use]
+    struct OneUnitLocal(u32);
+
+    enum Method {
+        CharAt,
+        At,
+    }
+
+    fn emit_one_unit_payload(
+        builder: &mut FunctionBuilder<'_>,
+        string_local: u32,
+        index: &UnitIndexLocal,
+        one: &OneUnitLocal,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        builder.emit_utf16_code_unit_range_payload_from_locals(
+            string_local,
+            index.0,
+            one.0,
+            function,
+        )
+    }
+
+    fn emit_miss(
+        builder: &FunctionBuilder<'_>,
+        method: &Method,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        match method {
+            Method::CharAt => {
+                function.instruction(&Instruction::I64Const(builder.strings.payload("")));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            Method::At => {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_char_at(
+        builder: &mut FunctionBuilder<'_>,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        index_payload_local: u32,
+        index_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        emit(
+            builder,
+            Method::CharAt,
+            receiver_payload_local,
+            receiver_tag_local,
+            index_payload_local,
+            index_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_at(
+        builder: &mut FunctionBuilder<'_>,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        index_payload_local: u32,
+        index_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        emit(
+            builder,
+            Method::At,
+            receiver_payload_local,
+            receiver_tag_local,
+            index_payload_local,
+            index_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit(
+        builder: &mut FunctionBuilder<'_>,
+        method: Method,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        index_payload_local: u32,
+        index_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let string_local = builder.reserve_temp_local();
+        let string_offset_local = builder.reserve_temp_local();
+        let string_byte_length_local = builder.reserve_temp_local();
+        let length = UnitLengthLocal(builder.reserve_temp_local());
+        let integer_payload_local = builder.reserve_temp_local();
+        let index = UnitIndexLocal(builder.reserve_temp_local());
+        let one = OneUnitLocal(builder.reserve_temp_local());
+
+        builder.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        builder.emit_throw_current_function_realm_type_error(
+            "String.prototype method receiver is null or undefined",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        builder.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        builder.emit_value_to_string_payload(
+            receiver_payload_local,
+            receiver_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(string_local));
+        builder.emit_return_current_completion_if_throw(function);
+        builder.emit_unpack_string_payload(
+            string_local,
+            string_offset_local,
+            string_byte_length_local,
+            function,
+        );
+        builder.emit_utf16_code_unit_len_from_utf8_locals(
+            string_offset_local,
+            string_byte_length_local,
+            length.0,
+            function,
+        );
+
+        builder.emit_value_to_number_payload(index_tag_local, index_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(integer_payload_local));
+        builder.emit_return_current_completion_if_throw(function);
+        builder.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            integer_payload_local,
+            integer_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(integer_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncSatF64S);
+        function.instruction(&Instruction::LocalSet(index.0));
+
+        match &method {
+            Method::CharAt => {}
+            Method::At => {
+                function.instruction(&Instruction::LocalGet(index.0));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(length.0));
+                function.instruction(&Instruction::LocalGet(index.0));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(index.0));
+                function.instruction(&Instruction::End);
+            }
+        }
+
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(one.0));
+        function.instruction(&Instruction::LocalGet(index.0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::LocalGet(index.0));
+        function.instruction(&Instruction::LocalGet(length.0));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        emit_miss(builder, &method, payload_local, tag_local, function);
+        function.instruction(&Instruction::Else);
+        emit_one_unit_payload(builder, string_local, &index, &one, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::End);
+        builder.set_completion_kind(CompletionKind::Normal, function);
+
+        builder.release_temp_local(one.0);
+        builder.release_temp_local(index.0);
+        builder.release_temp_local(integer_payload_local);
+        builder.release_temp_local(length.0);
+        builder.release_temp_local(string_byte_length_local);
+        builder.release_temp_local(string_offset_local);
+        builder.release_temp_local(string_local);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UriCodecKind {
     Uri,
@@ -13685,6 +13897,52 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_string_char_at_from_locals(
+        &mut self,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        index_payload_local: u32,
+        index_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        string_code_unit_access::emit_char_at(
+            self,
+            receiver_payload_local,
+            receiver_tag_local,
+            index_payload_local,
+            index_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_string_at_from_locals(
+        &mut self,
+        receiver_payload_local: u32,
+        receiver_tag_local: u32,
+        index_payload_local: u32,
+        index_tag_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        string_code_unit_access::emit_at(
+            self,
+            receiver_payload_local,
+            receiver_tag_local,
+            index_payload_local,
+            index_tag_local,
+            payload_local,
+            tag_local,
+            function,
+        )
+    }
+
     pub(crate) fn emit_string_at_method_call(
         &mut self,
         receiver: &TypedExpr,
@@ -13731,199 +13989,15 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let string_local = self.reserve_temp_local();
-        let string_offset_local = self.reserve_temp_local();
-        let string_byte_len_local = self.reserve_temp_local();
-        let string_len_local = self.reserve_temp_local();
-        let position_payload_local = self.reserve_temp_local();
-        let position_tag_local = self.reserve_temp_local();
-        let position_local = self.reserve_temp_local();
-        let next_position_local = self.reserve_temp_local();
-        let byte_start_local = self.reserve_temp_local();
-        let byte_end_local = self.reserve_temp_local();
-        let byte_len_local = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(
+        self.emit_array_direct_builtin_method_call(
+            StandardBuiltinId::StringPrototypeCharAt,
+            "String.prototype.charAt",
             receiver,
-            receiver_payload_local,
-            receiver_tag_local,
-            function,
-        )?;
-        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "String.prototype method receiver is null or undefined",
+            args,
             payload_local,
             tag_local,
             function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_value_to_string_payload(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(string_local));
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_unpack_string_payload(
-            string_local,
-            string_offset_local,
-            string_byte_len_local,
-            function,
-        );
-        self.emit_utf16_code_unit_len_from_utf8_locals(
-            string_offset_local,
-            string_byte_len_local,
-            string_len_local,
-            function,
-        );
-
-        if let Some(position) = args.first().and_then(Self::static_number_expr_value) {
-            let integer_position = if position.is_nan() {
-                0.0
-            } else {
-                position.trunc()
-            };
-            if integer_position < 0.0 {
-                function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-                self.set_completion_kind(CompletionKind::Normal, function);
-                for local in [
-                    byte_len_local,
-                    byte_end_local,
-                    byte_start_local,
-                    next_position_local,
-                    position_local,
-                    position_tag_local,
-                    position_payload_local,
-                    string_len_local,
-                    string_byte_len_local,
-                    string_offset_local,
-                    string_local,
-                    receiver_tag_local,
-                    receiver_payload_local,
-                ] {
-                    self.release_temp_local(local);
-                }
-                return Ok(());
-            }
-        }
-
-        if let Some(position) = args.first() {
-            self.compile_expr_to_locals(
-                position,
-                position_payload_local,
-                position_tag_local,
-                function,
-            )?;
-        } else {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(position_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(position_tag_local));
-        }
-        self.emit_value_to_number_payload(position_tag_local, position_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(position_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-
-        function.instruction(&Instruction::LocalGet(position_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(position_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(position_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(position_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::LocalSet(position_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(position_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(position_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(position_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(position_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(position_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(position_local));
-        function.instruction(&Instruction::LocalGet(string_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        self.emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(
-            string_local,
-            position_local,
-            byte_start_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(position_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(next_position_local));
-        self.emit_utf16_code_unit_index_to_utf8_byte_offset_from_string_payload(
-            string_local,
-            next_position_local,
-            byte_end_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(byte_end_local));
-        function.instruction(&Instruction::LocalGet(byte_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(byte_len_local));
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            byte_start_local,
-            byte_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        for local in [
-            byte_len_local,
-            byte_end_local,
-            byte_start_local,
-            next_position_local,
-            position_local,
-            position_tag_local,
-            position_payload_local,
-            string_len_local,
-            string_byte_len_local,
-            string_offset_local,
-            string_local,
-            receiver_tag_local,
-            receiver_payload_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        )
     }
 
     pub(crate) fn emit_string_match_method_call(

@@ -64,6 +64,59 @@ expectExactThrow(directCharAtPositionSentinel, function() {
   "abc".charAt(directCharAtPosition);
 }, "direct charAt position");
 
+var directCharAtOrder = "";
+var directCharAtOrderedReceiver = {
+  toString: function() {
+    directCharAtOrder += "receiver>";
+    return "💩";
+  },
+  charAt: String.prototype.charAt
+};
+function directCharAtOrderedArgument() {
+  directCharAtOrder += "argument>";
+  return {
+    valueOf: function() {
+      directCharAtOrder += "index>";
+      return 0;
+    }
+  };
+}
+function directCharAtIgnoredArgument() {
+  directCharAtOrder += "ignored>";
+  return 1;
+}
+check(
+  directCharAtOrderedReceiver.charAt(
+    directCharAtOrderedArgument(),
+    directCharAtIgnoredArgument()
+  ) === "\uD83D",
+  "direct charAt ordered result"
+);
+check(
+  directCharAtOrder === "argument>ignored>receiver>index>",
+  "direct charAt complete argument evaluation before builtin coercions"
+);
+
+var directCharAtArgumentSentinel = {};
+var directCharAtReceiverWasCoerced = false;
+var directCharAtUnevaluatedReceiver = {
+  toString: function() {
+    directCharAtReceiverWasCoerced = true;
+    return "abc";
+  },
+  charAt: String.prototype.charAt
+};
+function throwDirectCharAtArgument() {
+  throw directCharAtArgumentSentinel;
+}
+expectExactThrow(directCharAtArgumentSentinel, function() {
+  directCharAtUnevaluatedReceiver.charAt(0, throwDirectCharAtArgument());
+}, "direct charAt ignored argument before receiver coercion");
+check(
+  directCharAtReceiverWasCoerced === false,
+  "direct charAt throwing ignored argument suppresses receiver coercion"
+);
+
 var borrowedCharAtReceiverSentinel = {};
 var borrowedCharAtReceiver = {
   toString: function() {
@@ -93,6 +146,39 @@ var directAtIndex = {
 expectExactThrow(directAtIndexSentinel, function() {
   "abc".at(directAtIndex);
 }, "direct at index");
+
+var directAtOrder = "";
+var directAtOrderedReceiver = {
+  toString: function() {
+    directAtOrder += "receiver>";
+    return "💩";
+  },
+  at: String.prototype.at
+};
+function directAtOrderedArgument() {
+  directAtOrder += "argument>";
+  return {
+    valueOf: function() {
+      directAtOrder += "index>";
+      return -1;
+    }
+  };
+}
+function directAtIgnoredArgument() {
+  directAtOrder += "ignored>";
+  return 0;
+}
+check(
+  directAtOrderedReceiver.at(
+    directAtOrderedArgument(),
+    directAtIgnoredArgument()
+  ) === "\uDCA9",
+  "direct at ordered result"
+);
+check(
+  directAtOrder === "argument>ignored>receiver>index>",
+  "direct at complete argument evaluation before builtin coercions"
+);
 
 var borrowedAtReceiverSentinel = {};
 var borrowedAtReceiver = {

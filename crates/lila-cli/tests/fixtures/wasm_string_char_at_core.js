@@ -68,6 +68,28 @@ assert.sameValue("abcd".charAt("   +00200.0000E-0002   "), "c", "assert string p
 assert.sameValue("abc".charAt(-0.99999), "a", "assert negative fractional position near -1");
 assert.sameValue("abc".charAt(1.99999), "b", "assert positive fractional position below 2");
 
+var high = "\uD83D";
+var low = "\uDCA9";
+var pair = high + low;
+check("💩".charAt(0) === high, "astral literal high code unit");
+check("💩".charAt(1) === low, "astral literal low code unit");
+check(pair.charAt(0) === high, "escaped pair high code unit");
+check(pair.charAt(1) === low, "escaped pair low code unit");
+check(("a" + pair + "b").charAt(1) === high, "mixed string high code unit");
+check(("a" + pair + "b").charAt(2) === low, "mixed string low code unit");
+check(high.charAt(0) === high, "lone high surrogate");
+check(low.charAt(0) === low, "lone low surrogate");
+check((low + high).charAt(0) === low, "reversed pair low surrogate");
+check((low + high).charAt(1) === high, "reversed pair high surrogate");
+check(pair.charAt(0) === pair[0], "indexed access high parity");
+check(pair.charAt(1) === pair[1], "indexed access low parity");
+check(pair.charAt(-1) === "", "negative miss is empty string");
+check(pair.charAt(2) === "", "past-end miss is empty string");
+check(pair.charAt(Infinity) === "", "positive infinity miss");
+check(pair.charAt(-Infinity) === "", "negative infinity miss");
+check(pair.charAt(1e100) === "", "large finite positive miss");
+check(pair.charAt(-1e100) === "", "large finite negative miss");
+
 var stringObject = new String("one-1 two-2 three-3");
 var pieces = stringObject.split(new RegExp);
 check(pieces.length === stringObject.length, "split empty regexp length");

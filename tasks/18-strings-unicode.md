@@ -83,6 +83,20 @@ and join round-tripping. The code, fixture, static structural guard and contract
 are dry-written; Cargo, CLI execution and focused pinned split leaves remain
 queued behind the active current-pin matrix.
 
+The `String.prototype.charAt` and `at` paths now share a private typed
+code-unit-access coordinator. Both ordinary standard-builtin dispatch and the
+optimized direct `charAt` call evaluate receiver and argument expressions
+before the coordinator performs receiver/index coercion. The coordinator owns
+opaque UTF-16 index, length and one-unit locals; its one-unit materializer can
+call only the authoritative UTF-16 range operation, so an astral scalar's high
+and low surrogates are independently observable rather than becoming a whole
+scalar and an empty byte slice. The two named entry points fix `charAt`'s empty
+String miss and `at`'s `undefined` miss without a caller-supplied policy. The
+code, astral and ordering fixtures, structural guard and normative contract are
+dry-written; Cargo, CLI and focused pinned execution remain queued behind the
+active current-pin matrix. General `slice`/`substring` range extraction remains
+an explicit adjacent seam and is not closed by this change.
+
 ## Objective
 
 Implement ECMAScript strings as sequences of UTF-16 code units, including lone surrogates, while retaining an efficient Wasm representation. Complete String primitives, wrapper exotics, iterators and all pinned String APIs without ASCII-only assumptions or exact-test materializations.
