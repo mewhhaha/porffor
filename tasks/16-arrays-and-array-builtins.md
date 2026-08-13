@@ -85,6 +85,22 @@ and Proxy-aware Call. Focused runtime and pinned Test262 execution remain
 deferred, so neither seam carries a current-SHA baseline-delta or
 full-subtree-green claim.
 
+`Array.prototype.pop` now has one compiler algorithm owner. Statically named
+method calls delegate to `StandardBuiltinId::ArrayPrototypePop` instead of
+reading and shrinking the raw dense-Array heap record in `functions.rs`. The
+canonical standard body therefore owns `ToObject`, `LengthOfArrayLike`, the
+last-property `Get`, deletion, current-function-realm deletion errors, and the
+strict `length` write in their observable order. The former direct path could
+resurface an old dense slot after a later length regrowth and could not observe
+accessors, descriptors or deletion failures. The ownership boundary and its
+focused static evidence are recorded in
+`docs/rust-rewrite/contracts/array-pop-algorithm-owner.md`.
+
+Runtime verification for this `pop` seam remains deferred to the coordinated
+batch checkpoint. It changes no published count, removes no Test262
+materializer, carries no current-SHA snapshot delta, and does not claim the
+Array or Array prototype tree is green.
+
 ## Objective
 
 Complete Array exotic object behavior and every pinned Array constructor/prototype method using general internal operations. Retire focused static Test262 materializations as each family becomes fully semantic.

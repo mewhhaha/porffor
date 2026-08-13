@@ -10858,67 +10858,15 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "pop") {
-            let receiver_payload_local = self.reserve_temp_local();
-            let receiver_tag_local = self.reserve_temp_local();
-            let len_local = self.reserve_temp_local();
-            let index_local = self.reserve_temp_local();
-            self.compile_expr_to_locals(
+            return self.emit_array_direct_builtin_method_call(
+                StandardBuiltinId::ArrayPrototypePop,
+                "Array.prototype.pop",
                 receiver,
-                receiver_payload_local,
-                receiver_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(receiver_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Array.prototype.pop receiver is not array",
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            self.load_i64_to_local_from_offset(
-                receiver_payload_local,
-                HEAP_LEN_OFFSET,
-                len_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(index_local));
-            self.emit_array_read(
-                receiver_payload_local,
-                index_local,
+                args,
                 payload_local,
                 tag_local,
                 function,
             );
-            self.store_i64_local_at_offset(
-                receiver_payload_local,
-                HEAP_LEN_OFFSET,
-                index_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-            self.release_temp_local(index_local);
-            self.release_temp_local(len_local);
-            self.release_temp_local(receiver_tag_local);
-            self.release_temp_local(receiver_payload_local);
-            return Ok(());
         }
         if matches!(key, PropertyKeyIr::StaticString(name) if name == "splice") {
             return self.emit_array_direct_builtin_method_call(
