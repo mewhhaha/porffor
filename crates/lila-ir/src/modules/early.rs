@@ -342,6 +342,10 @@ mod tests {
                 EarlyErrorCode::DuplicateFormalParameter,
             ),
             (
+                "duplicate catch parameter identifier",
+                EarlyErrorCode::DuplicateCatchParameter,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
@@ -404,6 +408,25 @@ mod tests {
         assert_eq!(
             diagnostic.code(),
             Some(EarlyErrorCode::DuplicateFormalParameter)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn duplicate_catch_parameter_module_parse_maps_to_an_early_syntax_error() {
+        let error = lila_front::parse(
+            "try {} catch ({ a, b: a }) {}",
+            lila_front::ParseOptions::module(),
+        )
+        .expect_err("duplicate BoundNames in a catch parameter should fail");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::DuplicateCatchParameter)
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");

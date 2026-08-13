@@ -61,9 +61,11 @@ early `SyntaxError` rejection entirely.
   the new code constructible there; the exhaustive IR match makes a future
   omitted consumer fail to compile.
 
-The resulting closed domain has 19 variants and the classifier has 17 rows.
-The existing const gates still prove table population, witness disjointness,
-wire-name closure, classifier reachability, and parse-to-IR phase consistency.
+At this extension's checkpoint, the closed domain had 19 variants and the
+classifier had 17 rows. The later duplicate-catch-parameter extension grows the
+current counts without changing this condition. The existing const gates still
+prove table population, witness disjointness, wire-name closure, classifier
+reachability, and parse-to-IR phase consistency.
 
 ## Durable regressions
 

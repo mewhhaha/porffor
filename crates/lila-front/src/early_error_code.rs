@@ -132,7 +132,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 19] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 20] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -185,6 +185,10 @@ early_error_codes! {
     /// `UniqueFormalParameters`. Sloppy ordinary functions with simple
     /// parameter lists are deliberately excluded.
     DuplicateFormalParameter => "E_DUPLICATE_FORMAL_PARAMETER";
+    /// TryStatement early errors: `BoundNames` of a `CatchParameter` contains
+    /// duplicate elements. Unlike ordinary-function parameters, this condition
+    /// has no sloppy simple-list exception.
+    DuplicateCatchParameter => "E_DUPLICATE_CATCH_PARAMETER";
     /// 14.13.1. `ContainsDuplicateLabels` with argument « » is `true`.
     DuplicateLabel => "E_DUPLICATE_LABEL";
     /// 14.13.1, applied by 16.1.1 / 16.2.1.2. `ContainsUndefinedBreakTarget`
@@ -263,7 +267,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 17;
+const PARSE_FAILURE_RULE_COUNT: usize = 18;
 
 /// The one fragment table.
 ///
@@ -365,25 +369,33 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::DuplicateFormalParameter,
         witnesses: &["duplicate parameter name not allowed in unique formal parameters"],
     },
-    // 10. boa_parser/src/parser/mod.rs:567
+    // 10. boa_parser/src/parser/statement/try_stm/catch.rs:78. This is the sole
+    //     pinned producer and exact, case-sensitive wording for duplicate
+    //     `BoundNames` in a `CatchParameter`.
+    ParseFailureRule {
+        fragments: &["duplicate catch parameter identifier"],
+        code: EarlyErrorCode::DuplicateCatchParameter,
+        witnesses: &["duplicate catch parameter identifier"],
+    },
+    // 11. boa_parser/src/parser/mod.rs:567
     ParseFailureRule {
         fragments: &["module cannot contain", "super"],
         code: EarlyErrorCode::ModuleTopLevelSuper,
         witnesses: &["module cannot contain `super` on the top-level"],
     },
-    // 11. boa_parser/src/parser/mod.rs:575
+    // 12. boa_parser/src/parser/mod.rs:575
     ParseFailureRule {
         fragments: &["module cannot contain", "new.target"],
         code: EarlyErrorCode::ModuleTopLevelNewTarget,
         witnesses: &["module cannot contain `new.target` on the top-level"],
     },
-    // 12. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
+    // 13. boa_parser/src/parser/mod.rs:462,593; statement/mod.rs:1020.
     ParseFailureRule {
         fragments: &["invalid private identifier usage"],
         code: EarlyErrorCode::InvalidPrivateIdentifier,
         witnesses: &["invalid private identifier usage"],
     },
-    // 13-17. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
+    // 14-18. `CheckLabelsError::message`, boa_ast/src/operations/mod.rs:1399-1417.
     ParseFailureRule {
         fragments: &["duplicate label"],
         code: EarlyErrorCode::DuplicateLabel,

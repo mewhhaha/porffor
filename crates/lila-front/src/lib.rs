@@ -745,6 +745,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn duplicate_catch_parameter_fixture_reports_one_early_error_in_both_goals() {
+        let source = include_str!("../tests/fixtures/duplicate_catch_parameter.js");
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            let err = parse(source, options)
+                .expect_err("duplicate BoundNames in a catch parameter should fail");
+            assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::DuplicateCatchParameter),
+                "{err:?}"
+            );
+            assert!(err.diagnostic().span.is_some(), "{err:?}");
+        }
+    }
+
+    #[test]
+    fn catch_body_declaration_conflict_is_not_a_duplicate_catch_parameter() {
+        let err = parse("try {} catch (a) { let a; }", ParseOptions::script())
+            .expect_err("a catch parameter cannot conflict with a lexical body declaration");
+        assert_ne!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::DuplicateCatchParameter),
+            "the catch-body conflict is a distinct TryStatement condition: {err:?}"
+        );
+    }
+
     /// Drift B3, closed.
     ///
     /// `ModuleParser::parse` words this one ``lexical name `x` declared
@@ -1160,6 +1188,7 @@ switch (0) {
     fn only_parse_table_codes_are_parse_classified() {
         assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
+        assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());

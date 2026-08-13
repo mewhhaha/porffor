@@ -1,12 +1,26 @@
 # Contract: early-error taxonomy — one closed `EarlyErrorCode` domain and one fragment table
 
+## 2026-08-13 normative duplicate-catch-parameter amendment
+
+T07 extends the closed taxonomy with
+`EarlyErrorCode::DuplicateCatchParameter` /
+`E_DUPLICATE_CATCH_PARAMETER` and exactly one classifier row for the sole
+case-sensitive message emitted by pinned `boa_parser-0.21.1`. The current domain
+therefore has 20 variants and the current parse-failure table has 18 rows.
+
+The theory, measured producer, encoding, regressions, and deliberate separation
+from catch-body conflicts live in
+`docs/rust-rewrite/contracts/duplicate-catch-parameter-early-errors.md` and are
+normative. The counts in older amendments and the historical measurement below
+remain descriptions of their respective encoder checkpoints.
+
 ## 2026-08-13 normative duplicate-formal-parameter amendment
 
 T07 extends the closed taxonomy with
 `EarlyErrorCode::DuplicateFormalParameter` /
 `E_DUPLICATE_FORMAL_PARAMETER` and exactly two case-sensitive classifier rows
-for the two messages emitted by pinned `boa_parser-0.21.1`. The current domain
-therefore has 19 variants and the current parse-failure table has 17 rows.
+for the two messages emitted by pinned `boa_parser-0.21.1`. After that amendment
+the domain had 19 variants and the parse-failure table had 17 rows.
 
 The theory, measured producer inventory, encoding, regressions, and nonclaims
 for this extension live in

@@ -1,5 +1,18 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-13 duplicate-catch-parameter amendment
+
+T07 now classifies duplicate `BoundNames` in a `CatchParameter` through one new
+closed code and the one exact, case-sensitive message emitted by pinned Boa.
+The normative extension is:
+
+`docs/rust-rewrite/contracts/duplicate-catch-parameter-early-errors.md`
+
+The current domain has **20** variants and the one parse-failure table has
+**18** rows. The new condition is deliberately separate from duplicate formal
+parameters and from catch-parameter names that conflict with declarations in
+the catch body.
+
 ## 2026-08-13 duplicate-formal-parameter amendment
 
 T07 now classifies duplicate formal-parameter rejections through one new closed
@@ -8,11 +21,11 @@ parser. The normative extension is:
 
 `docs/rust-rewrite/contracts/duplicate-formal-parameter-early-errors.md`
 
-The current domain has **19** variants and the one parse-failure table has
-**17** rows. The 18-variant and 15-row counts below describe the original
-taxonomy checkpoint; they are retained as measured history, not current counts.
-The extension deliberately preserves sloppy Script ordinary functions with a
-simple duplicate parameter list.
+At that extension's checkpoint the domain had **19** variants and the one
+parse-failure table had **17** rows. The 18-variant and 15-row counts below
+describe the original taxonomy checkpoint; all are retained as measured
+history, not current counts. The extension deliberately preserves sloppy Script
+ordinary functions with a simple duplicate parameter list.
 
 ## 2026-08-12 parse-once amendment
 
@@ -41,7 +54,8 @@ area brief, three of which change the encoding:
   go in a new `crates/lila-front/src/early_error_code.rs`.
 - §0.2 — the original domain had **18** inhabitants, not 20.
   `E_IR_DIAGNOSTIC` names the absence of a code and `E_TEST_EARLY` is a test
-  fixture. The 2026-08-13 extension adds the nineteenth real condition.
+  fixture. The duplicate-formal-parameter extension adds the nineteenth real
+  condition; the duplicate-catch-parameter extension above adds the twentieth.
 - §0.4 — the `E_DUPLICATE_LEXICAL_DECLARATION` drift is bidirectional and one
   direction is conformance-visible, not merely taxonomy-visible.
 
