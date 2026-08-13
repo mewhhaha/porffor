@@ -38,6 +38,22 @@ This is not a claim that cross-realm or full pinned collection coverage is
 closed. Exact engine contracts for both Map and Set are green across live
 mutation, deletion/reinsertion and irreversible exhaustion.
 
+Strong collection iterator receiver validation is now one shared typed seam.
+`StrongCollectionCursor` exhaustively selects the Map/Set iterator brand and
+preserved error message, while the closed
+`StrongCollectionIteratorReceiverError` domain distinguishes a non-object from
+missing internal slots. The exhaustive receiver-representation domain permits
+an internal-brand load only for the compatible Object-tag layout; Array,
+Function and Arguments objects route directly to missing slots, while live and
+revoked Proxies remain unbranded without target unwrapping or trap observation.
+Both `next()` emitters use the same receiver-record helper, and its failures are
+created from the active builtin function's realm. This makes a borrowed
+other-realm `next` throw that realm's `%TypeError%` without changing successful
+cursor behavior. The semantic and representation law is recorded in
+[`collection-iterator-receiver-validation.md`](../docs/rust-rewrite/contracts/collection-iterator-receiver-validation.md).
+This closes only the strong iterator receiver seam, not every collection error
+path or T21's broader cross-realm acceptance criterion.
+
 The sole product Wasmtime policy now records
 `WasmWeakReachabilityCapability::Unavailable` independently of its DRC
 collector choice. Every product engine therefore carries the missing

@@ -48,6 +48,45 @@ collection_wire_domain!(CollectionIteratorCursorState {
     Exhausted = 1,
 });
 
+// Receiver representations determine whether iterator validation may read the
+// ordinary Object brand layout. `Dynamic` is a compile-time kind, never a
+// runtime value tag.
+collection_wire_domain!(StrongCollectionIteratorReceiverRepresentation {
+    ObjectTagBrandLayout = 0,
+    ObjectWithoutBrandLayout = 1,
+    NonObject = 2,
+    NonRuntime = 3,
+});
+
+macro_rules! strong_collection_iterator_receiver_value_kinds {
+    ($($kind:ident => $representation:ident),+ $(,)?) => {
+        impl StrongCollectionIteratorReceiverRepresentation {
+            const VALUE_KINDS: &'static [ValueKind] = &[$(ValueKind::$kind),+];
+
+            const fn from_value_kind(kind: ValueKind) -> Self {
+                match kind {
+                    $(ValueKind::$kind => Self::$representation),+
+                }
+            }
+        }
+    };
+}
+
+strong_collection_iterator_receiver_value_kinds! {
+    Undefined => NonObject,
+    Null => NonObject,
+    Boolean => NonObject,
+    Number => NonObject,
+    String => NonObject,
+    Symbol => NonObject,
+    Object => ObjectTagBrandLayout,
+    Array => ObjectWithoutBrandLayout,
+    Function => ObjectWithoutBrandLayout,
+    Arguments => ObjectWithoutBrandLayout,
+    BigInt => NonObject,
+    Dynamic => NonRuntime,
+}
+
 // The two iterable ordered-collection layouts that share one cursor law.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StrongCollectionCursor {
@@ -55,7 +94,37 @@ enum StrongCollectionCursor {
     Set,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StrongCollectionIteratorReceiverError {
+    NonObject,
+    MissingInternalSlots,
+}
+
 impl StrongCollectionCursor {
+    fn iterator_brand(self) -> u64 {
+        match self {
+            Self::Map => OBJECT_INTERNAL_BRAND_MAP_ITERATOR,
+            Self::Set => OBJECT_INTERNAL_BRAND_SET_ITERATOR,
+        }
+    }
+
+    fn receiver_error_message(self, error: StrongCollectionIteratorReceiverError) -> &'static str {
+        match (self, error) {
+            (Self::Map, StrongCollectionIteratorReceiverError::NonObject) => {
+                "Map Iterator.prototype.next receiver is not an object"
+            }
+            (Self::Map, StrongCollectionIteratorReceiverError::MissingInternalSlots) => {
+                "Map Iterator.prototype.next receiver does not have [[Map]]"
+            }
+            (Self::Set, StrongCollectionIteratorReceiverError::NonObject) => {
+                "Set Iterator.prototype.next receiver is not an object"
+            }
+            (Self::Set, StrongCollectionIteratorReceiverError::MissingInternalSlots) => {
+                "Set Iterator.prototype.next receiver does not have [[Set]]"
+            }
+        }
+    }
+
     fn collection_payload_offset(self) -> u64 {
         match self {
             Self::Map => HEAP_MAP_ITERATOR_MAP_PAYLOAD_OFFSET,
@@ -263,6 +332,123 @@ enum SetPredicateOperation {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    fn emit_strong_collection_iterator_record_from_receiver(
+        &mut self,
+        cursor: StrongCollectionCursor,
+        iterator_record_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let receiver_brand_local = self.reserve_temp_local();
+        let receiver_representation_local = self.reserve_temp_local();
+
+        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
+
+        function.instruction(&Instruction::I64Const(
+            StrongCollectionIteratorReceiverRepresentation::NonObject.word() as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(receiver_representation_local));
+        for kind in StrongCollectionIteratorReceiverRepresentation::VALUE_KINDS
+            .iter()
+            .copied()
+        {
+            let representation =
+                StrongCollectionIteratorReceiverRepresentation::from_value_kind(kind);
+            match representation {
+                StrongCollectionIteratorReceiverRepresentation::NonObject => {}
+                StrongCollectionIteratorReceiverRepresentation::ObjectTagBrandLayout
+                | StrongCollectionIteratorReceiverRepresentation::ObjectWithoutBrandLayout
+                | StrongCollectionIteratorReceiverRepresentation::NonRuntime => {
+                    function.instruction(&Instruction::LocalGet(receiver_tag_local));
+                    function.instruction(&Instruction::I64Const(kind.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(representation.word() as i64));
+                    function.instruction(&Instruction::LocalSet(receiver_representation_local));
+                    function.instruction(&Instruction::End);
+                }
+            }
+        }
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        for representation in StrongCollectionIteratorReceiverRepresentation::ALL
+            .iter()
+            .copied()
+        {
+            function.instruction(&Instruction::LocalGet(receiver_representation_local));
+            function.instruction(&Instruction::I64Const(representation.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            match representation {
+                StrongCollectionIteratorReceiverRepresentation::ObjectTagBrandLayout => {
+                    self.load_i64_to_local_from_offset(
+                        receiver_payload_local,
+                        HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                        receiver_brand_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(receiver_brand_local));
+                    function.instruction(&Instruction::I64Const(cursor.iterator_brand() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.load_i64_to_local_from_offset(
+                        receiver_payload_local,
+                        HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+                        iterator_record_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::Else);
+                    self.emit_throw_current_function_realm_type_error(
+                        cursor.receiver_error_message(
+                            StrongCollectionIteratorReceiverError::MissingInternalSlots,
+                        ),
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                    function.instruction(&Instruction::End);
+                }
+                StrongCollectionIteratorReceiverRepresentation::ObjectWithoutBrandLayout => {
+                    self.emit_throw_current_function_realm_type_error(
+                        cursor.receiver_error_message(
+                            StrongCollectionIteratorReceiverError::MissingInternalSlots,
+                        ),
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                }
+                StrongCollectionIteratorReceiverRepresentation::NonObject => {
+                    self.emit_throw_current_function_realm_type_error(
+                        cursor.receiver_error_message(
+                            StrongCollectionIteratorReceiverError::NonObject,
+                        ),
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion(function);
+                }
+                StrongCollectionIteratorReceiverRepresentation::NonRuntime => {
+                    function.instruction(&Instruction::Unreachable);
+                }
+            }
+            function.instruction(&Instruction::Br(1));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(receiver_representation_local);
+        self.release_temp_local(receiver_brand_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        Ok(())
+    }
+
     fn emit_map_record_from_receiver(
         &mut self,
         map_record_local: u32,
@@ -3503,9 +3689,6 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
         let iterator_record_local = self.reserve_temp_local();
         let map_record_local = self.reserve_temp_local();
         let kind_local = self.reserve_temp_local();
@@ -3513,49 +3696,11 @@ impl<'a> FunctionBuilder<'a> {
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
 
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_MAP_ITERATOR as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+        self.emit_strong_collection_iterator_record_from_receiver(
+            StrongCollectionCursor::Map,
             iterator_record_local,
             function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Map Iterator.prototype.next receiver does not have [[Map]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Map Iterator.prototype.next receiver is not an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.emit_advance_strong_collection_cursor(
             StrongCollectionCursor::Map,
@@ -3608,9 +3753,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(kind_local);
         self.release_temp_local(map_record_local);
         self.release_temp_local(iterator_record_local);
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
         Ok(())
     }
 
@@ -6459,9 +6601,6 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let receiver_payload_local = self.reserve_temp_local();
-        let receiver_tag_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
         let iterator_record_local = self.reserve_temp_local();
         let set_record_local = self.reserve_temp_local();
         let kind_local = self.reserve_temp_local();
@@ -6469,49 +6608,11 @@ impl<'a> FunctionBuilder<'a> {
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
 
-        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_SET_ITERATOR as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+        self.emit_strong_collection_iterator_record_from_receiver(
+            StrongCollectionCursor::Set,
             iterator_record_local,
             function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Set Iterator.prototype.next receiver does not have [[Set]]",
-            self.result_local,
-            self.result_tag_local,
-            function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Set Iterator.prototype.next receiver is not an object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.emit_advance_strong_collection_cursor(
             StrongCollectionCursor::Set,
@@ -6563,9 +6664,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(kind_local);
         self.release_temp_local(set_record_local);
         self.release_temp_local(iterator_record_local);
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_tag_local);
-        self.release_temp_local(receiver_payload_local);
         Ok(())
     }
 }
