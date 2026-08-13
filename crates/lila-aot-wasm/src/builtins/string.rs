@@ -4,6 +4,100 @@ use crate::runtime_helpers::{
     RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,
 };
 
+mod empty_string_split_units {
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    struct UnitIndexLocal(u32);
+
+    #[derive(Clone, Copy)]
+    struct UnitLengthLocal(u32);
+
+    #[derive(Clone, Copy)]
+    struct OneUnitLocal(u32);
+
+    fn emit_one_unit_payload(
+        builder: &mut FunctionBuilder<'_>,
+        string_local: u32,
+        index: UnitIndexLocal,
+        one: OneUnitLocal,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        builder.emit_utf16_code_unit_range_payload_from_locals(
+            string_local,
+            index.0,
+            one.0,
+            function,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit(
+        builder: &mut FunctionBuilder<'_>,
+        string_local: u32,
+        source_offset_local: u32,
+        source_byte_length_local: u32,
+        result_array_local: u32,
+        write_index_local: u32,
+        limit_local: u32,
+        piece_payload_local: u32,
+        piece_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let index = UnitIndexLocal(builder.reserve_temp_local());
+        let length = UnitLengthLocal(builder.reserve_temp_local());
+        let one = OneUnitLocal(builder.reserve_temp_local());
+
+        builder.emit_utf16_code_unit_len_from_utf8_locals(
+            source_offset_local,
+            source_byte_length_local,
+            length.0,
+            function,
+        );
+        for (local, value) in [(index.0, 0), (one.0, 1)] {
+            function.instruction(&Instruction::I64Const(value));
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(piece_tag_local));
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index.0));
+        function.instruction(&Instruction::LocalGet(length.0));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(write_index_local));
+        function.instruction(&Instruction::LocalGet(limit_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::BrIf(1));
+
+        emit_one_unit_payload(builder, string_local, index, one, function)?;
+        function.instruction(&Instruction::LocalSet(piece_payload_local));
+        builder.emit_array_write(
+            result_array_local,
+            write_index_local,
+            piece_payload_local,
+            piece_tag_local,
+            function,
+        )?;
+        for local in [write_index_local, index.0] {
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        builder.release_temp_local(one.0);
+        builder.release_temp_local(length.0);
+        builder.release_temp_local(index.0);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UriCodecKind {
     Uri,
@@ -14394,60 +14488,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(sep_len_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(write_index_local));
-        function.instruction(&Instruction::LocalGet(limit_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(src_offset_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(src_byte_local));
-        self.emit_decode_utf8_scalar_at_index(
-            src_offset_local,
-            scan_index_local,
-            src_len_local,
-            src_byte_local,
-            sep_byte_local,
-            piece_len_local,
-            compare_index_local,
-            function,
-        );
-        self.emit_string_slice_payload_from_locals(
+        empty_string_split_units::emit(
+            self,
             string_local,
-            scan_index_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(piece_tag_local));
-        self.emit_array_write(
+            src_offset_local,
+            src_len_local,
             result_array_local,
             write_index_local,
+            limit_local,
             piece_payload_local,
             piece_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(write_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(write_index_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(piece_len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::Block(BlockType::Empty));

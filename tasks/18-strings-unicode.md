@@ -70,6 +70,19 @@ narrows to a saturating signed `i64` first, so infinities and finite magnitudes
 outside the signed-64-bit interval obey `ToUint16` rather than becoming
 `0xffff` or `0x0000` by accident.
 
+The ordinary empty-string `String.prototype.split` path now walks the
+receiver's UTF-16 code-unit domain rather than advancing one result per decoded
+UTF-8/WTF-8 scalar. Its one-unit materialization boundary cannot accept a raw
+byte index, and every result element uses the shared UTF-16 range materializer,
+so an astral scalar splits into its independently observable high and low
+surrogates while lone surrogates remain intact. The authoritative length and
+range helpers still decode the storage representation internally. A focused
+product fixture covers literal and escaped pairs, mixed BMP/astral and empty
+input, lone and reversed surrogates, limits, boxed receivers, `charAt` parity
+and join round-tripping. The code, fixture, static structural guard and contract
+are dry-written; Cargo, CLI execution and focused pinned split leaves remain
+queued behind the active current-pin matrix.
+
 ## Objective
 
 Implement ECMAScript strings as sequences of UTF-16 code units, including lone surrogates, while retaining an efficient Wasm representation. Complete String primitives, wrapper exotics, iterators and all pinned String APIs without ASCII-only assumptions or exact-test materializations.

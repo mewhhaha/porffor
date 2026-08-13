@@ -139,6 +139,61 @@ mod tests {
     }
 
     #[test]
+    fn string_empty_split_structurally_walks_utf16_code_units() {
+        let source = include_str!("builtins/string.rs");
+        let helper = source
+            .split_once("mod empty_string_split_units {")
+            .expect("empty-split local domain should exist")
+            .1
+            .split_once("pub(crate) enum UriCodecKind")
+            .expect("empty-split local domain should end before URI codecs")
+            .0;
+        let split = source
+            .split_once("pub(crate) fn emit_string_split_from_string_locals(")
+            .expect("ordinary String split emitter should exist")
+            .1
+            .split_once("pub(crate) fn emit_string_split_regexp_source_from_string_locals(")
+            .expect("ordinary String split emitter should have a bounded body")
+            .0;
+
+        assert_eq!(
+            split.matches("empty_string_split_units::emit(").count(),
+            1,
+            "the empty-separator branch must delegate to the private UTF-16 unit coordinator once"
+        );
+        for local in ["UnitIndexLocal", "UnitLengthLocal", "OneUnitLocal"] {
+            assert_eq!(
+                helper.matches(&format!("struct {local}")).count(),
+                1,
+                "the {local} domain must have one opaque definition"
+            );
+        }
+        assert!(
+            helper.contains("index: UnitIndexLocal,"),
+            "the one-unit materializer must require a UTF-16 unit index"
+        );
+        assert!(
+            helper.contains("one: OneUnitLocal,"),
+            "the one-unit materializer must require the one-code-unit width"
+        );
+        assert_eq!(
+            helper
+                .matches("emit_utf16_code_unit_range_payload_from_locals(")
+                .count(),
+            1,
+            "the typed one-unit boundary must use the authoritative UTF-16 range operation"
+        );
+        assert!(
+            !helper.contains("emit_decode_utf8_scalar_at_index("),
+            "the coordinator must not advance one split element per direct scalar decode; the authoritative UTF-16 helpers may decode internally"
+        );
+        assert!(
+            !helper.contains("emit_string_slice_payload_from_locals("),
+            "the coordinator must not materialize one split element as a raw byte slice"
+        );
+    }
+
+    #[test]
     fn operations_emits_to_boolean_spec_operation() {
         let source = parse("Boolean(globalThis.flag);", ParseOptions::script())
             .expect("script should parse");
