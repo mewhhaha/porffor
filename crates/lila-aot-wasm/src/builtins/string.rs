@@ -10734,8 +10734,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(max_count_local));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
+        self.emit_throw_current_function_realm_range_error(
             "repeat result would exceed maximum string length",
             self.result_local,
             self.result_tag_local,

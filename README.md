@@ -4136,11 +4136,18 @@ Recent focused progress through `2026-07-27`:
   `./target/debug/lila test262 run built-ins/String/prototype/slice --execution-backend wasm --timeout-ms 180000 --threads 4`.
   `String.prototype.repeat` is now registered as a Rust standard builtin for
   prototype property reads, borrowed calls, and direct method calls. The
-  Wasm-AOT path implements receiver `ToString`, count `ToNumber` plus
-  truncate-toward-zero behavior, `RangeError` for negative or infinite counts,
-  Symbol abrupt completions, empty-string fast paths, and repeated UTF-8 byte
-  assembly. Its `length`, `name`, and prototype descriptor files use focused
-  static Wasm-AOT materializations. The full
+  Wasm-AOT path implements receiver `ToString`, count `ToNumber` followed by
+  the shared `ToIntegerOrInfinity` operation, `RangeError` for a normalized
+  negative count or positive infinity, Symbol abrupt completions, empty-string
+  fast paths, and repeated UTF-8 byte assembly. Negative fractions therefore
+  become zero before rejection, while enormous finite counts use a nontrapping
+  saturated emitter local so the empty-string fast path or implementation-limit
+  `RangeError` remains observable. Both repeat-created `RangeError` paths use
+  the executing repeat function's Realm. The focused structural guard and
+  product fixture for that normalization repair are dry-written; Cargo,
+  fixture execution and pinned repeat execution remain deferred behind the
+  active current-pin matrix. Its `length`, `name`, and prototype descriptor
+  files use focused static Wasm-AOT materializations. The full
   `built-ins/String/prototype/repeat` Test262 leaf now reports `16/16` passing
   as of `2026-06-23` under
   `--execution-backend wasm --timeout-ms 90000 --threads 4`:

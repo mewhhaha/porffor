@@ -120,6 +120,22 @@ remain queued behind the active current-pin matrix. Static-name method
 misdispatch, the dynamic-`Function` slice materializer and the broader String
 API remain explicit nonclaims.
 
+The `String.prototype.repeat` count path now feeds `ToNumber` through the
+shared `ToIntegerOrInfinity` operation before applying repeat's negative and
+positive-infinity rejection. Negative fractions therefore normalize to zero
+instead of being rejected from their raw Number value. Accepted finite counts
+use a saturating unsigned Wasm conversion, so magnitudes outside the `u64`
+domain cannot trap before the existing empty-string fast path or unsigned
+implementation-limit comparison selects the ECMAScript-visible result. Both
+the invalid-count and result-too-large `RangeError` paths now use the executing
+repeat function's Realm. The fixture covers negative fractions, enormous
+finite counts on empty and nonempty receivers, and both errors through a
+created Realm's borrowed repeat method. The code, structural guard, fixture
+and normative contract are dry-written; Cargo, CLI and focused pinned repeat
+execution remain queued behind the active current-pin matrix. This does not
+change the maximum String size, general numeric conversion or the published
+repeat count.
+
 ## Objective
 
 Implement ECMAScript strings as sequences of UTF-16 code units, including lone surrogates, while retaining an efficient Wasm representation. Complete String primitives, wrapper exotics, iterators and all pinned String APIs without ASCII-only assumptions or exact-test materializations.

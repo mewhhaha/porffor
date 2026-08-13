@@ -2494,16 +2494,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         self.emit_return_current_completion_if_throw(function);
 
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(dest_local));
-        function.instruction(&Instruction::Else);
-
+        self.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            payload_local,
+            payload_local,
+            function,
+        );
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -2513,14 +2508,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
         function.instruction(&Instruction::F64Eq);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
+        self.emit_throw_current_function_realm_range_error(
             "repeat count must be non-negative and finite",
             self.result_local,
             self.result_tag_local,
@@ -2530,10 +2519,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncF64U);
+        function.instruction(&Instruction::I64TruncSatF64U);
         function.instruction(&Instruction::LocalSet(dest_local));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         Ok(())
     }
