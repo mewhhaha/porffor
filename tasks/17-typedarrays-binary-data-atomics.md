@@ -37,9 +37,10 @@ contracts cover fixed-view out-of-bounds/regrow behavior and the Uint16
 odd-byte floor.
 
 The witness is not yet the universal integer-indexed exotic protocol. The
-shared indexed `Get` implementation, array/typed-array iterators and other
-binary-data consumers still use older emitters, and no Test262 resizable-buffer
-rewrite has been retired.
+shared indexed `Get` implementation and other binary-data consumers still use
+older emitters, and no Test262 resizable-buffer rewrite has been retired. The
+TypedArray iterator boundaries are migrated separately below; ordinary Array
+iterators do not require a TypedArray backing-store witness.
 Constructor/subclass and BigInt variants represented by those rewrites remain
 separate closure work. The shared `at` emitter encodes its generic-array-like
 versus validated-TypedArray receiver policy as a closed enum; the old raw
@@ -71,8 +72,21 @@ regrowth, and whole-element flooring for odd-byte length-tracking buffers.
 The focused
 [accessor buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-accessor-buffer-witness.md)
 and existing accessor fixture pin those rules. This closes the accessor
-duplication, not the older shared indexed `Get`, iterator, constructor, or
+duplication, not the older shared indexed `Get`, constructor, or
 remaining binary-data consumers, and it does not retire a Test262 rewrite.
+
+TypedArray iterator creation and stepping now use that same live buffer witness
+instead of reconstructing private view slots through the older raw validator.
+Both boundaries select the closed `ValidatedMethodEntry` projection: creation
+consumes validation, while `next` consumes the length derived from the one
+cached backing-store observation. Detached and out-of-bounds errors route
+through the current function Realm, including created-Realm TypedArray methods
+and their Realm-owned `%ArrayIteratorPrototype%.next`. The focused
+[iterator buffer-witness contract](../docs/rust-rewrite/contracts/typed-array-iterator-buffer-witness.md)
+and existing iterator fixture pin Realm identity, detach/shrink timing, current
+resizable length, whole-element flooring and permanently-done behavior. The remaining raw TypedArray
+validators and full integer-indexed/iterator closure remain open; this is a
+source-invariant correction and does not claim a new baseline pass.
 
 ## Objective
 

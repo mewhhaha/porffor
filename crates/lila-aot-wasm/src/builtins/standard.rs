@@ -6,6 +6,7 @@ use super::array::{
 use super::bigint::BigIntBuiltin;
 use super::binary_data::{
     ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy, TypedArrayAccessorKind,
+    TypedArrayViewLocals, TypedArrayWitnessUse,
 };
 use super::boolean::BooleanBuiltin;
 use super::errors::ErrorBuiltin;
@@ -11055,6 +11056,8 @@ impl<'a> FunctionBuilder<'a> {
                     let buffer_payload_local = self.reserve_temp_local();
                     let byte_offset_local = self.reserve_temp_local();
                     let byte_length_local = self.reserve_temp_local();
+                    let bytes_per_element_local = self.reserve_temp_local();
+                    let length_local = self.reserve_temp_local();
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::LocalSet(receiver_brand_local));
                     function.instruction(&Instruction::LocalGet(this_tag_local));
@@ -11082,32 +11085,28 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                     self.emit_return_current_completion(function);
                     function.instruction(&Instruction::End);
-                    self.load_i64_to_local_from_offset(
+                    self.emit_load_typed_array_private_state(
                         this_payload_local,
-                        HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
-                        buffer_payload_local,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        this_payload_local,
-                        HEAP_TYPED_ARRAY_BYTE_OFFSET,
-                        byte_offset_local,
-                        function,
-                    );
-                    self.load_i64_to_local_from_offset(
-                        this_payload_local,
-                        HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
-                        byte_length_local,
-                        function,
-                    );
-                    self.emit_validate_typed_array_current_byte_length(
-                        this_payload_local,
-                        this_tag_local,
                         buffer_payload_local,
                         byte_offset_local,
                         byte_length_local,
+                        bytes_per_element_local,
+                        function,
+                    );
+                    let typed_array_view = TypedArrayViewLocals::new(
+                        this_payload_local,
+                        buffer_payload_local,
+                        byte_offset_local,
+                        byte_length_local,
+                        bytes_per_element_local,
+                    );
+                    self.emit_typed_array_witness(
+                        &typed_array_view,
+                        TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
                         function,
                     )?;
+                    self.release_temp_local(length_local);
+                    self.release_temp_local(bytes_per_element_local);
                     self.release_temp_local(byte_length_local);
                     self.release_temp_local(byte_offset_local);
                     self.release_temp_local(buffer_payload_local);

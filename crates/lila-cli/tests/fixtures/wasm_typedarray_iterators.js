@@ -69,6 +69,14 @@ if (growingIterator.next().value !== 4) throw "grow fourth";
 if (growingIterator.next().value !== 0) throw "grow fifth";
 if (growingIterator.next().value !== 0) throw "grow sixth";
 
+let oddFloorBuffer = new ArrayBuffer(4, { maxByteLength: 5 });
+let oddFloorView = new Uint16Array(oddFloorBuffer);
+let oddFloorIterator = oddFloorView.keys();
+oddFloorBuffer.resize(5);
+if (oddFloorIterator.next().value !== 0) throw "odd floor first";
+if (oddFloorIterator.next().value !== 1) throw "odd floor second";
+if (oddFloorIterator.next().done !== true) throw "odd floor exposed partial element";
+
 let shrinkBuffer = new ArrayBuffer(4, { maxByteLength: 4 });
 let fixed = new Uint8Array(shrinkBuffer, 0, 4);
 let shrinkingIterator = fixed.keys();
@@ -84,5 +92,67 @@ exhaustedIterator.next();
 if (exhaustedIterator.next().done !== true) throw "initial exhausted";
 exhaustedBuffer.resize(0);
 if (exhaustedIterator.next().done !== true) throw "remains exhausted";
+
+let other = __lilaCreateRealm().global;
+let otherValues = other.Uint8Array.prototype.values;
+let otherNext = Object.getPrototypeOf(
+  otherValues.call(new other.Uint8Array(0))
+).next;
+function assertOtherRealmTypeError(thunk, label) {
+  let error;
+  try {
+    thunk();
+  } catch (caught) {
+    error = caught;
+  }
+  if (error === undefined) throw label + " missing throw";
+  if (Object.getPrototypeOf(error) !== other.TypeError.prototype) {
+    throw label + " wrong TypeError realm";
+  }
+  if (Object.getPrototypeOf(error) === TypeError.prototype) {
+    throw label + " entry TypeError realm";
+  }
+}
+
+let otherDetachedBeforeCall = new other.Uint8Array(1);
+__lilaDetachArrayBuffer(otherDetachedBeforeCall.buffer);
+assertOtherRealmTypeError(function () {
+  otherValues.call(otherDetachedBeforeCall);
+}, "other detached creation");
+
+let entryDetachedBeforeCrossBorrow = new Uint8Array(1);
+__lilaDetachArrayBuffer(entryDetachedBeforeCrossBorrow.buffer);
+assertOtherRealmTypeError(function () {
+  otherValues.call(entryDetachedBeforeCrossBorrow);
+}, "other method entry receiver");
+
+let otherDetachedAfterCall = new other.Uint8Array(1);
+let otherDetachedIterator = otherValues.call(otherDetachedAfterCall);
+__lilaDetachArrayBuffer(otherDetachedAfterCall.buffer);
+assertOtherRealmTypeError(function () {
+  otherDetachedIterator.next();
+}, "other detached next");
+
+let entryDetachedAfterCrossBorrow = new Uint8Array(1);
+let entryIteratorForOtherNext = values.call(entryDetachedAfterCrossBorrow);
+__lilaDetachArrayBuffer(entryDetachedAfterCrossBorrow.buffer);
+assertOtherRealmTypeError(function () {
+  otherNext.call(entryIteratorForOtherNext);
+}, "other next entry iterator");
+
+let otherShrinkBeforeBuffer = new other.ArrayBuffer(2, { maxByteLength: 2 });
+let otherShrinkBeforeView = new other.Uint8Array(otherShrinkBeforeBuffer, 0, 2);
+otherShrinkBeforeBuffer.resize(1);
+assertOtherRealmTypeError(function () {
+  otherValues.call(otherShrinkBeforeView);
+}, "other out-of-bounds creation");
+
+let otherShrinkAfterBuffer = new other.ArrayBuffer(2, { maxByteLength: 2 });
+let otherShrinkAfterView = new other.Uint8Array(otherShrinkAfterBuffer, 0, 2);
+let otherShrinkAfterIterator = otherValues.call(otherShrinkAfterView);
+otherShrinkAfterBuffer.resize(1);
+assertOtherRealmTypeError(function () {
+  otherShrinkAfterIterator.next();
+}, "other out-of-bounds next");
 
 123;

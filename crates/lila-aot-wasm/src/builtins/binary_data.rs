@@ -269,8 +269,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(data_ptr_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray backing buffer is detached",
                     self.result_local,
                     self.result_tag_local,
@@ -282,8 +281,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray byteLength out of bounds",
                     self.result_local,
                     self.result_tag_local,

@@ -1,4 +1,5 @@
 use super::super::*;
+use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_string_iterator_create_from_local(
@@ -298,42 +299,26 @@ impl<'a> FunctionBuilder<'a> {
             kind_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
+        self.emit_load_typed_array_private_state(
             typed_array_payload_local,
-            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
             buffer_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_OFFSET,
             byte_offset_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET,
             byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
             bytes_per_element_local,
             function,
         );
-        self.emit_validate_typed_array_current_byte_length(
+        let typed_array_view = TypedArrayViewLocals::new(
             typed_array_payload_local,
-            typed_array_tag_local,
             buffer_payload_local,
             byte_offset_local,
             byte_length_local,
+            bytes_per_element_local,
+        );
+        self.emit_typed_array_witness(
+            &typed_array_view,
+            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(byte_length_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(length_local));
 
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(length_local));
