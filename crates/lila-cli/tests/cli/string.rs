@@ -407,6 +407,22 @@ fn run_wasm_backend_succeeds_for_string_slice_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_string_code_unit_ranges_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_code_unit_ranges.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_string_starts_ends_with_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

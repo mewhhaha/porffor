@@ -95,7 +95,30 @@ String miss and `at`'s `undefined` miss without a caller-supplied policy. The
 code, astral and ordering fixtures, structural guard and normative contract are
 dry-written; Cargo, CLI and focused pinned execution remain queued behind the
 active current-pin matrix. General `slice`/`substring` range extraction remains
-an explicit adjacent seam and is not closed by this change.
+an explicit adjacent seam and is not closed by that change.
+
+The adjacent `String.prototype.slice` and `substring` paths now share a private
+typed code-unit-range coordinator. It derives the UTF-16 String length,
+normalizes both already-evaluated arguments through a closed method policy and
+constructs a non-`Copy` materializable range token. The token's sole consuming
+boundary uses the authoritative UTF-16 range operation; neither raw byte
+slicing nor code-unit-to-byte boundary conversion is admitted. This preserves
+the independently observable halves of an astral scalar and also fixes the
+standard `substring` body, which previously treated every normalized UTF-16
+index as a byte offset. The optimized direct `substring` call now delegates to
+the standard builtin after the complete argument vector is evaluated, so
+receiver coercion no longer runs before argument expressions and surrounding
+`try` structure cannot select a parallel algorithm. Nullish errors use the
+executing builtin function's Realm. Both shared index normalizers now saturate
+finite values outside signed-64 range before their String-length clamp, so a
+large finite index cannot trap during Wasm integer conversion. Annex B `substr`
+already used the same
+authoritative materializer and is structurally pinned as a non-regression. The
+code, astral/BMP/lone-surrogate and ordering/Realm fixture, structural guard and
+normative contract are dry-written; Cargo, CLI and focused pinned execution
+remain queued behind the active current-pin matrix. Static-name method
+misdispatch, the dynamic-`Function` slice materializer and the broader String
+API remain explicit nonclaims.
 
 ## Objective
 

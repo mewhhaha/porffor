@@ -5196,7 +5196,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(number_payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::I64TruncSatF64S);
         function.instruction(&Instruction::LocalSet(out_local));
         function.instruction(&Instruction::LocalGet(out_local));
         function.instruction(&Instruction::I64Const(0));
@@ -5253,7 +5253,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(number_payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncF64S);
+        function.instruction(&Instruction::I64TruncSatF64S);
         function.instruction(&Instruction::LocalSet(out_local));
         function.instruction(&Instruction::LocalGet(out_local));
         function.instruction(&Instruction::I64Const(0));

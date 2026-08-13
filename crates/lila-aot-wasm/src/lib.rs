@@ -776,8 +776,8 @@ mod tests {
             .split_once("mod empty_string_split_units {")
             .expect("empty-split local domain should exist")
             .1
-            .split_once("pub(crate) enum UriCodecKind")
-            .expect("empty-split local domain should end before URI codecs")
+            .split_once("mod string_code_unit_access {")
+            .expect("empty-split local domain should end before code-unit access")
             .0;
         let split = source
             .split_once("pub(crate) fn emit_string_split_from_string_locals(")
