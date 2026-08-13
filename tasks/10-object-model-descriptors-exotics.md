@@ -35,6 +35,27 @@ The remaining arguments `callee` and `length` attribute tables also carry
 the three named attribute masks, and cannot accidentally receive a complete
 stored descriptor word at that boundary.
 
+Wasm-AOT `[[HasProperty]]` now has one full crate-visible entry seam and a
+private dispatcher over a closed, runtime-consumed `HasPropertyBranch` order:
+Proxy, integer-indexed TypedArray, Array, arguments, boxed String and Ordinary.
+The match is exhaustive, so adding a declared representation without emitting
+its branch is a compile error. Function's `prototype` internal slot is part of
+the Ordinary branch and is checked on every prototype step. Array builtins no
+longer call an ordinary-only bypass. Array and arguments misses, ordinary
+prototype traversal, and absent Proxy `has` traps all restart the same dispatch
+with the actual next payload and tag; boxed String virtual misses continue into
+that object's ordinary storage. Proxy `has` also accepts callable Proxy trap
+values. A durable Wasm-AOT regression covers each branch, nested absent-trap
+targets and prototype reclassification. This HasProperty batch has received
+only formatting, diff and boundary checks while the shared conformance matrix
+runs; its focused Cargo/runtime commands remain pending.
+
+This seam does not close Proxy false-result invariants. The current checker
+still reads only ordinary Object/Function property storage rather than complete
+typed `[[GetOwnProperty]]` and `[[IsExtensible]]` dispatch. In particular it can
+miss an Array target's non-configurable `length`; T11 retains that blocker
+rather than adding a one-off Array mirror.
+
 This is still a foundation, not task closure. Array application and index
 paths, arguments descriptors, several builtin/exotic emitters and lowering
 shape facts still consume derived raw words or parallel positional forms. The
@@ -42,7 +63,8 @@ shape facts still consume derived raw words or parallel positional forms. The
 ordinary `Object.defineProperty` adapter still relies on its emitted run-time
 6.2.6.5 step-9 check, and the shortcut audit still finds path/source-dependent
 materializations. `cargo check -p lila-ir -p lila-aot-wasm` and the focused
-array descriptor CLI fixture are green; a complete current-pin Wasm-AOT
+array descriptor CLI fixture were green at the earlier descriptor checkpoint;
+the HasProperty batch has not rerun them. A complete current-pin Wasm-AOT
 Object/descriptor subtree run has not been performed.
 
 ## Objective

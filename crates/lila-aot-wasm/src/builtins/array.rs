@@ -9366,7 +9366,7 @@ impl<'a> FunctionBuilder<'a> {
             constructor_tag_local,
             function,
         );
-        self.emit_object_has_property_i32_ordinary(
+        self.emit_object_has_property_i32(
             constructor_payload_local,
             constructor_tag_local,
             key_local,
@@ -10688,7 +10688,7 @@ impl<'a> FunctionBuilder<'a> {
             constructor_tag_local,
             function,
         );
-        self.emit_object_has_property_i32_ordinary(
+        self.emit_object_has_property_i32(
             constructor_payload_local,
             constructor_tag_local,
             key_local,
@@ -13538,7 +13538,7 @@ impl<'a> FunctionBuilder<'a> {
             constructor_tag_local,
             function,
         );
-        self.emit_object_has_property_i32_ordinary(
+        self.emit_object_has_property_i32(
             constructor_payload_local,
             constructor_tag_local,
             key_local,
@@ -14553,7 +14553,7 @@ impl<'a> FunctionBuilder<'a> {
             constructor_tag_local,
             function,
         );
-        self.emit_object_has_property_i32_ordinary(
+        self.emit_object_has_property_i32(
             constructor_payload_local,
             constructor_tag_local,
             key_local,
@@ -15514,7 +15514,7 @@ impl<'a> FunctionBuilder<'a> {
             constructor_tag_local,
             function,
         );
-        self.emit_object_has_property_i32_ordinary(
+        self.emit_object_has_property_i32(
             constructor_payload_local,
             constructor_tag_local,
             key_local,

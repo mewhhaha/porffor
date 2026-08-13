@@ -30,6 +30,30 @@ covered by the green central feature-enabled CLI compile and by the complete
 defineProperty and set behavior. It is an inference invariant, not a claim
 that the runtime implementations or full Proxy/Reflect trees are complete.
 
+The Wasm-AOT `has` path now shares T10's closed `[[HasProperty]]` dispatcher.
+An absent `has` trap re-enters the complete target dispatch rather than a
+representation-specific fallback, including through nested Proxy targets, and
+any callable value is accepted as the trap, including a callable Proxy. The
+positive regression is dry-written but its focused runtime gate has not run
+while the shared conformance matrix is active.
+
+This is not yet general `GetMethod(handler, "has")`: the Proxy representation
+stores the handler payload without its tag and reconstructs an Object tag for
+the read. Ordinary-object and Proxy handlers work, but Function, Array and
+arguments handlers do not generally preserve their exotic storage and
+prototype traversal or their correctly tagged handler-as-`this` identity.
+Retaining the handler tag and routing the lookup through shared typed `[[Get]]`
+remain explicit T11 obligations.
+
+The post-trap false-result check remains incomplete and this task stays open:
+it still scans ordinary Object/Function descriptor storage directly instead of
+calling typed `[[GetOwnProperty]]` and `[[IsExtensible]]` dispatch. Therefore an
+Array target's non-configurable `length` (and corresponding exotic cases) can
+still evade the required invariant: a false `has` trap for `length` must throw,
+but the current checker can return `false`. No Array-only special case or
+expected failure was added; the durable repair is the shared typed descriptor
+and extensibility seam.
+
 ## Objective
 
 Implement every Proxy internal method and every Reflect method through the shared object/call protocols, including revocation and all invariant checks. Remove static-shape behavior that bypasses observable traps.

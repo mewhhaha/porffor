@@ -14725,6 +14725,101 @@ var descriptorTarget = new Proxy({ present: 1 }, {
     }
 
     #[test]
+    fn wasm_backend_has_property_dispatches_every_live_exotic_branch() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var ordinary = Object.create({ inherited: 1 });
+
+var arrayCalls = [];
+var array = [];
+Object.setPrototypeOf(array, new Proxy({ inheritedIndex: true }, {
+  has: function(target, key) {
+    arrayCalls.push("array " + key);
+    return Reflect.has(target, key);
+  }
+}));
+
+var typed = new Uint8Array([7]);
+
+var argumentsCalls = [];
+var argumentsResult = [];
+var argumentsTarget;
+function probeArguments() {
+  var args = arguments;
+  argumentsTarget = args;
+  Object.setPrototypeOf(args, new Proxy({ argProto: true }, {
+    has: function(target, key) {
+      argumentsCalls.push("arguments " + key);
+      return Reflect.has(target, key);
+    }
+  }));
+  argumentsResult = [1 in args, "argProto" in args];
+}
+probeArguments(0, 1);
+var absentOuter = new Proxy(
+  new Proxy(argumentsTarget, { has: undefined }),
+  { has: undefined }
+);
+
+var boxed = new String("xy");
+boxed.extra = 1;
+
+function PrototypeCarrier() {}
+var functionChild = Object.create(PrototypeCarrier);
+
+var nestedCalls = [];
+var inner = new Proxy({ nested: 1 }, {
+  has: function(target, key) {
+    nestedCalls.push("inner " + key);
+    return Reflect.has(target, key);
+  }
+});
+var outer = new Proxy(inner, { has: undefined });
+
+var callableCalls = [];
+var callableTrap = new Proxy(function(_target, key) {
+  callableCalls.push(key);
+  return key === "callable";
+}, {});
+var callable = new Proxy({}, { has: callableTrap });
+
+[
+  "inherited" in ordinary,
+  "inheritedIndex" in array,
+  0 in typed,
+  "-0" in typed,
+  argumentsResult[0],
+  argumentsResult[1],
+  1 in absentOuter,
+  "1" in boxed,
+  "extra" in boxed,
+  "prototype" in functionChild,
+  "nested" in outer,
+  "callable" in callable,
+  arrayCalls.join(","),
+  argumentsCalls.join(","),
+  nestedCalls.join(","),
+  callableCalls.join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("HasProperty should reclassify each target and prototype object");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|false|true|true|true|true|true|true|true|true|array inheritedIndex|arguments argProto|inner nested|callable)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_prototype_and_extensibility_methods_cross_deep_proxy_chains() {
         let outcome = engine()
             .run_script(
