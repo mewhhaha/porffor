@@ -88,11 +88,45 @@ intrinsic slot is complete: the existing prototype loader still has explicit
 global/local fallbacks for partially bootstrapped families, which must
 disappear as the registry becomes the full allocation source.
 
+## Created-realm Array prototype seam
+
+Every published `%Array.prototype%` is an Array exotic object, including the
+one allocated while bootstrapping a created realm. The emitter represents that
+construction as a one-way transition from a reserved local to an initialized
+realm Array-prototype local. Only the initialized type can be published in the
+realm intrinsic slot, receive Array named properties, form the created
+`%Array%` constructor/prototype links, or be released. A plain Object payload
+therefore cannot reach this slot through the bootstrap API. The general realm
+intrinsic writer accepts a closed non-Array slot enum rather than a raw offset;
+the Array slot is absent from that domain and is writable only through the
+typed Array publication operation. The entry realm has a separate hard-coded
+Array-global publication operation, so it does not reopen the raw slot API.
+
+Initialization uses the Array layout, repairs its internal `[[Prototype]]` to
+the created realm's `%Object.prototype%`, and records that prototype with the
+Object tag. The created `%Array%` constructor's own `"prototype"` property is
+non-writable, non-enumerable and non-configurable; the Array prototype's own
+`"constructor"` property is writable, non-enumerable and configurable. The
+latter is installed through the Array descriptor path, not an Object-layout
+writer. The constructor is materialized through a dedicated realm-aware
+`BootstrapSupplied` choke point, so no automatic plain prototype is allocated
+or briefly published before these links are installed.
+
+Once `GetFunctionRealm` has resolved a constructor realm, Array default-
+prototype fallback requires that realm's Array intrinsic slot and preserves
+the Array tag. A missing realm record, intrinsic table or Array slot is an
+internal invariant failure. The fallback never substitutes the entry realm's
+global Array prototype and never infers the Array tag by comparing payload
+identity with that global.
+
 ## Remaining work
 
 The registry currently covers the checked-in 23-intrinsic foundation, not the
 complete ECMAScript intrinsic set. T06 remains open for independently allocated
 intrinsic objects, full global/environment bootstrap, complete defining-realm
 coverage, realm-correct error creation, teardown, host hooks, and the
-cross-realm acceptance matrix. T03 shortcut materializations must be removed
-as those general semantics land.
+cross-realm acceptance matrix. The Array-prototype seam does not make the
+registry the bootstrap source, make `%Function.prototype%` callable, repair
+other intrinsic families or the four remaining prototype fallback loaders, or
+complete error, hook and teardown semantics. T03 shortcut materializations
+must be removed as those general semantics land.

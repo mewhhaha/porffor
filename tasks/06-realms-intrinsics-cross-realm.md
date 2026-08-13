@@ -33,6 +33,19 @@ current-realm fallback for a revoked callback. Every route traps a missing
 defining realm or unknown callable representation as an internal invariant
 failure instead of silently selecting a prototype.
 
+Created-realm `%Array.prototype%` bootstrap now has a closed typed seam. A
+reserved local must be consumed by Array-layout initialization before it can be
+published, receive Array named properties, form the realm-local `%Array%` /
+`%Array.prototype%` links, or be released. The general intrinsic writer accepts
+a closed non-Array slot domain, while the Array slot has dedicated typed
+created-realm and hard-coded entry-realm publication operations. The initialized
+Array exotic points at the created realm's `%Object.prototype%`; its constructor
+is born through a realm-aware `BootstrapSupplied` choke point without an
+automatic plain prototype, and its links use the Array-aware descriptor path
+and the exact ECMAScript attributes. Resolved-realm Array default-prototype
+fallback requires the resolved realm's populated Array slot and preserves the
+Array tag, with no entry-global substitution or payload identity heuristic.
+
 This remains metadata foundation rather than full realm bootstrap. Intrinsic
 objects are not yet independently allocated from these templates across the
 complete ECMAScript set, the registry is not yet shared with `lila-ir`, and the
@@ -42,7 +55,9 @@ Dynamic-source-dependent cross-realm cases remain explicit
 unsupported cases, and no current complete Wasm-AOT aggregate proves the full
 realm acceptance matrix. Complete intrinsic allocation, host-capability
 scoping, teardown, borrowed builtins and realm-correct errors therefore remain
-active work.
+active work. The Array seam does not make `%Function.prototype%` callable or
+repair the other intrinsic families and four remaining prototype fallback
+loaders.
 
 ## Objective
 

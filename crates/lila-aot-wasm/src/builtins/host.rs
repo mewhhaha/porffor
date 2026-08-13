@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::functions::NonArrayRealmIntrinsicSlot;
 use lila_runtime::AgentHostOperation;
 
 fn created_realm_string_prototype_method_aliases(name: &str) -> &'static [&'static str] {
@@ -1728,15 +1729,6 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
         ];
-        let array_meta = self
-            .functions
-            .get(&StandardBuiltinId::ArrayConstructor.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Array`",
-                )
-            })?;
         let iterator_meta = self
             .functions
             .get(&StandardBuiltinId::IteratorConstructor.function_id())
@@ -3877,7 +3869,7 @@ impl<'a> FunctionBuilder<'a> {
         let string_iterator_prototype_local = self.reserve_temp_local();
         let map_iterator_prototype_local = self.reserve_temp_local();
         let set_iterator_prototype_local = self.reserve_temp_local();
-        let array_prototype_local = self.reserve_temp_local();
+        let array_prototype_slot = self.reserve_realm_array_prototype_local();
         let function_prototype_local = self.reserve_temp_local();
         let number_prototype_local = self.reserve_temp_local();
         let string_prototype_local = self.reserve_temp_local();
@@ -4008,21 +4000,25 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(set_iterator_prototype_local));
-        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(array_prototype_local));
+        let array_prototype = self.emit_initialize_realm_array_prototype(
+            array_prototype_slot,
+            object_prototype_local,
+            function,
+        )?;
+        self.emit_store_realm_array_prototype(realm_record, &array_prototype, function);
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(map_prototype_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_record_local,
-            HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::MapPrototype,
             map_prototype_local,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(set_prototype_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_record_local,
-            HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::SetPrototype,
             set_prototype_local,
             function,
         );
@@ -4066,27 +4062,23 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         );
-        for (offset, prototype_local) in [
+        for (slot, prototype_local) in [
             (
-                HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
-                array_prototype_local,
-            ),
-            (
-                HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+                NonArrayRealmIntrinsicSlot::NumberPrototype,
                 number_prototype_local,
             ),
             (
-                HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+                NonArrayRealmIntrinsicSlot::StringPrototype,
                 string_prototype_local,
             ),
             (
-                HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+                NonArrayRealmIntrinsicSlot::BooleanPrototype,
                 boolean_prototype_local,
             ),
         ] {
-            self.emit_store_realm_intrinsic_prototype(
+            self.emit_store_non_array_realm_intrinsic(
                 realm_record_local,
-                offset,
+                slot,
                 prototype_local,
                 function,
             );
@@ -4095,19 +4087,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(symbol_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(bigint_prototype_local));
-        for (offset, prototype_local) in [
+        for (slot, prototype_local) in [
             (
-                HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
+                NonArrayRealmIntrinsicSlot::SymbolPrototype,
                 symbol_prototype_local,
             ),
             (
-                HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
+                NonArrayRealmIntrinsicSlot::BigIntPrototype,
                 bigint_prototype_local,
             ),
         ] {
-            self.emit_store_realm_intrinsic_prototype(
+            self.emit_store_non_array_realm_intrinsic(
                 realm_record_local,
-                offset,
+                slot,
                 prototype_local,
                 function,
             );
@@ -4151,15 +4143,15 @@ impl<'a> FunctionBuilder<'a> {
             string_iterator_prototype_local,
             function,
         );
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_record_local,
-            HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::MapIteratorPrototype,
             map_iterator_prototype_local,
             function,
         );
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_record_local,
-            HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::SetIteratorPrototype,
             set_iterator_prototype_local,
             function,
         );
@@ -4248,11 +4240,14 @@ impl<'a> FunctionBuilder<'a> {
             );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_object_define_local_data(
-                array_prototype_local,
+            self.emit_define_realm_array_prototype_data_with_flags(
+                &array_prototype,
                 name,
                 method_payload_local,
                 tag_local,
+                true,
+                false,
+                true,
                 function,
             )?;
             self.release_temp_local(method_payload_local);
@@ -4502,9 +4497,9 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(set_size_key_local);
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_record_local,
-            HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::RegExpPrototype,
             regexp_prototype_local,
             function,
         );
@@ -4811,16 +4806,16 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(typed_array_to_string_tag_getter_payload_local);
         self.release_temp_local(typed_array_to_string_tag_key_local);
         for (builtin, prototype_local) in &typed_array_prototype_locals {
-            let intrinsic_offset = typed_array_realm_intrinsics_prototype_offset(*builtin)
+            let slot = NonArrayRealmIntrinsicSlot::for_typed_array_constructor(*builtin)
                 .ok_or_else(|| {
                     EmitError::unsupported(format!(
-                        "unsupported in lila wasm-aot first slice: missing typed array realm intrinsic prototype offset `{}`",
+                        "unsupported in lila wasm-aot first slice: missing typed array realm intrinsic prototype slot `{}`",
                         builtin.debug_name()
                     ))
                 })?;
-            self.emit_store_realm_intrinsic_prototype(
+            self.emit_store_non_array_realm_intrinsic(
                 realm_record_local,
-                intrinsic_offset,
+                slot,
                 *prototype_local,
                 function,
             );
@@ -5623,8 +5618,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(iterator_getter_payload_local);
         self.release_temp_local(iterator_accessor_key_local);
 
-        self.emit_function_value_payload_in_realm(
-            &array_meta,
+        self.emit_realm_array_constructor_value_payload(
             realm_record,
             array_constructor_local,
             function,
@@ -5635,10 +5629,9 @@ impl<'a> FunctionBuilder<'a> {
             function_prototype_local,
             function,
         );
-        self.emit_set_function_prototype_data(
+        self.emit_bind_realm_array_constructor_prototype(
             array_constructor_local,
-            array_prototype_local,
-            true,
+            &array_prototype,
             function,
         )?;
         for (name, meta) in &array_static_method_metas {
@@ -7642,7 +7635,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(string_prototype_local);
         self.release_temp_local(number_prototype_local);
         self.release_temp_local(function_prototype_local);
-        self.release_temp_local(array_prototype_local);
+        self.release_realm_array_prototype_local(array_prototype);
         self.release_temp_local(set_iterator_prototype_local);
         self.release_temp_local(map_iterator_prototype_local);
         self.release_temp_local(string_iterator_prototype_local);

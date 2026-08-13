@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::functions::FunctionPrototypeMaterialization;
+use crate::functions::{FunctionPrototypeMaterialization, NonArrayRealmIntrinsicSlot};
 use lila_ir::StandardBuiltinInstaller;
 
 impl<'a> FunctionBuilder<'a> {
@@ -353,7 +353,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(THROW_TYPE_ERROR_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             THROW_TYPE_ERROR_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
+            NonArrayRealmIntrinsicSlot::ThrowTypeError,
             function,
         );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -1764,18 +1764,18 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        let realm_intrinsic_offset = typed_array_realm_intrinsics_prototype_offset(builtin)
+        let slot = NonArrayRealmIntrinsicSlot::for_typed_array_constructor(builtin)
             .ok_or_else(|| {
                 EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing realm intrinsic prototype offset `{}`",
+                    "unsupported in lila wasm-aot first slice: missing realm intrinsic prototype slot `{}`",
                     builtin.debug_name()
                 ))
             })?;
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             self.scratch_local,
-            realm_intrinsic_offset,
+            slot,
             prototype_local,
             function,
         );
@@ -2222,7 +2222,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET,
+            NonArrayRealmIntrinsicSlot::GeneratorFunctionConstructor,
             function,
         );
 
@@ -2431,20 +2431,20 @@ impl<'a> FunctionBuilder<'a> {
                 )
             })?;
 
-        for (name, source, prototype_global_index, constructor_global_index, intrinsic_offset) in [
+        for (name, source, prototype_global_index, constructor_global_index, slot) in [
             (
                 "AsyncFunction",
                 "function AsyncFunction() { [native code] }",
                 ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
                 ASYNC_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
-                HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_CONSTRUCTOR_OFFSET,
+                NonArrayRealmIntrinsicSlot::AsyncFunctionConstructor,
             ),
             (
                 "AsyncGeneratorFunction",
                 "function AsyncGeneratorFunction() { [native code] }",
                 ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
                 ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
-                HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET,
+                NonArrayRealmIntrinsicSlot::AsyncGeneratorFunctionConstructor,
             ),
         ] {
             let mut constructor_meta = thrower_meta.clone();
@@ -2499,7 +2499,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::GlobalSet(constructor_global_index));
             self.emit_store_current_realm_global_intrinsic(
                 constructor_global_index,
-                intrinsic_offset,
+                slot,
                 function,
             );
             self.release_temp_local(tag_local);
@@ -2669,11 +2669,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
         self.release_temp_local(array_prototype_local);
         self.release_temp_local(array_prototype_length_local);
-        self.emit_store_current_realm_global_intrinsic(
-            ARRAY_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
-            function,
-        );
+        self.emit_store_current_realm_array_prototype_global(function);
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -2682,7 +2678,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::IteratorPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2695,7 +2691,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             ITERATOR_HELPER_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::IteratorHelperPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2708,7 +2704,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             ITERATOR_FROM_WRAPPER_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::IteratorFromWrapperPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2735,7 +2731,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::MapIteratorPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2746,7 +2742,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::SetIteratorPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2757,7 +2753,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(GENERATOR_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             GENERATOR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::GeneratorPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2770,7 +2766,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::GeneratorFunctionPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2783,7 +2779,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             ASYNC_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ASYNC_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::AsyncIteratorPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2796,7 +2792,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::AsyncFunctionPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2809,7 +2805,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::AsyncGeneratorPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2822,7 +2818,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::AsyncGeneratorFunctionPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2833,7 +2829,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             NUMBER_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::NumberPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2844,7 +2840,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(STRING_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             STRING_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::StringPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2855,7 +2851,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(BOOLEAN_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             BOOLEAN_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::BooleanPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2872,7 +2868,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(MAP_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             MAP_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::MapPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2883,7 +2879,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(WEAK_MAP_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_WEAK_MAP_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::WeakMapPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2894,7 +2890,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(WEAK_REF_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             WEAK_REF_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::WeakRefPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2907,7 +2903,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         self.emit_store_current_realm_global_intrinsic(
             FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::FinalizationRegistryPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2918,7 +2914,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(WEAK_SET_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             WEAK_SET_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::WeakSetPrototype,
             function,
         );
         // `%AsyncDisposableStack.prototype%` deliberately gets no
@@ -2944,7 +2940,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(SET_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             SET_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::SetPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -2955,7 +2951,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(SYMBOL_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             SYMBOL_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::SymbolPrototype,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(
@@ -3263,9 +3259,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             self.scratch_local,
-            HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::RegExpPrototype,
             regexp_prototype_local,
             function,
         );

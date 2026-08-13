@@ -8,6 +8,157 @@ use lila_ir::{ClassMethodKindIr, StaticRegExpCompilation};
 #[derive(Clone, Copy)]
 pub(crate) struct RealmRecordLocal(u32);
 
+/// Storage reserved for a created realm's `%Array.prototype%`, before an
+/// Array-layout object has been emitted into it.
+///
+/// This type is deliberately neither `Copy` nor constructible outside this
+/// module. Initialization consumes it, so bootstrap cannot publish the local
+/// while it still contains an arbitrary payload.
+#[must_use]
+pub(crate) struct ReservedRealmArrayPrototypeLocal(u32);
+
+/// A Wasm local proven to contain an initialized created-realm
+/// `%Array.prototype%` Array exotic object.
+///
+/// The raw local is private. Created-realm publication and property/link
+/// installation accept only this state, and final release consumes it.
+#[must_use]
+pub(crate) struct RealmArrayPrototypeLocal(u32);
+
+/// A realm-intrinsic slot whose representation is not constrained by the
+/// `%Array.prototype%` typestate.
+///
+/// The Array slot is intentionally absent. Callers cannot manufacture this
+/// fieldless enum from a raw offset, so adding Array to the generic writer
+/// requires an explicit change to this closed domain and its exhaustive map.
+#[derive(Clone, Copy)]
+pub(crate) enum NonArrayRealmIntrinsicSlot {
+    ThrowTypeError,
+    TypeErrorPrototype,
+    GeneratorFunctionConstructor,
+    AsyncFunctionConstructor,
+    AsyncGeneratorFunctionConstructor,
+    ObjectPrototype,
+    ArrayIteratorPrototype,
+    StringIteratorPrototype,
+    MapIteratorPrototype,
+    SetIteratorPrototype,
+    IteratorHelperPrototype,
+    IteratorPrototype,
+    IteratorFromWrapperPrototype,
+    GeneratorPrototype,
+    GeneratorFunctionPrototype,
+    AsyncIteratorPrototype,
+    AsyncFunctionPrototype,
+    AsyncGeneratorPrototype,
+    AsyncGeneratorFunctionPrototype,
+    NumberPrototype,
+    StringPrototype,
+    BooleanPrototype,
+    SymbolPrototype,
+    BigIntPrototype,
+    MapPrototype,
+    SetPrototype,
+    WeakMapPrototype,
+    WeakSetPrototype,
+    WeakRefPrototype,
+    FinalizationRegistryPrototype,
+    RegExpPrototype,
+    Float64ArrayPrototype,
+    Float32ArrayPrototype,
+    Int32ArrayPrototype,
+    Int16ArrayPrototype,
+    Int8ArrayPrototype,
+    Uint32ArrayPrototype,
+    Uint16ArrayPrototype,
+    Uint8ArrayPrototype,
+    Uint8ClampedArrayPrototype,
+    BigInt64ArrayPrototype,
+    BigUint64ArrayPrototype,
+}
+
+impl NonArrayRealmIntrinsicSlot {
+    const fn offset(self) -> u64 {
+        match self {
+            Self::ThrowTypeError => HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
+            Self::TypeErrorPrototype => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            Self::GeneratorFunctionConstructor => {
+                HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET
+            }
+            Self::AsyncFunctionConstructor => {
+                HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_CONSTRUCTOR_OFFSET
+            }
+            Self::AsyncGeneratorFunctionConstructor => {
+                HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET
+            }
+            Self::ObjectPrototype => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            Self::ArrayIteratorPrototype => HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
+            Self::StringIteratorPrototype => HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
+            Self::MapIteratorPrototype => HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
+            Self::SetIteratorPrototype => HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
+            Self::IteratorHelperPrototype => HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
+            Self::IteratorPrototype => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
+            Self::IteratorFromWrapperPrototype => {
+                HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET
+            }
+            Self::GeneratorPrototype => HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET,
+            Self::GeneratorFunctionPrototype => {
+                HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_PROTOTYPE_OFFSET
+            }
+            Self::AsyncIteratorPrototype => HEAP_REALM_INTRINSICS_ASYNC_ITERATOR_PROTOTYPE_OFFSET,
+            Self::AsyncFunctionPrototype => HEAP_REALM_INTRINSICS_ASYNC_FUNCTION_PROTOTYPE_OFFSET,
+            Self::AsyncGeneratorPrototype => HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET,
+            Self::AsyncGeneratorFunctionPrototype => {
+                HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_FUNCTION_PROTOTYPE_OFFSET
+            }
+            Self::NumberPrototype => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
+            Self::StringPrototype => HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET,
+            Self::BooleanPrototype => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
+            Self::SymbolPrototype => HEAP_REALM_INTRINSICS_SYMBOL_PROTOTYPE_OFFSET,
+            Self::BigIntPrototype => HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
+            Self::MapPrototype => HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
+            Self::SetPrototype => HEAP_REALM_INTRINSICS_SET_PROTOTYPE_OFFSET,
+            Self::WeakMapPrototype => HEAP_REALM_INTRINSICS_WEAK_MAP_PROTOTYPE_OFFSET,
+            Self::WeakSetPrototype => HEAP_REALM_INTRINSICS_WEAK_SET_PROTOTYPE_OFFSET,
+            Self::WeakRefPrototype => HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET,
+            Self::FinalizationRegistryPrototype => {
+                HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET
+            }
+            Self::RegExpPrototype => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
+            Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
+            Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
+            Self::Int32ArrayPrototype => HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET,
+            Self::Int16ArrayPrototype => HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET,
+            Self::Int8ArrayPrototype => HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET,
+            Self::Uint32ArrayPrototype => HEAP_REALM_INTRINSICS_UINT32_ARRAY_PROTOTYPE_OFFSET,
+            Self::Uint16ArrayPrototype => HEAP_REALM_INTRINSICS_UINT16_ARRAY_PROTOTYPE_OFFSET,
+            Self::Uint8ArrayPrototype => HEAP_REALM_INTRINSICS_UINT8_ARRAY_PROTOTYPE_OFFSET,
+            Self::Uint8ClampedArrayPrototype => {
+                HEAP_REALM_INTRINSICS_UINT8_CLAMPED_ARRAY_PROTOTYPE_OFFSET
+            }
+            Self::BigInt64ArrayPrototype => HEAP_REALM_INTRINSICS_BIGINT64_ARRAY_PROTOTYPE_OFFSET,
+            Self::BigUint64ArrayPrototype => HEAP_REALM_INTRINSICS_BIGUINT64_ARRAY_PROTOTYPE_OFFSET,
+        }
+    }
+
+    pub(crate) const fn for_typed_array_constructor(builtin: StandardBuiltinId) -> Option<Self> {
+        Some(match builtin {
+            StandardBuiltinId::Float64ArrayConstructor => Self::Float64ArrayPrototype,
+            StandardBuiltinId::Float32ArrayConstructor => Self::Float32ArrayPrototype,
+            StandardBuiltinId::Int32ArrayConstructor => Self::Int32ArrayPrototype,
+            StandardBuiltinId::Int16ArrayConstructor => Self::Int16ArrayPrototype,
+            StandardBuiltinId::Int8ArrayConstructor => Self::Int8ArrayPrototype,
+            StandardBuiltinId::Uint32ArrayConstructor => Self::Uint32ArrayPrototype,
+            StandardBuiltinId::Uint16ArrayConstructor => Self::Uint16ArrayPrototype,
+            StandardBuiltinId::Uint8ArrayConstructor => Self::Uint8ArrayPrototype,
+            StandardBuiltinId::Uint8ClampedArrayConstructor => Self::Uint8ClampedArrayPrototype,
+            StandardBuiltinId::BigInt64ArrayConstructor => Self::BigInt64ArrayPrototype,
+            StandardBuiltinId::BigUint64ArrayConstructor => Self::BigUint64ArrayPrototype,
+            _ => return None,
+        })
+    }
+}
+
 /// Whether function allocation also creates the default own `prototype`
 /// property. This policy is deliberately separate from semantic
 /// constructability; realm bootstrap supplies a few intrinsic prototypes.
@@ -3024,22 +3175,12 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(array_constructor_table_index));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_load_realm_intrinsic_prototype_or_global(
-                prototype_realm.index(),
-                HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
-                ARRAY_PROTOTYPE_GLOBAL_INDEX,
+            self.emit_load_required_resolved_realm_array_prototype(
+                prototype_realm,
                 proto_payload_local,
+                proto_tag_local,
                 function,
             );
-            function.instruction(&Instruction::LocalGet(proto_payload_local));
-            function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalSet(proto_tag_local));
             function.instruction(&Instruction::End);
         }
         if let Some(number_constructor_table_index) = number_constructor_table_index {
@@ -3626,7 +3767,55 @@ impl<'a> FunctionBuilder<'a> {
         function_object_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_function_value_payload(meta, function)?;
+        self.emit_function_value_payload_in_realm_with_prototype_materialization(
+            meta,
+            FunctionPrototypeMaterialization::Automatic,
+            defining_realm,
+            function_object_local,
+            function,
+        )
+    }
+
+    /// Materialize the created realm's `%Array%` constructor without first
+    /// allocating the ordinary automatic prototype that realm bootstrap will
+    /// replace with its initialized Array exotic.
+    pub(crate) fn emit_realm_array_constructor_value_payload(
+        &mut self,
+        defining_realm: RealmRecordLocal,
+        function_object_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let meta = self
+            .functions
+            .get(&StandardBuiltinId::ArrayConstructor.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Array`",
+                )
+            })?;
+        self.emit_function_value_payload_in_realm_with_prototype_materialization(
+            &meta,
+            FunctionPrototypeMaterialization::BootstrapSupplied,
+            defining_realm,
+            function_object_local,
+            function,
+        )
+    }
+
+    fn emit_function_value_payload_in_realm_with_prototype_materialization(
+        &mut self,
+        meta: &WasmFunctionMeta,
+        prototype_materialization: FunctionPrototypeMaterialization,
+        defining_realm: RealmRecordLocal,
+        function_object_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_function_value_payload_with_prototype_materialization(
+            meta,
+            prototype_materialization,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(function_object_local));
         self.emit_store_function_defining_realm(
             function_object_local,
@@ -3634,6 +3823,175 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         Ok(())
+    }
+
+    pub(crate) fn reserve_realm_array_prototype_local(
+        &mut self,
+    ) -> ReservedRealmArrayPrototypeLocal {
+        ReservedRealmArrayPrototypeLocal(self.reserve_temp_local())
+    }
+
+    /// Consume reserved storage and initialize it with the Array exotic
+    /// layout required by a created realm's `%Array.prototype%`.
+    pub(crate) fn emit_initialize_realm_array_prototype(
+        &mut self,
+        reserved: ReservedRealmArrayPrototypeLocal,
+        object_prototype_local: u32,
+        function: &mut Function,
+    ) -> Result<RealmArrayPrototypeLocal, EmitError> {
+        let length_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(length_local));
+        self.emit_alloc_array_payload_with_length(length_local, reserved.0, function)?;
+        self.store_i64_local_at_offset(
+            reserved.0,
+            HEAP_PROTOTYPE_OFFSET,
+            object_prototype_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            reserved.0,
+            HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Object.tag() as u64,
+            function,
+        );
+        self.release_temp_local(length_local);
+        Ok(RealmArrayPrototypeLocal(reserved.0))
+    }
+
+    pub(crate) fn emit_store_realm_array_prototype(
+        &mut self,
+        realm: RealmRecordLocal,
+        prototype: &RealmArrayPrototypeLocal,
+        function: &mut Function,
+    ) {
+        let intrinsics_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            realm.index(),
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
+            prototype.0,
+            function,
+        );
+        self.release_temp_local(intrinsics_local);
+    }
+
+    pub(crate) fn emit_define_realm_array_prototype_data_with_flags(
+        &mut self,
+        prototype: &RealmArrayPrototypeLocal,
+        key: &str,
+        payload_local: u32,
+        tag_local: u32,
+        writable: bool,
+        enumerable: bool,
+        configurable: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        let writable_local = self.reserve_temp_local();
+        let enumerable_local = self.reserve_temp_local();
+        let configurable_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.static_builtin_property_key_payload(key),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(i64::from(writable)));
+        function.instruction(&Instruction::LocalSet(writable_local));
+        function.instruction(&Instruction::I64Const(i64::from(enumerable)));
+        function.instruction(&Instruction::LocalSet(enumerable_local));
+        function.instruction(&Instruction::I64Const(i64::from(configurable)));
+        function.instruction(&Instruction::LocalSet(configurable_local));
+        self.emit_array_define_named_data_descriptor(
+            prototype.0,
+            key_local,
+            payload_local,
+            tag_local,
+            writable_local,
+            enumerable_local,
+            configurable_local,
+            None,
+            None,
+            None,
+            None,
+            None,
+            function,
+        )?;
+        self.release_temp_local(configurable_local);
+        self.release_temp_local(enumerable_local);
+        self.release_temp_local(writable_local);
+        self.release_temp_local(key_local);
+        Ok(())
+    }
+
+    /// Install the two `%Array%` / `%Array.prototype%` links using the
+    /// representation and attributes required by the intrinsic registry.
+    pub(crate) fn emit_bind_realm_array_constructor_prototype(
+        &mut self,
+        constructor_local: u32,
+        prototype: &RealmArrayPrototypeLocal,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let key_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.store_i64_local_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
+            tag_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
+            prototype.0,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .static_builtin_property_key_payload("prototype"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_object_define_data_with_configurable(
+            constructor_local,
+            key_local,
+            prototype.0,
+            tag_local,
+            false,
+            false,
+            false,
+            function,
+        )?;
+
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_define_realm_array_prototype_data_with_flags(
+            prototype,
+            "constructor",
+            constructor_local,
+            tag_local,
+            true,
+            false,
+            true,
+            function,
+        )?;
+
+        self.release_temp_local(tag_local);
+        self.release_temp_local(key_local);
+        Ok(())
+    }
+
+    pub(crate) fn release_realm_array_prototype_local(
+        &mut self,
+        prototype: RealmArrayPrototypeLocal,
+    ) {
+        self.release_temp_local(prototype.0);
     }
 
     fn emit_alloc_class_execution_context(
@@ -3838,19 +4196,19 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::TypeErrorPrototype,
             prototype_local,
             function,
         );
     }
 
-    pub(crate) fn emit_store_realm_intrinsic_prototype(
+    pub(crate) fn emit_store_non_array_realm_intrinsic(
         &mut self,
         realm_local: u32,
-        intrinsic_offset: u64,
-        prototype_local: u32,
+        slot: NonArrayRealmIntrinsicSlot,
+        value_local: u32,
         function: &mut Function,
     ) {
         let intrinsics_local = self.reserve_temp_local();
@@ -3860,34 +4218,55 @@ impl<'a> FunctionBuilder<'a> {
             intrinsics_local,
             function,
         );
-        self.store_i64_local_at_offset(
-            intrinsics_local,
-            intrinsic_offset,
-            prototype_local,
-            function,
-        );
+        self.store_i64_local_at_offset(intrinsics_local, slot.offset(), value_local, function);
         self.release_temp_local(intrinsics_local);
     }
 
     pub(crate) fn emit_store_current_realm_global_intrinsic(
         &mut self,
-        prototype_global_index: u32,
-        intrinsic_offset: u64,
+        value_global_index: u32,
+        slot: NonArrayRealmIntrinsicSlot,
         function: &mut Function,
     ) {
         let realm_local = self.reserve_temp_local();
+        let value_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(realm_local));
+        function.instruction(&Instruction::GlobalGet(value_global_index));
+        function.instruction(&Instruction::LocalSet(value_local));
+        self.emit_store_non_array_realm_intrinsic(realm_local, slot, value_local, function);
+        self.release_temp_local(value_local);
+        self.release_temp_local(realm_local);
+    }
+
+    /// Publish the entry realm's already-initialized Array exotic. This is
+    /// intentionally hard-coded so the generic non-Array slot domain cannot
+    /// be bypassed with the Array offset and an arbitrary local.
+    pub(crate) fn emit_store_current_realm_array_prototype_global(
+        &mut self,
+        function: &mut Function,
+    ) {
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(realm_local));
-        function.instruction(&Instruction::GlobalGet(prototype_global_index));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.load_i64_to_local_from_offset(
             realm_local,
-            intrinsic_offset,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        self.store_i64_local_at_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
             prototype_local,
             function,
         );
         self.release_temp_local(prototype_local);
+        self.release_temp_local(intrinsics_local);
         self.release_temp_local(realm_local);
     }
 
@@ -3897,9 +4276,9 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::ArrayIteratorPrototype,
             prototype_local,
             function,
         );
@@ -3911,9 +4290,9 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::StringIteratorPrototype,
             prototype_local,
             function,
         );
@@ -3925,9 +4304,9 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::IteratorHelperPrototype,
             prototype_local,
             function,
         );
@@ -3939,9 +4318,9 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::IteratorPrototype,
             prototype_local,
             function,
         );
@@ -3953,9 +4332,9 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_ITERATOR_FROM_WRAPPER_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::IteratorFromWrapperPrototype,
             prototype_local,
             function,
         );
@@ -3967,9 +4346,9 @@ impl<'a> FunctionBuilder<'a> {
         prototype_local: u32,
         function: &mut Function,
     ) {
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             realm_local,
-            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::ObjectPrototype,
             prototype_local,
             function,
         );
@@ -4040,6 +4419,51 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(candidate_local);
+        self.release_temp_local(intrinsics_local);
+    }
+
+    /// Load the populated `%Array.prototype%` slot from a realm already
+    /// proven by `GetFunctionRealm`, preserving its Array representation.
+    /// Missing realm bootstrap state is an internal invariant failure.
+    pub(crate) fn emit_load_required_resolved_realm_array_prototype(
+        &mut self,
+        realm: ResolvedFunctionRealmLocal,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(realm.index()));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            realm.index(),
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,
+            payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+
         self.release_temp_local(intrinsics_local);
     }
 

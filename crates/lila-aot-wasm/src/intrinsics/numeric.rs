@@ -6,6 +6,7 @@
 
 use super::super::*;
 use super::IntrinsicInstall;
+use crate::functions::NonArrayRealmIntrinsicSlot;
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn install_big_int_constructor_intrinsics(
@@ -37,9 +38,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(prototype_object_local));
         function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_store_realm_intrinsic_prototype(
+        self.emit_store_non_array_realm_intrinsic(
             self.scratch_local,
-            HEAP_REALM_INTRINSICS_BIGINT_PROTOTYPE_OFFSET,
+            NonArrayRealmIntrinsicSlot::BigIntPrototype,
             prototype_object_local,
             function,
         );
