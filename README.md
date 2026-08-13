@@ -262,7 +262,13 @@ self-checking, no-output disposition comparison unchanged and additively admits
 schema v2 `primitive_completion_no_output` cases. V2 compares normal-versus-throw
 plus `undefined`, `null`, Boolean, canonical Number bits, UTF-16 String units or
 decimal BigInt; output, Symbol and Object observations make the bounded contract
-red. A match still reports semantic equivalence as `not_established`.
+red. Schema v3 `primitive_completion_print_transcript` compares the same
+primitive completion plus the exact ordered root `PrintLine` transcript. It has
+a distinct green verdict; unavailable output, Symbol, Object and backend
+failures remain red, while mismatches receive a length-delimited stable
+signature. Every match still reports semantic equivalence as `not_established`.
+See the
+[schema-v3 observation contract](docs/rust-rewrite/contracts/differential-primitive-print-transcript.md).
 
 The same builds also expose a deterministic bounded campaign:
 `lila differential generate-arithmetic <output.json> --seed N --checks N

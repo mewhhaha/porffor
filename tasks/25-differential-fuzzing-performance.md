@@ -1,6 +1,6 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-**Status:** Bounded campaign in progress — versioned replay, one deterministic Add/Sub generator/reducer, an additive observed-execution seam and a schema-v2 primitive-completion protocol exist; object/identity comparison, broader generation/reduction, performance budgets and CI remain open
+**Status:** Bounded campaign in progress — versioned replay, one deterministic Add/Sub generator/reducer, an additive observed-execution seam, schema-v2 primitive completion and schema-v3 primitive-plus-print comparison exist; object/identity comparison, broader generation/reduction, performance budgets and CI remain open
 
 **Parallel group:** Validation lane  
 **Depends on:** T01, T02, T03, T04  
@@ -13,12 +13,12 @@ durable starting points are ignored Rust-owned Wasm-AOT performance probes,
 snapshot determinism tests and an explicitly feature-gated spec-exec oracle.
 One performance probe still expects a machine-local untracked manifest, so it
 is not a portable benchmark corpus. The `lila differential replay` command
-consumes a closed schema-v1 or schema-v2 Rust-owned corpus entry, always runs
-Wasm-AOT first, and can run the off-by-default spec-exec oracle only when both
-the cargo feature and explicit `--oracle spec-exec` flag are present. Its JSON
-report has a versioned stable case fingerprint and mismatch signature. Replay
-compiles both backends with the ordinary product host-surface policy; probes do
-not silently gain Test262-only globals.
+consumes a closed schema-v1, schema-v2 or schema-v3 Rust-owned corpus entry,
+always runs Wasm-AOT first, and can run the off-by-default spec-exec oracle only
+when both the cargo feature and explicit `--oracle spec-exec` flag are present.
+Its JSON report has a versioned stable case fingerprint and mismatch signature.
+Replay compiles both backends with the ordinary product host-surface policy;
+probes do not silently gain Test262-only globals.
 
 The Rust-owned `integer-arithmetic-v1` campaign is the first non-decorative
 consumer of that replay path. `lila differential generate-arithmetic` uses a
@@ -53,14 +53,24 @@ contract string:
   canonical Number bits, UTF-16 String units and decimal BigInt. Symbol and
   Object are outside this contract and make the report red rather than being
   guessed, coerced or treated as matching types.
+- schema v3 is `primitive_completion_print_transcript`. It compares the same
+  primitive completion plus the exact ordered root `PrintLine` transcript.
+  Both transcripts must be captured; unavailable output is red, event
+  boundaries and order are significant, and a match has its own distinct green
+  verdict. V3 mismatch signatures hash separately length-delimited typed fields
+  and print events rather than embedding raw output.
 
-Both report versions say semantic equivalence is `not_established`; matching
+All report versions say semantic equivalence is `not_established`; matching
 the dimensions declared by one bounded protocol is not whole-program semantic
 equivalence. A shared engine failure or no-output contract violation is red,
-not a match. The committed v1/v2 cases and feature-gated end-to-end contract
-tests make this slice durable, but they do not satisfy object/identity
+not a match. Unavailable v3 output is likewise red. The committed v1/v2/v3
+cases and feature-gated end-to-end contract tests make this slice durable, but
+they do not satisfy object/identity
 comparison, full-corpus replay, layered generation, a general AST reducer,
 fuzz, performance, or CI requirements.
+
+The closed schema-v3 comparison and signature rules are normative in
+`docs/rust-rewrite/contracts/differential-primitive-print-transcript.md`.
 
 ## Objective
 
@@ -124,8 +134,10 @@ human diagnostic, using a generic placeholder for valid non-scalar UTF-16.
 Corpus and report schema v1 remain the self-checking, no-output protocol with
 their original serialization, fingerprint and mismatch-signature vocabulary.
 Schema v2 is additive and compares the typed primitive completion directly. A
-version/contract cross-pair cannot inhabit the in-memory corpus type. Neither
-protocol establishes whole-program semantic equivalence.
+version/contract cross-pair cannot inhabit the in-memory corpus type. Schema v3
+is additive again: a closed output policy requires both root transcripts to be
+captured and compares their ordered `PrintLine` strings alongside the v2
+primitive domain. No protocol establishes whole-program semantic equivalence.
 
 This seam does not yet carry a partial transcript inside `EngineError`,
 identify Symbols or Objects, expose Symbol descriptions, classify Error
@@ -135,7 +147,7 @@ Wasm worker stores run delegate-only and the root typed outcome does not capture
 their lines, while spec-exec's shared observed session can currently surface
 agent lines. Their presence and ordering are therefore not backend-comparable
 and consumers must not rely on them. Differential replay shadows the existing
-realm output hook so both protocol versions can still report output emitted
+realm output hook so all protocol versions can still report output emitted
 before an `EngineError`; the typed outcome is authoritative for completed
 normal and throw executions.
 
@@ -255,6 +267,7 @@ cargo test -p lila-test262 --features spec-exec-oracle differential::generated_a
 cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-arithmetic.json --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
 cargo run -p lila-cli --features spec-exec-oracle -- differential replay /tmp/lila-t25-arithmetic.json --oracle spec-exec
 cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v2/t25-foundation-primitive-number.json --oracle spec-exec
+cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v3/t25-foundation-primitive-number-and-print.json --oracle spec-exec
 ```
 
 The exact CLI may differ, but equivalent seed/replay/reduce commands, CI jobs and artifact retention are required before closing this task.

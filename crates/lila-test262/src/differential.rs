@@ -5,8 +5,9 @@
 //! both backends. Schema v1 still consumes only projected disposition and
 //! output emptiness. Schema v2 additively compares primitive completion kind
 //! and value while rejecting Symbol, Object and output as outside its bounded
-//! contract. Neither protocol promotes its declared match to whole-program
-//! semantic equivalence.
+//! contract. Schema v3 compares that same primitive completion together with
+//! the captured ordered `PrintLine` transcript. No protocol promotes its
+//! declared match to whole-program semantic equivalence.
 
 use std::fmt;
 use std::fs;
@@ -38,6 +39,8 @@ pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION: u32 = 1;
 pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION: u32 = 1;
 pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V2: u32 = 2;
 pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V2: u32 = 2;
+pub const DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V3: u32 = 3;
+pub const DIFFERENTIAL_REPORT_SCHEMA_VERSION_V3: u32 = 3;
 
 /// A corpus key with a stable, path-like machine spelling.
 ///
@@ -95,6 +98,7 @@ impl DifferentialGoal {
 pub enum ObservationContract {
     SelfCheckingNoOutput,
     PrimitiveCompletionNoOutput,
+    PrimitiveCompletionPrintTranscript,
 }
 
 impl ObservationContract {
@@ -102,6 +106,7 @@ impl ObservationContract {
         match self {
             Self::SelfCheckingNoOutput => "self_checking_no_output",
             Self::PrimitiveCompletionNoOutput => "primitive_completion_no_output",
+            Self::PrimitiveCompletionPrintTranscript => "primitive_completion_print_transcript",
         }
     }
 }
@@ -109,12 +114,13 @@ impl ObservationContract {
 /// One admitted corpus/report protocol.
 ///
 /// The schema version and contract spelling are projections of this closed
-/// enum, so an in-memory case cannot pair schema v1 with the v2 contract (or
-/// vice versa). Wire decoding validates the pair once at the boundary.
+/// enum, so an in-memory case cannot pair a schema version with another
+/// version's contract. Wire decoding validates the pair once at the boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DifferentialProtocol {
     V1SelfCheckingNoOutput,
     V2PrimitiveCompletionNoOutput,
+    V3PrimitiveCompletionPrintTranscript,
 }
 
 impl DifferentialProtocol {
@@ -122,6 +128,7 @@ impl DifferentialProtocol {
         match self {
             Self::V1SelfCheckingNoOutput => DIFFERENTIAL_CORPUS_SCHEMA_VERSION,
             Self::V2PrimitiveCompletionNoOutput => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V2,
+            Self::V3PrimitiveCompletionPrintTranscript => DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V3,
         }
     }
 
@@ -129,6 +136,7 @@ impl DifferentialProtocol {
         match self {
             Self::V1SelfCheckingNoOutput => DIFFERENTIAL_REPORT_SCHEMA_VERSION,
             Self::V2PrimitiveCompletionNoOutput => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V2,
+            Self::V3PrimitiveCompletionPrintTranscript => DIFFERENTIAL_REPORT_SCHEMA_VERSION_V3,
         }
     }
 
@@ -136,6 +144,9 @@ impl DifferentialProtocol {
         match self {
             Self::V1SelfCheckingNoOutput => ObservationContract::SelfCheckingNoOutput,
             Self::V2PrimitiveCompletionNoOutput => ObservationContract::PrimitiveCompletionNoOutput,
+            Self::V3PrimitiveCompletionPrintTranscript => {
+                ObservationContract::PrimitiveCompletionPrintTranscript
+            }
         }
     }
 
@@ -151,6 +162,10 @@ impl DifferentialProtocol {
                 DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V2,
                 ObservationContract::PrimitiveCompletionNoOutput,
             ) => Ok(Self::V2PrimitiveCompletionNoOutput),
+            (
+                DIFFERENTIAL_CORPUS_SCHEMA_VERSION_V3,
+                ObservationContract::PrimitiveCompletionPrintTranscript,
+            ) => Ok(Self::V3PrimitiveCompletionPrintTranscript),
             _ => Err(DifferentialError::InvalidCorpus(format!(
                 "unsupported differential protocol pair: schema_version {schema_version} with observation_contract {}",
                 observation_contract.as_str()
@@ -164,8 +179,21 @@ impl From<ObservationContract> for DifferentialProtocol {
         match contract {
             ObservationContract::SelfCheckingNoOutput => Self::V1SelfCheckingNoOutput,
             ObservationContract::PrimitiveCompletionNoOutput => Self::V2PrimitiveCompletionNoOutput,
+            ObservationContract::PrimitiveCompletionPrintTranscript => {
+                Self::V3PrimitiveCompletionPrintTranscript
+            }
         }
     }
+}
+
+/// The complete output-observation policy selected by a protocol.
+///
+/// There is no caller-provided boolean/default: adding a protocol or policy
+/// must update the exhaustive projections and comparison below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputComparisonPolicy {
+    RequireCapturedEmpty,
+    CompareCapturedPrintTranscript,
 }
 
 /// One deterministic input to differential replay.
@@ -343,6 +371,13 @@ pub enum DifferentialBackend {
 }
 
 impl DifferentialBackend {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::WasmAot => "wasm-aot",
+            Self::SpecExec => "spec-exec",
+        }
+    }
+
     #[cfg(feature = "spec-exec-oracle")]
     const fn execution_backend(self) -> ExecutionBackend {
         match self {
@@ -565,6 +600,14 @@ pub enum OutputUnavailableReason {
     SpecExecBypassesEngineHostHooks,
 }
 
+impl OutputUnavailableReason {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::SpecExecBypassesEngineHostHooks => "spec_exec_bypasses_engine_host_hooks",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "availability", rename_all = "snake_case")]
 pub enum OutputEventsObservation {
@@ -578,6 +621,7 @@ pub enum ComparedDimension {
     SelfCheckDisposition,
     CompletionKind,
     PrimitiveValue,
+    PrintTranscript,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -628,11 +672,19 @@ pub const OBSERVATION_GAPS_V2: [ObservationGap; 9] = [
     ObservationGap::SpecExecTimeoutNotEnforced,
 ];
 
+pub const COMPARED_DIMENSIONS_V3: [ComparedDimension; 3] = [
+    ComparedDimension::CompletionKind,
+    ComparedDimension::PrimitiveValue,
+    ComparedDimension::PrintTranscript,
+];
+pub const OBSERVATION_GAPS_V3: [ObservationGap; 9] = OBSERVATION_GAPS_V2;
+
 impl DifferentialProtocol {
     const fn compared_dimensions(self) -> &'static [ComparedDimension] {
         match self {
             Self::V1SelfCheckingNoOutput => &COMPARED_DIMENSIONS,
             Self::V2PrimitiveCompletionNoOutput => &COMPARED_DIMENSIONS_V2,
+            Self::V3PrimitiveCompletionPrintTranscript => &COMPARED_DIMENSIONS_V3,
         }
     }
 
@@ -640,6 +692,18 @@ impl DifferentialProtocol {
         match self {
             Self::V1SelfCheckingNoOutput => &OBSERVATION_GAPS,
             Self::V2PrimitiveCompletionNoOutput => &OBSERVATION_GAPS_V2,
+            Self::V3PrimitiveCompletionPrintTranscript => &OBSERVATION_GAPS_V3,
+        }
+    }
+
+    const fn output_policy(self) -> OutputComparisonPolicy {
+        match self {
+            Self::V1SelfCheckingNoOutput | Self::V2PrimitiveCompletionNoOutput => {
+                OutputComparisonPolicy::RequireCapturedEmpty
+            }
+            Self::V3PrimitiveCompletionPrintTranscript => {
+                OutputComparisonPolicy::CompareCapturedPrintTranscript
+            }
         }
     }
 }
@@ -649,6 +713,7 @@ impl DifferentialProtocol {
 pub enum DifferentialVerdict {
     BothCompleted,
     PrimitiveCompletionsMatch,
+    PrimitiveCompletionAndPrintTranscriptMatch,
     BothFailed,
     Mismatch,
     ObservationContractViolated,
@@ -707,7 +772,9 @@ impl DifferentialReport {
     pub const fn is_green(&self) -> bool {
         matches!(
             self.verdict,
-            DifferentialVerdict::BothCompleted | DifferentialVerdict::PrimitiveCompletionsMatch
+            DifferentialVerdict::BothCompleted
+                | DifferentialVerdict::PrimitiveCompletionsMatch
+                | DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
         )
     }
 
@@ -1036,19 +1103,18 @@ fn compare_executions(
     wasm_execution: BackendExecution,
     spec_execution: BackendExecution,
 ) -> DifferentialReport {
-    let obeys_no_output_contract = |execution: &BackendExecution| match &execution.output_events {
-        OutputEventsObservation::Captured { events } => events.is_empty(),
-        OutputEventsObservation::Unavailable { .. } => false,
-    };
-    let no_output =
-        obeys_no_output_contract(&wasm_execution) && obeys_no_output_contract(&spec_execution);
     let protocol = case.protocol();
+    let output_policy_satisfied = obeys_output_policy(
+        protocol.output_policy(),
+        &wasm_execution.output_events,
+        &spec_execution.output_events,
+    );
     let wasm_disposition = wasm_execution.result.disposition();
     let spec_disposition = spec_execution.result.disposition();
     let wasm_aot = project_backend_execution(protocol, wasm_execution);
     let spec_exec = project_backend_execution(protocol, spec_execution);
 
-    let verdict = if !no_output {
+    let verdict = if !output_policy_satisfied {
         DifferentialVerdict::ObservationContractViolated
     } else {
         match protocol {
@@ -1057,6 +1123,9 @@ fn compare_executions(
             }
             DifferentialProtocol::V2PrimitiveCompletionNoOutput => {
                 compare_v2_observations(&wasm_aot.execution, &spec_exec.execution)
+            }
+            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => {
+                compare_v3_observations(&wasm_aot, &spec_exec)
             }
         }
     };
@@ -1079,6 +1148,9 @@ fn compare_executions(
                 v2_execution_signature(&wasm_aot.execution),
                 v2_execution_signature(&spec_exec.execution),
             )),
+            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => {
+                v3_mismatch_signature(case, &case_fingerprint, &wasm_aot, &spec_exec)
+            }
         });
     DifferentialReport {
         protocol,
@@ -1089,6 +1161,23 @@ fn compare_executions(
         wasm_aot,
         spec_exec,
         mismatch_signature,
+    }
+}
+
+fn obeys_output_policy(
+    policy: OutputComparisonPolicy,
+    wasm: &OutputEventsObservation,
+    spec_exec: &OutputEventsObservation,
+) -> bool {
+    match policy {
+        OutputComparisonPolicy::RequireCapturedEmpty => {
+            matches!(wasm, OutputEventsObservation::Captured { events } if events.is_empty())
+                && matches!(spec_exec, OutputEventsObservation::Captured { events } if events.is_empty())
+        }
+        OutputComparisonPolicy::CompareCapturedPrintTranscript => {
+            matches!(wasm, OutputEventsObservation::Captured { .. })
+                && matches!(spec_exec, OutputEventsObservation::Captured { .. })
+        }
     }
 }
 
@@ -1124,14 +1213,16 @@ fn project_backend_execution(
             BackendExecutionResult::EngineFailure { phase, message },
         ) => ExecutionObservation::Error { phase, message },
         (
-            DifferentialProtocol::V2PrimitiveCompletionNoOutput,
+            DifferentialProtocol::V2PrimitiveCompletionNoOutput
+            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript,
             BackendExecutionResult::Completion {
                 completion,
                 backend_note,
             },
         ) => project_primitive_completion(completion, backend_note),
         (
-            DifferentialProtocol::V2PrimitiveCompletionNoOutput,
+            DifferentialProtocol::V2PrimitiveCompletionNoOutput
+            | DifferentialProtocol::V3PrimitiveCompletionPrintTranscript,
             BackendExecutionResult::EngineFailure { phase, message },
         ) => ExecutionObservation::EngineFailure { phase, message },
     };
@@ -1240,6 +1331,72 @@ fn compare_v2_observations(
     }
 }
 
+fn compare_v3_observations(
+    wasm: &BackendObservation,
+    spec_exec: &BackendObservation,
+) -> DifferentialVerdict {
+    let (
+        OutputEventsObservation::Captured {
+            events: wasm_events,
+        },
+        OutputEventsObservation::Captured {
+            events: spec_exec_events,
+        },
+    ) = (&wasm.output_events, &spec_exec.output_events)
+    else {
+        return DifferentialVerdict::ObservationContractViolated;
+    };
+
+    if matches!(
+        &wasm.execution,
+        ExecutionObservation::UnsupportedCompletion { .. }
+    ) || matches!(
+        &spec_exec.execution,
+        ExecutionObservation::UnsupportedCompletion { .. }
+    ) {
+        return DifferentialVerdict::ObservationContractViolated;
+    }
+
+    match (&wasm.execution, &spec_exec.execution) {
+        (
+            ExecutionObservation::PrimitiveCompletion {
+                completion: wasm, ..
+            },
+            ExecutionObservation::PrimitiveCompletion {
+                completion: spec_exec,
+                ..
+            },
+        ) if wasm == spec_exec && wasm_events == spec_exec_events => {
+            DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+        }
+        (
+            ExecutionObservation::EngineFailure { .. },
+            ExecutionObservation::EngineFailure { .. },
+        ) => DifferentialVerdict::BothFailed,
+        (
+            ExecutionObservation::PrimitiveCompletion { .. },
+            ExecutionObservation::PrimitiveCompletion { .. }
+            | ExecutionObservation::EngineFailure { .. },
+        )
+        | (
+            ExecutionObservation::EngineFailure { .. },
+            ExecutionObservation::PrimitiveCompletion { .. },
+        ) => DifferentialVerdict::Mismatch,
+        (
+            ExecutionObservation::Normal { .. }
+            | ExecutionObservation::Error { .. }
+            | ExecutionObservation::UnsupportedCompletion { .. },
+            _,
+        )
+        | (
+            _,
+            ExecutionObservation::Normal { .. }
+            | ExecutionObservation::Error { .. }
+            | ExecutionObservation::UnsupportedCompletion { .. },
+        ) => DifferentialVerdict::ObservationContractViolated,
+    }
+}
+
 fn v2_execution_signature(execution: &ExecutionObservation) -> String {
     match execution {
         ExecutionObservation::PrimitiveCompletion { completion, .. } => format!(
@@ -1265,6 +1422,85 @@ fn v2_execution_signature(execution: &ExecutionObservation) -> String {
             format!("invalid-v1-error-{}", phase.as_str())
         }
     }
+}
+
+fn v3_mismatch_signature(
+    case: &DifferentialCase,
+    case_fingerprint: &CaseFingerprint,
+    wasm: &BackendObservation,
+    spec_exec: &BackendObservation,
+) -> MismatchSignature {
+    let wasm_signature = v3_backend_observation_signature(wasm);
+    let spec_exec_signature = v3_backend_observation_signature(spec_exec);
+    let mut hash = fnv_update(
+        FNV_OFFSET_BASIS,
+        b"lila-diff-v3-primitive-completion-print-transcript",
+    );
+    for field in [
+        case.id.as_str(),
+        case_fingerprint.as_str(),
+        case.goal.as_str(),
+        DifferentialBackend::WasmAot.as_str(),
+        wasm_signature.as_str(),
+        DifferentialBackend::SpecExec.as_str(),
+        spec_exec_signature.as_str(),
+    ] {
+        hash = fnv_field(hash, field.as_bytes());
+    }
+    MismatchSignature(format!(
+        "lila-diff-v3:primitive-completion-print-transcript:fnv1a64-{hash:016x}"
+    ))
+}
+
+fn v3_backend_observation_signature(observation: &BackendObservation) -> String {
+    let mut hash = fnv_update(FNV_OFFSET_BASIS, b"lila-diff-v3-backend-observation");
+    match &observation.execution {
+        ExecutionObservation::PrimitiveCompletion { completion, .. } => {
+            hash = fnv_field(hash, b"primitive_completion");
+            hash = fnv_field(hash, completion.kind().as_str().as_bytes());
+            hash = fnv_field(hash, completion.value().type_name().as_bytes());
+            hash = fnv_field(
+                hash,
+                primitive_value_signature(completion.value()).as_bytes(),
+            );
+        }
+        ExecutionObservation::UnsupportedCompletion {
+            completion_kind,
+            value_type,
+            ..
+        } => {
+            hash = fnv_field(hash, b"unsupported_completion");
+            hash = fnv_field(hash, completion_kind.as_str().as_bytes());
+            hash = fnv_field(hash, value_type.as_str().as_bytes());
+        }
+        ExecutionObservation::EngineFailure { phase, .. } => {
+            hash = fnv_field(hash, b"engine_failure");
+            hash = fnv_field(hash, phase.as_str().as_bytes());
+        }
+        ExecutionObservation::Normal { .. } => {
+            hash = fnv_field(hash, b"invalid_v1_normal");
+        }
+        ExecutionObservation::Error { phase, .. } => {
+            hash = fnv_field(hash, b"invalid_v1_error");
+            hash = fnv_field(hash, phase.as_str().as_bytes());
+        }
+    }
+
+    match &observation.output_events {
+        OutputEventsObservation::Captured { events } => {
+            hash = fnv_field(hash, b"captured");
+            hash = fnv_field(hash, &(events.len() as u64).to_le_bytes());
+            for event in events {
+                hash = fnv_field(hash, event.as_bytes());
+            }
+        }
+        OutputEventsObservation::Unavailable { reason } => {
+            hash = fnv_field(hash, b"unavailable");
+            hash = fnv_field(hash, reason.as_str().as_bytes());
+        }
+    }
+
+    format!("fnv1a64-{hash:016x}")
 }
 
 fn primitive_value_signature(value: &PrimitiveValueObservation) -> String {
@@ -1311,6 +1547,7 @@ fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
     let domain: &[u8] = match case.protocol {
         DifferentialProtocol::V1SelfCheckingNoOutput => b"lila-differential-case-v1",
         DifferentialProtocol::V2PrimitiveCompletionNoOutput => b"lila-differential-case-v2",
+        DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => b"lila-differential-case-v3",
     };
     let mut hash = fnv_update(FNV_OFFSET_BASIS, domain);
     hash = fnv_field(hash, case.goal.as_str().as_bytes());
@@ -1331,6 +1568,8 @@ mod tests {
         include_str!("../tests/differential/v1/t25-foundation-arithmetic-self-check.json");
     const FOUNDATION_CASE_V2: &str =
         include_str!("../tests/differential/v2/t25-foundation-primitive-number.json");
+    const FOUNDATION_CASE_V3: &str =
+        include_str!("../tests/differential/v3/t25-foundation-primitive-number-and-print.json");
 
     fn case_v1() -> DifferentialCase {
         DifferentialCase::from_json(FOUNDATION_CASE_V1).expect("v1 foundation case should decode")
@@ -1338,6 +1577,10 @@ mod tests {
 
     fn case_v2() -> DifferentialCase {
         DifferentialCase::from_json(FOUNDATION_CASE_V2).expect("v2 foundation case should decode")
+    }
+
+    fn case_v3() -> DifferentialCase {
+        DifferentialCase::from_json(FOUNDATION_CASE_V3).expect("v3 foundation case should decode")
     }
 
     fn execution(backend: DifferentialBackend, result: BackendExecutionResult) -> BackendExecution {
@@ -1360,6 +1603,18 @@ mod tests {
                 backend_note: backend_note.to_string(),
             },
         )
+    }
+
+    fn completed_with_output(
+        backend: DifferentialBackend,
+        completion: ObservedCompletion,
+        events: &[&str],
+    ) -> BackendExecution {
+        let mut execution = completed(backend, completion, backend.as_str());
+        execution.output_events = OutputEventsObservation::Captured {
+            events: events.iter().map(|event| (*event).to_string()).collect(),
+        };
+        execution
     }
 
     fn failed(
@@ -1407,15 +1662,36 @@ mod tests {
     }
 
     #[test]
-    fn both_protocols_replay_with_the_product_host_surface() {
+    fn committed_v3_case_has_a_closed_protocol_and_stable_fingerprint() {
+        let case = case_v3();
+
         assert_eq!(
-            compile_options_for_case(&case_v1()).host_surface_policy,
-            HostSurfacePolicy::Product
+            case.protocol(),
+            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript
         );
         assert_eq!(
-            compile_options_for_case(&case_v2()).host_surface_policy,
-            HostSurfacePolicy::Product
+            case.observation_contract(),
+            ObservationContract::PrimitiveCompletionPrintTranscript
         );
+        assert_eq!(
+            case.id().as_str(),
+            "t25/foundation/primitive-number-and-print"
+        );
+        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:efcaa4952f4021ef");
+        assert_eq!(
+            case.to_pretty_json().expect("v3 case should encode"),
+            FOUNDATION_CASE_V3
+        );
+    }
+
+    #[test]
+    fn every_protocol_replays_with_the_product_host_surface() {
+        for case in [case_v1(), case_v2(), case_v3()] {
+            assert_eq!(
+                compile_options_for_case(&case).host_surface_policy,
+                HostSurfacePolicy::Product
+            );
+        }
     }
 
     #[test]
@@ -1436,6 +1712,24 @@ mod tests {
                 .expect_err("v1 version with v2 contract should fail")
                 .to_string(),
             "unsupported differential protocol pair: schema_version 1 with observation_contract primitive_completion_no_output"
+        );
+
+        let v3_version_with_v2_contract =
+            FOUNDATION_CASE_V2.replacen("\"schema_version\": 2", "\"schema_version\": 3", 1);
+        assert_eq!(
+            DifferentialCase::from_json(&v3_version_with_v2_contract)
+                .expect_err("v3 version with v2 contract should fail")
+                .to_string(),
+            "unsupported differential protocol pair: schema_version 3 with observation_contract primitive_completion_no_output"
+        );
+
+        let v2_version_with_v3_contract =
+            FOUNDATION_CASE_V3.replacen("\"schema_version\": 3", "\"schema_version\": 2", 1);
+        assert_eq!(
+            DifferentialCase::from_json(&v2_version_with_v3_contract)
+                .expect_err("v2 version with v3 contract should fail")
+                .to_string(),
+            "unsupported differential protocol pair: schema_version 2 with observation_contract primitive_completion_print_transcript"
         );
 
         let zero_timeout =
@@ -1854,6 +2148,275 @@ mod tests {
         assert!(!report.is_green());
     }
 
+    #[test]
+    fn v3_matches_primitive_completion_and_exact_ordered_print_transcript() {
+        let report = compare_executions(
+            &case_v3(),
+            completed_with_output(
+                DifferentialBackend::WasmAot,
+                ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(3.0))),
+                &["first", "second"],
+            ),
+            completed_with_output(
+                DifferentialBackend::SpecExec,
+                ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(3.0))),
+                &["first", "second"],
+            ),
+        );
+
+        assert_eq!(
+            report.verdict(),
+            DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+        );
+        assert!(report.is_green());
+        assert_eq!(
+            report.semantic_equivalence(),
+            SemanticEquivalence::NotEstablished
+        );
+        assert_eq!(report.compared_dimensions(), &COMPARED_DIMENSIONS_V3);
+        assert_eq!(report.observation_gaps(), &OBSERVATION_GAPS_V3);
+        assert!(report.mismatch_signature().is_none());
+
+        let json: serde_json::Value =
+            serde_json::from_str(&report.to_pretty_json().expect("v3 report should encode"))
+                .expect("v3 report should be JSON");
+        assert_eq!(json["schema_version"], 3);
+        assert_eq!(
+            json["observation_contract"],
+            "primitive_completion_print_transcript"
+        );
+        assert_eq!(
+            json["verdict"],
+            "primitive_completion_and_print_transcript_match"
+        );
+        assert_eq!(
+            json["compared_dimensions"],
+            serde_json::json!(["completion_kind", "primitive_value", "print_transcript"])
+        );
+        assert_eq!(
+            json["wasm_aot"]["output_events"]["events"],
+            serde_json::json!(["first", "second"])
+        );
+    }
+
+    #[test]
+    fn v3_print_event_order_and_boundaries_are_mismatch_dimensions() {
+        let completion = ObservedCompletion::Normal(ObservedJsValue::Boolean(true));
+        let boundary_mismatch = compare_executions(
+            &case_v3(),
+            completed_with_output(
+                DifferentialBackend::WasmAot,
+                completion.clone(),
+                &["ab", "c"],
+            ),
+            completed_with_output(
+                DifferentialBackend::SpecExec,
+                completion.clone(),
+                &["a", "bc"],
+            ),
+        );
+        let order_mismatch = compare_executions(
+            &case_v3(),
+            completed_with_output(
+                DifferentialBackend::WasmAot,
+                completion.clone(),
+                &["first", "second"],
+            ),
+            completed_with_output(
+                DifferentialBackend::SpecExec,
+                completion,
+                &["second", "first"],
+            ),
+        );
+
+        for report in [&boundary_mismatch, &order_mismatch] {
+            assert_eq!(report.verdict(), DifferentialVerdict::Mismatch);
+            assert!(!report.is_green());
+            assert!(report.mismatch_signature().is_some());
+        }
+        assert_ne!(
+            v3_backend_observation_signature(boundary_mismatch.wasm_aot()),
+            v3_backend_observation_signature(boundary_mismatch.spec_exec()),
+            "length-delimited fields must distinguish equal concatenated text with different event boundaries"
+        );
+        assert_eq!(
+            boundary_mismatch
+                .mismatch_signature()
+                .expect("boundary mismatch should have a signature")
+                .as_str(),
+            "lila-diff-v3:primitive-completion-print-transcript:fnv1a64-4789c076c31a59f8"
+        );
+        assert_ne!(
+            boundary_mismatch.mismatch_signature(),
+            order_mismatch.mismatch_signature()
+        );
+    }
+
+    #[test]
+    fn v3_print_count_empty_line_and_text_are_mismatch_dimensions() {
+        let cases: &[(&[&str], &[&str], &str)] = &[
+            (&[], &[""], "no event versus one empty line"),
+            (&[""], &[], "one empty line versus no event"),
+            (&["first"], &["first", "second"], "missing trailing event"),
+            (&["first", "second"], &["first"], "extra trailing event"),
+            (
+                &["same"],
+                &["size"],
+                "same-boundary same-length text change",
+            ),
+        ];
+        let mut signatures = Vec::with_capacity(cases.len());
+
+        for &(wasm_events, spec_exec_events, reason) in cases {
+            let report = compare_executions(
+                &case_v3(),
+                completed_with_output(
+                    DifferentialBackend::WasmAot,
+                    ObservedCompletion::Normal(ObservedJsValue::Boolean(true)),
+                    wasm_events,
+                ),
+                completed_with_output(
+                    DifferentialBackend::SpecExec,
+                    ObservedCompletion::Normal(ObservedJsValue::Boolean(true)),
+                    spec_exec_events,
+                ),
+            );
+
+            assert_eq!(
+                report.verdict(),
+                DifferentialVerdict::Mismatch,
+                "{reason} must be red"
+            );
+            assert!(!report.is_green(), "{reason} must not be green");
+            assert_ne!(
+                v3_backend_observation_signature(report.wasm_aot()),
+                v3_backend_observation_signature(report.spec_exec()),
+                "{reason} must change the length-delimited backend observation"
+            );
+            signatures.push(
+                report
+                    .mismatch_signature()
+                    .unwrap_or_else(|| panic!("{reason} must have a mismatch signature"))
+                    .as_str()
+                    .to_string(),
+            );
+        }
+
+        for (index, signature) in signatures.iter().enumerate() {
+            assert!(
+                !signatures[..index].contains(signature),
+                "each labelled count/empty/text mismatch must have a distinct signature"
+            );
+        }
+    }
+
+    #[test]
+    fn v3_completion_mismatch_is_red_even_when_print_transcripts_match() {
+        let report = compare_executions(
+            &case_v3(),
+            completed_with_output(
+                DifferentialBackend::WasmAot,
+                ObservedCompletion::Normal(ObservedJsValue::Boolean(false)),
+                &["same"],
+            ),
+            completed_with_output(
+                DifferentialBackend::SpecExec,
+                ObservedCompletion::Throw(ObservedJsValue::Boolean(false)),
+                &["same"],
+            ),
+        );
+
+        assert_eq!(report.verdict(), DifferentialVerdict::Mismatch);
+        assert!(!report.is_green());
+        assert!(report.mismatch_signature().is_some());
+    }
+
+    #[test]
+    fn v3_unavailable_output_and_unsupported_values_violate_the_contract() {
+        let mut unavailable = completed_with_output(
+            DifferentialBackend::WasmAot,
+            ObservedCompletion::Normal(ObservedJsValue::Undefined),
+            &[],
+        );
+        unavailable.output_events = OutputEventsObservation::Unavailable {
+            reason: OutputUnavailableReason::SpecExecBypassesEngineHostHooks,
+        };
+        let unavailable_report = compare_executions(
+            &case_v3(),
+            unavailable,
+            completed_with_output(
+                DifferentialBackend::SpecExec,
+                ObservedCompletion::Normal(ObservedJsValue::Undefined),
+                &[],
+            ),
+        );
+        assert_eq!(
+            unavailable_report.verdict(),
+            DifferentialVerdict::ObservationContractViolated
+        );
+        assert!(!unavailable_report.is_green());
+        assert!(unavailable_report.mismatch_signature().is_none());
+
+        for value in [ObservedJsValue::Symbol, ObservedJsValue::Object] {
+            let unsupported_report = compare_executions(
+                &case_v3(),
+                completed_with_output(
+                    DifferentialBackend::WasmAot,
+                    ObservedCompletion::Normal(value.clone()),
+                    &["captured"],
+                ),
+                completed_with_output(
+                    DifferentialBackend::SpecExec,
+                    ObservedCompletion::Normal(value),
+                    &["captured"],
+                ),
+            );
+            assert_eq!(
+                unsupported_report.verdict(),
+                DifferentialVerdict::ObservationContractViolated
+            );
+            assert!(!unsupported_report.is_green());
+            assert!(unsupported_report.mismatch_signature().is_none());
+        }
+    }
+
+    #[test]
+    fn v3_backend_failures_are_always_red() {
+        let shared_failure = compare_executions(
+            &case_v3(),
+            failed(
+                DifferentialBackend::WasmAot,
+                FailurePhase::WasmRuntimeOrBackend,
+                "wasm failed",
+            ),
+            failed(
+                DifferentialBackend::SpecExec,
+                FailurePhase::SpecExecExecution,
+                "spec failed",
+            ),
+        );
+        assert_eq!(shared_failure.verdict(), DifferentialVerdict::BothFailed);
+        assert!(!shared_failure.is_green());
+        assert!(shared_failure.mismatch_signature().is_none());
+
+        let one_failure = compare_executions(
+            &case_v3(),
+            completed_with_output(
+                DifferentialBackend::WasmAot,
+                ObservedCompletion::Normal(ObservedJsValue::Undefined),
+                &[],
+            ),
+            failed(
+                DifferentialBackend::SpecExec,
+                FailurePhase::SpecExecExecution,
+                "spec failed",
+            ),
+        );
+        assert_eq!(one_failure.verdict(), DifferentialVerdict::Mismatch);
+        assert!(!one_failure.is_green());
+        assert!(one_failure.mismatch_signature().is_some());
+    }
+
     #[cfg(not(feature = "spec-exec-oracle"))]
     #[test]
     fn replay_requires_the_compile_time_oracle_gate() {
@@ -1893,6 +2456,36 @@ mod tests {
                     ..
                 } if bits == "4008000000000000"
             ));
+        }
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn committed_v3_primitive_and_print_case_replays_through_both_backends() {
+        let report = replay_case(&case_v3(), SpecExecOracle::explicitly_enabled())
+            .expect("both explicitly enabled backends should run");
+
+        assert_eq!(
+            report.verdict(),
+            DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+        );
+        assert!(report.is_green());
+        for observation in [report.wasm_aot(), report.spec_exec()] {
+            assert!(matches!(
+                &observation.execution,
+                ExecutionObservation::PrimitiveCompletion {
+                    completion: PrimitiveCompletionObservation::Normal {
+                        value: PrimitiveValueObservation::Number { bits }
+                    },
+                    ..
+                } if bits == "4008000000000000"
+            ));
+            assert_eq!(
+                &observation.output_events,
+                &OutputEventsObservation::Captured {
+                    events: vec!["first".to_string(), "second".to_string()]
+                }
+            );
         }
     }
 }

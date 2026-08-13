@@ -157,8 +157,9 @@ Commands:
   cache prune [--legacy-wasmtime]       delete Lila caches; optionally delete
                                         the reported legacy Wasmtime cache
   differential replay <case.json> --oracle spec-exec
-                                        replay one versioned v1 self-checking
-                                        or v2 primitive-completion corpus case
+                                        replay one versioned v1 self-checking,
+                                        v2 primitive-completion, or v3
+                                        primitive-plus-print-transcript case
                                         through Wasm-AOT and the
                                         explicitly enabled spec-exec oracle;
                                         emit one JSON observation report
@@ -415,9 +416,9 @@ fn finish_differential_report(
     println!("{report_json}");
 
     match report.verdict() {
-        DifferentialVerdict::BothCompleted | DifferentialVerdict::PrimitiveCompletionsMatch => {
-            Ok(())
-        }
+        DifferentialVerdict::BothCompleted
+        | DifferentialVerdict::PrimitiveCompletionsMatch
+        | DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch => Ok(()),
         DifferentialVerdict::BothFailed => Err(format!(
             "differential case {} failed in both backends; see the JSON observations above",
             case.id().as_str()

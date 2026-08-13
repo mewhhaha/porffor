@@ -724,6 +724,12 @@ pub fn run_generated_arithmetic_campaign(
                 "schema-v1 arithmetic replay returned a schema-v2 primitive verdict".to_string(),
             ))
         }
+        DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch => {
+            Err(DifferentialError::GeneratorInvariant(
+                "schema-v1 arithmetic replay returned a schema-v3 primitive-and-print verdict"
+                    .to_string(),
+            ))
+        }
         DifferentialVerdict::Mismatch => {
             let witness = ReductionWitness::from_report(&report).ok_or_else(|| {
                 DifferentialError::GeneratorInvariant(

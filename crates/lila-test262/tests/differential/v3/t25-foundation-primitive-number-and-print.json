@@ -1,0 +1,9 @@
+{
+  "schema_version": 3,
+  "id": "t25/foundation/primitive-number-and-print",
+  "goal": "script",
+  "observation_contract": "primitive_completion_print_transcript",
+  "filename": "differential/v3/t25-foundation-primitive-number-and-print.js",
+  "timeout_ms": 5000,
+  "source": "print(\"first\");\nprint(\"second\");\n1 + 2;\n"
+}
