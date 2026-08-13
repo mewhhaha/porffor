@@ -4303,9 +4303,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_string_to_string_value_of_non_generic_realm_case(&case.path) {
         return Some(source);
     }
-    if let Some(source) = rewrite_string_well_formed_primitive_coercion_case(&case.path) {
-        return Some(source);
-    }
     if let Some(source) = rewrite_annexb_string_prototype_method_metadata_case(&case.path) {
         return Some(source);
     }
@@ -13285,60 +13282,6 @@ expectTypeError(function() { otherValueOf.call([3]); }, "array");
 expectTypeError(function() {
   "" + { valueOf: otherValueOf };
 }, "coercion");
-"#
-            .to_string(),
-        );
-    }
-
-    None
-}
-
-fn rewrite_string_well_formed_primitive_coercion_case(path: &str) -> Option<String> {
-    if path.ends_with("built-ins/String/prototype/isWellFormed/to-string-primitive.js") {
-        return Some(
-            r#"Boolean.prototype.toString = function() { throw "Boolean prototype toString used"; };
-if (String.prototype.isWellFormed.call(true) !== true) throw "boolean isWellFormed";
-delete Boolean.prototype.toString;
-
-Number.prototype.toString = function() { throw "Number prototype toString used"; };
-if (String.prototype.isWellFormed.call(1) !== true) throw "number isWellFormed";
-delete Number.prototype.toString;
-
-BigInt.prototype.toString = function() { throw "BigInt prototype toString used"; };
-if (String.prototype.isWellFormed.call(1n) !== true) throw "bigint isWellFormed";
-delete BigInt.prototype.toString;
-
-try {
-  String.prototype.isWellFormed.call(Symbol());
-  throw "symbol isWellFormed did not throw";
-} catch (error) {
-  if (!(error instanceof TypeError)) throw "symbol isWellFormed wrong error";
-}
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/toWellFormed/to-string-primitive.js") {
-        return Some(
-            r#"Boolean.prototype.toString = function() { throw "Boolean prototype toString used"; };
-if (String.prototype.toWellFormed.call(true) !== "true") throw "boolean toWellFormed";
-delete Boolean.prototype.toString;
-
-Number.prototype.toString = function() { throw "Number prototype toString used"; };
-if (String.prototype.toWellFormed.call(1) !== "1") throw "number toWellFormed";
-delete Number.prototype.toString;
-
-BigInt.prototype.toString = function() { throw "BigInt prototype toString used"; };
-if (String.prototype.toWellFormed.call(1n) !== "1") throw "bigint toWellFormed";
-delete BigInt.prototype.toString;
-
-try {
-  String.prototype.toWellFormed.call(Symbol());
-  throw "symbol toWellFormed did not throw";
-} catch (error) {
-  if (!(error instanceof TypeError)) throw "symbol toWellFormed wrong error";
-}
 "#
             .to_string(),
         );
@@ -29115,33 +29058,53 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_string_well_formed_primitive_coercion_removes_destructuring() {
-        let store = PreludeStore::default();
+    fn materialize_retired_string_well_formed_coercion_rewrites_preserve_pinned_sources() {
+        let preamble = "function Test262Error(message) { this.message = message || ''; }\n";
+        let assert_harness = "function assert(value) {}\nassert.sameValue = function(actual, expected) {};\nassert.throws = function(expected, callback) {};\n";
+        let mut store = PreludeStore::default();
+        store.insert(
+            "sta-preamble.js".to_string(),
+            preamble.to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "sta.js".to_string(),
+            "throw 'full sta must not be used';\n".to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        store.insert(
+            "assert.js".to_string(),
+            assert_harness.to_string(),
+            PreludeOrigin::LocalMerged,
+        );
+        let test_root = repo_root().join("test262/vendor/test262/test");
 
-        for (method, expected_fragment) in [
-            ("isWellFormed", "boolean isWellFormed"),
-            ("toWellFormed", "boolean toWellFormed"),
+        for path in [
+            "built-ins/String/prototype/isWellFormed/to-string-primitive.js",
+            "built-ins/String/prototype/toWellFormed/to-string-primitive.js",
         ] {
-            let mut case = synthetic_case(&format!(
-                "built-ins/String/prototype/{method}/to-string-primitive.js"
-            ));
-            case.features.insert(format!("String.prototype.{method}"));
-            case.original_source =
-                "for (const [v, proto] of tests) { throw 'original used'; }".to_string();
+            let source_path = test_root.join(path);
+            let original_source = fs::read_to_string(&source_path)
+                .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
+            let case = parse_test_case(path.to_string(), source_path, original_source.clone());
 
-            let materialized =
-                materialize_test(&case, &store).expect("materialization should work");
+            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
+            let materialized = materialize_test(&case, &store)
+                .expect("pinned String well-formedness case should materialize");
 
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("original used"));
-            assert!(!materialized.source.contains("const ["));
-            assert!(materialized
-                .source
-                .contains(&format!("String.prototype.{method}.call")));
-            assert!(materialized.source.contains(expected_fragment));
-            assert!(materialized
-                .source
-                .contains(&format!("String.prototype.{method}.call(Symbol())")));
+            assert_eq!(
+                materialized.used_preludes,
+                vec![
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                ],
+                "{path}",
+            );
+            assert_eq!(
+                materialized.source,
+                format!("{preamble}{assert_harness}{original_source}"),
+                "{path}",
+            );
         }
     }
 

@@ -18,8 +18,8 @@ observations inside a declaration retain a local occurrence ordinal. It rejects 
 duplicated or drifted entries, invalid classifications and non-concrete task
 IDs, then byte-compares the generated inventory.
 
-The current ledger contains 446 observations: 32 legitimate harness
-adaptations, 55 diagnostic instrumentation sites and 359 semantic shortcuts.
+The current ledger contains 443 observations: 32 legitimate harness
+adaptations, 55 diagnostic instrumentation sites and 356 semantic shortcuts.
 Every entry has a concrete owner, removal task and closed reason code; none use
 `T26-unclassified`. This is an honest cleanup map, not completion. The semantic
 materialization layer is still large, so harness results cannot yet satisfy

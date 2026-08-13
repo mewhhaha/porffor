@@ -21,7 +21,7 @@ The metadata cases for `String.prototype.at`, `charAt`, `charCodeAt`,
 `trimStart`, `trimEnd`, `toString`, `valueOf`, `isWellFormed` and
 `toWellFormed` now run their pinned sources through the shared Wasm-AOT
 `propertyHelper.js` and general builtin metadata path; their path-specific
-rewrites have been removed. The exact shortcut inventory now assigns 24
+rewrites have been removed. The exact shortcut inventory now assigns 21
 remaining observations to T18. Those are legacy, helper-reduction, coercion,
 cross-realm and other semantic rewrites rather than the metadata leaves above.
 The two non-`eval` Sputnik `charAt` receiver cases, the direct `charAt`
@@ -46,6 +46,13 @@ explicit until T13 permits the pinned source or classifies it unsupported. The
 source and harness-preservation contract for these fifteen newly restored
 leaves is dry-written; its focused Rust, CLI and exact Test262 execution gates
 remain queued behind the active current-pin matrix.
+
+The `isWellFormed` and `toWellFormed` primitive-coercion leaves now also run
+their exact pinned sources. Normal materialization supplies the shared
+`sta-preamble.js` definition required by `Test262Error` and the general
+`assert.js` contract; the former destructuring-free path rewrites are gone.
+Their exact source/harness contract is dry-written, while the focused Rust, CLI
+and two one-file Test262 execution gates remain queued behind that matrix.
 
 The direct `String.fromCharCode` lowering now consumes the shared exact
 `ToUint32` residue emitter before selecting the low 16 bits. It no longer

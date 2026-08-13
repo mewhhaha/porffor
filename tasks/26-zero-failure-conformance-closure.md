@@ -10,8 +10,8 @@
 
 The fake suites are green, but the README explicitly states that the current
 pinned real Wasm-AOT aggregate is not green and has not been fully republished.
-The shortcut audit is green as an exact-drift contract over 446 classified
-observations, but 359 of those observations are still semantic shortcuts; audit
+The shortcut audit is green as an exact-drift contract over 443 classified
+observations, but 356 of those observations are still semantic shortcuts; audit
 green therefore does not satisfy the final integrity criterion. The generated
 current-pin backlog is absent, and several architecture/feature lanes retain
 explicit unsupported cases. Formal closure entry criteria are therefore not

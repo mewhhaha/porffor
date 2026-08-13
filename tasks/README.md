@@ -35,9 +35,9 @@ that run is oracle triage; the Wasm-AOT run is the requirement.
 
 The current working tree passes the task-plan, module-boundary, host-ABI,
 interpreter-dependency and Test262 shortcut audits. The shortcut audit now pins
-an exact 446-entry generated inventory. Every entry has a closed classification,
+an exact 443-entry generated inventory. Every entry has a closed classification,
 reason and concrete owner/removal task; none uses the old aggregate
-`T26-unclassified` owner. The inventory still contains 359 semantic shortcuts,
+`T26-unclassified` owner. The inventory still contains 356 semantic shortcuts,
 so audit green means “no unrecorded drift,” not “no shortcuts.” Do not close a
 semantic task from focused green leaves while that task's full-tree and
 materialization-removal criteria remain unmet.
