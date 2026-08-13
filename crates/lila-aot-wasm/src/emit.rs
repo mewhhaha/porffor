@@ -342,6 +342,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) functions: &'a FunctionMetaRegistry,
     pub(crate) function_id: Option<FunctionId>,
     pub(crate) function_flavor: FunctionFlavor,
+    pub(crate) function_arguments_protocol: FunctionArgumentsProtocol,
     pub(crate) lexical_derived_activation: Option<&'a DerivedConstructorActivationIr>,
     pub(crate) is_derived_constructor: bool,
     pub(crate) strict: bool,
@@ -1206,7 +1207,7 @@ fn emit_script_with_forced_builtins(
             function_object_alloc_function_index,
             plain_object_alloc_function_index,
             array_alloc_function_index,
-        );
+        )?;
         compiled_functions.push(EmittedFunction::new(
             FunctionIdentity::Script {
                 id: function.id.clone(),
@@ -2675,6 +2676,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             None,
             FunctionFlavor::Ordinary,
+            FunctionArgumentsProtocol::script_main(),
             None,
             script.strict,
             None,
@@ -2706,8 +2708,9 @@ impl<'a> FunctionBuilder<'a> {
         function_object_alloc_function_index: Option<u32>,
         plain_object_alloc_function_index: Option<u32>,
         array_alloc_function_index: Option<u32>,
-    ) -> Self {
-        Self::new(
+    ) -> Result<Self, EmitError> {
+        let arguments_protocol = FunctionArgumentsProtocol::for_user_function(function)?;
+        Ok(Self::new(
             &function.body,
             function.params.as_slice(),
             function.owned_env_bindings.as_slice(),
@@ -2716,6 +2719,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             Some(function.id.clone()),
             function.protocol.flavor(),
+            arguments_protocol,
             function.lexical_derived_activation.as_ref(),
             function.strict,
             function.is_named_expression.then(|| function.name.clone()),
@@ -2731,7 +2735,7 @@ impl<'a> FunctionBuilder<'a> {
             function_object_alloc_function_index,
             plain_object_alloc_function_index,
             array_alloc_function_index,
-        )
+        ))
     }
 
     fn new_host_builtin(
@@ -2756,6 +2760,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             Some(function_id),
             FunctionFlavor::Ordinary,
+            FunctionArgumentsProtocol::strict_internal_callable(),
             None,
             true,
             None,
@@ -2796,6 +2801,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             None,
             FunctionFlavor::Ordinary,
+            FunctionArgumentsProtocol::strict_internal_callable(),
             None,
             true,
             None,
@@ -2837,6 +2843,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             Some(builtin.function_id()),
             FunctionFlavor::Ordinary,
+            FunctionArgumentsProtocol::strict_internal_callable(),
             None,
             true,
             None,
@@ -2866,6 +2873,7 @@ impl<'a> FunctionBuilder<'a> {
         functions: &'a FunctionMetaRegistry,
         function_id: Option<FunctionId>,
         function_flavor: FunctionFlavor,
+        function_arguments_protocol: FunctionArgumentsProtocol,
         lexical_derived_activation: Option<&'a DerivedConstructorActivationIr>,
         strict: bool,
         self_binding_name: Option<String>,
@@ -2894,8 +2902,7 @@ impl<'a> FunctionBuilder<'a> {
         };
         let self_binding_local_count = usize::from(self_binding_name.is_some());
         let param_local_count = count_param_locals(return_abi) as u32;
-        let needs_arguments_binding_locals = matches!(return_abi, ReturnAbi::MultiValue)
-            && function_flavor == FunctionFlavor::Ordinary;
+        let needs_arguments_binding_locals = function_arguments_protocol.present().is_some();
         let captured_arguments_local_count = if captured_bindings
             .iter()
             .any(|binding| binding.name == LEXICAL_ARGUMENTS_NAME)
@@ -2924,6 +2931,7 @@ impl<'a> FunctionBuilder<'a> {
             functions,
             function_id,
             function_flavor,
+            function_arguments_protocol,
             lexical_derived_activation,
             is_derived_constructor,
             strict,
@@ -3397,7 +3405,7 @@ impl<'a> FunctionBuilder<'a> {
             let reuses_function_binding = !self.is_main()
                 && (self.params.iter().any(|param| param.name == name)
                     || (name == LEXICAL_ARGUMENTS_NAME
-                        && self.function_flavor == FunctionFlavor::Ordinary));
+                        && self.function_arguments_protocol.present().is_some()));
             if reuses_function_binding {
                 continue;
             }

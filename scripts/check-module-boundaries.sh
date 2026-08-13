@@ -221,7 +221,7 @@ fi
 # than regrow.
 check_raw_line_budget "$ir_builtins" 1760
 
-for module in abi control_flow data emit environments expressions functions gc_types heap module modules objects operations planning; do
+for module in abi arguments_protocol control_flow data emit environments expressions functions gc_types heap module modules objects operations planning; do
   require_file "crates/lila-aot-wasm/src/${module}.rs"
   require_module_decl "$wasm_lib" "$module"
 done

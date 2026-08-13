@@ -7256,6 +7256,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_arguments_object_payload(
         &mut self,
+        protocol: &PresentArgumentsObjectProtocol,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let arguments_local = self.reserve_temp_local();
@@ -7342,20 +7343,19 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Object.tag() as u64,
             function,
         );
-        if self.uses_mapped_arguments_object() {
-            self.store_i64_local_at_offset(
+        match protocol {
+            PresentArgumentsObjectProtocol::Mapped(_) => self.store_i64_local_at_offset(
                 arguments_local,
                 HEAP_ARGUMENTS_ENV_HANDLE_OFFSET,
                 self.current_env_local,
                 function,
-            );
-        } else {
-            self.store_i64_const_at_offset(
+            ),
+            PresentArgumentsObjectProtocol::Unmapped(_) => self.store_i64_const_at_offset(
                 arguments_local,
                 HEAP_ARGUMENTS_ENV_HANDLE_OFFSET,
                 0,
                 function,
-            );
+            ),
         }
         self.store_i64_const_at_offset(
             arguments_local,
@@ -7403,76 +7403,79 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(iterator_tag_local));
-        if self.uses_mapped_arguments_object() {
-            self.store_i64_const_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET,
-                ARRAY_DESCRIPTOR_OWN_PROPERTY
-                    | OBJECT_DESCRIPTOR_DATA
-                    | OBJECT_DESCRIPTOR_WRITABLE
-                    | OBJECT_DESCRIPTOR_CONFIGURABLE,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET,
-                iterator_payload_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET,
-                iterator_tag_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET,
-                0,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET,
-                ValueKind::Undefined.tag() as u64,
-                function,
-            );
-        } else {
-            self.emit_load_function_defining_realm_throw_type_error(
-                iterator_payload_local,
-                self.scratch_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET,
-                ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET,
-                ValueKind::Function.tag() as u64,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                arguments_local,
-                HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET,
-                ValueKind::Function.tag() as u64,
-                function,
-            );
+        match protocol {
+            PresentArgumentsObjectProtocol::Mapped(_) => {
+                self.store_i64_const_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET,
+                    ARRAY_DESCRIPTOR_OWN_PROPERTY
+                        | OBJECT_DESCRIPTOR_DATA
+                        | OBJECT_DESCRIPTOR_WRITABLE
+                        | OBJECT_DESCRIPTOR_CONFIGURABLE,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET,
+                    iterator_payload_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET,
+                    iterator_tag_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET,
+                    0,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                    function,
+                );
+            }
+            PresentArgumentsObjectProtocol::Unmapped(_) => {
+                self.emit_load_function_defining_realm_throw_type_error(
+                    iterator_payload_local,
+                    self.scratch_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_DESCRIPTOR_KIND_OFFSET,
+                    ARRAY_DESCRIPTOR_OWN_PROPERTY | OBJECT_DESCRIPTOR_ACCESSOR,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET,
+                    self.scratch_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_VALUE_TAG_OFFSET,
+                    ValueKind::Function.tag() as u64,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET,
+                    self.scratch_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    arguments_local,
+                    HEAP_ARGUMENTS_CALLEE_SETTER_TAG_OFFSET,
+                    ValueKind::Function.tag() as u64,
+                    function,
+                );
+            }
         }
 
         self.load_i64_to_local_from_offset(
@@ -7510,55 +7513,36 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_local_at_offset(dst_entry_local, offset, self.scratch_local, function);
         }
         function.instruction(&Instruction::I64Const(ARRAY_DESCRIPTOR_NORMAL_DATA as i64));
-        if self.uses_mapped_arguments_object() {
-            for (param_index, param) in self.params.iter().enumerate() {
-                if param.is_rest
-                    || self.params[param_index + 1..]
-                        .iter()
-                        .any(|later| later.name == param.name)
-                {
-                    continue;
+        match protocol {
+            PresentArgumentsObjectProtocol::Mapped(plan) => {
+                for entry in plan.entries().iter().copied() {
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::I64Const(entry.argument_index_i64()));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    // 10.4.4.2/10.4.4.3: the mapping is not a descriptor *kind*, it
+                    // is an orthogonal exotic flag with a payload. `DescriptorFlags`
+                    // makes bit 5 and the bits-32..63 slot index inseparable, which
+                    // the hand-built `ARGUMENTS_DESCRIPTOR_MAPPED as i64 | ((slot as
+                    // i64) << 32)` did not: either half could be written without the
+                    // other. The `const _` in `heap.rs` proves this reproduces that
+                    // word for slot 7; this is what makes the proof load-bearing on
+                    // the product path rather than an assertion about unused types.
+                    function.instruction(&Instruction::I64Const(
+                        DescriptorWord::of_data(false, false, false)
+                            .with_flags(DescriptorFlags {
+                                array_own_property: false,
+                                mapped: Some(entry.mapped_slot()),
+                            })
+                            .as_i64(),
+                    ));
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::I64Or);
                 }
-                let has_duplicate_parameter =
-                    self.params.iter().enumerate().any(|(index, candidate)| {
-                        self.params[index + 1..]
-                            .iter()
-                            .any(|later| later.name == candidate.name)
-                    });
-                let mapped_slot = if has_duplicate_parameter {
-                    self.owned_env_slot(&param.name).ok_or_else(|| {
-                        EmitError::unsupported(
-                            "mapped arguments parameter must use an owned environment slot",
-                        )
-                    })?
-                } else {
-                    param_index as u32
-                };
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::I64Const(param_index as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                // 10.4.4.2/10.4.4.3: the mapping is not a descriptor *kind*, it
-                // is an orthogonal exotic flag with a payload. `DescriptorFlags`
-                // makes bit 5 and the bits-32..63 slot index inseparable, which
-                // the hand-built `ARGUMENTS_DESCRIPTOR_MAPPED as i64 | ((slot as
-                // i64) << 32)` did not: either half could be written without the
-                // other. The `const _` in `heap.rs` proves this reproduces that
-                // word for slot 7; this is what makes the proof load-bearing on
-                // the product path rather than an assertion about unused types.
-                function.instruction(&Instruction::I64Const(
-                    DescriptorWord::of_data(false, false, false)
-                        .with_flags(DescriptorFlags {
-                            array_own_property: false,
-                            mapped: Some(MappedSlot::new(mapped_slot)),
-                        })
-                        .as_i64(),
-                ));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Or);
             }
+            PresentArgumentsObjectProtocol::Unmapped(_) => {}
         }
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.store_i64_local_at_offset(
@@ -7575,50 +7559,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-
-        for (param_index, param) in self.params.iter().enumerate() {
-            if param.is_rest
-                || self.params[param_index + 1..]
-                    .iter()
-                    .any(|later| later.name == param.name)
-            {
-                continue;
-            }
-            let Some(storage) = self.lookup_binding(&param.name) else {
-                continue;
-            };
-            function.instruction(&Instruction::I64Const(param_index as i64));
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::LocalGet(len_local));
-            function.instruction(&Instruction::I64LtU);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(buffer_local));
-            function.instruction(&Instruction::LocalGet(index_local));
-            function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(dst_entry_local));
-            self.read_binding_to_locals(
-                storage,
-                iterator_payload_local,
-                iterator_tag_local,
-                function,
-            )?;
-            self.store_i64_local_at_offset(
-                dst_entry_local,
-                HEAP_ARRAY_TAG_OFFSET,
-                iterator_tag_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                dst_entry_local,
-                HEAP_ARRAY_PAYLOAD_OFFSET,
-                iterator_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
 
         function.instruction(&Instruction::LocalGet(arguments_local));
         self.release_temp_local(iterator_tag_local);

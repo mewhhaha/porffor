@@ -399,15 +399,14 @@ impl<'a> FunctionBuilder<'a> {
                 Some((*parameter_index, statements.clone()))
             })
             .collect::<Vec<_>>();
-        if matches!(self.return_abi(), ReturnAbi::MultiValue)
-            && self.function_flavor == FunctionFlavor::Ordinary
-        {
+        let arguments_protocol = self.function_arguments_protocol.present().cloned();
+        if let Some(arguments_protocol) = arguments_protocol {
             let arguments_storage = self.allocate_dynamic_binding_storage(LEXICAL_ARGUMENTS_NAME);
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
                 .insert(LEXICAL_ARGUMENTS_NAME.to_string(), arguments_storage);
-            self.initialize_arguments_binding(arguments_storage, function)?;
+            self.initialize_arguments_binding(arguments_storage, &arguments_protocol, function)?;
         }
 
         for param in self.params {
@@ -459,11 +458,12 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn initialize_arguments_binding(
         &mut self,
         storage: BindingStorage,
+        protocol: &PresentArgumentsObjectProtocol,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        self.emit_arguments_object_payload(function)?;
+        self.emit_arguments_object_payload(protocol, function)?;
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
@@ -745,38 +745,11 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(crate) fn has_simple_parameter_list(&self) -> bool {
-        self.params
-            .iter()
-            .all(|param| !param.is_rest && param.default_init.is_none())
-    }
-
     pub(crate) fn is_current_function_strict(&self) -> bool {
         self.function_id
             .as_ref()
             .and_then(|function_id| self.functions.get(function_id))
             .map_or(self.strict, |meta| meta.strict)
-    }
-
-    /// Per CreateMappedArgumentsObject (ES2023 10.4.4), a non-strict ordinary
-    /// function with a simple parameter list gets an arguments object whose
-    /// indexed slots alias the corresponding parameter bindings. Duplicate
-    /// names map only their last occurrence; each mapped arguments entry stores
-    /// the actual parameter environment slot used by reads and writes.
-    pub(crate) fn uses_mapped_arguments_object(&self) -> bool {
-        self.function_flavor == FunctionFlavor::Ordinary
-            && !self.is_current_function_strict()
-            && self.has_simple_parameter_list()
-            && self
-                .params
-                .iter()
-                .enumerate()
-                .filter(|(index, param)| {
-                    !self.params[index + 1..]
-                        .iter()
-                        .any(|later| later.name == param.name)
-                })
-                .all(|(_, param)| self.owned_env_slot(&param.name).is_some())
     }
 
     pub(crate) fn read_argument_at_index(

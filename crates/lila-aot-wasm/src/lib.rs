@@ -46,6 +46,7 @@ use lila_ir::{
 use wasm_encoder::{BlockType, Ieee64, Instruction, MemArg, ValType};
 
 mod abi;
+mod arguments_protocol;
 mod bigint;
 mod builtins;
 mod code_sink;
@@ -71,6 +72,7 @@ mod planning;
 mod runtime_abi;
 mod runtime_helpers;
 use abi::*;
+use arguments_protocol::*;
 use bigint::BigIntHelperOp;
 use builtins::*;
 use code_sink::{Function, LabelDepth};

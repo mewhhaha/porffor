@@ -37,6 +37,16 @@ corrupt rows rather than treating an unknown kind as a brand. The stable wire
 words and backend/spec boundary are recorded in
 `docs/rust-rewrite/contracts/private-element-entry-protocol.md`.
 
+Arguments-object construction now has the closed backend protocol
+`Absent | Present(Unmapped | Mapped(plan))`. Arrow functions have no own
+binding; strict or non-simple ordinary functions are unmapped; sloppy simple
+ordinary functions carry a prevalidated argument-index-to-environment-slot
+plan. Missing mapped storage is rejected as malformed lowered IR instead of
+silently changing the function to unmapped, duplicate names retain only their
+last occurrence, and an empty simple list remains `Mapped(empty)`. The semantic
+and storage boundaries are recorded in
+`docs/rust-rewrite/contracts/arguments-object-construction-protocol.md`.
+
 Cross-realm Function construction remains an explicit dynamic-source
 exclusion, and complete Function/class/private-element subtrees have not been
 verified against the current pin without materializations. This remains an
