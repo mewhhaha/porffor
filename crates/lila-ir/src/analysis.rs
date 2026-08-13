@@ -36,6 +36,30 @@ pub(crate) struct AnnexBFunctionPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct EnvironmentId(usize);
 
+/// Compiler-only storage for an Object Environment Record's binding object.
+///
+/// The `.` makes the spelling unreachable from ECMAScript source. Construction
+/// is tied to an allocated [`EnvironmentId`], so analysis is the sole producer
+/// and lowering cannot silently invent a different binding for the same
+/// environment.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct WithObjectBindingName(String);
+
+impl WithObjectBindingName {
+    fn for_environment(environment_id: EnvironmentId) -> Self {
+        Self(format!("$with.object.{}", environment_id.0))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WithObjectEnvironmentPlan {
+    pub(crate) binding_name: WithObjectBindingName,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct PrivateEnvironmentId(pub(crate) u32);
 
@@ -50,6 +74,7 @@ pub(crate) struct PrivateEnvironmentPlan {
 pub(crate) enum EnvironmentKind {
     Activation,
     Block,
+    WithObject,
     ClassName,
     SwitchCaseBlock,
     CatchParameter,
@@ -71,6 +96,7 @@ impl EnvironmentKind {
             self,
             Self::Block
                 | Self::ClassName
+                | Self::WithObject
                 | Self::SwitchCaseBlock
                 | Self::CatchParameter
                 | Self::ForLexicalHead
@@ -134,6 +160,8 @@ pub(crate) struct Analysis<'a> {
     pub(crate) environment_plans: BTreeMap<EnvironmentId, EnvironmentPlan>,
     pub(crate) physical_binding_environments: BTreeMap<String, BTreeSet<EnvironmentId>>,
     pub(crate) block_environment_ids: BTreeMap<usize, EnvironmentId>,
+    pub(crate) with_environment_ids: BTreeMap<usize, EnvironmentId>,
+    pub(crate) with_object_environment_plans: BTreeMap<EnvironmentId, WithObjectEnvironmentPlan>,
     pub(crate) switch_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) catch_parameter_environment_ids: BTreeMap<usize, EnvironmentId>,
     pub(crate) for_lexical_environment_ids: BTreeMap<usize, EnvironmentId>,
@@ -204,6 +232,8 @@ pub(crate) struct AnalysisBuilder<'a> {
     environment_plans: BTreeMap<EnvironmentId, EnvironmentPlan>,
     physical_binding_environments: BTreeMap<String, BTreeSet<EnvironmentId>>,
     block_environment_ids: BTreeMap<usize, EnvironmentId>,
+    with_environment_ids: BTreeMap<usize, EnvironmentId>,
+    with_object_environment_plans: BTreeMap<EnvironmentId, WithObjectEnvironmentPlan>,
     switch_environment_ids: BTreeMap<usize, EnvironmentId>,
     catch_parameter_environment_ids: BTreeMap<usize, EnvironmentId>,
     for_lexical_environment_ids: BTreeMap<usize, EnvironmentId>,
@@ -345,6 +375,8 @@ impl<'a> AnalysisBuilder<'a> {
             environment_plans: self.environment_plans,
             physical_binding_environments: self.physical_binding_environments,
             block_environment_ids: self.block_environment_ids,
+            with_environment_ids: self.with_environment_ids,
+            with_object_environment_plans: self.with_object_environment_plans,
             switch_environment_ids: self.switch_environment_ids,
             catch_parameter_environment_ids: self.catch_parameter_environment_ids,
             for_lexical_environment_ids: self.for_lexical_environment_ids,
@@ -525,6 +557,32 @@ impl<'a> AnalysisBuilder<'a> {
         self.class_name_environment_ids
             .insert(constructor_execution_key, cursor.environment_id);
         cursor
+    }
+
+    fn register_with_object_environment(
+        &mut self,
+        owner_id: &str,
+        parent_cursor: EnvironmentCursor,
+    ) -> EnvironmentCursor {
+        let id = self.alloc_environment_id();
+        let binding_name = WithObjectBindingName::for_environment(id);
+        self.register_environment_plan(
+            id,
+            owner_id,
+            EnvironmentKind::WithObject,
+            Some(parent_cursor),
+            BTreeSet::from([binding_name.as_str().to_string()]),
+        );
+        self.with_object_environment_plans.insert(
+            id,
+            WithObjectEnvironmentPlan {
+                binding_name: binding_name.clone(),
+            },
+        );
+        EnvironmentCursor {
+            owner_id: owner_id.to_string(),
+            environment_id: id,
+        }
     }
 
     fn set_environment_parent_cursor(
@@ -4408,6 +4466,10 @@ impl<'a> AnalysisBuilder<'a> {
                 }
             }
             Statement::With(with) => {
+                // 14.11.2 evaluates the expression before NewObjectEnvironment
+                // creates the Object Environment Record. A function created by
+                // the expression therefore sees the outer cursor, while a
+                // function created by the body records the WithObject cursor.
                 self.scan_expression(
                     owner_id,
                     with.expression(),
@@ -4417,6 +4479,13 @@ impl<'a> AnalysisBuilder<'a> {
                     capture_aliases,
                     refs,
                 );
+                let with_cursor = self
+                    .register_with_object_environment(owner_id, self.current_environment_cursor());
+                self.with_environment_ids.insert(
+                    with as *const boa_ast::statement::With as usize,
+                    with_cursor.environment_id,
+                );
+                self.environment_cursor_stack.push(with_cursor.clone());
                 self.scan_statement(
                     owner_id,
                     with.statement(),
@@ -4426,6 +4495,11 @@ impl<'a> AnalysisBuilder<'a> {
                     capture_aliases,
                     refs,
                 );
+                let cursor = self
+                    .environment_cursor_stack
+                    .pop()
+                    .expect("with statement must restore its environment cursor");
+                debug_assert_eq!(cursor, with_cursor);
             }
             Statement::Break(_)
             | Statement::Continue(_)
@@ -5769,6 +5843,25 @@ impl<'a> AnalysisBuilder<'a> {
         }
     }
 
+    fn surrounding_with_object_environment_ids(&self, owner_id: &str) -> Vec<EnvironmentId> {
+        let mut cursor = self
+            .owner_plans
+            .get(owner_id)
+            .map(|owner| owner.definition_environment_cursor.clone());
+        let mut environments = Vec::new();
+        while let Some(current) = cursor {
+            let environment = self
+                .environment_plans
+                .get(&current.environment_id)
+                .expect("definition environment cursor must name a planned environment");
+            if environment.kind == EnvironmentKind::WithObject {
+                environments.push(environment.id);
+            }
+            cursor = environment.parent_cursor.clone();
+        }
+        environments
+    }
+
     fn finalize_capture_plans(&mut self) {
         let mut owned_names = BTreeMap::<EnvironmentId, BTreeSet<String>>::new();
         // Every derived constructor has a canonical per-invocation activation,
@@ -5846,6 +5939,40 @@ impl<'a> AnalysisBuilder<'a> {
                         environment_id,
                         source_name,
                         mode,
+                        slot: 0,
+                        hops: 0,
+                    },
+                );
+            }
+            // An Object Environment Record can supply any identifier name at
+            // run time, so source-name free-reference analysis cannot decide
+            // whether the function needs it. Carry every surrounding binding
+            // object unconditionally. The hidden binding is source-unspellable
+            // and therefore cannot collide with an ordinary capture.
+            for environment_id in self.surrounding_with_object_environment_ids(&function.id) {
+                let environment = &self.environment_plans[&environment_id];
+                let binding_name = self.with_object_environment_plans[&environment_id]
+                    .binding_name
+                    .as_str()
+                    .to_string();
+                owned_names
+                    .entry(environment_id)
+                    .or_default()
+                    .insert(binding_name.clone());
+                captures.insert(
+                    binding_name.clone(),
+                    CaptureBindingPlan {
+                        owner_id: environment.owner_id.clone(),
+                        environment_id,
+                        source_name: binding_name,
+                        mode: *environment
+                            .binding_modes
+                            .get(
+                                self.with_object_environment_plans[&environment_id]
+                                    .binding_name
+                                    .as_str(),
+                            )
+                            .expect("with-object binding mode must be planned"),
                         slot: 0,
                         hops: 0,
                     },

@@ -22,7 +22,14 @@ home-object contexts, `delete super.x` and `delete super[key]` now use a
 private, consuming `DeleteSuperReferencePlan`: it sequences current
 `this`, the raw computed-key value, and the unconditional ReferenceError through
 nested abrupt-propagating materializations, with no key coercion or property
-deletion. Object-literal methods still lack the required home-object context
+deletion. Plain identifier `=` inside `with` now uses analyzed `WithObject`
+environment cursors, stable hidden capture slots, an ordered current/captured
+resolution chain and a consuming `WithEnvironmentReferencePlan`. Declarative
+records cut off outer objects at their exact position; nested strict functions
+carry surrounding objects through the existing closure capture machinery. The
+selected object re-runs `HasProperty` after the RHS so strict absence is a
+ReferenceError and sloppy Set still observes the recheck. Object-literal
+methods still lack the required home-object context
 and remain explicit unsupported debt. Async-generator property assignment remains an explicit
 activation-ABI gap, as do private and `super` yield-assignment targets. The
 parse-once boundary is landed, several environment/control-flow files remain
@@ -33,9 +40,13 @@ The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central
 feature-enabled CLI compile, and its exact generator-suspension Wasm fixture is
-green. The delete-super structural unit and Wasm fixture are present, while
-their Cargo and pinned Test262 execution gates remain deferred to the current
-integration checkpoint.
+green. The delete-super and Object Environment Record structural units and Wasm
+fixtures are present, while their Cargo and pinned Test262 execution gates
+remain deferred to the current integration checkpoint. The Object Environment
+seam is intentionally limited to plain assignment in scripts and ordinary
+source functions: nested reads, compound/logical/update/destructuring writes,
+generated class/helper contexts and resumable captured WithObject environments
+remain explicit debt.
 
 ## Objective
 

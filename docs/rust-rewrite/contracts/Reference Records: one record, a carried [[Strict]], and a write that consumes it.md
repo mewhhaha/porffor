@@ -1210,7 +1210,7 @@ Every path below was confirmed to exist under
 | 6 | `expressions/assignment/target-member-computed-reference.js` | **MC5 + O2** | Two halves: `base[prop()] = expr()` must throw `DummyError` from `prop()` (LHS before RHS); `base[objWithThrowingToString] = expr()` must throw `DummyError` from `expr()` (`ToPropertyKey` after both). Choice C5. Traces `lower_property_reference_update`'s `Get`/`GetV` arm (`32225`–`32240`) and the pins at `32251`–`32279`. |
 | 7 | `expressions/delete/super-property.js` | **MC4a + MC4b boundary** | `delete super.x` must throw ReferenceError (13.5.1.2 step 5.b). The fused delete-super plan now evaluates `actualThis`, evaluates a raw computed key when present, and throws without coercion or deletion. This closes the former `lower_delete` refusal without claiming MC4b's still-open `SuperPropertyWrite` receiver. |
 | 8 | `expressions/assignment/non-simple-target.js` | **negative control, parser-level** | `1 = 1`, `negative: {phase: parse, type: SyntaxError}`. Boa's `AssignTarget::from_expression` (`boa_ast .../assign/mod.rs:141`) returns `None`, so this **never reaches `lower_reference`**. It controls that the *parser* still rejects, not that `lower_reference` does. State this, or the dry-runner will look for a lowering arm that cannot exist. |
-| 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **out of scope** (was labelled "the canonical single-record trace for I5") | **Relabelled at DISCREPANCY-FIXER stage.** The case's subject is a `with` scope: 9.1.1.2.5 `ObjectEnvironmentRecord.SetMutableBinding` re-checks `HasProperty` at *write* time, reached via PutValue 4.c, and the RHS deletes the binding in between. This compiler diverts `with`-scoped identifier writes at `lowering.rs:30439-30441` into `lower_with_scoped_identifier_write`, which emits `ExprIr::Conditional { condition: binding_visible, then: PropertyWrite{..}, else: fallback }` — and a `Conditional`'s condition is emitted *before* the RHS, whereas the spec re-runs `HasProperty` **inside** PutValue, after the RHS ran. So `count === 2` and `!('x' in scope)` both fail: control takes the `PropertyWrite` branch and re-creates `x`. **§4.4 deliberately excludes `with` and Object Environment Records from this lane**, so the fix is not owed here; the entry is relabelled so a failing I5 acceptance is not read as this lane's regression. Blocked on the 9.1.1.2 Environment Record lifecycle area. Corpus 14 is the canonical single-record trace for I5. |
+| 9 | `expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js` | **T08 Object Environment follow-up** | The case's subject is a `with` scope: 9.1.1.2.5 `ObjectEnvironmentRecord.SetMutableBinding` re-checks `HasProperty` at *write* time, reached via PutValue 4.c, after the RHS deletes the binding. The T08 follow-up below replaces the old pre-RHS `Conditional { then: PropertyWrite }` shortcut with a consuming `WithEnvironmentReferencePlan`: initial `HasBinding`/unscopables resolution selects one materialized binding object, RHS evaluation happens once in that selected branch, and `SetMutableBinding` re-checks `HasProperty` on the same object before strict ReferenceError or checked Set. Corpus 14 remains the canonical ordinary-property single-record trace for I5. |
 | 10 | `expressions/assignment/11.13.1-1-s.js` | **MC3** | `Object.defineProperty(obj,"prop",{writable:false})`, then `obj.prop = 20` → TypeError, `obj.prop === 10`. A **resolvable, non-global** property reference: the cleanest MC3 oracle, uncontaminated by §1.3's both-modes GetValue throw. |
 | 11 | ADVERSARIAL MC3 (strict): `"use strict"; const o = Object.freeze({x:1}); o.x = 2;` | **MC3 acceptance** | Must go from *"no IR node can express the throw"* to *"the throw is emitted"*. This is the S2+S3 acceptance criterion and the reason §4.5's extension is not optional. |
 | 12 | ADVERSARIAL MC3 (sloppy control): same source minus the directive; no throw, `o.x === 1` | **MC3′ guard** | Guards against fixing MC3 by hardcoding `Strictness::Strict`. Mandatory, per MC3′ and ledger L1. |
@@ -1264,3 +1264,108 @@ without running the conformance suite except where noted.
 Rung G (`emit_golden` + `diff -r`) is **not** applicable: this is feature work
 under `batch-workflow.md`'s rule, and the emitted bytes are supposed to change
 for every strict-mode property write in the fixture corpus.
+
+---
+
+## 8. T08 Object Environment Record `SetMutableBinding` follow-up
+
+### 8.1 The defect
+
+The former `lower_with_scoped_identifier_write` evaluated an initial
+`HasBinding`/`Symbol.unscopables` condition and put the RHS and a direct
+`PropertyWrite` in its true branch. That preserved the first half of assignment
+order, but it silently treated the initial `HasBinding` result as authority to
+write later. `ObjectEnvironmentRecord.SetMutableBinding` instead calls
+`HasProperty(bindingObject, N)` after the RHS has run. If that second query says
+the property is absent, strict code throws `ReferenceError`; sloppy code still
+performs the observable query and then calls checked `Set`. Either query may be
+a Proxy trap and may complete abruptly.
+
+Nested `with` exposed a second instance of the same shortcut. A lowering-local
+stack cannot represent the ordered Environment Record chain: a declarative
+record introduced inside `with` must stop lookup before the outer Object
+Environment Record, while an Object Environment Record introduced inside that
+declarative record must still be queried first. A fresh function lowerer also
+cannot infer the Object Environment Records surrounding the function's
+definition. ResolveBinding therefore needs the analyzed environment cursor
+chain, not a flat list of objects owned by one lowerer.
+
+### 8.2 Closed representation
+
+Analysis registers `EnvironmentKind::WithObject` only after scanning the object
+expression, then pushes that cursor while scanning the body. Its private
+`WithObjectBindingName` is derived from the stable `EnvironmentId` and contains
+`.` so source text cannot spell it. Every source function defined under that
+cursor unconditionally captures each surrounding with-object binding. Existing
+owned slots, capture hops, lexical-environment materialization and closure
+capture then carry the Object Environment Records into a fresh nested lowerer;
+there is no new closure ABI or backend operation.
+
+`WithEnvironmentBindingObject` is the only representation admitted to the
+ordered lowering chain. It contains the storage name and type information of
+the already-materialized synthetic binding. Cloning it can only create another
+identifier read of that binding; it cannot re-evaluate the source object
+expression or substitute an arbitrary effectful `TypedExpr`.
+
+The ordered chain uses four closed position types: current Object entry depth,
+current declarative binding depth, captured Object cursor depth and captured
+declarative binding cursor depth. Current and captured depths are distinct
+newtypes. One exhaustive cross-product decides whether an Object Environment
+Record precedes the already-located declarative fallback. Thus a new position
+class is E0004, and passing a current depth where a captured depth is required
+is E0308. The lexical/global fallback is located once and carried into PutValue;
+selection and emission cannot silently resolve different bindings.
+
+`WithEnvironmentResolution` binds that object to the one private temporary used
+while evaluating its initial `Symbol.unscopables` query. A non-empty
+`WithEnvironmentReferencePlan` owns one innermost resolution and zero or more
+outer resolutions, the referenced name and `Strictness`. The plan is neither
+`Clone` nor `Copy`, and its only exit consumes it into PutValue. Thus an empty
+environment chain is not constructible, a second write is E0382, a `bool`
+cannot stand in for `[[Strict]]`, and a new strictness state makes its exhaustive
+PutValue match E0004.
+
+The consuming exit builds one fixed tree:
+
+1. only Object Environment Records which precede the located declarative or
+   global fallback survive selection, in exact inner-to-outer order;
+2. initial binding visibility is tested from innermost to outermost;
+3. only the selected branch evaluates and materializes the RHS;
+4. `HasProperty` is re-run on that exact selected binding object;
+5. strict absence throws `ReferenceError`, while presence reaches a checked
+   strict Set;
+6. sloppy mode materializes the recheck so its abrupt completion is propagated,
+   then reaches a checked sloppy Set regardless of the Boolean result;
+7. lexical/global fallback is reachable only after every initial resolution
+   misses.
+
+The with expression is evaluated into an outer temporary before the compiler
+enters the `WithObject` lexical environment and initializes its hidden binding.
+Otherwise a closure created by the object expression would capture an
+Environment Record which does not exist yet in ECMA-262.
+
+The RHS and sloppy recheck use `MaterializeBinding`, not `Comma`, because the
+former is the existing IR boundary that propagates abrupt completion before
+entering its body. Fixed temporary names contain `.` and therefore cannot
+collide with source bindings.
+
+### 8.3 Boundaries and regressions
+
+The structural contract checks strict and sloppy tree shapes, same-object
+initial/recheck/write identity, current/captured declarative interleaving,
+production hidden captures, RHS placement and the absence of Set on a strict
+missing binding. The Wasm fixture makes strict closure capture load-bearing
+with a predeclared global sentinel, invokes an escaping closure after leaving
+`with`, checks repeated entries retain distinct objects, and adds declarative
+shadowing to the observable Proxy order, abrupt-recheck, sloppy-recreation,
+abrupt-RHS, unscopables and nested-object cases.
+
+This follow-up covers only plain identifier `=` through `with` in scripts and
+ordinary source functions. Nested reads still use the existing innermost-only
+path. Compound, logical, update and destructuring writes, Global Object
+Environment Records, generated class/helper execution contexts, the
+super-write `[[ThisValue]]` gap and deferred computed-key coercion remain
+explicit debt. A resumable owner which would capture a `WithObject` environment
+is rejected explicitly rather than pretending the existing suspension
+activation can re-enter it. The change adds no backend operation, IR variant or
+closure ABI and makes no status-count or full-T08 claim.

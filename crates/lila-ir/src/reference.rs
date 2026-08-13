@@ -21,10 +21,23 @@
 //!   is `E0382`.
 
 use super::*;
+use crate::WithObjectBindingName;
 
 const DELETE_SUPER_THIS_BINDING: &str = "$delete.super.this";
 const DELETE_SUPER_KEY_BINDING: &str = "$delete.super.key";
 const DELETE_SUPER_REFERENCE_ERROR: &str = "Cannot delete a super property";
+const WITH_ENVIRONMENT_VALUE_BINDING: &str = "$with.set.value";
+const WITH_ENVIRONMENT_RECHECK_BINDING: &str = "$with.set.exists";
+const WITH_ENVIRONMENT_REFERENCE_ERROR: &str = "with binding no longer exists";
+
+fn dynamic_value_info() -> ValueInfo {
+    ValueInfo {
+        kind: ValueKind::Dynamic,
+        possible_kinds: KindSet::all_runtime_tags(),
+        heap_shape: None,
+        function_targets: BTreeSet::new(),
+    }
+}
 
 /// A Super Reference whose only consumer is the `delete` operator.
 ///
@@ -113,6 +126,508 @@ impl DeleteSuperReferencePlan {
                 body: Box::new(body),
             },
         )
+    }
+}
+
+/// The already-materialized binding object of one Object Environment Record.
+///
+/// `with (objectExpression)` evaluates `objectExpression` once and stores it in
+/// a synthetic lexical binding before lowering the body. The active `with`
+/// stack admits only this type, not arbitrary [`TypedExpr`] values, so every
+/// later read names that binding and cannot re-evaluate the source expression.
+/// Cloning is safe for the same reason: it clones a storage name and static
+/// value information, never an effectful expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WithEnvironmentBindingObject {
+    storage_name: String,
+    info: ValueInfo,
+}
+
+impl WithEnvironmentBindingObject {
+    pub(crate) fn materialized(binding_name: &WithObjectBindingName, info: ValueInfo) -> Self {
+        Self {
+            storage_name: binding_name.as_str().to_string(),
+            info,
+        }
+    }
+
+    pub(crate) fn read(&self) -> TypedExpr {
+        TypedExpr::from_info(
+            self.info.clone(),
+            ExprIr::Identifier(self.storage_name.clone()),
+        )
+    }
+
+    fn has_property(&self, referenced_name: &str) -> TypedExpr {
+        TypedExpr::spec_has_property(
+            self.read(),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String(referenced_name.to_string()),
+            ),
+        )
+    }
+
+    /// Object Environment Record HasBinding, including `Symbol.unscopables`.
+    ///
+    /// The temporary name is allocated by the lowerer because it owns lexical
+    /// name allocation. The object operand is not supplied separately: both
+    /// HasProperty and the unscopables read come from this validated binding
+    /// object, so they cannot silently disagree about the environment queried.
+    pub(crate) fn binding_visible(
+        &self,
+        referenced_name: &str,
+        unscopables_binding: String,
+    ) -> TypedExpr {
+        let has_property = self.has_property(referenced_name);
+        let unscopables = TypedExpr::from_info(
+            dynamic_value_info(),
+            ExprIr::PropertyRead {
+                target: Box::new(self.read()),
+                key: PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Symbol),
+                    ExprIr::String(WellKnownSymbol::Unscopables.description().to_string()),
+                ))),
+            },
+        );
+        let read_unscopables = || {
+            TypedExpr::from_info(
+                dynamic_value_info(),
+                ExprIr::Identifier(unscopables_binding.clone()),
+            )
+        };
+        let unscopables_type = || {
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::TypeOf {
+                    expr: Box::new(read_unscopables()),
+                },
+            )
+        };
+        let type_is_object = TypedExpr::spec_strict_equality_comparison(
+            unscopables_type(),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("object".to_string()),
+            ),
+        );
+        let is_not_null = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::LogicalNot {
+                expr: Box::new(TypedExpr::spec_strict_equality_comparison(
+                    read_unscopables(),
+                    TypedExpr::from_info(ValueInfo::new(ValueKind::Null), ExprIr::Null),
+                )),
+            },
+        );
+        let is_non_null_object = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::LogicalShortCircuit {
+                op: LogicalBinaryOp::And,
+                lhs: Box::new(type_is_object),
+                rhs: Box::new(is_not_null),
+            },
+        );
+        let type_is_function = TypedExpr::spec_strict_equality_comparison(
+            unscopables_type(),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("function".to_string()),
+            ),
+        );
+        let is_object = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::LogicalShortCircuit {
+                op: LogicalBinaryOp::Or,
+                lhs: Box::new(is_non_null_object),
+                rhs: Box::new(type_is_function),
+            },
+        );
+        let blocked = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::Conditional {
+                condition: Box::new(is_object),
+                then_expr: Box::new(TypedExpr::spec_to_boolean(TypedExpr::from_info(
+                    dynamic_value_info(),
+                    ExprIr::PropertyRead {
+                        target: Box::new(read_unscopables()),
+                        key: PropertyKeyIr::StaticString(referenced_name.to_string()),
+                    },
+                ))),
+                else_expr: Box::new(TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::Boolean(false),
+                )),
+            },
+        );
+        let binding_unblocked = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::LogicalNot {
+                expr: Box::new(blocked),
+            },
+        );
+        let binding_unblocked = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::MaterializeBinding {
+                name: unscopables_binding,
+                value: Box::new(unscopables),
+                body: Box::new(binding_unblocked),
+            },
+        );
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::LogicalShortCircuit {
+                op: LogicalBinaryOp::And,
+                lhs: Box::new(has_property),
+                rhs: Box::new(binding_unblocked),
+            },
+        )
+    }
+
+    /// SetMutableBinding on the Object Environment Record selected before RHS.
+    fn put_value(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        value: TypedExpr,
+    ) -> TypedExpr {
+        let value_info = value.value_info();
+        let read_value = TypedExpr::from_info(
+            value_info.clone(),
+            ExprIr::Identifier(WITH_ENVIRONMENT_VALUE_BINDING.to_string()),
+        );
+        let recheck = self.has_property(referenced_name);
+        let write = TypedExpr::from_info(
+            value_info.clone(),
+            ExprIr::PropertyWrite {
+                target: Box::new(self.read()),
+                key: PropertyKeyIr::StaticString(referenced_name.to_string()),
+                value: Box::new(read_value),
+                strictness,
+            },
+        );
+        let after_recheck = match strictness {
+            Strictness::Sloppy => TypedExpr::from_info(
+                value_info.clone(),
+                ExprIr::MaterializeBinding {
+                    name: WITH_ENVIRONMENT_RECHECK_BINDING.to_string(),
+                    value: Box::new(recheck),
+                    body: Box::new(write),
+                },
+            ),
+            Strictness::Strict => TypedExpr::from_info(
+                value_info.clone(),
+                ExprIr::Conditional {
+                    condition: Box::new(recheck),
+                    then_expr: Box::new(write),
+                    else_expr: Box::new(TypedExpr::from_info(
+                        value_info.clone(),
+                        ExprIr::RuntimeThrow {
+                            name: NativeErrorKind::ReferenceError,
+                            message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+                        },
+                    )),
+                },
+            ),
+        };
+        TypedExpr::from_info(
+            value_info,
+            ExprIr::MaterializeBinding {
+                name: WITH_ENVIRONMENT_VALUE_BINDING.to_string(),
+                value: Box::new(value),
+                body: Box::new(after_recheck),
+            },
+        )
+    }
+}
+
+/// Declarative-frame depth in the function currently being lowered. This is a
+/// different domain from a captured definition cursor and cannot be passed to
+/// a captured position by accident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CurrentScopeDepth(usize);
+
+impl CurrentScopeDepth {
+    pub(crate) fn at_with_entry(scope_count: usize) -> Self {
+        assert!(scope_count > 0, "a lowerer must have an activation scope");
+        Self(scope_count)
+    }
+
+    pub(crate) fn of_binding_scope(scope_index: usize) -> Self {
+        Self(scope_index + 1)
+    }
+
+    pub(crate) fn activation() -> Self {
+        Self(1)
+    }
+
+    fn index(self) -> usize {
+        self.0
+    }
+}
+
+/// Index in a function's definition cursor chain, counted inner-to-outer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CapturedCursorDepth(usize);
+
+impl CapturedCursorDepth {
+    pub(crate) fn at(index: usize) -> Self {
+        Self(index)
+    }
+
+    fn index(self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CurrentObjectPosition(CurrentScopeDepth);
+
+impl CurrentObjectPosition {
+    fn depth(self) -> usize {
+        self.0.index()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CurrentBindingPosition(CurrentScopeDepth);
+
+impl CurrentBindingPosition {
+    fn depth(self) -> usize {
+        self.0.index()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CapturedObjectPosition(CapturedCursorDepth);
+
+impl CapturedObjectPosition {
+    pub(crate) fn at(depth: CapturedCursorDepth) -> Self {
+        Self(depth)
+    }
+
+    fn depth(self) -> usize {
+        self.0.index()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CapturedBindingPosition(CapturedCursorDepth);
+
+impl CapturedBindingPosition {
+    pub(crate) fn at(depth: CapturedCursorDepth) -> Self {
+        Self(depth)
+    }
+
+    fn depth(self) -> usize {
+        self.0.index()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObjectEnvironmentPosition {
+    Current(CurrentObjectPosition),
+    Captured(CapturedObjectPosition),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeclarativeEnvironmentPosition {
+    Current(CurrentBindingPosition),
+    Captured(CapturedBindingPosition),
+}
+
+impl DeclarativeEnvironmentPosition {
+    pub(crate) fn current(depth: CurrentScopeDepth) -> Self {
+        Self::Current(CurrentBindingPosition(depth))
+    }
+
+    pub(crate) fn captured(position: CapturedBindingPosition) -> Self {
+        Self::Captured(position)
+    }
+}
+
+impl ObjectEnvironmentPosition {
+    /// Whether this Object Environment Record is encountered before the
+    /// already-located declarative fallback during ResolveBinding. No `_` arm:
+    /// adding either current/captured position class is E0004 here.
+    fn precedes(self, binding: DeclarativeEnvironmentPosition) -> bool {
+        match (self, binding) {
+            (Self::Current(object), DeclarativeEnvironmentPosition::Current(binding)) => {
+                object.depth() >= binding.depth()
+            }
+            (Self::Current(_), DeclarativeEnvironmentPosition::Captured(_)) => true,
+            (Self::Captured(_), DeclarativeEnvironmentPosition::Current(_)) => false,
+            (Self::Captured(object), DeclarativeEnvironmentPosition::Captured(binding)) => {
+                object.depth() < binding.depth()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PositionedWithEnvironment {
+    binding_object: WithEnvironmentBindingObject,
+    position: ObjectEnvironmentPosition,
+}
+
+impl PositionedWithEnvironment {
+    pub(crate) fn captured(
+        binding_object: WithEnvironmentBindingObject,
+        position: CapturedObjectPosition,
+    ) -> Self {
+        Self {
+            binding_object,
+            position: ObjectEnvironmentPosition::Captured(position),
+        }
+    }
+}
+
+/// Current and captured Object Environment Records in ResolveBinding order.
+#[derive(Debug, Default)]
+pub(crate) struct OrderedWithEnvironmentChain {
+    current: Vec<PositionedWithEnvironment>,
+    captured: Vec<PositionedWithEnvironment>,
+}
+
+impl OrderedWithEnvironmentChain {
+    pub(crate) fn enter_current(
+        &mut self,
+        binding_object: WithEnvironmentBindingObject,
+        depth: CurrentScopeDepth,
+    ) {
+        self.current.push(PositionedWithEnvironment {
+            binding_object,
+            position: ObjectEnvironmentPosition::Current(CurrentObjectPosition(depth)),
+        });
+    }
+
+    pub(crate) fn leave_current(&mut self) {
+        self.current
+            .pop()
+            .expect("with statement must restore its ordered environment chain");
+    }
+
+    pub(crate) fn seed_captured(&mut self, captured: Vec<PositionedWithEnvironment>) {
+        assert!(
+            self.captured.is_empty(),
+            "captured with environments may be seeded only once"
+        );
+        self.captured = captured;
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.current.is_empty() && self.captured.is_empty()
+    }
+
+    pub(crate) fn innermost_binding_object(&self) -> Option<&WithEnvironmentBindingObject> {
+        self.current
+            .last()
+            .or_else(|| self.captured.first())
+            .map(|environment| &environment.binding_object)
+    }
+
+    pub(crate) fn objects_preceding(
+        &self,
+        fallback: Option<DeclarativeEnvironmentPosition>,
+    ) -> Vec<WithEnvironmentBindingObject> {
+        self.current
+            .iter()
+            .rev()
+            .chain(self.captured.iter())
+            .filter(|environment| {
+                fallback.is_none_or(|binding| environment.position.precedes(binding))
+            })
+            .map(|environment| environment.binding_object.clone())
+            .collect()
+    }
+}
+
+/// One dynamically queried Object Environment Record in ResolveBinding.
+#[derive(Debug)]
+pub(crate) struct WithEnvironmentResolution {
+    binding_object: WithEnvironmentBindingObject,
+    unscopables_binding: String,
+}
+
+impl WithEnvironmentResolution {
+    pub(crate) fn create(
+        binding_object: WithEnvironmentBindingObject,
+        unscopables_binding: String,
+    ) -> Self {
+        Self {
+            binding_object,
+            unscopables_binding,
+        }
+    }
+
+    fn resolve_or_else(
+        self,
+        referenced_name: &str,
+        strictness: Strictness,
+        value: TypedExpr,
+        fallback: TypedExpr,
+    ) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let with_write = binding_object.put_value(referenced_name, strictness, value);
+        TypedExpr::from_info(
+            with_write.value_info(),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(with_write),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+}
+
+/// A non-empty ResolveBinding chain for plain identifier `=` inside `with`.
+///
+/// The innermost resolution is a required field instead of the first element
+/// of a `Vec`, so an empty Object Environment chain is not representable. The
+/// plan is deliberately neither `Clone` nor `Copy`; [`Self::put_value`]
+/// consumes it, making a second write E0382.
+#[derive(Debug)]
+#[must_use = "a with-environment Reference must be consumed by PutValue"]
+pub(crate) struct WithEnvironmentReferencePlan {
+    innermost: WithEnvironmentResolution,
+    outer: Vec<WithEnvironmentResolution>,
+    referenced_name: String,
+    strictness: Strictness,
+}
+
+impl WithEnvironmentReferencePlan {
+    pub(crate) fn create(
+        innermost: WithEnvironmentResolution,
+        outer: Vec<WithEnvironmentResolution>,
+        referenced_name: String,
+        strictness: Strictness,
+    ) -> Self {
+        Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn put_value(self, value: TypedExpr, fallback: TypedExpr) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved =
+                environment.resolve_or_else(&referenced_name, strictness, value.clone(), resolved);
+        }
+        innermost.resolve_or_else(&referenced_name, strictness, value, resolved)
     }
 }
 
@@ -988,6 +1503,226 @@ impl ReferencePins {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn with_environment_resolution(
+        storage_name: &str,
+        unscopables_binding: &str,
+    ) -> WithEnvironmentResolution {
+        WithEnvironmentResolution::create(
+            WithEnvironmentBindingObject {
+                storage_name: storage_name.to_string(),
+                info: ValueInfo::new(ValueKind::Object),
+            },
+            unscopables_binding.to_string(),
+        )
+    }
+
+    #[test]
+    fn ordered_with_positions_stop_at_current_and_captured_declarative_bindings() {
+        let current_outer =
+            ObjectEnvironmentPosition::Current(CurrentObjectPosition(CurrentScopeDepth(1)));
+        let current_inner =
+            ObjectEnvironmentPosition::Current(CurrentObjectPosition(CurrentScopeDepth(2)));
+        let current_binding =
+            DeclarativeEnvironmentPosition::Current(CurrentBindingPosition(CurrentScopeDepth(2)));
+        assert!(!current_outer.precedes(current_binding));
+        assert!(current_inner.precedes(current_binding));
+
+        let captured_inner =
+            ObjectEnvironmentPosition::Captured(CapturedObjectPosition(CapturedCursorDepth(0)));
+        let captured_outer =
+            ObjectEnvironmentPosition::Captured(CapturedObjectPosition(CapturedCursorDepth(2)));
+        let captured_binding = DeclarativeEnvironmentPosition::Captured(CapturedBindingPosition(
+            CapturedCursorDepth(1),
+        ));
+        assert!(captured_inner.precedes(captured_binding));
+        assert!(!captured_outer.precedes(captured_binding));
+        assert!(current_inner.precedes(captured_binding));
+        assert!(!captured_inner.precedes(current_binding));
+    }
+
+    fn identifier(name: &str, kind: ValueKind) -> TypedExpr {
+        TypedExpr::from_info(ValueInfo::new(kind), ExprIr::Identifier(name.to_string()))
+    }
+
+    fn identifier_name(expr: &TypedExpr) -> &str {
+        let ExprIr::Identifier(name) = &expr.expr else {
+            panic!("expected an identifier read, got {expr:?}");
+        };
+        name
+    }
+
+    fn has_property_target(expr: &TypedExpr) -> &str {
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::HasProperty,
+            operands,
+        } = &expr.expr
+        else {
+            panic!("expected HasProperty, got {expr:?}");
+        };
+        assert_eq!(operands.len(), 2);
+        identifier_name(&operands[0])
+    }
+
+    fn initial_resolution_target(expr: &TypedExpr) -> &str {
+        let ExprIr::LogicalShortCircuit {
+            op: LogicalBinaryOp::And,
+            lhs,
+            rhs: _,
+        } = &expr.expr
+        else {
+            panic!("expected Object Environment HasBinding, got {expr:?}");
+        };
+        has_property_target(lhs)
+    }
+
+    fn assert_strict_selected_write(expr: &TypedExpr, object_name: &str) {
+        let ExprIr::MaterializeBinding {
+            name: value_name,
+            value,
+            body,
+        } = &expr.expr
+        else {
+            panic!("RHS must be materialized in the selected branch");
+        };
+        assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), "rhs");
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } = &body.expr
+        else {
+            panic!("strict SetMutableBinding must branch on its post-RHS recheck");
+        };
+        assert_eq!(has_property_target(condition), object_name);
+        let ExprIr::PropertyWrite {
+            target,
+            key,
+            value,
+            strictness,
+        } = &then_expr.expr
+        else {
+            panic!("a present binding must reach checked Set");
+        };
+        assert_eq!(identifier_name(target), object_name);
+        assert!(matches!(
+            key,
+            PropertyKeyIr::StaticString(name) if name == "x"
+        ));
+        assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(*strictness, Strictness::Strict);
+        assert!(matches!(
+            &else_expr.expr,
+            ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                message: WITH_ENVIRONMENT_REFERENCE_ERROR,
+            }
+        ));
+    }
+
+    #[test]
+    fn with_environment_strict_put_value_resolves_inner_to_outer_then_rechecks_same_object() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.inner", "$with.unscopables.inner"),
+            vec![with_environment_resolution(
+                "$with.outer",
+                "$with.unscopables.outer",
+            )],
+            "x".to_string(),
+            Strictness::Strict,
+        )
+        .put_value(
+            identifier("rhs", ValueKind::Number),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition: inner_condition,
+            then_expr: inner_write,
+            else_expr: outer_branch,
+        } = &lowered.expr
+        else {
+            panic!("innermost Object Environment must be queried first");
+        };
+        assert_eq!(initial_resolution_target(inner_condition), "$with.inner");
+        assert_strict_selected_write(inner_write, "$with.inner");
+
+        let ExprIr::Conditional {
+            condition: outer_condition,
+            then_expr: outer_write,
+            else_expr: fallback,
+        } = &outer_branch.expr
+        else {
+            panic!("an inner miss must continue through the outer environment");
+        };
+        assert_eq!(initial_resolution_target(outer_condition), "$with.outer");
+        assert_strict_selected_write(outer_write, "$with.outer");
+        assert_eq!(identifier_name(fallback), "fallback");
+    }
+
+    #[test]
+    fn with_environment_sloppy_put_value_observes_recheck_before_checked_set() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            Vec::new(),
+            "x".to_string(),
+            Strictness::Sloppy,
+        )
+        .put_value(
+            identifier("rhs", ValueKind::Number),
+            identifier("fallback", ValueKind::Number),
+        );
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } = &lowered.expr
+        else {
+            panic!("the Object Environment resolution must guard PutValue");
+        };
+        assert_eq!(initial_resolution_target(condition), "$with.object");
+        assert_eq!(identifier_name(else_expr), "fallback");
+
+        let ExprIr::MaterializeBinding {
+            name: value_name,
+            value,
+            body: after_rhs,
+        } = &then_expr.expr
+        else {
+            panic!("RHS must be materialized before SetMutableBinding");
+        };
+        assert_eq!(value_name, WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(identifier_name(value), "rhs");
+        let ExprIr::MaterializeBinding {
+            name: recheck_name,
+            value: recheck,
+            body: write,
+        } = &after_rhs.expr
+        else {
+            panic!("sloppy SetMutableBinding must still observe HasProperty");
+        };
+        assert_eq!(recheck_name, WITH_ENVIRONMENT_RECHECK_BINDING);
+        assert_eq!(has_property_target(recheck), "$with.object");
+        let ExprIr::PropertyWrite {
+            target,
+            key,
+            value,
+            strictness,
+        } = &write.expr
+        else {
+            panic!("the recheck must be followed by checked Set");
+        };
+        assert_eq!(identifier_name(target), "$with.object");
+        assert!(matches!(
+            key,
+            PropertyKeyIr::StaticString(name) if name == "x"
+        ));
+        assert_eq!(identifier_name(value), WITH_ENVIRONMENT_VALUE_BINDING);
+        assert_eq!(*strictness, Strictness::Sloppy);
+    }
 
     #[test]
     fn delete_super_reference_plan_sequences_this_raw_key_then_reference_error() {

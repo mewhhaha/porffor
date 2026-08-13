@@ -16,8 +16,11 @@ use proxy_traps::{ProxyTrap, ProxyTrapSignature};
 /// file is traceable to one import. See
 /// `docs/rust-rewrite/contracts/reference-records.md`.
 use crate::ir::reference::{
-    reference_base_of_lowered_read, Composition, DeleteSuperReferencePlan, ReferenceBase,
-    ReferenceOperand, ReferencePins, ReferenceRecord,
+    reference_base_of_lowered_read, CapturedBindingPosition, CapturedCursorDepth,
+    CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
+    DeleteSuperReferencePlan, OrderedWithEnvironmentChain, PositionedWithEnvironment,
+    ReferenceBase, ReferenceOperand, ReferencePins, ReferenceRecord, WithEnvironmentBindingObject,
+    WithEnvironmentReferencePlan, WithEnvironmentResolution,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +95,87 @@ enum PropertyUpdateOp {
 pub(crate) struct ActiveLabel {
     pub(crate) name: String,
     pub(crate) kind: LabelTargetKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindingLookupLocation {
+    Scope(usize),
+    VariableEnvironment,
+}
+
+/// ResolveBinding's declarative/global fallback, located exactly once before
+/// Object Environment selection and consumed by the final write.
+enum LocatedIdentifierReference {
+    Declarative {
+        resolution: BindingResolution,
+        position: DeclarativeEnvironmentPosition,
+    },
+    Unresolvable,
+}
+
+impl LocatedIdentifierReference {
+    fn declarative_position(&self) -> Option<DeclarativeEnvironmentPosition> {
+        match self {
+            Self::Declarative { position, .. } => Some(*position),
+            Self::Unresolvable => None,
+        }
+    }
+}
+
+fn captured_environment_positions(
+    analysis: &Analysis<'_>,
+    function: &FunctionPlan<'_>,
+) -> (
+    BTreeMap<String, CapturedBindingPosition>,
+    Vec<(WithObjectBindingName, CapturedObjectPosition)>,
+) {
+    let mut cursor = Some(
+        analysis
+            .owner_plans
+            .get(&function.id)
+            .expect("function owner must be planned")
+            .definition_environment_cursor
+            .clone(),
+    );
+    let mut binding_positions = BTreeMap::new();
+    let mut with_positions = Vec::new();
+    let mut depth = 0;
+    while let Some(current) = cursor {
+        let environment = analysis
+            .environment_plans
+            .get(&current.environment_id)
+            .expect("definition cursor must name a planned environment");
+        let cursor_depth = CapturedCursorDepth::at(depth);
+        for (storage_name, capture) in function
+            .captures
+            .iter()
+            .filter(|(_, capture)| capture.environment_id == environment.id)
+        {
+            binding_positions.insert(
+                storage_name.clone(),
+                CapturedBindingPosition::at(cursor_depth),
+            );
+        }
+        if environment.kind == EnvironmentKind::WithObject {
+            let with_plan = analysis
+                .with_object_environment_plans
+                .get(&environment.id)
+                .expect("WithObject environment must carry a hidden binding plan");
+            assert!(
+                function
+                    .captures
+                    .contains_key(with_plan.binding_name.as_str()),
+                "surrounding WithObject environment must be captured"
+            );
+            with_positions.push((
+                with_plan.binding_name.clone(),
+                CapturedObjectPosition::at(cursor_depth),
+            ));
+        }
+        cursor = environment.parent_cursor.clone();
+        depth += 1;
+    }
+    (binding_positions, with_positions)
 }
 
 pub(crate) struct LoweredScript {
@@ -608,11 +692,38 @@ pub(crate) struct ScriptLowerer<'a> {
     exact_context_function_specializations: BTreeMap<ExactCallbackContextKey, FunctionId>,
     class_context: Option<ClassLoweringContext>,
     private_environment_id: Option<PrivateEnvironmentId>,
-    active_with_objects: Vec<TypedExpr>,
+    with_environment_chain: OrderedWithEnvironmentChain,
+    captured_binding_positions: BTreeMap<String, CapturedBindingPosition>,
     error_proto_to_strings: usize,
 }
 
 impl<'a> ScriptLowerer<'a> {
+    fn seed_definition_environment_positions(&mut self, function: &FunctionPlan<'a>) {
+        let (binding_positions, with_positions) =
+            captured_environment_positions(self.analysis, function);
+        self.captured_binding_positions = binding_positions;
+        let with_environments = with_positions
+            .into_iter()
+            .map(|(binding_name, position)| {
+                let capture = function
+                    .captures
+                    .get(binding_name.as_str())
+                    .expect("surrounding WithObject environment must be captured");
+                PositionedWithEnvironment::captured(
+                    WithEnvironmentBindingObject::materialized(
+                        &binding_name,
+                        self.capture_value_info(
+                            capture.owner_id.as_str(),
+                            capture.source_name.as_str(),
+                        ),
+                    ),
+                    position,
+                )
+            })
+            .collect();
+        self.with_environment_chain.seed_captured(with_environments);
+    }
+
     fn function_value_info(&self, function_id: &FunctionId) -> ValueInfo {
         self.function_value_info_with_intrinsic_prototype(function_id)
     }
@@ -1084,7 +1195,8 @@ impl<'a> ScriptLowerer<'a> {
             exact_context_function_specializations: BTreeMap::new(),
             class_context: None,
             private_environment_id,
-            active_with_objects: Vec::new(),
+            with_environment_chain: OrderedWithEnvironmentChain::default(),
+            captured_binding_positions: BTreeMap::new(),
             error_proto_to_strings: 0,
         }
     }
@@ -3443,7 +3555,30 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         with: &boa_ast::statement::With,
     ) -> (StatementIr, ValueKind) {
+        let environment_id = self
+            .analysis
+            .with_environment_ids
+            .get(&(with as *const boa_ast::statement::With as usize))
+            .copied()
+            .expect("with statement must have an analyzed Object Environment Record");
+        let owned_env_slots = self
+            .analysis
+            .environment_plans
+            .get(&environment_id)
+            .expect("with environment must be planned")
+            .owned_env_slots
+            .clone();
+        let binding_name = self
+            .analysis
+            .with_object_environment_plans
+            .get(&environment_id)
+            .expect("with environment must carry its hidden binding plan")
+            .binding_name
+            .clone();
+        // The source expression belongs to the outer environment. Only after
+        // it has been lowered do we enter/materialize the WithObject record.
         let object = self.lower_expression(with.expression());
+        let object_info = object.value_info();
         if !object
             .possible_kinds
             .is_subset_of(Self::object_like_kind_set().union(KindSet::all_runtime_tags()))
@@ -3451,38 +3586,66 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("with object expression");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
-        let object_name = if self.current_generator_resume_state.is_some()
-            && contains(with.statement(), ContainsSymbol::YieldExpression)
-        {
-            self.alloc_suspension_owned_binding("generator.with.", object.value_info())
-        } else {
-            let name = self.alloc_temp_binding_name("with.object.");
-            self.declare_binding(
-                name.clone(),
-                BindingInfo {
-                    mode: BindingMode::Let,
-                    storage_name: name.clone(),
-                    kind: object.kind,
-                    possible_kinds: object.possible_kinds,
-                    heap_shape: object.heap_shape.clone(),
-                    function_targets: object.function_targets.clone(),
-                    initialization: Initialization::Initialized,
-                },
-            );
-            name
-        };
-        let with_object = self.lower_identifier_name(object_name.clone(), false);
-        self.active_with_objects.push(with_object);
+        let crosses_suspension = (self.current_generator_resume_state.is_some()
+            && contains(with.statement(), ContainsSymbol::YieldExpression))
+            || (self.current_async_resume_state.is_some()
+                && contains(with.statement(), ContainsSymbol::AwaitExpression));
+        let resumable_owner = self
+            .current_function_id
+            .as_ref()
+            .and_then(|function_id| self.analysis.function_plans.get(function_id))
+            .is_some_and(|function| {
+                function.protocol.execution_kind() != FunctionExecutionKind::Ordinary
+            });
+        if resumable_owner && !owned_env_slots.is_empty() {
+            self.unsupported("resumable captured with Object Environment Record");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
+        let object_value_name = self.alloc_temp_binding_name("with.object.value.");
+        let object_value = TypedExpr::from_info(
+            object_info.clone(),
+            ExprIr::Identifier(object_value_name.clone()),
+        );
+        let object_name = binding_name.as_str().to_string();
+        if crosses_suspension {
+            self.add_suspension_owned_binding(object_name.clone());
+        }
+        let with_object = WithEnvironmentBindingObject::materialized(&binding_name, object_info);
+        self.with_environment_chain.enter_current(
+            with_object,
+            CurrentScopeDepth::at_with_entry(self.scopes.len()),
+        );
         let lowered = self.lower_statement(with.statement());
-        self.active_with_objects.pop();
+        self.with_environment_chain.leave_current();
+
+        let body = StatementIr::Block(BlockIr {
+            statements: vec![
+                StatementIr::Lexical {
+                    mode: BindingMode::Let,
+                    name: object_name,
+                    init: object_value,
+                },
+                lowered.0,
+            ],
+            result_kind: lowered.1,
+            lexical_environment: (!owned_env_slots.is_empty()).then(|| LexicalEnvironmentIr {
+                bindings: owned_env_slots
+                    .iter()
+                    .map(|(name, slot)| OwnedEnvBindingIr {
+                        name: name.clone(),
+                        slot: *slot,
+                    })
+                    .collect(),
+            }),
+        });
         (
             StatementIr::LexicalBlock(vec![
                 StatementIr::Lexical {
                     mode: BindingMode::Let,
-                    name: object_name,
+                    name: object_value_name,
                     init: object,
                 },
-                lowered.0,
+                body,
             ]),
             lowered.1,
         )
@@ -7785,6 +7948,14 @@ impl<'a> ScriptLowerer<'a> {
             }
             FunctionExecutionKind::Ordinary => {}
         }
+        if function.protocol.execution_kind() != FunctionExecutionKind::Ordinary
+            && function.captures.values().any(|capture| {
+                self.analysis.environment_plans[&capture.environment_id].kind
+                    == EnvironmentKind::WithObject
+            })
+        {
+            lowerer.unsupported("resumable function capture of a with Object Environment Record");
+        }
         let exact_context_signature =
             lowerer.exact_signature_for_function(&function.id, context_key_override.as_ref());
         let exact_helper_context_id = context_key_override
@@ -7872,6 +8043,7 @@ impl<'a> ScriptLowerer<'a> {
             ValueInfo::undefined()
         };
         lowerer.current_owner_id = function.id.clone();
+        lowerer.seed_definition_environment_positions(function);
         let lexical_derived_activation =
             function
                 .lexical_derived_activation_owner
@@ -10368,7 +10540,11 @@ impl<'a> ScriptLowerer<'a> {
         missing_as_reference_error: bool,
     ) -> TypedExpr {
         if allow_with {
-            if let Some(object) = self.active_with_objects.last().cloned() {
+            if let Some(object) = self
+                .with_environment_chain
+                .innermost_binding_object()
+                .cloned()
+            {
                 return self.lower_with_scoped_identifier_read(name, object);
             }
         }
@@ -10503,8 +10679,12 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_with_scoped_identifier_read(&mut self, name: String, object: TypedExpr) -> TypedExpr {
-        let binding_visible = self.lower_with_binding_visible(&name, object.clone());
+    fn lower_with_scoped_identifier_read(
+        &mut self,
+        name: String,
+        object: WithEnvironmentBindingObject,
+    ) -> TypedExpr {
+        let binding_visible = self.lower_with_binding_visible(&name, &object);
         let with_value = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
@@ -10513,7 +10693,7 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: BTreeSet::new(),
             },
             ExprIr::PropertyRead {
-                target: Box::new(object),
+                target: Box::new(object.read()),
                 key: PropertyKeyIr::StaticString(name.clone()),
             },
         );
@@ -10533,127 +10713,12 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn lower_with_binding_visible(&mut self, name: &str, object: TypedExpr) -> TypedExpr {
-        let key = TypedExpr::from_info(Self::string_value_info(name), ExprIr::String(name.into()));
-        let has_property = TypedExpr::spec_has_property(object.clone(), key);
-        let unscopables = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::PropertyRead {
-                target: Box::new(object),
-                key: PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Symbol),
-                    ExprIr::String(WellKnownSymbol::Unscopables.description().to_string()),
-                ))),
-            },
-        );
-        let unscopables_name = self.alloc_temp_binding_name("with.unscopables.");
-        let read_unscopables = || {
-            TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::Identifier(unscopables_name.clone()),
-            )
-        };
-        let unscopables_type = || {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::TypeOf {
-                    expr: Box::new(read_unscopables()),
-                },
-            )
-        };
-        let type_is_object = TypedExpr::spec_strict_equality_comparison(
-            unscopables_type(),
-            TypedExpr::from_info(
-                Self::string_value_info("object"),
-                ExprIr::String("object".into()),
-            ),
-        );
-        let is_not_null = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalNot {
-                expr: Box::new(TypedExpr::spec_strict_equality_comparison(
-                    read_unscopables(),
-                    TypedExpr::from_info(ValueInfo::new(ValueKind::Null), ExprIr::Null),
-                )),
-            },
-        );
-        let is_non_null_object = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalShortCircuit {
-                op: LogicalBinaryOp::And,
-                lhs: Box::new(type_is_object),
-                rhs: Box::new(is_not_null),
-            },
-        );
-        let type_is_function = TypedExpr::spec_strict_equality_comparison(
-            unscopables_type(),
-            TypedExpr::from_info(
-                Self::string_value_info("function"),
-                ExprIr::String("function".into()),
-            ),
-        );
-        let is_object = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalShortCircuit {
-                op: LogicalBinaryOp::Or,
-                lhs: Box::new(is_non_null_object),
-                rhs: Box::new(type_is_function),
-            },
-        );
-        let blocked = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::Conditional {
-                condition: Box::new(is_object),
-                then_expr: Box::new(TypedExpr::spec_to_boolean(TypedExpr::from_info(
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    },
-                    ExprIr::PropertyRead {
-                        target: Box::new(read_unscopables()),
-                        key: PropertyKeyIr::StaticString(name.into()),
-                    },
-                ))),
-                else_expr: Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::Boolean(false),
-                )),
-            },
-        );
-        let binding_unblocked = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalNot {
-                expr: Box::new(blocked),
-            },
-        );
-        let binding_unblocked = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::MaterializeBinding {
-                name: unscopables_name,
-                value: Box::new(unscopables),
-                body: Box::new(binding_unblocked),
-            },
-        );
-        TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalShortCircuit {
-                op: LogicalBinaryOp::And,
-                lhs: Box::new(has_property),
-                rhs: Box::new(binding_unblocked),
-            },
-        )
+    fn lower_with_binding_visible(
+        &mut self,
+        name: &str,
+        object: &WithEnvironmentBindingObject,
+    ) -> TypedExpr {
+        object.binding_visible(name, self.alloc_temp_binding_name("with.unscopables."))
     }
 
     /// Lower `expression`, first evaluating any operand of it that the spec
@@ -23733,6 +23798,12 @@ impl<'a> ScriptLowerer<'a> {
             AssignOp::Assign => match lhs {
                 AssignTarget::Identifier(identifier) => {
                     let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    // ResolveBinding is the LHS evaluation. Locate its
+                    // declarative/global fallback before lowering the RHS, and
+                    // carry that same value through Object-ER selection and
+                    // the eventual write.
+                    let with_fallback = (!self.with_environment_chain.is_empty())
+                        .then(|| self.locate_identifier_reference(&name));
                     let static_to_string_regexp_object =
                         self.static_to_string_returns_regexp_object_expr(rhs);
                     let static_generator_values = self.static_generator_call_values_owned(rhs);
@@ -23748,8 +23819,16 @@ impl<'a> ScriptLowerer<'a> {
                     } else {
                         self.lower_expression(rhs)
                     };
-                    if let Some(object) = self.active_with_objects.last().cloned() {
-                        return self.lower_with_scoped_identifier_write(name, object, value);
+                    if let Some(fallback) = with_fallback {
+                        let objects = self
+                            .with_environment_chain
+                            .objects_preceding(fallback.declarative_position());
+                        if !objects.is_empty() {
+                            return self.lower_with_scoped_identifier_write(
+                                name, value, objects, fallback,
+                            );
+                        }
+                        return self.lower_located_identifier_assign_value(name, value, fallback);
                     }
                     if let Some(values) = static_iterator_values {
                         self.static_iterator_binding_values
@@ -24539,25 +24618,41 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_identifier_assign_value(&mut self, name: String, value: TypedExpr) -> TypedExpr {
+        let reference = self.locate_identifier_reference(&name);
+        self.lower_located_identifier_assign_value(name, value, reference)
+    }
+
+    fn lower_located_identifier_assign_value(
+        &mut self,
+        name: String,
+        value: TypedExpr,
+        reference: LocatedIdentifierReference,
+    ) -> TypedExpr {
         // SetMutableBinding (9.1.1.1.5) step 3 runs *before* the immutability
         // test of step 6/7, and does not consult `S`: an assignment to an
         // uninitialized binding is a ReferenceError in sloppy mode too. The RHS
         // has already been evaluated (13.15.2 step 1.e), so its effects are kept
         // ahead of the throw.
-        match self.resolve_binding_reference(&name) {
-            BindingResolution::Uninitialized(violation) => {
-                let error = violation.into_throw();
-                return TypedExpr::from_info(
-                    error.value_info(),
-                    ExprIr::Comma {
-                        lhs: Box::new(value),
-                        rhs: Box::new(error),
-                    },
-                );
-            }
-            BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
-        }
-        if let Some(binding) = self.lookup_binding(&name) {
+        let binding = match reference {
+            LocatedIdentifierReference::Declarative { resolution, .. } => match resolution {
+                BindingResolution::Uninitialized(violation) => {
+                    let error = violation.into_throw();
+                    return TypedExpr::from_info(
+                        error.value_info(),
+                        ExprIr::Comma {
+                            lhs: Box::new(value),
+                            rhs: Box::new(error),
+                        },
+                    );
+                }
+                BindingResolution::Initialized(binding) => Some(binding),
+                BindingResolution::Unresolvable => {
+                    unreachable!("a declarative location cannot be unresolvable")
+                }
+            },
+            LocatedIdentifierReference::Unresolvable => None,
+        };
+        if let Some(binding) = binding {
             let storage_name = binding.storage_name.clone();
             if binding.mode == BindingMode::Const {
                 // This is PutValue consumer 4.c, and it is decided here, at
@@ -24626,29 +24721,35 @@ impl<'a> ScriptLowerer<'a> {
     fn lower_with_scoped_identifier_write(
         &mut self,
         name: String,
-        object: TypedExpr,
         value: TypedExpr,
+        objects: Vec<WithEnvironmentBindingObject>,
+        fallback: LocatedIdentifierReference,
     ) -> TypedExpr {
-        let binding_visible = self.lower_with_binding_visible(&name, object.clone());
-        let strictness = self.reference_strictness();
-        let with_write = TypedExpr::from_info(
-            value.value_info(),
-            ExprIr::PropertyWrite {
-                target: Box::new(object),
-                key: PropertyKeyIr::StaticString(name.clone()),
-                value: Box::new(value.clone()),
-                strictness,
-            },
+        let mut objects = objects.into_iter();
+        let innermost = objects
+            .next()
+            .expect("a with-scoped write requires an Object Environment Record");
+        let innermost = WithEnvironmentResolution::create(
+            innermost,
+            self.alloc_temp_binding_name("with.unscopables."),
         );
-        let fallback = self.lower_identifier_assign_value(name, value);
-        TypedExpr::from_info(
-            self.merge_value_infos(with_write.value_info(), fallback.value_info()),
-            ExprIr::Conditional {
-                condition: Box::new(binding_visible),
-                then_expr: Box::new(with_write),
-                else_expr: Box::new(fallback),
-            },
-        )
+        // The plan wraps `outer` from outermost to innermost so the resulting
+        // conditional evaluates inner-to-outer. Selection returns the natural
+        // ResolveBinding order, hence this one explicit reversal.
+        let mut environments = objects
+            .map(|object| {
+                WithEnvironmentResolution::create(
+                    object,
+                    self.alloc_temp_binding_name("with.unscopables."),
+                )
+            })
+            .collect::<Vec<_>>();
+        environments.reverse();
+        let strictness = self.reference_strictness();
+        let fallback =
+            self.lower_located_identifier_assign_value(name.clone(), value.clone(), fallback);
+        WithEnvironmentReferencePlan::create(innermost, environments, name, strictness)
+            .put_value(value, fallback)
     }
 
     fn lower_pattern_assign(&mut self, pattern: &Pattern, rhs: &Expression) -> TypedExpr {
@@ -27824,7 +27925,7 @@ impl<'a> ScriptLowerer<'a> {
     /// emitted `RangeError` throw. Any new resolver that maps an identifier
     /// spelling to a value must call this.
     fn identifier_resolves_to_builtin_global(&self, name: &str) -> bool {
-        self.active_with_objects.is_empty()
+        self.with_environment_chain.is_empty()
             && self.lookup_binding(name).is_none()
             && self
                 .lookup_global_property_info(name)
@@ -31294,10 +31395,24 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lookup_binding(&self, name: &str) -> Option<BindingInfo> {
+        self.lookup_binding_with_location(name)
+            .map(|(binding, _)| binding)
+    }
+
+    fn lookup_binding_with_location(
+        &self,
+        name: &str,
+    ) -> Option<(BindingInfo, BindingLookupLocation)> {
         self.scopes
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|scope| scope.get(name).cloned())
+            .find_map(|(scope_index, scope)| {
+                scope
+                    .get(name)
+                    .cloned()
+                    .map(|binding| (binding, BindingLookupLocation::Scope(scope_index)))
+            })
             .or_else(|| {
                 self.var_bindings.get(name).and_then(|binding| {
                     if binding.is_script_global && self.current_owner_id != SCRIPT_OWNER_ID {
@@ -31307,17 +31422,44 @@ impl<'a> ScriptLowerer<'a> {
                     let kind = binding.kind;
                     let heap_shape = binding.heap_shape.clone();
                     let function_targets = binding.function_targets.clone();
-                    Some(BindingInfo {
-                        mode,
-                        storage_name: name.to_string(),
-                        kind,
-                        possible_kinds: binding.possible_kinds,
-                        heap_shape,
-                        function_targets,
-                        initialization: Initialization::Initialized,
-                    })
+                    Some((
+                        BindingInfo {
+                            mode,
+                            storage_name: name.to_string(),
+                            kind,
+                            possible_kinds: binding.possible_kinds,
+                            heap_shape,
+                            function_targets,
+                            initialization: Initialization::Initialized,
+                        },
+                        BindingLookupLocation::VariableEnvironment,
+                    ))
                 })
             })
+    }
+
+    fn locate_identifier_reference(&self, name: &str) -> LocatedIdentifierReference {
+        let Some((binding, location)) = self.lookup_binding_with_location(name) else {
+            return LocatedIdentifierReference::Unresolvable;
+        };
+        let position = self
+            .captured_binding_positions
+            .get(&binding.storage_name)
+            .copied()
+            .map(DeclarativeEnvironmentPosition::captured)
+            .unwrap_or_else(|| {
+                let depth = match location {
+                    BindingLookupLocation::Scope(scope_index) => {
+                        CurrentScopeDepth::of_binding_scope(scope_index)
+                    }
+                    BindingLookupLocation::VariableEnvironment => CurrentScopeDepth::activation(),
+                };
+                DeclarativeEnvironmentPosition::current(depth)
+            });
+        LocatedIdentifierReference::Declarative {
+            resolution: BindingResolution::of(Some(binding)),
+            position,
+        }
     }
 
     /// ResolveBinding (9.1.2.1) followed by the 9.1.1.1.6 step 2 / 9.1.1.1.5

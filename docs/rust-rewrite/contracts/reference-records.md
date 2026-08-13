@@ -252,3 +252,43 @@ suspended assignment remain gaps. A structural unit and a Wasm fixture cover
 the fused tree, uninitialized-this/key order, raw-key abrupt completion, absent
 key coercion, null base, and absence of a proxy delete trap. Their Cargo and
 Test262 execution gates remain deferred to the integration checkpoint.
+
+## T08 Object Environment Record write follow-up
+
+Plain identifier `=` inside `with` now has a separate, closed Reference
+lifecycle rather than pretending the Object Environment Record is an ordinary
+property Reference. Analysis creates an `EnvironmentKind::WithObject` after
+the object expression and around the body. Its stable, source-unspellable
+hidden binding is captured unconditionally by ordinary source functions whose
+definition cursor passes through that environment, using the existing lexical
+slot/hop and closure machinery.
+
+`WithEnvironmentBindingObject` admits only identifier reads of one such
+materialized binding. Distinct newtypes represent current scope depth and
+captured cursor depth for both Object and declarative environments; one
+exhaustive cross-product filters the ordered Object chain at the declarative
+fallback located by the same lookup used for the eventual write. A private
+`WithEnvironmentResolution` then couples each surviving object to its initial
+`HasBinding`/`Symbol.unscopables` query, and a non-`Clone`, non-`Copy`
+`WithEnvironmentReferencePlan` owns a non-empty inner-to-outer chain plus the
+referenced name and `Strictness`.
+
+The plan's only exit consumes it into a fixed PutValue tree: initial resolution
+selects an object before the RHS; the RHS is materialized once in that branch;
+`ObjectEnvironmentRecord.SetMutableBinding` then re-runs `HasProperty` on the
+same object. A missing strict binding throws `ReferenceError` without Set. The
+sloppy path still evaluates and propagates the recheck before checked Set, so a
+Proxy `has` trap remains observable. Lexical/global fallback occurs only after
+every active Object Environment Record initially misses.
+
+The with expression is evaluated outside the newly materialized environment;
+the hidden binding is initialized only after entry. Resumable owners requiring
+a captured WithObject environment are rejected explicitly instead of extending
+the suspension ABI in this batch.
+
+The seam is deliberately plain-assignment-only. Nested `with` reads remain
+innermost-only, and compound/logical/update/destructuring writes, Global Object
+Environment Records, generated class/helper contexts, super-write receiver
+repair and resumable captured WithObject environments remain open. Structural
+and Wasm fixture execution gates are deferred to the integration checkpoint
+while the low-RAM matrix owns Cargo.

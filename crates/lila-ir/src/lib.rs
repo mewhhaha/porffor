@@ -590,6 +590,9 @@ mod tests {
         fn statement_owns_binding(statement: &StatementIr, name: &str, slot: u32) -> bool {
             match statement {
                 StatementIr::Block(block) => block_environment_owns_binding(block, name, slot),
+                StatementIr::LexicalBlock(statements) => statements
+                    .iter()
+                    .any(|statement| statement_owns_binding(statement, name, slot)),
                 StatementIr::If {
                     then_branch,
                     else_branch,
@@ -880,6 +883,154 @@ mod tests {
                 assert_eq!(read.definition_environment_cursor.environment_id, inner.id);
             },
         );
+    }
+
+    #[test]
+    fn analysis_orders_with_objects_and_declarative_environments_at_function_definition() {
+        with_script_analysis(
+            "var writer; with (outer) { let x = 0; with (inner) writer = function write() { 'use strict'; x = 2; }; }",
+            |analysis| {
+                let function = analysis
+                    .function_plans
+                    .values()
+                    .find(|function| function.name == "write")
+                    .expect("nested strict function should be planned");
+                let mut cursor = Some(
+                    analysis.owner_plans[&function.id]
+                        .definition_environment_cursor
+                        .clone(),
+                );
+                let mut kinds = Vec::new();
+                while let Some(current) = cursor {
+                    let environment = &analysis.environment_plans[&current.environment_id];
+                    kinds.push(environment.kind);
+                    cursor = environment.parent_cursor.clone();
+                }
+                assert_eq!(
+                    &kinds[..4],
+                    &[
+                        EnvironmentKind::WithObject,
+                        EnvironmentKind::Block,
+                        EnvironmentKind::WithObject,
+                        EnvironmentKind::Activation,
+                    ]
+                );
+
+                let with_captures = function
+                    .captures
+                    .values()
+                    .filter(|capture| {
+                        analysis.environment_plans[&capture.environment_id].kind
+                            == EnvironmentKind::WithObject
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(with_captures.len(), 2);
+                for capture in with_captures {
+                    assert!(capture.source_name.starts_with("$with.object."));
+                    assert_eq!(
+                        analysis.with_object_environment_plans[&capture.environment_id]
+                            .binding_name
+                            .as_str(),
+                        capture.source_name.as_str()
+                    );
+                    let environment = &analysis.environment_plans[&capture.environment_id];
+                    assert_eq!(environment.owned_env_slots.get(&capture.source_name), Some(&capture.slot));
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn with_object_expression_functions_keep_the_outer_definition_cursor() {
+        with_script_analysis(
+            "var body; with ((function objectExpression() { return {}; })()) body = function body() {};",
+            |analysis| {
+                let object_expression = function_owner_plan_by_name(analysis, "objectExpression");
+                let body = function_owner_plan_by_name(analysis, "body");
+                assert_eq!(
+                    analysis.environment_plans[&object_expression
+                        .definition_environment_cursor
+                        .environment_id]
+                        .kind,
+                    EnvironmentKind::Activation
+                );
+                assert_eq!(
+                    analysis.environment_plans[&body.definition_environment_cursor.environment_id]
+                        .kind,
+                    EnvironmentKind::WithObject
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn nested_strict_with_assignment_reads_the_production_hidden_capture() {
+        let program = lower_script(
+            "var x = 91; var scope = { x: 1 }; var write; with (scope) write = function write() { 'use strict'; x = 2; };",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let write = script
+            .functions
+            .iter()
+            .find(|function| function.name == "write")
+            .expect("nested strict function should be lowered");
+        let with_capture = write
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.name.starts_with("$with.object."))
+            .expect("nested strict function must capture its Object Environment Record");
+        assert!(block_environment_owns_binding(
+            &script.body,
+            &with_capture.name,
+            with_capture.slot,
+        ));
+        let assignment = write
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression)
+                    if matches!(&expression.expr, ExprIr::Conditional { .. }) =>
+                {
+                    Some(expression)
+                }
+                _ => None,
+            })
+            .expect("with assignment should lower to its initial resolution branch");
+        let ExprIr::Conditional { condition, .. } = &assignment.expr else {
+            unreachable!()
+        };
+        let ExprIr::LogicalShortCircuit {
+            op: LogicalBinaryOp::And,
+            lhs,
+            ..
+        } = &condition.expr
+        else {
+            panic!("Object Environment HasBinding must guard the selected write");
+        };
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::HasProperty,
+            operands,
+        } = &lhs.expr
+        else {
+            panic!("initial Object Environment resolution must call HasProperty");
+        };
+        assert!(matches!(
+            &operands[0].expr,
+            ExprIr::Identifier(name) if name == &with_capture.name
+        ));
+    }
+
+    #[test]
+    fn resumable_function_capture_of_with_object_environment_is_explicitly_rejected() {
+        let program = lower_script(
+            "var generator; with ({ x: 1 }) generator = function* generator() { yield x; };",
+        );
+        assert!(!program.is_wasm_supported());
+        assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("resumable function capture of a with Object Environment Record")));
     }
 
     #[test]
