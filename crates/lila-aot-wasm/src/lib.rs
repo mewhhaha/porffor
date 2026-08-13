@@ -2234,6 +2234,183 @@ pick(true);"#,
     }
 
     #[test]
+    fn runtime_gc_anchor_is_rooted_across_main_and_cleared_on_exit() {
+        let artifact = emit_script(
+            "function allocate() { return { value: 1 }; } allocate(); Promise.resolve(0);",
+        )
+        .expect("root-lifecycle fixture should emit");
+        expect_valid_module(&artifact, 1);
+
+        let mut root = None;
+        let mut global_count = 0_u32;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::GlobalSection(reader) = payload.expect("module should parse") else {
+                continue;
+            };
+            for (index, global) in reader.into_iter().enumerate() {
+                let global = global.expect("global should decode");
+                global_count += 1;
+                let wasmparser::ValType::Ref(reference_type) = global.ty.content_type else {
+                    continue;
+                };
+                assert!(root.is_none(), "the capability root is the sole GC global");
+                assert!(
+                    global.ty.mutable,
+                    "the root must support establish and clear"
+                );
+                assert!(!global.ty.shared, "the per-instance root is not shared");
+                assert!(
+                    reference_type.is_nullable(),
+                    "the cleared root must be null"
+                );
+                let wasmparser::HeapType::Concrete(anchor_type) = reference_type.heap_type() else {
+                    panic!("the root must retain the concrete anchor type");
+                };
+                let anchor_type = anchor_type
+                    .as_module_index()
+                    .expect("the emitted anchor type uses a module index");
+                let mut init = global.init_expr.get_operators_reader();
+                assert!(matches!(
+                    init.read().expect("root initializer should decode"),
+                    Operator::RefNull {
+                        hty: wasmparser::HeapType::Concrete(initializer_type)
+                    } if initializer_type.as_module_index() == Some(anchor_type)
+                ));
+                assert!(matches!(
+                    init.read().expect("root initializer should end"),
+                    Operator::End
+                ));
+                root = Some((index as u32, anchor_type));
+            }
+        }
+        let (root_global, anchor_type) = root.expect("module must declare the typed GC root");
+        assert_eq!(
+            root_global + 1,
+            global_count,
+            "the root must be appended after every established global index"
+        );
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum RootEvent {
+            HolderFieldGet,
+            AnchorFieldGet,
+            RootGet,
+            RootSet,
+            RootNull,
+            RefAsNonNull,
+            Call,
+            Return,
+        }
+
+        let mut events = Vec::new();
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
+                continue;
+            };
+            for operator in body
+                .get_operators_reader()
+                .expect("main operators should decode")
+            {
+                let event = match operator.expect("main operator should decode") {
+                    Operator::StructGet {
+                        struct_type_index, ..
+                    } if struct_type_index == anchor_type => Some(RootEvent::AnchorFieldGet),
+                    Operator::StructGet { .. } => Some(RootEvent::HolderFieldGet),
+                    Operator::GlobalGet { global_index } if global_index == root_global => {
+                        Some(RootEvent::RootGet)
+                    }
+                    Operator::GlobalSet { global_index } if global_index == root_global => {
+                        Some(RootEvent::RootSet)
+                    }
+                    Operator::RefNull {
+                        hty: wasmparser::HeapType::Concrete(reference_type),
+                    } if reference_type.as_module_index() == Some(anchor_type) => {
+                        Some(RootEvent::RootNull)
+                    }
+                    Operator::RefAsNonNull => Some(RootEvent::RefAsNonNull),
+                    Operator::Call { .. } | Operator::CallIndirect { .. } => Some(RootEvent::Call),
+                    Operator::Return
+                    | Operator::ReturnCall { .. }
+                    | Operator::ReturnCallIndirect { .. } => Some(RootEvent::Return),
+                    _ => None,
+                };
+                if let Some(event) = event {
+                    events.push(event);
+                }
+            }
+            break;
+        }
+
+        let initial_set = events
+            .iter()
+            .position(|event| *event == RootEvent::RootSet)
+            .expect("main must establish its root");
+        assert!(
+            events[..initial_set].contains(&RootEvent::HolderFieldGet),
+            "the holder's typed strong edge must feed the root"
+        );
+        let final_set = events
+            .iter()
+            .rposition(|event| *event == RootEvent::RootSet)
+            .expect("main must clear its root");
+        let root_null = events[..final_set]
+            .iter()
+            .rposition(|event| *event == RootEvent::RootNull)
+            .expect("root cleanup must store a typed null");
+        let anchor_get = events[..root_null]
+            .iter()
+            .rposition(|event| *event == RootEvent::AnchorFieldGet)
+            .expect("root cleanup must verify the anchor ABI");
+        let non_null = events[..anchor_get]
+            .iter()
+            .rposition(|event| *event == RootEvent::RefAsNonNull)
+            .expect("root cleanup must reject an absent root");
+        let root_get = events[..non_null]
+            .iter()
+            .rposition(|event| *event == RootEvent::RootGet)
+            .expect("root cleanup must load the typed global");
+        let call = events[..root_get]
+            .iter()
+            .rposition(|event| *event == RootEvent::Call)
+            .expect("the root must survive at least one main call");
+        assert!(
+            initial_set < call
+                && call < root_get
+                && root_get < non_null
+                && non_null < anchor_get
+                && anchor_get < root_null
+                && root_null < final_set,
+            "root lifecycle events are out of order: {events:?}"
+        );
+        for return_index in events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| (*event == RootEvent::Return).then_some(index))
+        {
+            let clear_set = events[..return_index]
+                .iter()
+                .rposition(|event| *event == RootEvent::RootSet)
+                .expect("every main return follows a root store");
+            assert_ne!(
+                clear_set, initial_set,
+                "a main return bypassed root verification and cleanup: {events:?}"
+            );
+            assert!(
+                clear_set >= 4
+                    && events[clear_set - 4..=clear_set]
+                        == [
+                            RootEvent::RootGet,
+                            RootEvent::RefAsNonNull,
+                            RootEvent::AnchorFieldGet,
+                            RootEvent::RootNull,
+                            RootEvent::RootSet,
+                        ],
+                "a main return did not verify and clear the typed root: {events:?}"
+            );
+        }
+    }
+
+    #[test]
     fn dynamic_number_exponentiation_module_validates_with_runtime_pow_import() {
         let artifact = emit_script(
             "let base = 9; let exponent = 0.5; base ** exponent + Math.pow(base, exponent);",

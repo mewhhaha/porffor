@@ -23,8 +23,8 @@ use lila_ir::{
 // hole the sink exists to close.
 use wasm_encoder::{
     ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, FunctionSection,
-    GlobalSection, GlobalType, ImportSection, Instruction, MemorySection, MemoryType, Module,
-    RefType, TableSection, TableType, ValType,
+    GlobalType, HeapType, ImportSection, Instruction, MemorySection, MemoryType, Module, RefType,
+    TableSection, TableType, ValType,
 };
 
 use super::*;
@@ -200,7 +200,7 @@ impl CompletionExit {
 /// schema to an internal function.
 #[derive(Debug, Clone, Copy)]
 enum FunctionModuleState {
-    Main(RuntimeModuleTypes),
+    Main(RuntimeModuleSchema),
     Internal,
 }
 
@@ -1075,6 +1075,20 @@ fn emit_script_with_forced_builtins(
         StringPool::collect(script, function_metas.metas(), &compiled_standard_builtins);
     let uses_function_table = true;
     let module_types = ModuleTypeRegistry::new(uses_function_table);
+    let module_guard_count = module_unit_guard_count(script);
+    let fixed_global_count = if uses_heap {
+        GLOBAL_INDEX_REGISTRY.len() as u32
+    } else {
+        throw_error_message_global_index(false) + 1
+    };
+    let runtime_gc_root_global_index = fixed_global_count
+        .checked_add(
+            u32::try_from(string_pool.template_objects.len())
+                .expect("template-object global count fits u32"),
+        )
+        .and_then(|count| count.checked_add(module_guard_count))
+        .expect("module global count fits u32");
+    let runtime_module_schema = module_types.runtime_schema(runtime_gc_root_global_index);
     let callable_function_count = script.functions.len()
         + emitted_standard_builtins.len()
         + usize::from(has_shared_stub)
@@ -1107,7 +1121,7 @@ fn emit_script_with_forced_builtins(
         function_object_alloc_function_index,
         plain_object_alloc_function_index,
         array_alloc_function_index,
-        module_types.runtime(),
+        runtime_module_schema,
     );
     let main_function = main_builder.compile()?;
     // Every element is an `EmittedFunction`: a body that already knows which
@@ -2006,7 +2020,7 @@ fn emit_script_with_forced_builtins(
         throw_error_message_global_index(uses_heap),
     );
 
-    let mut globals = GlobalSection::new();
+    let mut globals = ModuleGlobalSectionBuilder::new();
     globals.global(
         GlobalType {
             val_type: ValType::I32,
@@ -2092,7 +2106,7 @@ fn emit_script_with_forced_builtins(
     // One "already evaluated" guard per module unit, immediately after the
     // template-object globals so no existing index moves. Zero means "not yet
     // evaluated"; `FunctionBuilder::emit_module_unit_once` sets it.
-    for _ in 0..module_unit_guard_count(script) {
+    for _ in 0..module_guard_count {
         globals.global(
             GlobalType {
                 val_type: ValType::I32,
@@ -2102,6 +2116,7 @@ fn emit_script_with_forced_builtins(
             &ConstExpr::i32_const(0),
         );
     }
+    let globals = globals.finish(runtime_module_schema);
 
     let mut code = ModuleCode::new(imported_function_count);
     code.push(EmittedFunction::new(FunctionIdentity::Main, main_function));
@@ -2580,7 +2595,7 @@ impl<'a> FunctionBuilder<'a> {
         function_object_alloc_function_index: Option<u32>,
         plain_object_alloc_function_index: Option<u32>,
         array_alloc_function_index: Option<u32>,
-        module_types: RuntimeModuleTypes,
+        module_schema: RuntimeModuleSchema,
     ) -> Self {
         Self::new(
             &script.body,
@@ -2596,7 +2611,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             Some(&script.global_bindings),
             uses_heap,
-            FunctionModuleState::Main(module_types),
+            FunctionModuleState::Main(module_schema),
             false,
             runtime_bootstrap_plan,
             heap_alloc_function_index,
@@ -3228,7 +3243,7 @@ impl<'a> FunctionBuilder<'a> {
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
 
         self.push_scope();
-        self.probe_runtime_gc_anchor_strong_edge(&mut function);
+        self.initialize_runtime_gc_anchor_root(&mut function);
         self.ensure_heap_ptr_after_static_data(&mut function);
         self.init_current_realm(&mut function)?;
         self.init_current_env(&mut function)?;
@@ -3421,6 +3436,7 @@ impl<'a> FunctionBuilder<'a> {
             self.next_binding_local
         );
         self.pop_scope();
+        self.verify_and_clear_runtime_gc_anchor_root(&mut function);
 
         match self.return_abi() {
             ReturnAbi::MainExport => {
@@ -3575,18 +3591,20 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(buffer_local);
     }
 
-    fn probe_runtime_gc_anchor_strong_edge(&self, function: &mut Function) {
-        let FunctionModuleState::Main(module_types) = self.module_state else {
+    fn initialize_runtime_gc_anchor_root(&self, function: &mut Function) {
+        let FunctionModuleState::Main(module_schema) = self.module_state else {
             return;
         };
-        let anchor = module_types.gc_anchor();
-        let holder = module_types.gc_anchor_holder();
+        let anchor = module_schema.gc_anchor();
+        let holder = module_schema.gc_anchor_holder();
+        let root = module_schema.gc_anchor_root();
 
-        // Construct the anchor, make it reachable only through the holder's
-        // immutable non-null reference field, traverse that edge, then assert
-        // the anchor ABI. Keeping both values as Wasm references is the point:
-        // this capability probe must not introduce an integer handle or root
-        // table beside the future GC object model.
+        // Construct the anchor, make it reachable through the holder's
+        // immutable non-null reference field, then transfer that edge into the
+        // typed mutable/nullable global before main can call or allocate.
+        // Keeping the value as a Wasm reference is the point: this capability
+        // root must not introduce an integer handle beside the future GC
+        // object model.
         function.instruction(&Instruction::I32Const(RuntimeGcAnchorSchema::ABI_VERSION));
         function.instruction(&Instruction::StructNew(anchor.type_index().raw()));
         function.instruction(&Instruction::StructNew(holder.type_index().raw()));
@@ -3594,6 +3612,23 @@ impl<'a> FunctionBuilder<'a> {
             struct_type_index: holder.type_index().raw(),
             field_index: RuntimeGcAnchorHolderSchema::ANCHOR_FIELD.ordinal().raw(),
         });
+        function.instruction(&Instruction::GlobalSet(root.global().raw()));
+    }
+
+    /// Verifies and clears the capability root on a real main exit.
+    ///
+    /// `emit_return_current_completion` calls this only after declining the
+    /// temporary main-job-checkpoint branch, so pending jobs retain the root.
+    /// Internal functions carry no `RuntimeModuleSchema` and emit nothing.
+    pub(crate) fn verify_and_clear_runtime_gc_anchor_root(&self, function: &mut Function) {
+        let FunctionModuleState::Main(module_schema) = self.module_state else {
+            return;
+        };
+        let anchor = module_schema.gc_anchor();
+        let root = module_schema.gc_anchor_root();
+
+        function.instruction(&Instruction::GlobalGet(root.global().raw()));
+        function.instruction(&Instruction::RefAsNonNull);
         function.instruction(&Instruction::StructGet {
             struct_type_index: anchor.type_index().raw(),
             field_index: RuntimeGcAnchorSchema::ABI_VERSION_FIELD.ordinal().raw(),
@@ -3603,6 +3638,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::RefNull(HeapType::Concrete(
+            root.anchor_type_index().raw(),
+        )));
+        function.instruction(&Instruction::GlobalSet(root.global().raw()));
     }
 
     fn ensure_heap_ptr_after_static_data(&self, function: &mut Function) {

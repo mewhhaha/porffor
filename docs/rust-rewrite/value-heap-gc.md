@@ -103,6 +103,9 @@ compile-time distinctions:
 - nullable scalar fields do not type-check;
 - `GcRef<T>` is a zero-sized strong-reference schema marker with no integer
   representation; and
+- `GcRootGlobal<T>` names only a mutable, nullable Wasm global carrying a
+  strong reference to `T`; it cannot name a scalar global or contain a linear
+  address; and
 - `LinearAddr<Owner>` and validated `LinearSpan<Owner>` cannot be substituted
   for GC references or for another layout's side storage.
 
@@ -122,18 +125,34 @@ immutable, non-null `GcRef<RuntimeGcAnchor>`. The emitter now:
 2. encodes the holder field through a typed reference-field builder that
    consumes `GcTypeIndex<RuntimeGcAnchor>` and derives its nullability and
    mutability from the `GcField` type;
-3. constructs the anchor and holder during main initialization, leaving the
-   anchor reachable only through the holder field;
-4. traverses the field with `struct.get`, reads the anchor's ABI-version field
-   and traps if it differs from `RuntimeGcAnchorSchema::ABI_VERSION`.
+3. appends one unexported, mutable, nullable `GcRootGlobal<RuntimeGcAnchor>`
+   after every pre-existing fixed and dynamic global, so no established global
+   index moves;
+4. constructs the anchor and holder before any other main instruction,
+   traverses the holder field, and stores the recovered reference in that
+   typed root;
+5. keeps the root live across main initialization, calls, source execution and
+   the final job checkpoint; and
+6. on every real main return, loads and non-null-checks the root, reads the
+   anchor's ABI-version field, traps if it differs from
+   `RuntimeGcAnchorSchema::ABI_VERSION`, then clears the root to null.
 
 That sequence makes the Wasm validator and runtime exercise a concrete strong
-GC edge as well as struct construction and field traversal, without introducing
-a live semantic object or changing the current heap. `ModuleTypeRegistry` owns
-the section and assigns both indices in dependency order; the main-function
-role carries that schema and emits the probe once before the pre-existing
-initialization order. The holder becomes unreachable after the probe. This
-proves neither reclamation nor cyclic collection, and it adds no weak edge.
+GC edge, a real Wasm global root and struct construction/field traversal,
+without introducing a live semantic object or changing the current heap.
+`ModuleTypeRegistry` owns the section and assigns both indices in dependency
+order. A complete `RuntimeModuleSchema` combines those types with the typed
+root; only the main-function role can carry it. The global-section builder
+cannot finish without appending the root at the index recorded by that schema.
+
+The holder becomes unreachable as soon as its edge is transferred to the
+global. The anchor then remains live only through the global until the shared
+main exit verifies and clears it. This is an executable root-lifecycle witness,
+not a JavaScript value. It proves neither reclamation nor cyclic collection,
+does not establish roots for semantic values in calls, exceptions, suspended
+frames or pending jobs, and adds no weak edge. A Wasm trap before the shared
+main exit may retain the witness until Store teardown; Store teardown remains
+the owner of that exceptional cleanup.
 
 The matching engine seam uses the closed
 `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` value for
@@ -248,11 +267,16 @@ the latter condition with the capability anchor below.
 - Emit and traverse the `RuntimeGcAnchorHolder -> RuntimeGcAnchor` strong edge
   through the central type registry, including the anchor ABI assertion
   (landed; runtime-boundary verification remains).
+- Transfer that edge into a typed nullable Wasm global before main can call or
+  allocate, retain it through the final job checkpoint, and verify/clear it on
+  every shared main exit without moving existing global indices (landed;
+  runtime-boundary verification remains).
 
-Gate: a module containing the anchor/holder probe validates and executes on the
-pinned lower bound, and fails clearly when GC is disabled. This proves typed
-strong-edge feature wiring, not reclamation, cycle collection, weak semantics
-or JavaScript heap migration.
+Gate: a module containing the anchor/holder/root probe validates and executes
+on the pinned lower bound, and fails clearly when GC is disabled. This proves
+typed strong-edge and global-root feature wiring, not reclamation, cycle
+collection, semantic call/frame/job roots, weak semantics or JavaScript heap
+migration.
 
 ### Phase 2 — complete generated layout registry
 

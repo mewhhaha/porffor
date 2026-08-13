@@ -14,15 +14,21 @@ is now the checked-in architecture and phased cutover contract. The new
 values, mutability, nullability, strong GC references and owner-typed linear
 spans at compile time. The central `ModuleTypeRegistry` appends
 `RuntimeGcAnchor` and then `RuntimeGcAnchorHolder` from that typed schema. The
-holder has one immutable, non-null `GcRef<RuntimeGcAnchor>` field. Main
-initialization constructs both structs, traverses the holder's strong edge and
-traps if the recovered anchor ABI version differs from the schema constant.
+holder has one immutable, non-null `GcRef<RuntimeGcAnchor>` field. A complete
+`RuntimeModuleSchema` also assigns one unexported typed root global after all
+existing globals, so no established index moves and an internal function
+cannot acquire it. Main constructs both structs before any call, transfers the
+holder's edge into the root, keeps it through source execution and the final
+job checkpoint, then verifies the anchor ABI and clears the root on every real
+main exit.
 
 The product implementation is still the bump-allocated linear-memory object
 model. Its layout, root, weak-edge and collector tables remain passive metadata;
 `gc()` is unsupported and current weak records are strong in practice. The GC
-anchor is only a runtime-capability witness; no JavaScript semantic value has
-moved from the linear heap and there is no integer/reference bridge.
+anchor and its global root are only a runtime-capability/lifecycle witness; no
+JavaScript semantic value has moved from the linear heap and there is no
+integer/reference bridge. This does not establish semantic roots for calls,
+exceptions, suspended frames or pending jobs.
 
 The engine is pinned to Wasmtime 38.0.4. One typed runtime policy now configures
 both product Wasmtime engines, explicitly requires reference types, typed
@@ -43,9 +49,10 @@ The central feature-enabled CLI compile covers both `lila-aot-wasm` and
 `lila-engine`. The complete resource-bounded engine inventory and the complete
 620-test default CLI inventory instantiate and execute product modules through
 the shared main prologue under the explicit DRC policy, so the typed
-strong-edge/ABI probe is runtime-verified. This proves the lower-bound feature
-and schema edge, not semantic heap migration, cycle collection or weak
-reachability.
+strong-edge/ABI probe is runtime-verified. The new global-root lifecycle still
+requires its focused and inventory verification. Even once verified, it proves
+only the lower-bound feature, schema edge and one capability root—not semantic
+heap migration, reclamation, cycle collection or weak reachability.
 
 ## Landed foundation
 
@@ -54,6 +61,9 @@ reachability.
   the main schema/index/field-shape mixups before encoding.
 - `GcRef<T>` deliberately has no integer representation and denotes only a
   strong edge; no false weak-reference marker exists.
+- `GcRootGlobal<T>` names only a mutable, nullable Wasm global containing a
+  strong reference to `T`; the global-section builder cannot finish without
+  appending the root required by main's complete module schema.
 - `LinearAddr<Owner>` and checked `LinearSpan<Owner>` distinguish byte storage
   from object identity and name its sole GC owner.
 - `RuntimeGcAnchorSchema` fixes one immutable `i32` ABI-version field; its type
@@ -61,8 +71,9 @@ reachability.
   is carried into the main-function initialization as typed module state.
 - `RuntimeGcAnchorHolderSchema` fixes one immutable, non-null
   `GcRef<RuntimeGcAnchor>` field. Ordered central registration consumes the
-  anchor's typed index when encoding that field, and the main probe constructs
-  and traverses the edge before asserting the anchor ABI.
+  anchor's typed index when encoding that field. The main probe transfers that
+  edge into the typed root before any call and verifies/clears it only at the
+  shared main exit; the final job checkpoint deliberately does not clear it.
 - `WasmGcCapability::DeferredReferenceCountingWithoutCycleCollection` is the
   closed collector truth consumed by configuration, trace reporting and typed
   `EngineError` context; both native compiler profiles share that policy.

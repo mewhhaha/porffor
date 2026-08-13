@@ -1,10 +1,13 @@
 use super::*;
 use lila_ir::NativeErrorKind;
-use wasm_encoder::{FieldType, HeapType, RefType, StorageType, TypeSection};
+use wasm_encoder::{
+    ConstExpr, FieldType, GlobalSection, GlobalType, HeapType, RefType, StorageType, TypeSection,
+};
 
 use crate::gc_types::{
     GcField, GcFieldMutability, GcFieldNullability, GcFieldValue, GcHeapType, GcRef, GcTypeIndex,
-    I32Value, NonNullable, RuntimeGcAnchorHolderSchema, RuntimeGcAnchorSchema,
+    I32Value, NonNullable, RuntimeGcAnchorHolderSchema, RuntimeGcAnchorRootSchema,
+    RuntimeGcAnchorSchema,
 };
 
 pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
@@ -266,6 +269,41 @@ impl RuntimeModuleTypes {
     }
 }
 
+/// Complete runtime schema carried only by the main-function role.
+///
+/// A main body cannot be constructed from type indices alone: it must also
+/// carry the typed global that roots the capability anchor across the whole
+/// invocation. Internal functions receive neither this schema nor the root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeModuleSchema {
+    types: RuntimeModuleTypes,
+    gc_anchor_root: RuntimeGcAnchorRootSchema,
+}
+
+impl RuntimeModuleSchema {
+    const fn new(types: RuntimeModuleTypes, gc_anchor_root_global_index: u32) -> Self {
+        Self {
+            types,
+            gc_anchor_root: RuntimeGcAnchorRootSchema::new(
+                gc_anchor_root_global_index,
+                types.gc_anchor().type_index(),
+            ),
+        }
+    }
+
+    pub(crate) const fn gc_anchor(self) -> RuntimeGcAnchorSchema {
+        self.types.gc_anchor()
+    }
+
+    pub(crate) const fn gc_anchor_holder(self) -> RuntimeGcAnchorHolderSchema {
+        self.types.gc_anchor_holder()
+    }
+
+    pub(crate) const fn gc_anchor_root(self) -> RuntimeGcAnchorRootSchema {
+        self.gc_anchor_root
+    }
+}
+
 /// The one type section and the typed indices assigned while constructing it.
 pub(crate) struct ModuleTypeRegistry {
     section: TypeSection,
@@ -337,8 +375,11 @@ impl ModuleTypeRegistry {
         }
     }
 
-    pub(crate) const fn runtime(&self) -> RuntimeModuleTypes {
-        self.runtime
+    pub(crate) const fn runtime_schema(
+        &self,
+        gc_anchor_root_global_index: u32,
+    ) -> RuntimeModuleSchema {
+        RuntimeModuleSchema::new(self.runtime, gc_anchor_root_global_index)
     }
 
     pub(crate) const fn section(&self) -> &TypeSection {
@@ -424,6 +465,51 @@ impl ModuleTypeSectionBuilder {
     }
 
     fn finish(self) -> TypeSection {
+        self.section
+    }
+}
+
+/// The sole construction path for the module global section.
+///
+/// The inner encoder is private and this wrapper is not a Wasm section. A
+/// caller must finish it with the complete runtime module schema before the
+/// result can be attached to a module, which makes omission of the GC root a
+/// compile error rather than an out-of-band convention.
+pub(crate) struct ModuleGlobalSectionBuilder {
+    section: GlobalSection,
+}
+
+impl ModuleGlobalSectionBuilder {
+    pub(crate) fn new() -> Self {
+        Self {
+            section: GlobalSection::new(),
+        }
+    }
+
+    pub(crate) fn global(&mut self, global_type: GlobalType, init_expr: &ConstExpr) -> &mut Self {
+        self.section.global(global_type, init_expr);
+        self
+    }
+
+    pub(crate) fn finish(mut self, runtime: RuntimeModuleSchema) -> GlobalSection {
+        let root = runtime.gc_anchor_root();
+        assert_eq!(
+            self.section.len(),
+            root.global().raw(),
+            "runtime GC root must be appended after every pre-existing global"
+        );
+        let anchor_type = HeapType::Concrete(root.anchor_type_index().raw());
+        self.section.global(
+            GlobalType {
+                val_type: ValType::Ref(RefType {
+                    nullable: true,
+                    heap_type: anchor_type,
+                }),
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::ref_null(anchor_type),
+        );
         self.section
     }
 }
@@ -975,8 +1061,9 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Intl.DateTimeFormat",
         index: INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
     },
-    // This registry is asserted to be dense with `index == position`, and
-    // `emit.rs` emits `GLOBAL_INDEX_REGISTRY.len()` globals. Its sibling
+    // This fixed scalar registry is asserted to be dense with
+    // `index == position`, and `emit.rs` emits all of its globals before any
+    // dynamic globals or the typed runtime GC root. Its sibling
     // `throw_error_name_heap` sits at index 64 and cannot be joined here
     // without renumbering 70 globals. It no longer holds the highest index —
     // the `AsyncDisposableStack` pair below was appended after it — but it
@@ -2276,8 +2363,8 @@ mod tests {
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
             ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
-            "the registry length tracks the highest index, and `emit.rs` emits exactly this many \
-             globals for a heap module"
+            "the fixed scalar registry length tracks its highest index; dynamic globals and the \
+             typed runtime GC root are appended afterward"
         );
         assert!(
             THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX > INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,

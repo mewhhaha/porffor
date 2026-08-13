@@ -501,6 +501,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        self.verify_and_clear_runtime_gc_anchor_root(function);
         match self.return_abi() {
             ReturnAbi::MainExport => {
                 function.instruction(&Instruction::LocalGet(self.result_tag_local));

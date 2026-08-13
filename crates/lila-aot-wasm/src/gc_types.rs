@@ -142,6 +142,41 @@ pub(crate) struct GcRef<T: GcHeapType>(PhantomData<fn() -> T>);
 
 impl<T: GcHeapType> sealed::Sealed for GcRef<T> {}
 
+/// The index of one mutable, nullable Wasm global that roots a strong GC
+/// reference to `T`.
+///
+/// The nullable state is the lifecycle boundary: the global is null before
+/// main establishes the root and after every shared main exit clears it. This
+/// type names the global slot only; it cannot contain a reference value, a
+/// linear-memory address, or the index of a scalar global.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub(crate) struct GcRootGlobal<T: GcHeapType> {
+    raw: u32,
+    target: PhantomData<fn() -> T>,
+}
+
+impl<T: GcHeapType> GcRootGlobal<T> {
+    const fn new(raw: u32) -> Self {
+        Self {
+            raw,
+            target: PhantomData,
+        }
+    }
+
+    pub(crate) const fn raw(self) -> u32 {
+        self.raw
+    }
+}
+
+impl<T: GcHeapType> Clone for GcRootGlobal<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: GcHeapType> Copy for GcRootGlobal<T> {}
+
 /// A memory32 byte address owned by a particular GC layout.
 ///
 /// The owner parameter prevents side-storage addresses for two layouts from
@@ -299,6 +334,37 @@ impl RuntimeGcAnchorSchema {
 
     pub(crate) const fn type_index(self) -> GcTypeIndex<RuntimeGcAnchor> {
         self.type_index
+    }
+}
+
+/// The anchor type paired with the sole runtime GC root global.
+///
+/// Construction takes the typed anchor index, so the global's concrete
+/// reference type cannot silently drift to another registered layout. Only a
+/// complete runtime module schema constructs this value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGcAnchorRootSchema {
+    global: GcRootGlobal<RuntimeGcAnchor>,
+    anchor_type_index: GcTypeIndex<RuntimeGcAnchor>,
+}
+
+impl RuntimeGcAnchorRootSchema {
+    pub(crate) const fn new(
+        global_index: u32,
+        anchor_type_index: GcTypeIndex<RuntimeGcAnchor>,
+    ) -> Self {
+        Self {
+            global: GcRootGlobal::new(global_index),
+            anchor_type_index,
+        }
+    }
+
+    pub(crate) const fn global(self) -> GcRootGlobal<RuntimeGcAnchor> {
+        self.global
+    }
+
+    pub(crate) const fn anchor_type_index(self) -> GcTypeIndex<RuntimeGcAnchor> {
+        self.anchor_type_index
     }
 }
 
