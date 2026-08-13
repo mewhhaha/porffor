@@ -21,6 +21,78 @@ use super::temporal_plain_date::TemporalEraLocals;
 use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
 use super::temporal_plain_time_methods::{TEMPORAL_PRECISION_AUTO, TEMPORAL_PRECISION_MINUTE};
 
+/// Which `Temporal.PlainDateTime.prototype` difference member is being
+/// emitted. The direction is part of the settings plan because `since`
+/// negates the requested rounding mode before it computes the same underlying
+/// difference as `until`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PlainDateTimeDifference {
+    Until,
+    Since,
+}
+
+impl PlainDateTimeDifference {
+    const fn settings_plan(self) -> TemporalDateTimeDifferenceSettingsPlan {
+        match self {
+            Self::Until => TemporalDateTimeDifferenceSettingsPlan::PlainUntil,
+            Self::Since => TemporalDateTimeDifferenceSettingsPlan::PlainSince,
+        }
+    }
+
+    const fn negates_result(self) -> bool {
+        match self {
+            Self::Until => false,
+            Self::Since => true,
+        }
+    }
+}
+
+/// The three compile-time consumers of the shared DateTime difference-settings
+/// reader.
+///
+/// ZonedDateTime deliberately has one delegate state rather than separate
+/// directions: the selected PlainDateTime builtin still owns `until` versus
+/// `since`, so the internal options bag must carry the user's unnegated mode.
+/// Keeping that state distinct from `PlainSince` prevents the mode from being
+/// negated once here and a second time in the delegate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TemporalDateTimeDifferenceSettingsPlan {
+    PlainUntil,
+    PlainSince,
+    ZonedDelegate,
+}
+
+impl TemporalDateTimeDifferenceSettingsPlan {
+    const fn fallback_largest_unit(self) -> TemporalUnit {
+        match self {
+            Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,
+            Self::ZonedDelegate => TemporalUnit::Hour,
+        }
+    }
+
+    const fn negates_rounding_mode(self) -> bool {
+        match self {
+            Self::PlainUntil | Self::ZonedDelegate => false,
+            Self::PlainSince => true,
+        }
+    }
+}
+
+/// The completed `GetDifferenceSettings` read. The four locals move together:
+/// arithmetic may not consume a largest unit resolved under one fallback and a
+/// rounding mode resolved under another operation.
+///
+/// This witness is intentionally linear. In particular, the ZonedDateTime
+/// consumer must move it into the normalized internal options bag rather than
+/// reuse the user's observable bag at the PlainDateTime call boundary.
+#[must_use = "resolved Temporal difference settings must be consumed"]
+struct ResolvedTemporalDateTimeDifferenceSettings {
+    largest_unit_local: u32,
+    smallest_unit_local: u32,
+    increment_local: u32,
+    mode_local: u32,
+}
+
 /// One row of the combined `PrepareCalendarFields` / `ToTemporalTimeRecord`
 /// sweep for a `Temporal.PlainDateTime` property bag, in the alphabetical order
 /// the reads are observable in.
@@ -2241,11 +2313,315 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The shared `GetDifferenceSettings` portion of PlainDateTime and
+    /// ZonedDateTime delegation. `plan` is compile-time policy: no raw unit or
+    /// direction flag can cross this boundary independently of the consumer
+    /// that owns it.
+    fn emit_temporal_date_time_difference_settings(
+        &mut self,
+        options_payload_local: u32,
+        options_tag_local: u32,
+        plan: TemporalDateTimeDifferenceSettingsPlan,
+        function: &mut Function,
+    ) -> Result<ResolvedTemporalDateTimeDifferenceSettings, EmitError> {
+        let largest_unit_local = self.reserve_temp_local();
+        let smallest_unit_local = self.reserve_temp_local();
+        let increment_local = self.reserve_temp_local();
+        let mode_local = self.reserve_temp_local();
+
+        // `GetDifferenceSettings` reads largestUnit, then the two rounding
+        // options, then smallestUnit - the order is observable.
+        self.emit_temporal_duration_options_object(
+            options_payload_local,
+            options_tag_local,
+            function,
+        )?;
+        self.emit_temporal_duration_unit_option(
+            options_payload_local,
+            options_tag_local,
+            "largestUnit",
+            true,
+            largest_unit_local,
+            function,
+        )?;
+        self.emit_temporal_duration_rounding_increment_option(
+            options_payload_local,
+            options_tag_local,
+            increment_local,
+            function,
+        )?;
+        self.emit_temporal_duration_rounding_mode_option(
+            options_payload_local,
+            options_tag_local,
+            TemporalRoundingMode::Trunc,
+            mode_local,
+            function,
+        )?;
+        if plan.negates_rounding_mode() {
+            let original_mode_local = self.reserve_temp_local();
+            // `NegateRoundingMode`: ceil and floor swap, as do halfCeil and
+            // halfFloor; the sign-symmetric modes are unchanged.
+            function.instruction(&Instruction::LocalGet(mode_local));
+            function.instruction(&Instruction::LocalSet(original_mode_local));
+            for mode in TemporalRoundingMode::ALL {
+                if mode.negated() == mode {
+                    continue;
+                }
+                function.instruction(&Instruction::LocalGet(original_mode_local));
+                function.instruction(&Instruction::I64Const(mode.code()));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(mode.negated().code()));
+                function.instruction(&Instruction::LocalSet(mode_local));
+                function.instruction(&Instruction::End);
+            }
+            self.release_temp_local(original_mode_local);
+        }
+        self.emit_temporal_duration_unit_option(
+            options_payload_local,
+            options_tag_local,
+            "smallestUnit",
+            false,
+            smallest_unit_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
+        function.instruction(&Instruction::LocalSet(smallest_unit_local));
+        function.instruction(&Instruction::End);
+        self.emit_temporal_require_unit_range(
+            smallest_unit_local,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.PlainDateTime unit option",
+            function,
+        )?;
+
+        // An unset or `"auto"` largestUnit falls back to the larger of the
+        // consumer's closed fallback and the resolved smallest unit.
+        let fallback_largest_unit = plan.fallback_largest_unit();
+        function.instruction(&Instruction::LocalGet(largest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(largest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64Const(fallback_largest_unit.code()));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(fallback_largest_unit.code()));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(largest_unit_local));
+        function.instruction(&Instruction::End);
+        self.emit_temporal_require_unit_range(
+            largest_unit_local,
+            TemporalUnit::Year,
+            TemporalUnit::Nanosecond,
+            "Invalid Temporal.PlainDateTime unit option",
+            function,
+        )?;
+        self.emit_temporal_require_largest_not_smaller(
+            largest_unit_local,
+            smallest_unit_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_plain_time_validate_increment(
+            smallest_unit_local,
+            increment_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        Ok(ResolvedTemporalDateTimeDifferenceSettings {
+            largest_unit_local,
+            smallest_unit_local,
+            increment_local,
+            mode_local,
+        })
+    }
+
+    /// Turn one validated unit code into the canonical singular spelling used
+    /// by the private ZonedDateTime delegate options bag.
+    fn emit_temporal_difference_unit_string_payload(
+        &mut self,
+        unit_local: u32,
+        output_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(TemporalUnit::Nanosecond.singular()),
+        ));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        for unit in TemporalUnit::ALL {
+            function.instruction(&Instruction::LocalGet(unit_local));
+            function.instruction(&Instruction::I64Const(unit.code()));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(unit.singular()),
+            ));
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            function.instruction(&Instruction::End);
+        }
+    }
+
+    /// The rounding-mode twin of
+    /// [`Self::emit_temporal_difference_unit_string_payload`].
+    fn emit_temporal_difference_rounding_mode_string_payload(
+        &mut self,
+        mode_local: u32,
+        output_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(TemporalRoundingMode::Trunc.name()),
+        ));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        for mode in TemporalRoundingMode::ALL {
+            function.instruction(&Instruction::LocalGet(mode_local));
+            function.instruction(&Instruction::I64Const(mode.code()));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(self.strings.payload(mode.name())));
+            function.instruction(&Instruction::LocalSet(output_payload_local));
+            function.instruction(&Instruction::End);
+        }
+    }
+
+    /// Resolve a ZonedDateTime difference's user options exactly once, then
+    /// consume the linear witness into an unreachable primitive-only object
+    /// for the existing PlainDateTime delegate.
+    pub(crate) fn emit_temporal_zoned_date_time_difference_delegate_options(
+        &mut self,
+        options_payload_local: u32,
+        options_tag_local: u32,
+        delegate_options_payload_local: u32,
+        delegate_options_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let settings = self.emit_temporal_date_time_difference_settings(
+            options_payload_local,
+            options_tag_local,
+            TemporalDateTimeDifferenceSettingsPlan::ZonedDelegate,
+            function,
+        )?;
+        let ResolvedTemporalDateTimeDifferenceSettings {
+            largest_unit_local,
+            smallest_unit_local,
+            increment_local,
+            mode_local,
+        } = settings;
+        let key_local = self.reserve_temp_local();
+        let value_payload_local = self.reserve_temp_local();
+        let value_tag_local = self.reserve_temp_local();
+
+        // A null prototype makes the transport object independent of mutable
+        // realm intrinsics. Every property the delegate reads is defined below.
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+        function.instruction(&Instruction::LocalSet(delegate_options_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(delegate_options_tag_local));
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("largestUnit")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_temporal_difference_unit_string_payload(
+            largest_unit_local,
+            value_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_enumerable_data(
+            delegate_options_payload_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("roundingIncrement"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::LocalGet(increment_local));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_enumerable_data(
+            delegate_options_payload_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("roundingMode")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_temporal_difference_rounding_mode_string_payload(
+            mode_local,
+            value_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_enumerable_data(
+            delegate_options_payload_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("smallestUnit")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_temporal_difference_unit_string_payload(
+            smallest_unit_local,
+            value_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(value_tag_local));
+        self.emit_object_define_enumerable_data(
+            delegate_options_payload_local,
+            key_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )?;
+
+        for local in [
+            value_tag_local,
+            value_payload_local,
+            key_local,
+            mode_local,
+            increment_local,
+            smallest_unit_local,
+            largest_unit_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
     /// Temporal proposal 5.3.x `until` and `since`, both through
     /// `DifferencePlainDateTimeWithRounding`.
     pub(crate) fn emit_temporal_plain_date_time_until_or_since(
         &mut self,
-        since: bool,
+        difference: PlainDateTimeDifference,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
@@ -2256,11 +2632,6 @@ impl<'a> FunctionBuilder<'a> {
         let undefined_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let other_calendar_payload_local = self.reserve_temp_local();
-        let largest_unit_local = self.reserve_temp_local();
-        let smallest_unit_local = self.reserve_temp_local();
-        let increment_local = self.reserve_temp_local();
-        let mode_local = self.reserve_temp_local();
-        let original_mode_local = self.reserve_temp_local();
         let quantum_local = self.reserve_temp_local();
         let total_local = self.reserve_temp_local();
         let other_total_local = self.reserve_temp_local();
@@ -2311,116 +2682,18 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // `GetDifferenceSettings` reads largestUnit, then the two rounding
-        // options, then smallestUnit - the order is observable.
-        self.emit_temporal_duration_options_object(
+        let settings = self.emit_temporal_date_time_difference_settings(
             options_payload_local,
             options_tag_local,
+            difference.settings_plan(),
             function,
         )?;
-        self.emit_temporal_duration_unit_option(
-            options_payload_local,
-            options_tag_local,
-            "largestUnit",
-            true,
+        let ResolvedTemporalDateTimeDifferenceSettings {
             largest_unit_local,
-            function,
-        )?;
-        self.emit_temporal_duration_rounding_increment_option(
-            options_payload_local,
-            options_tag_local,
+            smallest_unit_local,
             increment_local,
-            function,
-        )?;
-        self.emit_temporal_duration_rounding_mode_option(
-            options_payload_local,
-            options_tag_local,
-            TemporalRoundingMode::Trunc,
             mode_local,
-            function,
-        )?;
-        if since {
-            // `NegateRoundingMode`: ceil and floor swap, as do halfCeil and
-            // halfFloor; the sign-symmetric modes are unchanged.
-            function.instruction(&Instruction::LocalGet(mode_local));
-            function.instruction(&Instruction::LocalSet(original_mode_local));
-            for mode in TemporalRoundingMode::ALL {
-                if mode.negated() == mode {
-                    continue;
-                }
-                function.instruction(&Instruction::LocalGet(original_mode_local));
-                function.instruction(&Instruction::I64Const(mode.code()));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(mode.negated().code()));
-                function.instruction(&Instruction::LocalSet(mode_local));
-                function.instruction(&Instruction::End);
-            }
-        }
-        self.emit_temporal_duration_unit_option(
-            options_payload_local,
-            options_tag_local,
-            "smallestUnit",
-            false,
-            smallest_unit_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
-        function.instruction(&Instruction::LocalSet(smallest_unit_local));
-        function.instruction(&Instruction::End);
-        self.emit_temporal_require_unit_range(
-            smallest_unit_local,
-            TemporalUnit::Year,
-            TemporalUnit::Nanosecond,
-            "Invalid Temporal.PlainDateTime unit option",
-            function,
-        )?;
-        // An unset or `"auto"` largestUnit falls back to the larger of day and
-        // the smallest unit.
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(largest_unit_local));
-        function.instruction(&Instruction::End);
-        self.emit_temporal_require_unit_range(
-            largest_unit_local,
-            TemporalUnit::Year,
-            TemporalUnit::Nanosecond,
-            "Invalid Temporal.PlainDateTime unit option",
-            function,
-        )?;
-        self.emit_temporal_require_largest_not_smaller(
-            largest_unit_local,
-            smallest_unit_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_time_validate_increment(
-            smallest_unit_local,
-            increment_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
+        } = settings;
 
         let time_locals = Self::temporal_plain_date_time_time_locals(&field_locals);
         let other_time_locals = Self::temporal_plain_date_time_time_locals(&other_locals);
@@ -2643,7 +2916,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        if since {
+        if difference.negates_result() {
             for local in [
                 years_local,
                 months_local,
@@ -2682,6 +2955,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(duration_locals[3]));
         self.emit_create_temporal_duration(&duration_locals, function)?;
 
+        for local in [
+            mode_local,
+            increment_local,
+            smallest_unit_local,
+            largest_unit_local,
+        ] {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(duration_locals);
         self.release_temporal_plain_date_time_field_locals(other_locals);
         self.release_temporal_plain_date_time_field_locals(field_locals);
@@ -2701,11 +2982,6 @@ impl<'a> FunctionBuilder<'a> {
             other_total_local,
             total_local,
             quantum_local,
-            original_mode_local,
-            mode_local,
-            increment_local,
-            smallest_unit_local,
-            largest_unit_local,
             other_calendar_payload_local,
             calendar_payload_local,
             undefined_tag_local,

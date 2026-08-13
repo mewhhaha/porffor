@@ -18,6 +18,7 @@ use super::number::NumberBuiltin;
 use super::object::{EnumerableOwnProperties, IntegrityTest, PrototypeLookup};
 use super::symbol::SymbolBuiltin as SymbolFn;
 use super::temporal::ZonedDateTimeField;
+use super::temporal_plain_date_time_methods::PlainDateTimeDifference;
 use super::uri::UriBuiltin;
 use crate::functions::{
     FunctionRealmRevokedRoute, NewTargetPrototypeFallback, OrdinaryDefaultPrototype,
@@ -25231,10 +25232,16 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_temporal_plain_date_time_add_or_subtract(true, function)?;
             }
             StandardBuiltinId::TemporalPlainDateTimePrototypeUntil => {
-                self.emit_temporal_plain_date_time_until_or_since(false, function)?;
+                self.emit_temporal_plain_date_time_until_or_since(
+                    PlainDateTimeDifference::Until,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalPlainDateTimePrototypeSince => {
-                self.emit_temporal_plain_date_time_until_or_since(true, function)?;
+                self.emit_temporal_plain_date_time_until_or_since(
+                    PlainDateTimeDifference::Since,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalPlainDateTimePrototypeRound => {
                 self.emit_temporal_plain_date_time_round(function)?;

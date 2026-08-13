@@ -71,6 +71,21 @@ execution remains deferred until that low-RAM matrix releases Cargo/Test262.
 The invariant and deferred gates are recorded in
 `docs/rust-rewrite/contracts/date-constructor-realm-prototype.md`.
 
+ZonedDateTime differences now have a closed default-largest-unit plan. The
+shared PlainDateTime settings reader distinguishes PlainDateTime `until`,
+PlainDateTime `since` and ZonedDateTime delegation; the first two resolve an
+unset or `"auto"` `largestUnit` from `day`, while the delegate resolves it from
+`hour`. A non-copyable resolved-settings witness is consumed directly by the
+PlainDateTime arithmetic or materialized as an unreachable normalized options
+bag for the existing ZonedDateTime-to-PlainDateTime call. User getters and
+conversion hooks are therefore observed once, while the arithmetic body stays
+single-sourced. This targets the pinned ZonedDateTime
+`defaults-to-returning-hours`, `largestunit-undefined` and
+`largestunit-default` cases for both `until` and `since`. Current-SHA execution
+remains deferred while the low-RAM matrix owns Cargo/Test262; the invariant and
+deferred gates are recorded in
+`docs/rust-rewrite/contracts/temporal-zoned-date-time-difference-default.md`.
+
 ## Objective
 
 Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Lila's own runtime/compiler layers.

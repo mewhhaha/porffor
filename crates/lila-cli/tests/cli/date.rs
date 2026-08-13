@@ -376,6 +376,37 @@ fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_arithmetic_fixture() {
     assert!(stdout.contains("number(262"));
 }
 
+/// `Temporal.ZonedDateTime.prototype.{until,since}` resolve an omitted,
+/// undefined or `"auto"` largestUnit from hour, while a larger smallestUnit
+/// becomes the default. The fixture also makes every user option get and
+/// conversion observable so the PlainDateTime delegate cannot obtain the
+/// right numeric answer by reading the original bag twice.
+#[test]
+fn run_wasm_backend_uses_zoned_date_time_hour_difference_default() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_temporal_zoned_date_time_difference_defaults.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-zdt-difference-default:25h|2d|LlIiRrSs"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_date_to_json_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

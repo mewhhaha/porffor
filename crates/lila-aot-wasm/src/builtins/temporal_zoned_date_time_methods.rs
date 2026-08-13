@@ -383,30 +383,19 @@ impl<'a> FunctionBuilder<'a> {
     /// ORDERING DIVERGENCE, recorded rather than hidden: the spec reads the
     /// options bag (`GetDifferenceSettings`) *between* the calendar check and
     /// the time-zone check. Here both checks run first and the options bag is
-    /// read inside the delegate. That is observable only for an options object
-    /// with side-effecting getters passed together with a mismatched time zone;
-    /// none of the 28 era-boundary cases is such a case (all are `"UTC"` on both
-    /// sides with a plain object literal for options).
+    /// read immediately before the delegate. That is observable only for an
+    /// options object with side-effecting getters passed together with a
+    /// mismatched time zone; none of the 28 era-boundary cases is such a case
+    /// (all are `"UTC"` on both sides with a plain object literal for options).
     ///
-    /// DEFAULT-`largestUnit` DIVERGENCE, likewise recorded. `GetDifferenceSettings`
-    /// is called with a *fallback* of `"hour"` for ZonedDateTime and `"day"` for
-    /// PlainDateTime. The fallback is baked into the shared PlainDateTime body
-    /// (`emit_temporal_plain_date_time_until_or_since`, at the
-    /// `TemporalUnit::Day` constants in its unset/`"auto"` branch), and the
-    /// delegation here is a runtime call to that one compiled body — so it
-    /// cannot be parameterised per caller without either a second copy of the
-    /// 480-line difference emitter or rewriting the user's options object,
-    /// which would double the observable gets. So `zdt.since(other)` with no
-    /// `largestUnit` currently answers in days where the spec answers in hours.
-    ///
-    /// This does not reach the 28-case gate, checked against the files rather
-    /// than assumed: every `since`/`until` era-boundary case either passes
-    /// `{ largestUnit: ... }` explicitly, or compares `one.since(two)` against
-    /// `oneISO.since(twoISO)` — two results from *this same path*, so
-    /// `TemporalHelpers.assertDurationsEqual` holds under either fallback. It
-    /// does reach `built-ins/Temporal/ZonedDateTime/prototype/{since,until}`,
-    /// which is part of the 566-case hand-off, and it is written up in
-    /// `target/lane-notes/zdt-arithmetic-surface-b6-integration.md`.
+    /// The two types' default-largest-unit difference is resolved before that
+    /// runtime call. One shared settings producer uses the ZonedDateTime
+    /// `"hour"` fallback, and a linear witness is consumed into an unreachable
+    /// normalized options object. The PlainDateTime delegate therefore sees an
+    /// explicit largest unit while every user getter and conversion hook is
+    /// still observed once. This keeps one copy of the arithmetic body and is
+    /// pinned by the `defaults-to-returning-hours`, `largestunit-undefined` and
+    /// `largestunit-default` families for both operations.
     pub(crate) fn emit_temporal_zoned_date_time_until_or_since(
         &mut self,
         difference: ZonedDateTimeDifference,
@@ -419,6 +408,8 @@ impl<'a> FunctionBuilder<'a> {
         let argument_tag_local = self.reserve_temp_local();
         let options_payload_local = self.reserve_temp_local();
         let options_tag_local = self.reserve_temp_local();
+        let delegate_options_payload_local = self.reserve_temp_local();
+        let delegate_options_tag_local = self.reserve_temp_local();
         let other_payload_local = self.reserve_temp_local();
         let other_tag_local = self.reserve_temp_local();
         let other_record_local = self.reserve_temp_local();
@@ -503,14 +494,15 @@ impl<'a> FunctionBuilder<'a> {
         // DELIBERATELY OVER-STRICT, and this is the choice, not an oversight.
         // The spec applies `TimeZoneEquals` only when `largestUnit` is a *date*
         // unit; a time-unit difference across two zones is legal and answers
-        // the plain instant difference. `largestUnit` is inside the options bag
-        // and reading it here would double every observable get, so the check
-        // cannot be conditioned on it without restructuring the delegation.
-        // Given the choice between throwing a spec-shaped RangeError in a case
-        // the spec allows and returning a *wrong number* (differencing two
-        // wall-clock readings taken in different zones is meaningless), this
-        // takes the loud error. Cross-zone time-unit differences are therefore
-        // a known, named gap, not a silent one.
+        // the plain instant difference. `largestUnit` is resolved into a
+        // linear settings witness below. Moving that read
+        // before this guard and conditioning the guard on the witness would
+        // repair a separate observable-order/cross-zone seam; it is
+        // deliberately not ridden along here. Given the choice between
+        // throwing a spec-shaped RangeError in a case the spec allows and
+        // returning a *wrong number* (differencing two wall-clock readings
+        // taken in different zones is meaningless), this takes the loud error.
+        // Cross-zone time-unit differences remain a known, named gap.
         self.emit_string_payload_equality_i32(
             time_zone_payload_local,
             other_time_zone_payload_local,
@@ -556,6 +548,18 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        // Resolve the user bag under ZonedDateTime's hour fallback exactly
+        // once. The returned private bag contains only validated primitives,
+        // so the existing PlainDateTime body can read it without repeating an
+        // observable getter or conversion.
+        self.emit_temporal_zoned_date_time_difference_delegate_options(
+            options_payload_local,
+            options_tag_local,
+            delegate_options_payload_local,
+            delegate_options_tag_local,
+            function,
+        )?;
+
         let difference_builtin = difference.plain_date_time_builtin();
         let difference_meta = self
             .functions
@@ -572,7 +576,7 @@ impl<'a> FunctionBuilder<'a> {
             Some((plain_payload_local, Some(plain_tag_local))),
             &[
                 (other_plain_payload_local, other_plain_tag_local),
-                (options_payload_local, options_tag_local),
+                (delegate_options_payload_local, delegate_options_tag_local),
             ],
             duration_payload_local,
             duration_tag_local,
@@ -595,6 +599,8 @@ impl<'a> FunctionBuilder<'a> {
             other_record_local,
             other_tag_local,
             other_payload_local,
+            delegate_options_tag_local,
+            delegate_options_payload_local,
             options_tag_local,
             options_payload_local,
             argument_tag_local,
