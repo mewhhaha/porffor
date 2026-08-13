@@ -19,7 +19,7 @@ hotspots.
 
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Eight previously coupled builtin stores now have separate owners:
+Nine previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -62,11 +62,17 @@ Eight previously coupled builtin stores now have separate owners:
   realm-local TypeError route together. After the intervening T20 residue
   consolidation, the extraction reduced `standard.rs` from 35,532 to 35,439
   lines.
+- `lila-aot-wasm/src/builtins/uri.rs` owns all six global URI and Annex-B codec
+  wrappers behind a private closed `UriBuiltin` domain. The UTF-8/UTF-16 codec
+  primitives remain with their existing `string.rs` owner; only the complete
+  global wrapper family moved. Six typed delegates preserve the flat catalog
+  dispatch, and `standard.rs` fell from 35,439 to 35,394 lines.
 
-The central feature-enabled CLI compile, which covers `lila-aot-wasm` and
-`lila-intl`, and the focused builtin catalog tests pass. The source moves were
-also compared against their pre-extraction bodies, and the boundary audit
-prevents these stores from being folded back into their parents. The later
+The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
+and `lila-intl`, and the focused builtin catalog tests pass for the moves that
+reached that checkpoint. The source moves were also compared against their
+pre-extraction bodies, and the boundary audit prevents these stores from being
+folded back into their parents. The later
 Proxy move is source-equivalent by a static body comparison and is included in
 the green compile checkpoint and product-artifact boundary proof. The Math move
 is statically source-equivalent, boundary-checked, and covered by that compile
@@ -79,6 +85,10 @@ wrapper-coercion and cross-realm prototype behavior checkpoints are green.
 The Boolean move is statically instruction-sequence equivalent and
 boundary-checked; its compile, focused fixture, and real Boolean shard gates
 remain queued behind the active resource-bounded matrix run.
+The URI move is statically source-equivalent after normalizing only the closed
+enum path and rustfmt's block-expression layout, and is boundary-checked; its
+compile, focused global-codec fixtures and real URI/Annex-B shard gates remain
+queued behind the same matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -108,9 +118,10 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy, Math, Symbol, BigInt and Boolean 2026-08-13:** their
-  bodies are family modules; Reflect already has the same boundary. Other large
-  inline families should follow the same exhaustive-delegate shape.
+- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean and URI
+  2026-08-13:** their bodies are family modules; Reflect already has the same
+  boundary. Other large inline families should follow the same
+  exhaustive-delegate shape.
 
 ### Landed 2026-08-12: catalog-owned bootstrap routing
 

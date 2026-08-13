@@ -215,7 +215,7 @@ for module in abi control_flow data emit environments expressions functions heap
   require_module_decl "$wasm_lib" "$module"
 done
 
-for module in array bigint binary_data boolean bootstrap date errors host iterators json math object proxy reflect standard string symbol; do
+for module in array bigint binary_data boolean bootstrap date errors host iterators json math object proxy reflect standard string symbol uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
@@ -226,18 +226,19 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt and Boolean builtin body boundaries. The exhaustive
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean and URI builtin body boundaries. The exhaustive
 # StandardBuiltinId dispatch remains in standard.rs, but family bodies are
 # one-line delegates so unrelated builtin work no longer collides with ~11k
 # lines of Object descriptor/prototype implementation, the Proxy lifecycle,
 # the Math emitter family, Symbol's registry/prototype implementation or
 # BigInt's constructor, fixed-width and prototype implementation, or Boolean's
-# constructor and prototype receiver logic.
+# constructor and prototype receiver logic. The six global URI and Annex-B
+# codec wrappers likewise stay out of the shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after Boolean extraction: 35,439 raw lines. This keeps
-# roughly the same small dispatch-only margin as the prior 35,850-line cap;
+# Measured immediately after URI extraction: 35,394 raw lines. This keeps
+# roughly the same small dispatch-only margin as the prior 35,650-line cap;
 # substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 35650
+check_raw_line_budget "$wasm_standard_builtins" 35600
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -269,6 +270,17 @@ fi
 # Measured immediately after extraction: 518 raw lines. The narrow margin is
 # for maintenance of this family, not adjacent builtin implementations.
 check_raw_line_budget "$wasm_symbol_builtins" 550
+
+wasm_uri_builtins="crates/lila-aot-wasm/src/builtins/uri.rs"
+check_no_inline_legacy_includes "$wasm_uri_builtins"
+if ! grep -q '^pub(super) enum UriBuiltin' "$wasm_uri_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_uri_builtins"; then
+  fail "$wasm_uri_builtins must dispatch through the closed UriBuiltin domain"
+fi
+require_fixed_string_count "$wasm_standard_builtins" 'self.emit_uri_builtin(' 6 'URI builtin delegate'
+# Measured immediately after extraction: 82 raw lines. The narrow margin is
+# for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_uri_builtins" 115
 
 # The Temporal record/constructor/accessor vs prototype-method-body boundary.
 # `temporal.rs` and `temporal_plain_date_time.rs` hold the heap record, the

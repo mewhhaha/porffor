@@ -75,6 +75,7 @@ mod temporal_zoned_date_time_methods;
 pub(crate) use temporal_zoned_date_time_methods::{
     ZonedDateTimeArithmetic, ZonedDateTimeDifference,
 };
+mod uri;
 mod weak_ref;
 pub(crate) const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [
     &[0xC2, 0xA0],       // U+00A0

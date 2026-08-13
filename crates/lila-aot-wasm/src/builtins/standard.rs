@@ -7,9 +7,9 @@ use super::bigint::BigIntBuiltin;
 use super::boolean::BooleanBuiltin;
 use super::math::MathBuiltin as MathFn;
 use super::object::{EnumerableOwnProperties, IntegrityTest, PrototypeLookup};
-use super::string::UriCodecKind;
 use super::symbol::SymbolBuiltin as SymbolFn;
 use super::temporal::ZonedDateTimeField;
+use super::uri::UriBuiltin;
 use crate::functions::FunctionRealmRevokedRoute;
 use lila_ir::NativeErrorKind;
 use lila_runtime::AgentHostOperation;
@@ -31716,64 +31716,19 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(proxy_target_tag_local);
                 self.release_temp_local(proxy_target_payload_local);
             }
-            StandardBuiltinId::Escape | StandardBuiltinId::Unescape => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let string_local = self.reserve_temp_local();
-
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalSet(string_local));
-                if builtin == StandardBuiltinId::Escape {
-                    self.emit_annexb_escape_string_payload(string_local, function)?;
-                } else {
-                    self.emit_annexb_unescape_string_payload(string_local, function)?;
-                }
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-                self.release_temp_local(string_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+            StandardBuiltinId::Escape => self.emit_uri_builtin(UriBuiltin::Escape, function)?,
+            StandardBuiltinId::Unescape => self.emit_uri_builtin(UriBuiltin::Unescape, function)?,
+            StandardBuiltinId::EncodeUri => {
+                self.emit_uri_builtin(UriBuiltin::EncodeUri, function)?
             }
-            StandardBuiltinId::EncodeUri
-            | StandardBuiltinId::EncodeUriComponent
-            | StandardBuiltinId::DecodeUri
-            | StandardBuiltinId::DecodeUriComponent => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let string_local = self.reserve_temp_local();
-
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
-                self.emit_return_current_completion_if_throw(function);
-                function.instruction(&Instruction::LocalSet(string_local));
-                let codec_kind = match builtin {
-                    StandardBuiltinId::EncodeUri | StandardBuiltinId::DecodeUri => {
-                        UriCodecKind::Uri
-                    }
-                    StandardBuiltinId::EncodeUriComponent
-                    | StandardBuiltinId::DecodeUriComponent => UriCodecKind::Component,
-                    _ => unreachable!(),
-                };
-                match builtin {
-                    StandardBuiltinId::EncodeUri | StandardBuiltinId::EncodeUriComponent => {
-                        self.emit_uri_encode_string_payload(string_local, codec_kind, function)?;
-                    }
-                    StandardBuiltinId::DecodeUri | StandardBuiltinId::DecodeUriComponent => {
-                        self.emit_uri_decode_string_payload(string_local, codec_kind, function)?;
-                    }
-                    _ => unreachable!(),
-                }
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-                self.release_temp_local(string_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+            StandardBuiltinId::EncodeUriComponent => {
+                self.emit_uri_builtin(UriBuiltin::EncodeUriComponent, function)?
+            }
+            StandardBuiltinId::DecodeUri => {
+                self.emit_uri_builtin(UriBuiltin::DecodeUri, function)?
+            }
+            StandardBuiltinId::DecodeUriComponent => {
+                self.emit_uri_builtin(UriBuiltin::DecodeUriComponent, function)?
             }
             StandardBuiltinId::StringPrototypeAnchor
             | StandardBuiltinId::StringPrototypeBig
