@@ -6716,7 +6716,6 @@ impl<'a> FunctionBuilder<'a> {
                     HEAP_ASYNC_RESUME_TAG_OFFSET,
                     ValueKind::Undefined.tag() as u64,
                 ),
-                (HEAP_ASYNC_RESUME_KIND_OFFSET, ASYNC_RESUME_KIND_FULFILL),
                 (HEAP_ASYNC_ENV_OFFSET, 0),
                 (HEAP_ASYNC_INITIALIZED_OFFSET, 0),
                 (HEAP_ASYNC_COMPLETED_OFFSET, 0),
@@ -6725,6 +6724,11 @@ impl<'a> FunctionBuilder<'a> {
             ] {
                 self.store_i64_const_at_offset(async_activation_local, offset, value, function);
             }
+            self.emit_store_async_function_resume_completion(
+                async_activation_local,
+                AsyncFunctionResumeCompletion::Normal,
+                function,
+            );
 
             function.instruction(&Instruction::LocalGet(callee_env_local));
             function.instruction(&Instruction::LocalGet(call_this_payload_local));

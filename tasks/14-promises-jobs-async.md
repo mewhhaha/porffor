@@ -47,6 +47,18 @@ callback shapes. No callback independently treats an invalid word as its own
 fallback. This is a record-integrity boundary; valid reaction behavior and the
 wire encoding are unchanged.
 
+Ordinary async-function activations now store the completion supplied by
+`Await` through one closed `AsyncFunctionResumeCompletion::{Normal, Throw}`
+domain. The raw offset and stable words 0/1 are private to the heap boundary;
+activation initialization and the reaction continuation must use the typed
+store. Ordinary `await` and both `for-await-of` resume sites use the sole strict
+decoder, which normalizes to one `is_throw` flag and traps an unknown word
+instead of treating it as fulfilment. The shared `for-await-of` emitter now has
+a closed async-function/async-generator layout choice, so the generator's
+separate five-way resume-kind behavior stays explicit rather than being folded
+into an integer tuple. This is also a record-integrity boundary: the existing
+valid 0/1 behavior is unchanged, while illegal internal words fail closed.
+
 Main Script completion now has one closed exit policy. While source statements
 are emitted, every otherwise-terminal abrupt completion targets a code-sink
 tracked host-checkpoint block instead of returning from the Wasm export. The
@@ -70,8 +82,10 @@ The central feature-enabled CLI compile covers the consolidated job machinery.
 The typed callback-word/realm policy's durable layout contract is green, as are
 the engine contracts proving that reaction jobs run after synchronous code in
 registration order and that thenable-resolution jobs are asynchronous and
-settle once. Those checks are not a substitute for the full Promise/async
-Test262 filters.
+settle once. The ordinary async resume-completion contract has been added for
+central verification; its focused compile/runtime checks remain queued behind
+the live current-pin matrix. Those checks are not a substitute for the full
+Promise/async Test262 filters.
 
 ## Objective
 

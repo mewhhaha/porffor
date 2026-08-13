@@ -132,6 +132,47 @@ struct DestructuringIteratorLocals {
     close_saved_aux: u32,
 }
 
+/// The activation layout shared by the two execution kinds that can own a
+/// `for-await-of` suspension.
+///
+/// Ordinary async functions strictly decode their two-way resume completion.
+/// Async generators retain their separate five-way resume-kind domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ForAwaitActivationLayout {
+    AsyncFunction,
+    AsyncGenerator,
+}
+
+impl ForAwaitActivationLayout {
+    const fn resume_state_offset(self) -> u64 {
+        match self {
+            Self::AsyncFunction => HEAP_ASYNC_RESUME_STATE_OFFSET,
+            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
+        }
+    }
+
+    const fn resume_payload_offset(self) -> u64 {
+        match self {
+            Self::AsyncFunction => HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
+            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
+        }
+    }
+
+    const fn resume_tag_offset(self) -> u64 {
+        match self {
+            Self::AsyncFunction => HEAP_ASYNC_RESUME_TAG_OFFSET,
+            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
+        }
+    }
+
+    const fn is_async_generator(self) -> bool {
+        match self {
+            Self::AsyncFunction => false,
+            Self::AsyncGenerator => true,
+        }
+    }
+}
+
 impl DestructuringIteratorLocals {
     fn protocol(self) -> SyncIteratorLocals {
         SyncIteratorLocals {
@@ -2440,11 +2481,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(*resume_state as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                let resume_kind_local = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
+                let resume_is_throw_local = self.reserve_temp_local();
+                self.emit_load_async_function_resume_is_throw(
                     activation_local,
-                    HEAP_ASYNC_RESUME_KIND_OFFSET,
-                    resume_kind_local,
+                    resume_is_throw_local,
                     function,
                 );
                 self.load_i64_to_local_from_offset(
@@ -2459,14 +2499,13 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_tag_local,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(resume_kind_local));
-                function.instruction(&Instruction::I64Const(ASYNC_RESUME_KIND_REJECT as i64));
-                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+                function.instruction(&Instruction::I32WrapI64);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.set_completion_kind(CompletionKind::Throw, function);
                 self.emit_dispatch_current_completion(function)?;
                 function.instruction(&Instruction::End);
-                self.release_temp_local(resume_kind_local);
+                self.release_temp_local(resume_is_throw_local);
 
                 match resume_mode {
                     AsyncResumeModeIr::Ignore => {
@@ -5584,6 +5623,44 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
     }
 
+    /// Load the completion of a `for-await-of` suspension into one normalized
+    /// i64 `is_throw` boolean.
+    ///
+    /// Ordinary async functions cross the strict two-word heap boundary.
+    /// Async generators keep their existing rule that only the dedicated
+    /// rejection kind turns an awaited result into a throw completion.
+    fn emit_load_for_await_resume_is_throw(
+        &mut self,
+        layout: ForAwaitActivationLayout,
+        activation_local: u32,
+        is_throw_local: u32,
+        function: &mut Function,
+    ) {
+        match layout {
+            ForAwaitActivationLayout::AsyncFunction => self
+                .emit_load_async_function_resume_is_throw(
+                    activation_local,
+                    is_throw_local,
+                    function,
+                ),
+            ForAwaitActivationLayout::AsyncGenerator => {
+                self.load_i64_to_local_from_offset(
+                    activation_local,
+                    HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
+                    is_throw_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(is_throw_local));
+                function.instruction(&Instruction::I64Const(
+                    ASYNC_GENERATOR_RESUME_KIND_REJECT as i64,
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(is_throw_local));
+            }
+        }
+    }
+
     pub(crate) fn compile_async_for_of_iterator(
         &mut self,
         mode: BindingMode,
@@ -5658,39 +5735,22 @@ impl<'a> FunctionBuilder<'a> {
                 ));
             }
         }
-        let (
-            resume_state_offset,
-            resume_payload_offset,
-            resume_tag_offset,
-            resume_kind_offset,
-            rejected_resume_kind,
-            is_async_generator,
-        ) = match self
+        let resume_layout = match self
             .current_function_meta()
             .map(|meta| meta.protocol.execution_kind())
         {
-            Some(FunctionExecutionKind::Async) => (
-                HEAP_ASYNC_RESUME_STATE_OFFSET,
-                HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
-                HEAP_ASYNC_RESUME_TAG_OFFSET,
-                HEAP_ASYNC_RESUME_KIND_OFFSET,
-                ASYNC_RESUME_KIND_REJECT,
-                false,
-            ),
-            Some(FunctionExecutionKind::AsyncGenerator) => (
-                HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
-                HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
-                HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
-                HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET,
-                ASYNC_GENERATOR_RESUME_KIND_REJECT,
-                true,
-            ),
-            _ => {
+            Some(FunctionExecutionKind::Async) => ForAwaitActivationLayout::AsyncFunction,
+            Some(FunctionExecutionKind::AsyncGenerator) => ForAwaitActivationLayout::AsyncGenerator,
+            Some(FunctionExecutionKind::Ordinary | FunctionExecutionKind::Generator) | None => {
                 return Err(EmitError::unsupported(
                     "for-await-of requires an async function or async-generator activation",
                 ));
             }
         };
+        let resume_state_offset = resume_layout.resume_state_offset();
+        let resume_payload_offset = resume_layout.resume_payload_offset();
+        let resume_tag_offset = resume_layout.resume_tag_offset();
+        let is_async_generator = resume_layout.is_async_generator();
         let state_local = self.reserve_temp_local();
         let iterable_payload_local = self.reserve_temp_local();
         let iterable_tag_local = self.reserve_temp_local();
@@ -5712,7 +5772,7 @@ impl<'a> FunctionBuilder<'a> {
         let value_tag_local = self.reserve_temp_local();
         let continuation_payload_local = self.reserve_temp_local();
         let continuation_tag_local = self.reserve_temp_local();
-        let resume_kind_local = self.reserve_temp_local();
+        let resume_is_throw_local = self.reserve_temp_local();
         let saved_payload_local = self.reserve_temp_local();
         let saved_tag_local = self.reserve_temp_local();
         let saved_completion_local = self.reserve_temp_local();
@@ -5949,10 +6009,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(async_plan.close_resume_state as i64));
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.load_i64_to_local_from_offset(
+        self.emit_load_for_await_resume_is_throw(
+            resume_layout,
             activation_local,
-            resume_kind_offset,
-            resume_kind_local,
+            resume_is_throw_local,
             function,
         );
         self.load_i64_to_local_from_offset(
@@ -5977,9 +6037,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+        function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
@@ -5998,9 +6057,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
-        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
@@ -6056,10 +6114,10 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             self.open_frame(ControlFrameKind::If, function);
         }
-        self.load_i64_to_local_from_offset(
+        self.emit_load_for_await_resume_is_throw(
+            resume_layout,
             activation_local,
-            resume_kind_offset,
-            resume_kind_local,
+            resume_is_throw_local,
             function,
         );
         self.load_i64_to_local_from_offset(
@@ -6083,9 +6141,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         self.open_frame(ControlFrameKind::If, function);
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+        function.instruction(&Instruction::I32WrapI64);
         self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -6168,9 +6225,8 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             self.open_frame(ControlFrameKind::If, function);
         }
-        function.instruction(&Instruction::LocalGet(resume_kind_local));
-        function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+        function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::LocalGet(async_iterator_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Eqz);
@@ -6281,7 +6337,7 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         // Pairs with the per-iteration enter at the loop head, and reads
-        // `resume_kind_local`. Both are sound only while an iteration begins
+        // `resume_is_throw_local`. Both are sound only while an iteration begins
         // and ends inside one invocation, which is why a per-iteration
         // environment and a suspending body are refused together above.
         if lexical_environment
@@ -6292,9 +6348,8 @@ impl<'a> FunctionBuilder<'a> {
                 !body_suspends,
                 "a per-iteration environment and a body suspension must have been refused"
             );
-            function.instruction(&Instruction::LocalGet(resume_kind_local));
-            function.instruction(&Instruction::I64Const(rejected_resume_kind as i64));
-            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::LocalGet(resume_is_throw_local));
+            function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_leave_lexical_environment(function);
             function.instruction(&Instruction::End);
@@ -6859,7 +6914,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(saved_completion_local);
         self.release_temp_local(saved_tag_local);
         self.release_temp_local(saved_payload_local);
-        self.release_temp_local(resume_kind_local);
+        self.release_temp_local(resume_is_throw_local);
         self.release_temp_local(continuation_tag_local);
         self.release_temp_local(continuation_payload_local);
         self.release_temp_local(value_tag_local);

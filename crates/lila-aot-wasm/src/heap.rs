@@ -1110,16 +1110,26 @@ pub(crate) const HEAP_PENDING_JOB_KIND_OFFSET: u64 = 48;
 
 macro_rules! promise_wire_domain {
     ($name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
+        promise_wire_domain!(@define pub(crate); $name, $first_word, {
+            $($variant = $word),+
+        });
+    };
+    (private $name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
+        promise_wire_domain!(@define; $name, $first_word, {
+            $($variant = $word),+
+        });
+    };
+    (@define $method_visibility:vis; $name:ident, $first_word:literal, { $($variant:ident = $word:literal),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub(crate) enum $name {
             $($variant),+
         }
 
         impl $name {
-            pub(crate) const ALL: [Self; promise_wire_domain!(@count $($variant),+)] =
+            $method_visibility const ALL: [Self; promise_wire_domain!(@count $($variant),+)] =
                 [$(Self::$variant),+];
 
-            pub(crate) const fn word(self) -> u64 {
+            $method_visibility const fn word(self) -> u64 {
                 match self {
                     $(Self::$variant => $word),+
                 }
@@ -1229,7 +1239,7 @@ pub(crate) const HEAP_ASYNC_ARGV_OFFSET: u64 = 40;
 pub(crate) const HEAP_ASYNC_RESUME_STATE_OFFSET: u64 = 48;
 pub(crate) const HEAP_ASYNC_RESUME_PAYLOAD_OFFSET: u64 = 56;
 pub(crate) const HEAP_ASYNC_RESUME_TAG_OFFSET: u64 = 64;
-pub(crate) const HEAP_ASYNC_RESUME_KIND_OFFSET: u64 = 72;
+const HEAP_ASYNC_RESUME_COMPLETION_OFFSET: u64 = 72;
 pub(crate) const HEAP_ASYNC_ENV_OFFSET: u64 = 80;
 pub(crate) const HEAP_ASYNC_INITIALIZED_OFFSET: u64 = 88;
 pub(crate) const HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET: u64 = 96;
@@ -1237,8 +1247,25 @@ pub(crate) const HEAP_ASYNC_PROMISE_RECORD_OFFSET: u64 = 104;
 pub(crate) const HEAP_ASYNC_COMPLETED_OFFSET: u64 = 112;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
-pub(crate) const ASYNC_RESUME_KIND_FULFILL: u64 = 0;
-pub(crate) const ASYNC_RESUME_KIND_REJECT: u64 = 1;
+
+// The completion with which an ordinary async function resumes after Await.
+//
+// Unlike the Promise reaction type and async-generator resume kind, this field
+// has exactly the two Completion Record shapes Await can supply. Its words and
+// activation offset remain private to the typed heap accessors below.
+promise_wire_domain!(private AsyncFunctionResumeCompletion, 0, {
+    Normal = 0,
+    Throw = 1,
+});
+
+impl AsyncFunctionResumeCompletion {
+    const fn is_throw(self) -> bool {
+        match self {
+            Self::Normal => false,
+            Self::Throw => true,
+        }
+    }
+}
 pub(crate) const ENV_PARENT_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_BASE_OFFSET: u64 = 8;
 pub(crate) const ENV_SLOT_SIZE: u64 = 16;
@@ -5596,6 +5623,66 @@ impl<'a> FunctionBuilder<'a> {
         (size + 7) & !7
     }
 
+    /// Store the completion with which an ordinary async function resumes.
+    ///
+    /// The activation offset and wire word stay inside this boundary so a
+    /// producer cannot substitute an arbitrary integer for the closed domain.
+    pub(crate) fn emit_store_async_function_resume_completion(
+        &self,
+        activation_local: u32,
+        completion: AsyncFunctionResumeCompletion,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_COMPLETION_OFFSET,
+            completion.word(),
+            function,
+        );
+    }
+
+    /// Load and strictly decode an ordinary async function's resume
+    /// completion into one normalized i64 boolean.
+    ///
+    /// An unknown heap word is an impossible activation state. Trap instead
+    /// of letting consumers mistake it for `Normal`.
+    pub(crate) fn emit_load_async_function_resume_is_throw(
+        &mut self,
+        activation_local: u32,
+        is_throw_local: u32,
+        function: &mut Function,
+    ) {
+        let completion_word_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            activation_local,
+            HEAP_ASYNC_RESUME_COMPLETION_OFFSET,
+            completion_word_local,
+            function,
+        );
+
+        let mut open_dispatch_arms = 0;
+        for completion in AsyncFunctionResumeCompletion::ALL {
+            function.instruction(&Instruction::LocalGet(completion_word_local));
+            function.instruction(&Instruction::I64Const(completion.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(if completion.is_throw() {
+                1
+            } else {
+                0
+            }));
+            function.instruction(&Instruction::LocalSet(is_throw_local));
+            function.instruction(&Instruction::Else);
+            open_dispatch_arms += 1;
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in 0..open_dispatch_arms {
+            function.instruction(&Instruction::End);
+        }
+
+        self.release_temp_local(completion_word_local);
+    }
+
     pub(crate) fn load_i64_to_local_from_offset(
         &self,
         base_local: u32,
@@ -5690,6 +5777,187 @@ mod tests {
                 PromiseReactionRealmSource::Captured,
             ]
         );
+    }
+
+    #[test]
+    fn async_function_resume_completion_wire_domain_is_closed() {
+        assert_eq!(
+            AsyncFunctionResumeCompletion::ALL.map(AsyncFunctionResumeCompletion::word),
+            [0, 1]
+        );
+        assert_eq!(
+            AsyncFunctionResumeCompletion::ALL.map(AsyncFunctionResumeCompletion::is_throw),
+            [false, true]
+        );
+    }
+
+    #[test]
+    fn async_function_resume_completion_owns_every_raw_access() {
+        let heap_source = include_str!("heap.rs");
+        let heap_implementation = heap_source
+            .split_once("#[cfg(test)]")
+            .expect("heap tests should follow the implementation")
+            .0;
+        let functions_source = include_str!("functions.rs");
+        let promise_source = include_str!("builtins/promise.rs");
+        let control_flow_source = include_str!("control_flow.rs");
+
+        assert!(
+            heap_implementation.contains("const HEAP_ASYNC_RESUME_COMPLETION_OFFSET: u64 = 72;")
+        );
+        assert_eq!(
+            heap_implementation
+                .matches("HEAP_ASYNC_RESUME_COMPLETION_OFFSET")
+                .count(),
+            3,
+            "the declaration, typed store and strict decoder must be the only raw offset sites"
+        );
+        for source in [functions_source, promise_source, control_flow_source] {
+            assert!(!source.contains("HEAP_ASYNC_RESUME_COMPLETION_OFFSET"));
+            assert!(!source.contains(concat!("HEAP_ASYNC_RESUME_", "KIND_OFFSET")));
+            assert!(!source.contains(concat!("ASYNC_RESUME_KIND_", "FULFILL")));
+            assert!(!source.contains(concat!("ASYNC_RESUME_KIND_", "REJECT")));
+        }
+
+        let store_boundary = heap_implementation
+            .split_once("pub(crate) fn emit_store_async_function_resume_completion(")
+            .expect("typed async-function resume store should exist")
+            .1
+            .split_once("pub(crate) fn emit_load_async_function_resume_is_throw(")
+            .expect("typed store should end at the strict decoder")
+            .0;
+        assert_eq!(
+            store_boundary
+                .matches("HEAP_ASYNC_RESUME_COMPLETION_OFFSET")
+                .count(),
+            1
+        );
+
+        let load_boundary = heap_implementation
+            .split_once("pub(crate) fn emit_load_async_function_resume_is_throw(")
+            .expect("strict async-function resume decoder should exist")
+            .1
+            .split_once("pub(crate) fn load_i64_to_local_from_offset(")
+            .expect("strict decoder should end before general heap loads")
+            .0;
+        assert_eq!(
+            load_boundary
+                .matches("HEAP_ASYNC_RESUME_COMPLETION_OFFSET")
+                .count(),
+            1
+        );
+        assert_eq!(
+            load_boundary
+                .matches("AsyncFunctionResumeCompletion::ALL")
+                .count(),
+            1
+        );
+        assert_eq!(load_boundary.matches("Instruction::Unreachable").count(), 1);
+
+        assert_eq!(
+            functions_source
+                .matches("emit_store_async_function_resume_completion(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            functions_source
+                .matches("AsyncFunctionResumeCompletion::Normal")
+                .count(),
+            1
+        );
+        assert_eq!(
+            promise_source
+                .matches("emit_store_async_function_resume_completion(")
+                .count(),
+            2
+        );
+        assert_eq!(
+            promise_source
+                .matches("AsyncFunctionResumeCompletion::Normal")
+                .count(),
+            1
+        );
+        assert_eq!(
+            promise_source
+                .matches("AsyncFunctionResumeCompletion::Throw")
+                .count(),
+            1
+        );
+        assert_eq!(
+            control_flow_source
+                .matches("emit_load_async_function_resume_is_throw(")
+                .count(),
+            2,
+            "ordinary await and the for-await layout must share the strict decoder"
+        );
+
+        let layout_domain = control_flow_source
+            .split_once("enum ForAwaitActivationLayout {")
+            .expect("closed for-await activation layout should exist")
+            .1
+            .split_once("}\n\nimpl ForAwaitActivationLayout")
+            .expect("for-await activation layout should have a bounded domain")
+            .0;
+        assert_eq!(layout_domain.matches("AsyncFunction,").count(), 1);
+        assert_eq!(layout_domain.matches("AsyncGenerator,").count(), 1);
+        assert_eq!(
+            layout_domain
+                .lines()
+                .filter(|line| line.trim_end().ends_with(','))
+                .count(),
+            2
+        );
+
+        let layout_decoder = control_flow_source
+            .split_once("fn emit_load_for_await_resume_is_throw(")
+            .expect("for-await resume decoder should exist")
+            .1
+            .split_once("pub(crate) fn compile_async_for_of_iterator(")
+            .expect("for-await resume decoder should be bounded")
+            .0;
+        assert_eq!(
+            layout_decoder
+                .matches("ForAwaitActivationLayout::AsyncFunction")
+                .count(),
+            1
+        );
+        assert_eq!(
+            layout_decoder
+                .matches("ForAwaitActivationLayout::AsyncGenerator")
+                .count(),
+            1
+        );
+        assert_eq!(
+            layout_decoder
+                .matches("HEAP_ASYNC_GENERATOR_RESUME_KIND_OFFSET")
+                .count(),
+            1
+        );
+        assert_eq!(
+            layout_decoder
+                .matches("ASYNC_GENERATOR_RESUME_KIND_REJECT")
+                .count(),
+            1,
+            "the async-generator branch must preserve its existing rejection policy"
+        );
+
+        let for_await_body = control_flow_source
+            .split_once("pub(crate) fn compile_async_for_of_iterator(")
+            .expect("for-await emitter should exist")
+            .1
+            .split_once("pub(crate) fn compile_for_of_iterator(")
+            .expect("for-await emitter should have a stable boundary")
+            .0;
+        assert_eq!(
+            for_await_body
+                .matches("emit_load_for_await_resume_is_throw(")
+                .count(),
+            2,
+            "value and iterator-close resumes must both normalize their completion"
+        );
+        assert!(!for_await_body.contains(concat!("resume_kind_", "offset")));
+        assert!(!for_await_body.contains(concat!("rejected_resume_", "kind")));
     }
 
     fn assert_layout(layout: &[HeapLayoutSlot], record_size: u64) {

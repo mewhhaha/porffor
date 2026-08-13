@@ -2847,17 +2847,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(reaction_is_rejected_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
+        self.emit_store_async_function_resume_completion(
             activation_local,
-            HEAP_ASYNC_RESUME_KIND_OFFSET,
-            ASYNC_RESUME_KIND_FULFILL,
+            AsyncFunctionResumeCompletion::Normal,
             function,
         );
         function.instruction(&Instruction::Else);
-        self.store_i64_const_at_offset(
+        self.emit_store_async_function_resume_completion(
             activation_local,
-            HEAP_ASYNC_RESUME_KIND_OFFSET,
-            ASYNC_RESUME_KIND_REJECT,
+            AsyncFunctionResumeCompletion::Throw,
             function,
         );
         function.instruction(&Instruction::End);
