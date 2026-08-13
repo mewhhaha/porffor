@@ -19,7 +19,7 @@ hotspots.
 
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Twelve previously coupled builtin stores now have separate owners:
+Thirteen previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -62,6 +62,12 @@ Twelve previously coupled builtin stores now have separate owners:
   realm-local TypeError route together. After the intervening T20 residue
   consolidation, the extraction reduced `standard.rs` from 35,532 to 35,439
   lines.
+- `lila-aot-wasm/src/builtins/function.rs` owns the complete five-member
+  Function intrinsic family behind a private closed `FunctionBuiltin` domain:
+  the constructor and `Function.prototype.{call,apply,bind,toString}`. The
+  catalog dispatch keeps five typed delegates, while the moved bodies retain
+  their exact instruction and temporary-local order. The extraction reduced
+  `standard.rs` from 34,461 to 34,088 lines.
 - `lila-aot-wasm/src/builtins/uri.rs` owns all six global URI and Annex-B codec
   wrappers behind a private closed `UriBuiltin` domain. The UTF-8/UTF-16 codec
   primitives remain with their existing `string.rs` owner; only the complete
@@ -106,6 +112,10 @@ wrapper-coercion and cross-realm prototype behavior checkpoints are green.
 The Boolean move is statically instruction-sequence equivalent and
 boundary-checked; its compile, focused fixture, and real Boolean shard gates
 remain queued behind the active resource-bounded matrix run.
+The Function move is an exact 389-line body match after normalizing only the
+five closed enum arm headers. Its compile, focused constructor/call/apply/bind/
+toString fixtures and real `built-ins/Function` shard remain queued behind the
+same matrix run.
 The URI move is statically source-equivalent after normalizing only the closed
 enum path and rustfmt's block-expression layout, and is boundary-checked; its
 compile, focused global-codec fixtures and real URI/Annex-B shard gates remain
@@ -153,8 +163,8 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric,
-  URI, Error and JSON 2026-08-13:** their bodies are family modules; Reflect
+- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, Function, global
+  numeric, URI, Error and JSON 2026-08-13:** their bodies are family modules; Reflect
   already has the same boundary. Other large inline families should follow the
   same exhaustive-delegate shape.
 

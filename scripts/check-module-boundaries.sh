@@ -225,7 +225,7 @@ for module in abi control_flow data emit environments expressions functions heap
   require_module_decl "$wasm_lib" "$module"
 done
 
-for module in array bigint binary_data boolean bootstrap date errors \
+for module in array bigint binary_data boolean bootstrap date errors function \
               global_numeric host iterators json math object proxy reflect \
               standard string symbol uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
@@ -238,22 +238,23 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric, URI,
-# Error and JSON
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, Function, global numeric,
+# URI, Error and JSON
 # builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
 # standard.rs, but family bodies are one-line delegates so unrelated builtin
 # work no longer collides with ~11k lines of Object descriptor/prototype
 # implementation, the Proxy lifecycle, the Math emitter family, Symbol's
 # registry/prototype implementation or BigInt's constructor, fixed-width and
 # prototype implementation, Boolean's constructor and prototype receiver
-# logic, the Error intrinsic family, or JSON's parse/stringify/raw-JSON
-# wrappers. The two coercing global numeric predicates and the six global URI
-# and Annex-B codec wrappers likewise stay out of the shared dispatcher.
+# logic, Function's constructor and four prototype methods, the Error intrinsic
+# family, or JSON's parse/stringify/raw-JSON wrappers. The two coercing global
+# numeric predicates and the six global URI and Annex-B codec wrappers likewise
+# stay out of the shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after JSON extraction: 34,461 raw lines. This keeps
-# roughly the same small dispatch-only margin as the prior 35,150-line cap;
+# Measured immediately after Function extraction: 34,088 raw lines. This keeps
+# roughly the same small dispatch-only margin as the prior 34,675-line cap;
 # substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 34675
+check_raw_line_budget "$wasm_standard_builtins" 34300
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -265,6 +266,21 @@ require_fixed_string_count "$wasm_standard_builtins" 'self.emit_boolean_builtin(
 # Measured immediately after extraction: 139 raw lines. The narrow margin is
 # for maintenance of this family, not adjacent builtin implementations.
 check_raw_line_budget "$wasm_boolean_builtins" 175
+
+wasm_function_builtins="crates/lila-aot-wasm/src/builtins/function.rs"
+check_no_inline_legacy_includes "$wasm_function_builtins"
+if ! grep -q '^pub(super) enum FunctionBuiltin' "$wasm_function_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_function_builtins"; then
+  fail "$wasm_function_builtins must dispatch through the closed FunctionBuiltin domain"
+fi
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'self.emit_function_builtin(' \
+  5 \
+  'Function builtin delegate'
+# Measured immediately after extraction: 411 raw lines. The narrow margin is
+# for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_function_builtins" 450
 
 wasm_bigint_builtins="crates/lila-aot-wasm/src/builtins/bigint.rs"
 check_no_inline_legacy_includes "$wasm_bigint_builtins"

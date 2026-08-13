@@ -11,6 +11,7 @@ mod date;
 mod decimal;
 mod errors;
 mod finalization_registry;
+mod function;
 mod global_numeric;
 mod host;
 mod intl;
