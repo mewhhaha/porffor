@@ -43,21 +43,54 @@ Proxy `[[HasProperty]]` performs these observable steps in order:
 
 1. reject a revoked Proxy;
 2. load `[[ProxyTarget]]`;
-3. read `handler.has` through the current ordinary-object/Proxy handler path;
+3. perform `GetMethod(handler, "has")` through the full object-read seam;
 4. when absent, restart full dispatch at the target;
 5. otherwise call any callable value, including a callable Proxy, with the
    handler as `this` and `(target, key)` as arguments;
 6. apply `ToBoolean` to the result;
 7. validate a false result against the target.
 
-Step 3 is exact only for the handler representations whose tag survives the
-current Proxy layout. The Proxy slot stores the handler payload without its
-tag, and the read reconstructs an Object tag. Ordinary-object and Proxy
-handlers therefore work, but Function, Array and arguments handlers do not yet
-receive their complete exotic storage or prototype traversal, or their
-correctly tagged handler-as-`this` identity. General
-`GetMethod(handler, "has")` remains a T11 representation and shared-`[[Get]]`
-obligation, outside this bounded dispatch seam.
+## Handler slot invariant
+
+A Proxy record must retain `[[ProxyTarget]]` and `[[ProxyHandler]]` as two
+complete tagged values. The bounded representation seam is one
+`ProxySlotLocals` value containing distinct `ProxyTargetLocals` and
+`ProxyHandlerLocals` newtypes over `TaggedLocals`, plus one allocator that
+requires that complete record before it can mark an object as a Proxy. Both
+`Proxy` and `Proxy.revocable` call that allocator; the underlying slot writer
+is private. A constructor that supplies a handler payload without a handler
+tag, or swaps target and handler, must therefore fail to compile.
+
+The handler payload remains in the existing proxy-marker word, so revocation
+continues to replace only that word with `PROXY_HANDLER_PAYLOAD_MIN`. Readers
+must test the marker before loading the retained handler tag. The tag occupies
+a proxy-only word in the generic 256-byte object allocation and is registered
+as a non-pointer layout slot; it does not move the target words or alter any
+other object representation.
+
+`[[HasProperty]]` consumes both retained handler locals. Its trap lookup goes
+through the existing full object-read seam with the handler itself as receiver,
+so Function, Array, arguments and nested-Proxy handlers receive their real
+storage and prototype behavior. A lookup getter's abrupt completion must leave
+the HasProperty traversal before any absent/non-callable decision. A present
+trap is called with the same tagged handler as `this`.
+
+This contract intentionally migrates only the `has` consumer in the bounded
+batch. Other Proxy internal methods that still reconstruct an Object handler
+tag remain explicit T11 consumers of the same retained slot and shared
+`[[Get]]`; the new representation makes those follow-up migrations possible
+without another layout change.
+
+The false-result invariant remains a separate seam. The existing
+`Object.getOwnPropertyDescriptor` builtin does implement Array, arguments and
+integer-indexed own descriptors, and `emit_object_is_extensible_i32` is already
+typed. But invoking a full builtin descriptor allocation from inside the raw
+HasProperty branch would couple completion routing and allocation into the
+dispatcher, while the only reusable compact helper today is Array-specific.
+This batch therefore does not duplicate that helper or call a builtin from the
+raw branch. The durable next step is a value-free typed own-descriptor fact
+emitter, consumed jointly by the public descriptor builtin and Proxy invariant
+checks; its closed exotic cases are outside this handler-layout migration.
 
 The last step is not closed by the HasProperty dispatch alone. The current
 post-trap checker reads ordinary Object/Function property storage directly; it

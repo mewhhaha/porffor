@@ -318,6 +318,7 @@ pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
 pub(crate) const HEAP_OBJECT_INTERNAL_BRAND_OFFSET: u64 = 56;
 pub(crate) const HEAP_OBJECT_PROTOTYPE_TAG_OFFSET: u64 = 64;
 pub(crate) const HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 72;
+pub(crate) const HEAP_PROXY_HANDLER_TAG_OFFSET: u64 = 80;
 pub(crate) const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
 pub(crate) const HEAP_GENERATOR_FUNCTION_OFFSET: u64 = 88;
 pub(crate) const HEAP_GENERATOR_THIS_PAYLOAD_OFFSET: u64 = 96;
@@ -1635,6 +1636,13 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "proxy-object-header",
+        name: "handler_tag",
+        offset: HEAP_PROXY_HANDLER_TAG_OFFSET,
+        width: 8,
+        pointer: false,
     },
     HeapLayoutSlot {
         record: "array-buffer-object-header",
@@ -6022,6 +6030,12 @@ mod tests {
         assert!(pointer_slots >= 64, "expected GC-visible pointer slots");
         assert!(HEAP_OBJECT_HEADER_LAYOUT.iter().any(|slot| {
             slot.name == "prototype_payload" && slot.offset == HEAP_PROTOTYPE_OFFSET && slot.pointer
+        }));
+        assert!(HEAP_OBJECT_HEADER_LAYOUT.iter().any(|slot| {
+            slot.record == "proxy-object-header"
+                && slot.name == "handler_tag"
+                && slot.offset == HEAP_PROXY_HANDLER_TAG_OFFSET
+                && !slot.pointer
         }));
         assert!(HEAP_ARRAY_OBJECT_LAYOUT.iter().any(|slot| {
             slot.name == "prototype_tag"

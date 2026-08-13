@@ -37,13 +37,19 @@ any callable value is accepted as the trap, including a callable Proxy. The
 positive regression is dry-written but its focused runtime gate has not run
 while the shared conformance matrix is active.
 
-This is not yet general `GetMethod(handler, "has")`: the Proxy representation
-stores the handler payload without its tag and reconstructs an Object tag for
-the read. Ordinary-object and Proxy handlers work, but Function, Array and
-arguments handlers do not generally preserve their exotic storage and
-prototype traversal or their correctly tagged handler-as-`this` identity.
-Retaining the handler tag and routing the lookup through shared typed `[[Get]]`
-remain explicit T11 obligations.
+The bounded representation now retains both `[[ProxyTarget]]` and
+`[[ProxyHandler]]` as typed payload/tag pairs. A single Proxy allocator takes
+`ProxySlotLocals` with distinct target and handler newtypes; both constructors
+must supply it, while its slot writer is private. Omission or target/handler
+transposition is therefore a compile error.
+Revocation keeps the existing handler-payload
+sentinel and does not change target layout. The `has` consumer then loads the
+retained tag and routes lookup through the existing full object-read seam,
+with abrupt getter completion leaving the traversal and the exact tagged
+handler passed as trap `this`. Other Proxy methods that reconstruct Object
+remain separate T11 migrations over the same stored slot. The exact Wasm-AOT
+regression for Function, Array, arguments and nested-Proxy handlers, tagged
+handler `this`, and an abrupt lookup getter is written but has not run.
 
 The post-trap false-result check remains incomplete and this task stays open:
 it still scans ordinary Object/Function descriptor storage directly instead of
@@ -52,7 +58,13 @@ Array target's non-configurable `length` (and corresponding exotic cases) can
 still evade the required invariant: a false `has` trap for `length` must throw,
 but the current checker can return `false`. No Array-only special case or
 expected failure was added; the durable repair is the shared typed descriptor
-and extensibility seam.
+and extensibility seam. The public descriptor builtin does cover Array,
+arguments and integer-indexed storage, but calling that allocating builtin
+from inside the raw HasProperty branch would couple completion routing and
+allocation into this dispatcher. The next bounded seam should instead expose
+a value-free typed own-descriptor fact emitter shared by that builtin and
+Proxy invariant checks; the existing compact helper is Array-specific and is
+not duplicated here.
 
 ## Objective
 

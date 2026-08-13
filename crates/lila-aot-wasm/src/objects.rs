@@ -94,6 +94,41 @@ impl TaggedLocals {
     }
 }
 
+/// The two complete tagged values retained by a Proxy record.
+///
+/// Proxy construction accepts this record rather than four positional locals,
+/// so omitting either tag or transposing a target and handler field is a type
+/// error at the only slot writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProxySlotLocals {
+    target: ProxyTargetLocals,
+    handler: ProxyHandlerLocals,
+}
+
+impl ProxySlotLocals {
+    pub(crate) const fn new(target: ProxyTargetLocals, handler: ProxyHandlerLocals) -> Self {
+        Self { target, handler }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProxyTargetLocals(TaggedLocals);
+
+impl ProxyTargetLocals {
+    pub(crate) const fn new(payload: u32, tag: u32) -> Self {
+        Self(TaggedLocals::new(payload, tag))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProxyHandlerLocals(TaggedLocals);
+
+impl ProxyHandlerLocals {
+    pub(crate) const fn new(payload: u32, tag: u32) -> Self {
+        Self(TaggedLocals::new(payload, tag))
+    }
+}
+
 /// Declares the complete runtime order for `[[HasProperty]]` dispatch.
 ///
 /// The same rows generate the enum and the order consumed by the emitter below.
@@ -1326,6 +1361,56 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
             value_payload_local,
+            function,
+        );
+    }
+
+    pub(crate) fn emit_alloc_proxy_with_slots(
+        &mut self,
+        slots: ProxySlotLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let proxy_local = self.reserve_temp_local();
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(proxy_local));
+        self.emit_store_proxy_slots(proxy_local, slots, function);
+        function.instruction(&Instruction::LocalGet(proxy_local));
+        self.release_temp_local(proxy_local);
+        Ok(())
+    }
+
+    fn emit_store_proxy_slots(
+        &self,
+        proxy_local: u32,
+        slots: ProxySlotLocals,
+        function: &mut Function,
+    ) {
+        self.store_i64_local_at_offset(
+            proxy_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            slots.handler.0.payload,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            proxy_local,
+            HEAP_PROXY_HANDLER_TAG_OFFSET,
+            slots.handler.0.tag,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            proxy_local,
+            HEAP_OBJECT_BOXED_TAG_OFFSET,
+            slots.target.0.tag,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            proxy_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            slots.target.0.payload,
             function,
         );
     }
@@ -20926,20 +21011,33 @@ impl<'a> FunctionBuilder<'a> {
                         target_tag_local,
                         function,
                     );
-                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(handler_tag_local));
+                    self.load_i64_to_local_from_offset(
+                        current_local,
+                        HEAP_PROXY_HANDLER_TAG_OFFSET,
+                        handler_tag_local,
+                        function,
+                    );
                     function.instruction(&Instruction::I64Const(self.strings.payload("has")));
                     function.instruction(&Instruction::LocalSet(internal_key_local));
-                    self.emit_object_read_ordinary(
+                    self.emit_object_read_without_throw_propagation(
                         boxed_kind_local,
                         handler_tag_local,
                         boxed_kind_local,
                         handler_tag_local,
                         internal_key_local,
-                        trap_payload_local,
-                        trap_tag_local,
+                        trap_result_payload_local,
+                        trap_result_tag_local,
                         function,
                     )?;
+                    // A getter reached by GetMethod may throw. Leave the raw
+                    // Proxy/loop/block traversal before deciding whether its
+                    // result is absent or callable; the shared propagation
+                    // below consumes these same result locals.
+                    self.emit_break_current_completion_if_throw(3, function);
+                    function.instruction(&Instruction::LocalGet(trap_result_payload_local));
+                    function.instruction(&Instruction::LocalSet(trap_payload_local));
+                    function.instruction(&Instruction::LocalGet(trap_result_tag_local));
+                    function.instruction(&Instruction::LocalSet(trap_tag_local));
 
                     self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
                     function.instruction(&Instruction::If(BlockType::Empty));

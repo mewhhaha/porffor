@@ -14820,6 +14820,87 @@ var callable = new Proxy({}, { has: callableTrap });
     }
 
     #[test]
+    fn wasm_backend_proxy_has_preserves_handler_tag_and_full_getmethod() {
+        let outcome = engine()
+            .run_script(
+                r#"
+var calls = [];
+function trap(label, expected) {
+  return function(_target, key) {
+    calls.push(label + ":" + (this === expected) + ":" + key);
+    return true;
+  };
+}
+
+function functionHandler() {}
+Object.setPrototypeOf(functionHandler, {
+  has: trap("function", functionHandler)
+});
+
+var arrayHandler = [];
+Object.setPrototypeOf(arrayHandler, {
+  has: trap("array", arrayHandler)
+});
+
+var argumentsHandler;
+(function() {
+  argumentsHandler = arguments;
+  Object.setPrototypeOf(argumentsHandler, {
+    has: trap("arguments", argumentsHandler)
+  });
+})();
+
+var nestedHandler;
+var nestedTrap = {
+  get: function(_target, key) {
+    calls.push("nested-get:" + key);
+    return function(_subject, subjectKey) {
+      calls.push("nested:" + (this === nestedHandler) + ":" + subjectKey);
+      return true;
+    };
+  }
+};
+nestedHandler = new Proxy({}, nestedTrap);
+
+var abruptHandler = {
+  get has() {
+    calls.push("getter");
+    throw "sentinel";
+  }
+};
+var caught;
+try {
+  "abrupt" in new Proxy({}, abruptHandler);
+} catch (error) {
+  caught = error;
+}
+
+[
+  "function" in new Proxy({}, functionHandler),
+  "array" in new Proxy({}, arrayHandler),
+  "arguments" in new Proxy({}, argumentsHandler),
+  "nested" in new Proxy({}, nestedHandler),
+  caught === "sentinel",
+  calls.join(",")
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Proxy has should preserve the complete tagged handler");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|getter,function:true:function,array:true:array,arguments:true:arguments,nested-get:has,nested:true:nested)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_prototype_and_extensibility_methods_cross_deep_proxy_chains() {
         let outcome = engine()
             .run_script(

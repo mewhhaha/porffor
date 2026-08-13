@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::objects::{ProxyHandlerLocals, ProxySlotLocals, ProxyTargetLocals};
 
 impl<'a> FunctionBuilder<'a> {
     pub(super) fn compile_proxy_constructor_builtin(
@@ -37,30 +38,14 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+        self.emit_alloc_proxy_with_slots(
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(target_payload_local, target_tag_local),
+                ProxyHandlerLocals::new(handler_payload_local, handler_tag_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalSet(proxy_payload_local));
-        self.store_i64_local_at_offset(
-            proxy_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            handler_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            proxy_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            proxy_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
-        );
         function.instruction(&Instruction::I64Const(
             self.strings.payload("$Proxy.target"),
         ));
@@ -139,30 +124,14 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+        self.emit_alloc_proxy_with_slots(
+            ProxySlotLocals::new(
+                ProxyTargetLocals::new(target_payload_local, target_tag_local),
+                ProxyHandlerLocals::new(handler_payload_local, handler_tag_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalSet(proxy_payload_local));
-        self.store_i64_local_at_offset(
-            proxy_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            handler_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            proxy_payload_local,
-            HEAP_OBJECT_BOXED_TAG_OFFSET,
-            target_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            proxy_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            target_payload_local,
-            function,
-        );
         function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(type_error_prototype_local));
         if let (Some(this_payload_local), Some(this_tag_local)) =
