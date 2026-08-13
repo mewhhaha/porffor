@@ -1,5 +1,49 @@
 use super::super::*;
 
+/// The closed source and copy policies admitted by the ArrayBuffer slice seam.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ArrayBufferSliceCopyPolicy {
+    DetachableBounded {
+        target_data_local: u32,
+    },
+    SharedBounded {
+        target_data_local: u32,
+    },
+    DetachableExactFinal {
+        target_data_local: u32,
+        target_object_local: u32,
+        target_tag_local: u32,
+    },
+}
+
+/// Locals needed to re-observe and copy an ArrayBuffer slice source.
+///
+/// A source data pointer is deliberately absent. The copy emitter must load it
+/// only after its late detachment check and current-length bound.
+#[derive(Clone, Copy)]
+pub(super) struct ArrayBufferSliceCopyLocals {
+    source_object_local: u32,
+    source_start_local: u32,
+    source_final_local: u32,
+    requested_len_local: u32,
+}
+
+impl ArrayBufferSliceCopyLocals {
+    pub(super) const fn new(
+        source_object_local: u32,
+        source_start_local: u32,
+        source_final_local: u32,
+        requested_len_local: u32,
+    ) -> Self {
+        Self {
+            source_object_local,
+            source_start_local,
+            source_final_local,
+            requested_len_local,
+        }
+    }
+}
+
 /// The immutable private slots needed to observe a TypedArray view.
 ///
 /// `stored_byte_length_local` is the view's fixed extent. It is deliberately
@@ -526,6 +570,202 @@ impl<'a> FunctionBuilder<'a> {
             destination_local,
             function,
         );
+    }
+
+    /// Re-observes an ArrayBuffer slice source after all observable work and
+    /// performs the policy-specific copy.
+    ///
+    /// Ordinary and shared `slice` copy only the bytes still available into an
+    /// already validated target. `sliceToImmutable` instead rejects a source
+    /// shorter than the initially resolved final bound before allocating its
+    /// target, then copies the exact requested length.
+    pub(super) fn emit_array_buffer_slice_copy(
+        &mut self,
+        policy: ArrayBufferSliceCopyPolicy,
+        locals: ArrayBufferSliceCopyLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let source_flags_local = self.reserve_temp_local();
+        let source_byte_length_local = self.reserve_temp_local();
+        let available_local = self.reserve_temp_local();
+        let copy_len_local = self.reserve_temp_local();
+        let source_data_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let source_address_local = self.reserve_temp_local();
+        let target_address_local = self.reserve_temp_local();
+
+        match policy {
+            ArrayBufferSliceCopyPolicy::DetachableBounded { .. }
+            | ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {
+                self.emit_load_array_buffer_flags(
+                    locals.source_object_local,
+                    source_flags_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(source_flags_local));
+                function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "ArrayBuffer slice receiver is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
+            ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {}
+        }
+
+        self.emit_load_array_buffer_byte_length(
+            locals.source_object_local,
+            source_byte_length_local,
+            function,
+        );
+
+        let target_data_local = match policy {
+            ArrayBufferSliceCopyPolicy::DetachableBounded { target_data_local }
+            | ArrayBufferSliceCopyPolicy::SharedBounded { target_data_local } => {
+                function.instruction(&Instruction::LocalGet(source_byte_length_local));
+                function.instruction(&Instruction::LocalGet(locals.source_start_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(source_byte_length_local));
+                function.instruction(&Instruction::LocalGet(locals.source_start_local));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(available_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(available_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(locals.requested_len_local));
+                function.instruction(&Instruction::LocalSet(copy_len_local));
+                function.instruction(&Instruction::LocalGet(available_local));
+                function.instruction(&Instruction::LocalGet(copy_len_local));
+                function.instruction(&Instruction::I64LtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(available_local));
+                function.instruction(&Instruction::LocalSet(copy_len_local));
+                function.instruction(&Instruction::End);
+                target_data_local
+            }
+            ArrayBufferSliceCopyPolicy::DetachableExactFinal {
+                target_data_local,
+                target_object_local,
+                target_tag_local,
+            } => {
+                function.instruction(&Instruction::LocalGet(source_byte_length_local));
+                function.instruction(&Instruction::LocalGet(locals.source_final_local));
+                function.instruction(&Instruction::I64LtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_runtime_error(
+                    RANGE_ERROR_NAME,
+                    "ArrayBuffer slice source is shorter than the resolved final bound",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
+                self.emit_load_array_buffer_data(
+                    locals.source_object_local,
+                    source_data_local,
+                    function,
+                );
+                self.emit_heap_alloc_from_local(locals.requested_len_local, function)?;
+                function.instruction(&Instruction::LocalSet(target_data_local));
+                self.emit_alloc_plain_object_with_prototype(
+                    None,
+                    Some(ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(target_object_local));
+                self.store_i64_const_at_offset(
+                    target_object_local,
+                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                    OBJECT_INTERNAL_BRAND_ARRAY_BUFFER,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_IMMUTABLE as i64));
+                function.instruction(&Instruction::LocalSet(source_flags_local));
+                self.emit_initialize_array_buffer_private_state(
+                    target_object_local,
+                    target_data_local,
+                    locals.requested_len_local,
+                    locals.requested_len_local,
+                    source_flags_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                function.instruction(&Instruction::LocalSet(target_tag_local));
+                function.instruction(&Instruction::LocalGet(locals.requested_len_local));
+                function.instruction(&Instruction::LocalSet(copy_len_local));
+                target_data_local
+            }
+        };
+
+        function.instruction(&Instruction::LocalGet(copy_len_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        match policy {
+            ArrayBufferSliceCopyPolicy::DetachableBounded { .. }
+            | ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {
+                self.emit_load_array_buffer_data(
+                    locals.source_object_local,
+                    source_data_local,
+                    function,
+                );
+            }
+            ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {}
+        }
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(copy_len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(source_data_local));
+        function.instruction(&Instruction::LocalGet(locals.source_start_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(source_address_local));
+        function.instruction(&Instruction::LocalGet(target_data_local));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(target_address_local));
+        function.instruction(&Instruction::LocalGet(target_address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(source_address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Load8U(self.buffer_memarg8(0)));
+        function.instruction(&Instruction::I32Store8(self.buffer_memarg8(0)));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(target_address_local);
+        self.release_temp_local(source_address_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(source_data_local);
+        self.release_temp_local(copy_len_local);
+        self.release_temp_local(available_local);
+        self.release_temp_local(source_byte_length_local);
+        self.release_temp_local(source_flags_local);
+        Ok(())
     }
 
     pub(crate) fn emit_initialize_typed_array_from_array_buffer(

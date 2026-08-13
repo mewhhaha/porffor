@@ -121,6 +121,24 @@ fn run_wasm_backend_succeeds_for_supported_arraybuffer_slice_species_capture_fix
 }
 
 #[test]
+fn run_wasm_backend_reobserves_arraybuffer_slice_source_after_observable_work() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_arraybuffer_slice_source_reobservation.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(123"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_arraybuffer_transfer_metadata_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

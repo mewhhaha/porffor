@@ -4,6 +4,7 @@ use super::array::{
     TypedArrayQuantifierKind,
 };
 use super::bigint::BigIntBuiltin;
+use super::binary_data::{ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy};
 use super::boolean::BooleanBuiltin;
 use super::errors::ErrorBuiltin;
 use super::function::FunctionBuiltin;
@@ -22,6 +23,68 @@ use lila_runtime::AgentHostOperation;
 const ITERATOR_ZIP_MODE_SHORTEST: u64 = 0.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_LONGEST: u64 = 1.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_STRICT: u64 = 2.0_f64.to_bits();
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArrayBufferSliceKind {
+    Ordinary,
+    Shared,
+    ToImmutable,
+}
+
+impl ArrayBufferSliceKind {
+    const fn copy_policy(
+        self,
+        target_data_local: u32,
+        target_object_local: u32,
+        target_tag_local: u32,
+    ) -> ArrayBufferSliceCopyPolicy {
+        match self {
+            Self::Ordinary => ArrayBufferSliceCopyPolicy::DetachableBounded { target_data_local },
+            Self::Shared => ArrayBufferSliceCopyPolicy::SharedBounded { target_data_local },
+            Self::ToImmutable => ArrayBufferSliceCopyPolicy::DetachableExactFinal {
+                target_data_local,
+                target_object_local,
+                target_tag_local,
+            },
+        }
+    }
+
+    const fn uses_species(self) -> bool {
+        match self {
+            Self::Ordinary | Self::Shared => true,
+            Self::ToImmutable => false,
+        }
+    }
+
+    const fn default_result_prototype(self) -> u32 {
+        match self {
+            Self::Ordinary | Self::ToImmutable => ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
+            Self::Shared => SHARED_ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX,
+        }
+    }
+
+    const fn default_result_brand(self) -> u64 {
+        match self {
+            Self::Ordinary | Self::ToImmutable => OBJECT_INTERNAL_BRAND_ARRAY_BUFFER,
+            Self::Shared => OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER,
+        }
+    }
+
+    const fn default_result_flags(self) -> u64 {
+        match self {
+            Self::Ordinary => 0,
+            Self::Shared => ARRAY_BUFFER_FLAG_SHARED,
+            Self::ToImmutable => ARRAY_BUFFER_FLAG_IMMUTABLE,
+        }
+    }
+
+    const fn rejects_immutable_species_result(self) -> bool {
+        match self {
+            Self::Ordinary => true,
+            Self::Shared | Self::ToImmutable => false,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AtomicsIntegerOperation {
@@ -23280,8 +23343,16 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::ArrayBufferPrototypeSlice
             | StandardBuiltinId::SharedArrayBufferPrototypeSlice
             | StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable => {
-                let is_shared_slice_builtin =
-                    matches!(builtin, StandardBuiltinId::SharedArrayBufferPrototypeSlice);
+                let slice_kind = match builtin {
+                    StandardBuiltinId::ArrayBufferPrototypeSlice => ArrayBufferSliceKind::Ordinary,
+                    StandardBuiltinId::SharedArrayBufferPrototypeSlice => {
+                        ArrayBufferSliceKind::Shared
+                    }
+                    StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable => {
+                        ArrayBufferSliceKind::ToImmutable
+                    }
+                    _ => unreachable!("outer match admits only ArrayBuffer slice builtins"),
+                };
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
                     EmitError::unsupported(
                         "unsupported in lila wasm-aot first slice: missing ArrayBuffer slice receiver",
@@ -23293,7 +23364,6 @@ impl<'a> FunctionBuilder<'a> {
                     )
                 })?;
                 let key_local = self.reserve_temp_local();
-                let data_ptr_local = self.reserve_temp_local();
                 let byte_length_local = self.reserve_temp_local();
                 let start_local = self.reserve_temp_local();
                 let end_local = self.reserve_temp_local();
@@ -23310,56 +23380,60 @@ impl<'a> FunctionBuilder<'a> {
                 let new_len_payload_local = self.reserve_temp_local();
                 let new_byte_length_local = self.reserve_temp_local();
                 let index_local = self.reserve_temp_local();
-                let src_address_local = self.reserve_temp_local();
-                let dst_address_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 let receiver_flags_local = self.reserve_temp_local();
                 let new_flags_local = self.reserve_temp_local();
+                let copy_policy = slice_kind.copy_policy(
+                    new_data_ptr_local,
+                    new_object_local,
+                    new_object_tag_local,
+                );
 
-                if is_shared_slice_builtin {
-                    self.emit_require_shared_array_buffer(
-                        receiver_payload_local,
-                        receiver_tag_local,
-                        "SharedArrayBuffer slice receiver is not SharedArrayBuffer",
-                        function,
-                    )?;
-                } else {
-                    self.emit_require_array_buffer(
-                        receiver_payload_local,
-                        receiver_tag_local,
-                        "ArrayBuffer slice receiver is not ArrayBuffer",
-                        function,
-                    )?;
+                match copy_policy {
+                    ArrayBufferSliceCopyPolicy::DetachableBounded { .. }
+                    | ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {
+                        self.emit_require_array_buffer(
+                            receiver_payload_local,
+                            receiver_tag_local,
+                            "ArrayBuffer slice receiver is not ArrayBuffer",
+                            function,
+                        )?;
+                        self.emit_load_array_buffer_flags(
+                            receiver_payload_local,
+                            receiver_flags_local,
+                            function,
+                        );
+                        function.instruction(&Instruction::LocalGet(receiver_flags_local));
+                        function
+                            .instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
+                        function.instruction(&Instruction::I64And);
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_throw_runtime_error(
+                            TYPE_ERROR_NAME,
+                            "ArrayBuffer slice receiver is detached",
+                            self.result_local,
+                            self.result_tag_local,
+                            function,
+                        )?;
+                        self.emit_return_current_completion(function);
+                        function.instruction(&Instruction::End);
+                    }
+                    ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {
+                        self.emit_require_shared_array_buffer(
+                            receiver_payload_local,
+                            receiver_tag_local,
+                            "SharedArrayBuffer slice receiver is not SharedArrayBuffer",
+                            function,
+                        )?;
+                    }
                 }
-
-                self.emit_load_array_buffer_data(receiver_payload_local, data_ptr_local, function);
                 self.emit_load_array_buffer_byte_length(
                     receiver_payload_local,
                     byte_length_local,
                     function,
                 );
-                if !is_shared_slice_builtin {
-                    self.emit_load_array_buffer_flags(
-                        receiver_payload_local,
-                        receiver_flags_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(receiver_flags_local));
-                    function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
-                    function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "ArrayBuffer slice receiver is detached",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::End);
-                }
 
                 self.emit_array_buffer_slice_index_to_local(
                     0,
@@ -23393,11 +23467,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::LocalSet(new_object_tag_local));
 
-                if matches!(
-                    builtin,
-                    StandardBuiltinId::ArrayBufferPrototypeSlice
-                        | StandardBuiltinId::SharedArrayBufferPrototypeSlice
-                ) {
+                if slice_kind.uses_species() {
                     function
                         .instruction(&Instruction::I64Const(self.strings.payload("constructor")));
                     function.instruction(&Instruction::LocalSet(key_local));
@@ -23501,149 +23571,49 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                 }
 
-                function.instruction(&Instruction::LocalGet(new_object_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_heap_alloc_from_local(new_len_local, function)?;
-                function.instruction(&Instruction::LocalSet(new_data_ptr_local));
-                self.emit_alloc_plain_object_with_prototype(
-                    None,
-                    Some(if is_shared_slice_builtin {
-                        SHARED_ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX
-                    } else {
-                        ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX
-                    }),
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(new_object_local));
-                self.store_i64_const_at_offset(
-                    new_object_local,
-                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    if is_shared_slice_builtin {
-                        OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER
-                    } else {
-                        OBJECT_INTERNAL_BRAND_ARRAY_BUFFER
-                    },
-                    function,
-                );
-                function.instruction(&Instruction::I64Const(
-                    (if is_shared_slice_builtin {
-                        ARRAY_BUFFER_FLAG_SHARED
-                    } else {
-                        0
-                    } | if matches!(
-                        builtin,
-                        StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable
-                    ) {
-                        ARRAY_BUFFER_FLAG_IMMUTABLE
-                    } else {
-                        0
-                    }) as i64,
-                ));
-                function.instruction(&Instruction::LocalSet(index_local));
-                self.emit_initialize_array_buffer_private_state(
-                    new_object_local,
-                    new_data_ptr_local,
-                    new_len_local,
-                    new_len_local,
-                    index_local,
-                    function,
-                );
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(new_object_local));
-                function.instruction(&Instruction::LocalGet(receiver_payload_local));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "ArrayBuffer species constructor returned invalid ArrayBuffer",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(new_object_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(new_object_tag_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(new_object_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "ArrayBuffer species constructor returned invalid ArrayBuffer",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                if is_shared_slice_builtin {
-                    self.emit_require_shared_array_buffer(
-                        new_object_local,
-                        new_object_tag_local,
-                        "SharedArrayBuffer species constructor returned invalid SharedArrayBuffer",
-                        function,
-                    )?;
-                } else {
-                    self.emit_require_array_buffer(
-                        new_object_local,
-                        new_object_tag_local,
-                        "ArrayBuffer species constructor returned invalid ArrayBuffer",
-                        function,
-                    )?;
-                }
-                self.emit_load_array_buffer_data(new_object_local, new_data_ptr_local, function);
-                self.emit_load_array_buffer_byte_length(
-                    new_object_local,
-                    new_byte_length_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(new_byte_length_local));
-                function.instruction(&Instruction::LocalGet(new_len_local));
-                function.instruction(&Instruction::I64LtU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "ArrayBuffer species constructor returned invalid ArrayBuffer",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                if !is_shared_slice_builtin {
-                    self.emit_load_array_buffer_flags(new_object_local, new_flags_local, function);
-                    function.instruction(&Instruction::LocalGet(new_flags_local));
-                    function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
-                    function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "ArrayBuffer species constructor returned invalid ArrayBuffer",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::End);
-                    if matches!(builtin, StandardBuiltinId::ArrayBufferPrototypeSlice) {
-                        function.instruction(&Instruction::LocalGet(new_flags_local));
+                match copy_policy {
+                    ArrayBufferSliceCopyPolicy::DetachableBounded { .. }
+                    | ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {
+                        function.instruction(&Instruction::LocalGet(new_object_local));
+                        function.instruction(&Instruction::I64Eqz);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_heap_alloc_from_local(new_len_local, function)?;
+                        function.instruction(&Instruction::LocalSet(new_data_ptr_local));
+                        self.emit_alloc_plain_object_with_prototype(
+                            None,
+                            Some(slice_kind.default_result_prototype()),
+                            function,
+                        )?;
+                        function.instruction(&Instruction::LocalSet(new_object_local));
+                        self.store_i64_const_at_offset(
+                            new_object_local,
+                            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                            slice_kind.default_result_brand(),
+                            function,
+                        );
                         function.instruction(&Instruction::I64Const(
-                            ARRAY_BUFFER_FLAG_IMMUTABLE as i64,
+                            slice_kind.default_result_flags() as i64,
                         ));
-                        function.instruction(&Instruction::I64And);
-                        function.instruction(&Instruction::I64Const(0));
-                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::LocalSet(index_local));
+                        self.emit_initialize_array_buffer_private_state(
+                            new_object_local,
+                            new_data_ptr_local,
+                            new_len_local,
+                            new_len_local,
+                            index_local,
+                            function,
+                        );
+                        function.instruction(&Instruction::End);
+                    }
+                    ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {}
+                }
+
+                match copy_policy {
+                    ArrayBufferSliceCopyPolicy::DetachableBounded { .. }
+                    | ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {
+                        function.instruction(&Instruction::LocalGet(new_object_local));
+                        function.instruction(&Instruction::LocalGet(receiver_payload_local));
+                        function.instruction(&Instruction::I64Eq);
                         function.instruction(&Instruction::If(BlockType::Empty));
                         self.emit_throw_runtime_error(
                             TYPE_ERROR_NAME,
@@ -23654,40 +23624,141 @@ impl<'a> FunctionBuilder<'a> {
                         )?;
                         self.emit_return_current_completion(function);
                         function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::LocalGet(new_object_tag_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                        function.instruction(&Instruction::I64Eq);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(new_object_tag_local));
+                        function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::LocalGet(new_object_tag_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                        function.instruction(&Instruction::I64Eq);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        function.instruction(&Instruction::Else);
+                        self.emit_throw_runtime_error(
+                            TYPE_ERROR_NAME,
+                            "ArrayBuffer species constructor returned invalid ArrayBuffer",
+                            self.result_local,
+                            self.result_tag_local,
+                            function,
+                        )?;
+                        self.emit_return_current_completion(function);
+                        function.instruction(&Instruction::End);
+                        match copy_policy {
+                            ArrayBufferSliceCopyPolicy::DetachableBounded { .. } => {
+                                self.emit_require_array_buffer(
+                                    new_object_local,
+                                    new_object_tag_local,
+                                    "ArrayBuffer species constructor returned invalid ArrayBuffer",
+                                    function,
+                                )?;
+                            }
+                            ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {
+                                self.emit_require_shared_array_buffer(
+                                    new_object_local,
+                                    new_object_tag_local,
+                                    "SharedArrayBuffer species constructor returned invalid SharedArrayBuffer",
+                                    function,
+                                )?;
+                            }
+                            ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {
+                                unreachable!(
+                                    "exact-final targets are allocated by the copy emitter"
+                                )
+                            }
+                        }
+                        self.emit_load_array_buffer_byte_length(
+                            new_object_local,
+                            new_byte_length_local,
+                            function,
+                        );
+                        function.instruction(&Instruction::LocalGet(new_byte_length_local));
+                        function.instruction(&Instruction::LocalGet(new_len_local));
+                        function.instruction(&Instruction::I64LtU);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_throw_runtime_error(
+                            TYPE_ERROR_NAME,
+                            "ArrayBuffer species constructor returned invalid ArrayBuffer",
+                            self.result_local,
+                            self.result_tag_local,
+                            function,
+                        )?;
+                        self.emit_return_current_completion(function);
+                        function.instruction(&Instruction::End);
+                        match copy_policy {
+                            ArrayBufferSliceCopyPolicy::DetachableBounded { .. } => {
+                                self.emit_load_array_buffer_flags(
+                                    new_object_local,
+                                    new_flags_local,
+                                    function,
+                                );
+                                function.instruction(&Instruction::LocalGet(new_flags_local));
+                                function.instruction(&Instruction::I64Const(
+                                    ARRAY_BUFFER_FLAG_DETACHED as i64,
+                                ));
+                                function.instruction(&Instruction::I64And);
+                                function.instruction(&Instruction::I64Const(0));
+                                function.instruction(&Instruction::I64Ne);
+                                function.instruction(&Instruction::If(BlockType::Empty));
+                                self.emit_throw_runtime_error(
+                                    TYPE_ERROR_NAME,
+                                    "ArrayBuffer species constructor returned invalid ArrayBuffer",
+                                    self.result_local,
+                                    self.result_tag_local,
+                                    function,
+                                )?;
+                                self.emit_return_current_completion(function);
+                                function.instruction(&Instruction::End);
+                                if slice_kind.rejects_immutable_species_result() {
+                                    function.instruction(&Instruction::LocalGet(new_flags_local));
+                                    function.instruction(&Instruction::I64Const(
+                                        ARRAY_BUFFER_FLAG_IMMUTABLE as i64,
+                                    ));
+                                    function.instruction(&Instruction::I64And);
+                                    function.instruction(&Instruction::I64Const(0));
+                                    function.instruction(&Instruction::I64Ne);
+                                    function.instruction(&Instruction::If(BlockType::Empty));
+                                    self.emit_throw_runtime_error(
+                                        TYPE_ERROR_NAME,
+                                        "ArrayBuffer species constructor returned invalid ArrayBuffer",
+                                        self.result_local,
+                                        self.result_tag_local,
+                                        function,
+                                    )?;
+                                    self.emit_return_current_completion(function);
+                                    function.instruction(&Instruction::End);
+                                }
+                            }
+                            ArrayBufferSliceCopyPolicy::SharedBounded { .. } => {}
+                            ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {
+                                unreachable!(
+                                    "exact-final targets are allocated by the copy emitter"
+                                )
+                            }
+                        }
+                        self.emit_load_array_buffer_data(
+                            new_object_local,
+                            new_data_ptr_local,
+                            function,
+                        );
                     }
+                    ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {}
                 }
 
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(index_local));
-                function.instruction(&Instruction::Block(BlockType::Empty));
-                function.instruction(&Instruction::Loop(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::LocalGet(new_len_local));
-                function.instruction(&Instruction::I64GeU);
-                function.instruction(&Instruction::BrIf(1));
-                function.instruction(&Instruction::LocalGet(data_ptr_local));
-                function.instruction(&Instruction::LocalGet(start_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(src_address_local));
-                function.instruction(&Instruction::LocalGet(new_data_ptr_local));
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(dst_address_local));
-                function.instruction(&Instruction::LocalGet(dst_address_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::LocalGet(src_address_local));
-                function.instruction(&Instruction::I32WrapI64);
-                function.instruction(&Instruction::I32Load8U(self.buffer_memarg8(0)));
-                function.instruction(&Instruction::I32Store8(self.buffer_memarg8(0)));
-                function.instruction(&Instruction::LocalGet(index_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(index_local));
-                function.instruction(&Instruction::Br(0));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
+                self.emit_array_buffer_slice_copy(
+                    copy_policy,
+                    ArrayBufferSliceCopyLocals::new(
+                        receiver_payload_local,
+                        start_local,
+                        end_local,
+                        new_len_local,
+                    ),
+                    function,
+                )?;
 
                 function.instruction(&Instruction::LocalGet(new_object_local));
                 function.instruction(&Instruction::LocalSet(self.result_local));
@@ -23697,8 +23768,6 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(new_flags_local);
                 self.release_temp_local(receiver_flags_local);
                 self.release_temp_local(tag_local);
-                self.release_temp_local(dst_address_local);
-                self.release_temp_local(src_address_local);
                 self.release_temp_local(index_local);
                 self.release_temp_local(new_byte_length_local);
                 self.release_temp_local(new_len_payload_local);
@@ -23715,7 +23784,6 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(end_local);
                 self.release_temp_local(start_local);
                 self.release_temp_local(byte_length_local);
-                self.release_temp_local(data_ptr_local);
                 self.release_temp_local(key_local);
             }
             StandardBuiltinId::ArrayBufferPrototypeTransfer

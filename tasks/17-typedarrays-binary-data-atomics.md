@@ -45,6 +45,21 @@ versus validated-TypedArray receiver policy as a closed enum; the old raw
 boolean can no longer route a new caller to the wrong incompatible-receiver
 behavior.
 
+ArrayBuffer slicing now has a closed late-source-observation seam. The three
+builtin operations project exhaustively to detachable-bounded, shared-bounded,
+or detachable-exact-final copy policy. The sole copy writer rechecks ordinary
+detachment and reloads current source length and data after observable work.
+Ordinary `slice` bounds the copy by the bytes still available from the initially
+normalized start, so a species-provided target suffix remains untouched.
+`sliceToImmutable` instead rejects a current length below the resolved final
+bound before allocating its target, then copies the exact requested length.
+Shared sources keep their distinct non-detachable bounded branch. The focused
+[slice source re-observation contract](../docs/rust-rewrite/contracts/array-buffer-slice-source-reobservation.md)
+and CLI fixture cover detachment during coercion/species, ordinary bounded
+resizable shrinkage, and `sliceToImmutable` detach-versus-short-source error
+precedence; this is not yet a claim of complete ArrayBuffer or shared memory
+correctness.
+
 ## Objective
 
 Implement the complete binary-data stack, integer-indexed exotic semantics and real agent/Atomics behavior. Replace rejection-only SharedArrayBuffer behavior and harness simulations with general backing-store and host concurrency support.
