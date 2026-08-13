@@ -21,9 +21,10 @@ The metadata cases for `String.prototype.at`, `charAt`, `charCodeAt`,
 `trimStart`, `trimEnd`, `toString`, `valueOf`, `isWellFormed` and
 `toWellFormed` now run their pinned sources through the shared Wasm-AOT
 `propertyHelper.js` and general builtin metadata path; their path-specific
-rewrites have been removed. The exact shortcut inventory now assigns 21
+rewrites have been removed. The exact shortcut inventory now assigns 18
 remaining observations to T18. Those are legacy, helper-reduction, coercion,
-cross-realm and other semantic rewrites rather than the metadata leaves above.
+dynamic-source, RegExp-integrated and array-exotic semantic rewrites rather
+than the metadata leaves above.
 The two non-`eval` Sputnik `charAt` receiver cases, the direct `charAt`
 position-coercion/rounding cases and the plain Array `toString` conversion
 matrix also run their pinned source now; existing product fixtures already
@@ -53,6 +54,15 @@ their exact pinned sources. Normal materialization supplies the shared
 `assert.js` contract; the former destructuring-free path rewrites are gone.
 Their exact source/harness contract is dry-written, while the focused Rust, CLI
 and two one-file Test262 execution gates remain queued behind that matrix.
+
+The non-generic cross-realm `String.prototype.toString` and `valueOf` leaves
+now run their exact pinned bodies as well. General materialization activates
+the realm-aware `sta.js` boundary for `$262.createRealm()`, supplies the shared
+`assert.js` contract and preserves the original `assert.throws` checks against
+the other realm's `TypeError`. The former `instanceof`-only handwritten
+rewrites are gone. Their exact source, active-realm and prelude-order contract
+is dry-written; focused Rust, CLI and two one-file Test262 execution gates are
+explicitly pending while the current-pin matrix owns runtime verification.
 
 The direct `String.fromCharCode` lowering now consumes the shared exact
 `ToUint32` residue emitter before selecting the low 16 bits. It no longer

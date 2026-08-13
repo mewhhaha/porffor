@@ -4300,9 +4300,6 @@ fn rewrite_wasm_aot_self_contained(case: &TestCase) -> Option<String> {
     if let Some(source) = rewrite_regexp_prototype_symbol_search_metadata_case(&case.path) {
         return Some(source);
     }
-    if let Some(source) = rewrite_string_to_string_value_of_non_generic_realm_case(&case.path) {
-        return Some(source);
-    }
     if let Some(source) = rewrite_annexb_string_prototype_method_metadata_case(&case.path) {
         return Some(source);
     }
@@ -13220,74 +13217,6 @@ if (desc.configurable !== true) throw "RegExp.prototype[Symbol.search] name conf
 "#
         .to_string(),
     )
-}
-
-fn rewrite_string_to_string_value_of_non_generic_realm_case(path: &str) -> Option<String> {
-    if path.ends_with("built-ins/String/prototype/toString/non-generic-realm.js") {
-        return Some(
-            r#"var other = __lilaCreateRealm().global;
-var otherToString = other.String.prototype.toString;
-
-function expectTypeError(callback, label) {
-  try {
-    callback();
-  } catch (error) {
-    if (error instanceof other.TypeError) return;
-    throw label + " wrong error";
-  }
-  throw label + " missing TypeError";
-}
-
-expectTypeError(function() { otherToString.call(true); }, "boolean");
-expectTypeError(function() { otherToString.call(0); }, "number");
-expectTypeError(function() { otherToString.call(null); }, "null");
-expectTypeError(function() { otherToString.call(); }, "undefined");
-expectTypeError(function() { otherToString.call(Symbol("desc")); }, "symbol");
-expectTypeError(function() {
-  otherToString.call({ valueOf: function() { return "str"; } });
-}, "object");
-expectTypeError(function() { otherToString.call([1]); }, "array");
-expectTypeError(function() {
-  "str".concat({ toString: otherToString });
-}, "concat");
-"#
-            .to_string(),
-        );
-    }
-
-    if path.ends_with("built-ins/String/prototype/valueOf/non-generic-realm.js") {
-        return Some(
-            r#"var other = __lilaCreateRealm().global;
-var otherValueOf = other.String.prototype.valueOf;
-
-function expectTypeError(callback, label) {
-  try {
-    callback();
-  } catch (error) {
-    if (error instanceof other.TypeError) return;
-    throw label + " wrong error";
-  }
-  throw label + " missing TypeError";
-}
-
-expectTypeError(function() { otherValueOf.call(false); }, "boolean");
-expectTypeError(function() { otherValueOf.call(-1); }, "number");
-expectTypeError(function() { otherValueOf.call(null); }, "null");
-expectTypeError(function() { otherValueOf.call(); }, "undefined");
-expectTypeError(function() { otherValueOf.call(Symbol("desc")); }, "symbol");
-expectTypeError(function() {
-  otherValueOf.call({ valueOf: function() { return ""; } });
-}, "object");
-expectTypeError(function() { otherValueOf.call([3]); }, "array");
-expectTypeError(function() {
-  "" + { valueOf: otherValueOf };
-}, "coercion");
-"#
-            .to_string(),
-        );
-    }
-
-    None
 }
 
 fn rewrite_annexb_string_prototype_method_metadata_case(path: &str) -> Option<String> {
@@ -29016,44 +28945,65 @@ assert.sameValue(descriptor.configurable, true);
     }
 
     #[test]
-    fn materialize_string_to_string_value_of_non_generic_realm_uses_static_wasm_aot_rewrite() {
+    fn materialize_retired_string_non_generic_realm_rewrites_preserve_pinned_sources() {
+        let inactive_sta = format!(
+            "var $262 = {{\n{WASM_AOT_INACTIVE_REALM_GLOBAL}\n{WASM_AOT_INACTIVE_CREATE_REALM}\n}};\n"
+        );
+        let active_sta = inactive_sta
+            .replacen(
+                WASM_AOT_INACTIVE_REALM_GLOBAL,
+                WASM_AOT_ACTIVE_REALM_GLOBAL,
+                1,
+            )
+            .replacen(
+                WASM_AOT_INACTIVE_CREATE_REALM,
+                WASM_AOT_ACTIVE_CREATE_REALM,
+                1,
+            );
+        let assert_harness = "var assert = {};\nassert.throws = function(expected, callback) { return __lilaAssertThrows(expected, callback); };\n";
         let mut store = PreludeStore::default();
         store.insert(
             "assert.js".to_string(),
-            "var assert = { throws: function() { throw 'assert used'; } };\n".to_string(),
+            assert_harness.to_string(),
             PreludeOrigin::LocalMerged,
         );
         store.insert(
             "sta.js".to_string(),
-            "var $262 = { createRealm: function() { throw 'sta used'; } };\n".to_string(),
-            PreludeOrigin::VendoredHarness,
+            inactive_sta,
+            PreludeOrigin::LocalMerged,
         );
+        let test_root = repo_root().join("test262/vendor/test262/test");
 
-        for (method, expected_fragment) in [
-            ("toString", "\"str\".concat({ toString: otherToString })"),
-            ("valueOf", "\"\" + { valueOf: otherValueOf }"),
+        for path in [
+            "built-ins/String/prototype/toString/non-generic-realm.js",
+            "built-ins/String/prototype/valueOf/non-generic-realm.js",
         ] {
-            let mut case = synthetic_case(&format!(
-                "built-ins/String/prototype/{method}/non-generic-realm.js"
-            ));
-            case.includes = vec!["assert.js".to_string(), "sta.js".to_string()];
-            case.features.insert("cross-realm".to_string());
-            case.original_source =
-                "var other = $262.createRealm().global; assert.throws(other.TypeError, function() {});"
-                    .to_string();
+            let source_path = test_root.join(path);
+            let original_source = fs::read_to_string(&source_path)
+                .unwrap_or_else(|error| panic!("pinned {path} should read: {error}"));
+            let case = parse_test_case(path.to_string(), source_path, original_source.clone());
 
-            let materialized =
-                materialize_test(&case, &store).expect("materialization should work");
+            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
+            let materialized = materialize_test(&case, &store)
+                .expect("pinned String non-generic realm case should materialize");
 
-            assert!(materialized.used_preludes.is_empty());
-            assert!(!materialized.source.contains("assert used"));
-            assert!(!materialized.source.contains("sta used"));
-            assert!(!materialized.source.contains("$262.createRealm"));
-            assert!(materialized.source.contains("__lilaCreateRealm().global"));
-            assert!(materialized
-                .source
-                .contains("error instanceof other.TypeError"));
-            assert!(materialized.source.contains(expected_fragment));
+            assert_eq!(
+                materialized.used_preludes,
+                vec![
+                    ("sta.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                ],
+                "{path}",
+            );
+            assert_eq!(
+                materialized.source,
+                format!("{active_sta}{assert_harness}{original_source}"),
+                "{path}",
+            );
+            assert!(materialized.source.contains(WASM_AOT_ACTIVE_REALM_GLOBAL));
+            assert!(materialized.source.contains(WASM_AOT_ACTIVE_CREATE_REALM));
+            assert!(!materialized.source.contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
+            assert!(!materialized.source.contains(WASM_AOT_INACTIVE_CREATE_REALM));
         }
     }
 
