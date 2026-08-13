@@ -428,10 +428,10 @@ require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$uint32_call" 1 
 require_fixed_string_count crates/lila-aot-wasm/src/operations.rs "$uint32_call" 4 'ToUint32 authority call'
 
 # T11's value-free direct [[GetOwnProperty]] fact. One typed authority owns the
-# representation split used by both the public descriptor invariant checks and
-# Proxy [[HasProperty]]. Array-only mirrors would let a new exotic silently
-# escape one consumer again, so keep the closed branch order and reviewed call
-# sites exact.
+# representation split used by the public descriptor invariant checks plus
+# Proxy [[HasProperty]] and [[Delete]]. Array-only mirrors would let a new
+# exotic silently escape one consumer again, so keep the closed branch order
+# and reviewed call sites exact.
 own_descriptor_fact='emit_direct_own_descriptor_fact('
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
@@ -443,7 +443,7 @@ require_fixed_string_count \
   'for branch in ObjectInternalMethodBranch::ORDER.iter().copied() {' \
   2 \
   'closed object-internal-method branch consumer'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 2 'own-descriptor fact definition/HasProperty call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 3 'own-descriptor fact definition/HasProperty/Proxy Delete call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$own_descriptor_fact" 2 'Object.getOwnPropertyDescriptor invariant call'
 if grep -RFl --include='*.rs' 'emit_proxy_array_target_own_descriptor_flags' crates/lila-aot-wasm/src >/dev/null; then
   fail 'Array-only Proxy own-descriptor mirrors must not bypass the typed authority'
