@@ -529,15 +529,18 @@ mod tests {
                     expr:
                         ExprIr::ArrayDestructure {
                             pattern,
-                            assignment: false,
+                            evaluation,
                             ..
                         },
                     ..
-                }) => {
-                    pattern.visit_bindings(&mut |_, name| {
-                        names.insert(name.to_string());
-                    });
-                }
+                }) => match *evaluation {
+                    ArrayDestructuringEvaluationIr::BindingInitialization => {
+                        pattern.visit_bindings(&mut |_, name| {
+                            names.insert(name.to_string());
+                        });
+                    }
+                    ArrayDestructuringEvaluationIr::AssignmentEvaluation => {}
+                },
                 StatementIr::Expression(TypedExpr {
                     expr: ExprIr::ObjectDestructure { pattern, .. },
                     ..
@@ -2238,7 +2241,7 @@ mod tests {
             script.body.statements[0],
             StatementIr::Expression(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
-                    assignment: false,
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     ..
                 },
                 ..
@@ -2247,6 +2250,26 @@ mod tests {
         assert!(matches!(
             script.body.statements[1],
             StatementIr::LexicalBlock(_)
+        ));
+    }
+
+    #[test]
+    fn lowers_array_var_bindings_with_binding_initialization_evaluation() {
+        let program = lower_script("var [value] = [1]; value;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::LexicalBlock(statements) = &script.body.statements[0] else {
+            panic!("expected materialized var destructuring block");
+        };
+        assert!(matches!(
+            statements.get(1),
+            Some(StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ArrayDestructure {
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                    ..
+                },
+                ..
+            }))
         ));
     }
 
@@ -2312,7 +2335,7 @@ mod tests {
                 ExprIr::ArrayDestructure {
                     value,
                     pattern,
-                    assignment: false,
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                 },
             ..
         }) = &script.body.statements[0]
@@ -2367,7 +2390,7 @@ mod tests {
         let ExprIr::ArrayDestructure {
             value,
             pattern,
-            assignment: true,
+            evaluation: ArrayDestructuringEvaluationIr::AssignmentEvaluation,
         } = &init.expr
         else {
             panic!("expected semantic array assignment");
@@ -2404,11 +2427,34 @@ mod tests {
             block.statements[0],
             StatementIr::Expression(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
-                    assignment: true,
+                    evaluation: ArrayDestructuringEvaluationIr::AssignmentEvaluation,
                     ..
                 },
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn lowers_for_of_array_lexical_pattern_as_binding_initialization_prefix() {
+        let program = lower_script("for (let [value] of [[1]]) {}");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfArray { body, .. } = &script.body.statements[0] else {
+            panic!("expected array for-of statement");
+        };
+        let StatementIr::Block(block) = body.as_ref() else {
+            panic!("expected lexical binding prefix block");
+        };
+        assert!(matches!(
+            block.statements.first(),
+            Some(StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ArrayDestructure {
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                    ..
+                },
+                ..
+            }))
         ));
     }
 
@@ -3317,7 +3363,7 @@ mod tests {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
-                    assignment: false,
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     ..
                 },
             ..

@@ -1323,12 +1323,12 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ArrayDestructure {
                 value,
                 pattern,
-                assignment,
+                evaluation,
             } => {
                 self.compile_array_destructure_to_locals(
                     value,
                     pattern,
-                    *assignment,
+                    *evaluation,
                     self.scratch_local,
                     self.result_tag_local,
                     function,
@@ -3183,12 +3183,12 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ArrayDestructure {
                 value,
                 pattern,
-                assignment,
+                evaluation,
             } => {
                 self.compile_array_destructure_to_locals(
                     value,
                     pattern,
-                    *assignment,
+                    *evaluation,
                     payload_local,
                     tag_local,
                     function,

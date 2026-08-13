@@ -7680,7 +7680,7 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::ArrayDestructure {
                     value: Box::new(storage_expr),
                     pattern,
-                    assignment: false,
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                 },
             ))];
         };
@@ -24596,7 +24596,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::ArrayDestructure {
                         value: Box::new(value),
                         pattern,
-                        assignment: true,
+                        evaluation: ArrayDestructuringEvaluationIr::AssignmentEvaluation,
                     },
                 )
             }
@@ -24728,7 +24728,7 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::ArrayDestructure {
                     value: Box::new(value),
                     pattern,
-                    assignment: false,
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                 },
             ))]);
         }
@@ -24831,7 +24831,7 @@ impl<'a> ScriptLowerer<'a> {
                 ExprIr::ArrayDestructure {
                     value: Box::new(init),
                     pattern,
-                    assignment: false,
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                 },
             ))]);
         }
@@ -24943,7 +24943,7 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::ArrayDestructure {
                         value: Box::new(init),
                         pattern,
-                        assignment: false,
+                        evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     },
                 ))])
             }
@@ -25375,7 +25375,7 @@ impl<'a> ScriptLowerer<'a> {
         // 13.15.5.5 IteratorDestructuringAssignmentEvaluation — a different
         // abstract operation with the same close discipline, running the same
         // emitter arm, which distinguishes the two by `ExprIr::ArrayDestructure`'s
-        // `assignment` flag rather than by protocol. Same witness.
+        // closed evaluation operation rather than by protocol. Same witness.
         Some(ArrayDestructuringPatternIr {
             elements,
             protocol: ArrayPatternProtocol::ARRAY_DESTRUCTURING,

@@ -1,5 +1,7 @@
 use super::*;
-use lila_ir::{ObjectDestructuringPatternIr, OptionalChainOperationIr};
+use lila_ir::{
+    ArrayDestructuringEvaluationIr, ObjectDestructuringPatternIr, OptionalChainOperationIr,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct WasmFunctionMeta {
@@ -6544,10 +6546,13 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
             expr_result_tag_is_runtime_dynamic(&value.expr)
         }
         ExprIr::ArrayDestructure {
-            value,
-            assignment: true,
-            ..
-        } => expr_result_tag_is_runtime_dynamic(&value.expr),
+            value, evaluation, ..
+        } => match *evaluation {
+            ArrayDestructuringEvaluationIr::BindingInitialization => false,
+            ArrayDestructuringEvaluationIr::AssignmentEvaluation => {
+                expr_result_tag_is_runtime_dynamic(&value.expr)
+            }
+        },
         ExprIr::LogicalShortCircuit { lhs, rhs, .. } => {
             expr_result_tag_is_runtime_dynamic(&lhs.expr)
                 || expr_result_tag_is_runtime_dynamic(&rhs.expr)
@@ -7407,16 +7412,20 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
-                    assignment: false,
+                    evaluation,
                     ..
                 },
             ..
-        }) => {
-            let mut count = 0;
-            pattern
-                .visit_bindings(&mut |mode, _| count += usize::from(mode != BindingMode::Var) * 2);
-            count
-        }
+        }) => match *evaluation {
+            ArrayDestructuringEvaluationIr::BindingInitialization => {
+                let mut count = 0;
+                pattern.visit_bindings(&mut |mode, _| {
+                    count += usize::from(mode != BindingMode::Var) * 2
+                });
+                count
+            }
+            ArrayDestructuringEvaluationIr::AssignmentEvaluation => 0,
+        },
         StatementIr::Expression(TypedExpr {
             expr: ExprIr::ObjectDestructure { pattern, .. },
             ..
@@ -8733,17 +8742,20 @@ pub(crate) fn collect_hoisted_vars_statement(
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
-                    assignment: false,
+                    evaluation,
                     ..
                 },
             ..
-        }) => {
-            pattern.visit_bindings(&mut |mode, name| {
-                if mode == BindingMode::Var {
-                    names.insert(name.to_string());
-                }
-            });
-        }
+        }) => match *evaluation {
+            ArrayDestructuringEvaluationIr::BindingInitialization => {
+                pattern.visit_bindings(&mut |mode, name| {
+                    if mode == BindingMode::Var {
+                        names.insert(name.to_string());
+                    }
+                });
+            }
+            ArrayDestructuringEvaluationIr::AssignmentEvaluation => {}
+        },
         StatementIr::Expression(TypedExpr {
             expr: ExprIr::ObjectDestructure { pattern, .. },
             ..

@@ -2,7 +2,8 @@ use super::*;
 use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
-    AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr, ObjectDestructuringPatternIr,
+    ArrayDestructuringEvaluationIr, AsyncForOfIteratorPlanIr, AsyncResumeModeIr, AsyncTryPlanIr,
+    ObjectDestructuringPatternIr,
 };
 
 fn innermost_target(left: ControlTarget, right: ControlTarget) -> ControlTarget {
@@ -1312,24 +1313,31 @@ impl<'a> FunctionBuilder<'a> {
                     expr:
                         ExprIr::ArrayDestructure {
                             pattern,
-                            assignment: false,
+                            evaluation,
                             ..
                         },
                     ..
-                }) => {
-                    pattern.visit_bindings(&mut |mode, name| {
-                        if mode == BindingMode::Var {
-                            return;
-                        }
-                        let storage = self
-                            .lookup_current_scope_binding(name)
-                            .or_else(|| self.lookup_binding(name))
-                            .unwrap_or_else(|| {
-                                self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
-                            });
-                        self.initialize_binding_uninitialized(storage, function);
-                    });
-                }
+                }) => match *evaluation {
+                    ArrayDestructuringEvaluationIr::BindingInitialization => {
+                        pattern.visit_bindings(&mut |mode, name| {
+                            if mode == BindingMode::Var {
+                                return;
+                            }
+                            let storage = self
+                                .lookup_current_scope_binding(name)
+                                .or_else(|| self.lookup_binding(name))
+                                .unwrap_or_else(|| {
+                                    self.allocate_binding(
+                                        name.to_string(),
+                                        mode,
+                                        ValueKind::Dynamic,
+                                    )
+                                });
+                            self.initialize_binding_uninitialized(storage, function);
+                        });
+                    }
+                    ArrayDestructuringEvaluationIr::AssignmentEvaluation => {}
+                },
                 StatementIr::Expression(TypedExpr {
                     expr: ExprIr::ObjectDestructure { pattern, .. },
                     ..
@@ -7626,7 +7634,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         value: &TypedExpr,
         pattern: &ArrayDestructuringPatternIr,
-        assignment: bool,
+        evaluation: ArrayDestructuringEvaluationIr,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -7642,16 +7650,19 @@ impl<'a> FunctionBuilder<'a> {
             pattern,
             function,
         )?;
-        if assignment {
-            function.instruction(&Instruction::LocalGet(source_payload));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::LocalGet(source_tag));
-            function.instruction(&Instruction::LocalSet(tag_local));
-        } else {
-            self.emit_undefined_payload(function);
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
+        match evaluation {
+            ArrayDestructuringEvaluationIr::BindingInitialization => {
+                self.emit_undefined_payload(function);
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            ArrayDestructuringEvaluationIr::AssignmentEvaluation => {
+                function.instruction(&Instruction::LocalGet(source_payload));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::LocalGet(source_tag));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
         }
         self.release_temp_local(source_tag);
         self.release_temp_local(source_payload);

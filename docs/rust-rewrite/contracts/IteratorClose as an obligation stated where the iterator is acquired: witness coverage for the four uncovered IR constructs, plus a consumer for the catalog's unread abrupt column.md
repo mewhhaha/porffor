@@ -726,7 +726,7 @@ one design decision in Group A that a reviewer might want to overturn:
    nested patterns included. A field on the `ExprIr` variant would witness the
    outermost acquisition and silently cover none of the nested ones.
 2. **It costs two lines instead of four files.**
-   `ExprIr::ArrayDestructure { value, pattern, assignment }` is matched
+   `ExprIr::ArrayDestructure { value, pattern, evaluation }` is matched
    exhaustively without `..` at `lila-aot-wasm/src/expressions.rs:1326` and
    `:3086` and at `lila-ir/src/lib.rs:2159` and `:2214`; a fourth field is
    `E0027` at all four. `ArrayDestructuringPatternIr` is matched exhaustively
@@ -1425,8 +1425,9 @@ not the recursion helpers, not the descriptor-shape helpers. The five
 the design's main practical dividend.
 
 Both sides take the same constant: they are two different spec operations
-running the same emitter, and the emitter distinguishes them by the `assignment`
-flag, not by protocol.
+running the same emitter. The follow-up typed boundary makes the emitter
+distinguish them through the exhaustive `ArrayDestructuringEvaluationIr`
+operation, not through protocol selection or a Boolean flag.
 
 **R4 — `operations.rs`, the ties.** Add const asserts J10 and J11. Repair the
 five stale `control_flow.rs` citations in the `SYNC_PROTOCOL_SITES` doc comment
@@ -1452,17 +1453,18 @@ and the emitter-side close-scope design with its paper trace (§9.15).
 
 - **`crates/lila-aot-wasm/**` in its entirety.** §10 P1.
 - **`ExprIr::ArrayLiteral`.** §5 / C1.
-- **`ExprIr::ArrayDestructure`'s `assignment: bool`.** It is also a closed
-  two-element domain masquerading as a bool — 8.6.3 versus 13.15.5.5 are two
-  different abstract operations — and it is *adjacent, not in scope*. Recording
-  it here so the next lane finds it; typing it would touch four exhaustive
-  patterns including two in `lila-aot-wasm`.
+- **`ExprIr::ArrayDestructure`'s evaluation operation.** At this contract's
+  stage it was an `assignment: bool`: a closed two-element domain masquerading
+  as a bool, because 8.6.3 and 13.15.5.5 are different abstract operations. It
+  was adjacent, not in scope here. The follow-up
+  `array-destructuring-evaluation-operation.md` replaces it with the closed
+  `ArrayDestructuringEvaluationIr` domain.
 - **`ObligationDischarge::ByEmission`'s arity.** §1.8 choice 3 explains why it
   stays a single site.
 - **Round 1's `pub(crate)` narrowing** (`iterator_obligations.rs:45-51`,
   §13.12). §10 P2.
 - **The `#[cfg(test)]` patterns at `lib.rs:2159` and `:2214`**, which spell
-  `ExprIr::ArrayDestructure { value, pattern, assignment }` exhaustively without
+  `ExprIr::ArrayDestructure { value, pattern, evaluation }` exhaustively without
   `..`. A3 does not reach them — the new field is on
   `ArrayDestructuringPatternIr`, not on the variant. Recorded because it is
   exactly what a variant-level field *would* have broken, and it is the second

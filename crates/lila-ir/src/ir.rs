@@ -875,6 +875,20 @@ pub enum ArrayDestructuringElementIr {
     },
 }
 
+/// The ECMAScript abstract operation that owns an array destructuring pattern.
+///
+/// Both operations use the same [`ArrayPatternProtocol`], but they have
+/// different result and declaration semantics. There is deliberately no
+/// `Default` or boolean conversion: every producer names the operation and
+/// every semantic consumer matches it exhaustively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayDestructuringEvaluationIr {
+    /// 8.6.3 IteratorBindingInitialization.
+    BindingInitialization,
+    /// 13.15.5.5 IteratorDestructuringAssignmentEvaluation.
+    AssignmentEvaluation,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArrayDestructuringPatternIr {
     pub elements: Vec<ArrayDestructuringElementIr>,
@@ -1868,7 +1882,7 @@ pub enum ExprIr {
     ArrayDestructure {
         value: Box<TypedExpr>,
         pattern: ArrayDestructuringPatternIr,
-        assignment: bool,
+        evaluation: ArrayDestructuringEvaluationIr,
     },
     ObjectDestructure {
         value: Box<TypedExpr>,

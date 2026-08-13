@@ -64,6 +64,19 @@ elision at or beyond that boundary throws `RangeError`. Every spread observes
 Cargo, focused runtime and pinned Test262 gates remain pending for the central
 verifier.
 
+Array destructuring now carries the closed
+`ArrayDestructuringEvaluationIr::{BindingInitialization, AssignmentEvaluation}`
+domain instead of an `assignment: bool`. All five lowering contexts name the
+abstract operation they implement. The result emitter, direct lexical
+initializer, result-tag planner, lexical counter, hoisted-variable collector
+and product-name collector bind the field and match it exhaustively, so adding
+an operation without stating its result and declaration ownership is `E0004`.
+The per-pattern `ArrayPatternProtocol` remains orthogonal and unchanged.
+Assignment evaluation still returns the original RHS payload and tag; binding
+initialization still returns `undefined`. This seam is dry-written and
+statically checked in this batch; Cargo and focused runtime gates remain
+deferred to the central verifier.
+
 ## Objective
 
 Implement resumable generator execution, the complete iterator protocols, iterator helpers and explicit resource management through reusable state-machine and iterator-operation layers.
