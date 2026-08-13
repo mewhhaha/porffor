@@ -215,7 +215,9 @@ for module in abi control_flow data emit environments expressions functions heap
   require_module_decl "$wasm_lib" "$module"
 done
 
-for module in array bigint binary_data boolean bootstrap date errors host iterators json math object proxy reflect standard string symbol uri; do
+for module in array bigint binary_data boolean bootstrap date errors \
+              global_numeric host iterators json math object proxy reflect \
+              standard string symbol uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
@@ -226,19 +228,20 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean and URI builtin body boundaries. The exhaustive
-# StandardBuiltinId dispatch remains in standard.rs, but family bodies are
-# one-line delegates so unrelated builtin work no longer collides with ~11k
-# lines of Object descriptor/prototype implementation, the Proxy lifecycle,
-# the Math emitter family, Symbol's registry/prototype implementation or
-# BigInt's constructor, fixed-width and prototype implementation, or Boolean's
-# constructor and prototype receiver logic. The six global URI and Annex-B
-# codec wrappers likewise stay out of the shared dispatcher.
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric and URI
+# builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
+# standard.rs, but family bodies are one-line delegates so unrelated builtin
+# work no longer collides with ~11k lines of Object descriptor/prototype
+# implementation, the Proxy lifecycle, the Math emitter family, Symbol's
+# registry/prototype implementation or BigInt's constructor, fixed-width and
+# prototype implementation, or Boolean's constructor and prototype receiver
+# logic. The two coercing global numeric predicates and the six global URI and
+# Annex-B codec wrappers likewise stay out of the shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after URI extraction: 35,394 raw lines. This keeps
-# roughly the same small dispatch-only margin as the prior 35,650-line cap;
+# Measured immediately after global numeric extraction: 35,372 raw lines. This
+# keeps roughly the same small dispatch-only margin as the prior 35,600-line cap;
 # substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 35600
+check_raw_line_budget "$wasm_standard_builtins" 35575
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -260,6 +263,21 @@ fi
 # Measured immediately after extraction: 708 raw lines. The narrow margin is
 # for maintenance of this family, not adjacent builtin implementations.
 check_raw_line_budget "$wasm_bigint_builtins" 750
+
+wasm_global_numeric_builtins="crates/lila-aot-wasm/src/builtins/global_numeric.rs"
+check_no_inline_legacy_includes "$wasm_global_numeric_builtins"
+if ! grep -q '^pub(super) enum GlobalNumericBuiltin' "$wasm_global_numeric_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_global_numeric_builtins"; then
+  fail "$wasm_global_numeric_builtins must dispatch through the closed GlobalNumericBuiltin domain"
+fi
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  'self.emit_global_numeric_builtin(' \
+  2 \
+  'global numeric builtin delegate'
+# Measured immediately after extraction: 51 raw lines. The narrow margin is
+# for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_global_numeric_builtins" 75
 
 wasm_symbol_builtins="crates/lila-aot-wasm/src/builtins/symbol.rs"
 check_no_inline_legacy_includes "$wasm_symbol_builtins"

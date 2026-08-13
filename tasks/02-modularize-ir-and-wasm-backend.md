@@ -19,7 +19,7 @@ hotspots.
 
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Nine previously coupled builtin stores now have separate owners:
+Ten previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -67,6 +67,12 @@ Nine previously coupled builtin stores now have separate owners:
   primitives remain with their existing `string.rs` owner; only the complete
   global wrapper family moved. Six typed delegates preserve the flat catalog
   dispatch, and `standard.rs` fell from 35,439 to 35,394 lines.
+- `lila-aot-wasm/src/builtins/global_numeric.rs` owns both coercing global
+  numeric predicate bodies behind a private closed `GlobalNumericBuiltin`
+  domain. `Number.isFinite` and `Number.isNaN` remain with the distinct
+  non-coercing Number family, while `parseInt` and `parseFloat` remain host
+  builtin emitters. The catalog dispatch keeps one typed delegate for each of
+  `isFinite` and `isNaN`, and `standard.rs` fell from 35,394 to 35,372 lines.
 
 The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
 and `lila-intl`, and the focused builtin catalog tests pass for the moves that
@@ -89,6 +95,10 @@ The URI move is statically source-equivalent after normalizing only the closed
 enum path and rustfmt's block-expression layout, and is boundary-checked; its
 compile, focused global-codec fixtures and real URI/Annex-B shard gates remain
 queued behind the same matrix run.
+The global numeric move is statically source-equivalent after normalizing only
+the closed enum path, and is boundary-checked; its compile, focused coercion
+and cross-realm fixture gates and real `isFinite`/`isNaN` shards remain queued
+behind that matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -118,9 +128,9 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean and URI
-  2026-08-13:** their bodies are family modules; Reflect already has the same
-  boundary. Other large inline families should follow the same
+- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric
+  and URI 2026-08-13:** their bodies are family modules; Reflect already has
+  the same boundary. Other large inline families should follow the same
   exhaustive-delegate shape.
 
 ### Landed 2026-08-12: catalog-owned bootstrap routing
