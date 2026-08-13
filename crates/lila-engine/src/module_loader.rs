@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use lila_front::{ParsedModule, ParsedScript};
-pub use lila_ir::ModuleKey;
-use lila_ir::{ModuleGraphSources, ModuleRequestIr, ModuleSourceIr};
+use lila_ir::{ModuleGraphSources, ModuleSourceIr};
+pub use lila_ir::{ModuleKey, ModuleRequestKeyIr};
 
 /// What a successful load produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,14 +97,15 @@ impl core::fmt::Display for ModuleLoadError {
 
 /// The host hooks module loading needs.
 pub trait HostModuleLoader: Send + Sync {
-    /// `HostResolveImportedModule`: specifier plus referrer to a stable key.
+    /// `HostResolveImportedModule`: phase-free request key plus referrer to a
+    /// stable module key.
     ///
     /// # Errors
     /// Returns an error when the specifier names nothing the host will serve.
     fn resolve(
         &self,
         referrer: Option<&ModuleKey>,
-        request: &ModuleRequestIr,
+        request: &ModuleRequestKeyIr,
     ) -> Result<ModuleKey, ModuleLoadError>;
 
     /// `HostLoadImportedModule`: key to module contents.
@@ -214,19 +215,19 @@ impl HostModuleLoader for FilesystemModuleLoader {
     fn resolve(
         &self,
         referrer: Option<&ModuleKey>,
-        request: &ModuleRequestIr,
+        request: &ModuleRequestKeyIr,
     ) -> Result<ModuleKey, ModuleLoadError> {
         // No import attribute is implemented, `type: "json"` included: see
         // [`LoadedModuleKind`]. `AllImportAttributesSupported` failing is a
         // resolution failure, which the caller turns into a link error rather
         // than aborting the compile.
-        if let Some(attribute) = request.attributes.first() {
+        if let Some(attribute) = request.attributes().first() {
             return Err(ModuleLoadError::UnsupportedAttribute {
                 key: attribute.key.clone(),
                 value: attribute.value.clone(),
             });
         }
-        let specifier = request.specifier.as_str();
+        let specifier = request.specifier();
         let base = referrer
             .map(|key| PathBuf::from(key.as_str()))
             .as_deref()
@@ -484,7 +485,7 @@ mod tests {
         let loader = loader_at(&root);
 
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
-        let denied = loader.resolve(Some(&referrer), &ModuleRequestIr::plain("../outside.js"));
+        let denied = loader.resolve(Some(&referrer), &ModuleRequestKeyIr::plain("../outside.js"));
         assert!(
             matches!(denied, Err(ModuleLoadError::Denied { .. })),
             "{denied:?}"
@@ -508,7 +509,7 @@ mod tests {
 
         let outside = base.join("outside.js").to_string_lossy().into_owned();
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
-        let denied = loader.resolve(Some(&referrer), &ModuleRequestIr::plain(outside));
+        let denied = loader.resolve(Some(&referrer), &ModuleRequestKeyIr::plain(outside));
         assert!(
             matches!(denied, Err(ModuleLoadError::Denied { .. })),
             "{denied:?}"
@@ -527,7 +528,7 @@ mod tests {
         let loader = loader_at(&root);
 
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
-        let denied = loader.resolve(Some(&referrer), &ModuleRequestIr::plain("./link.js"));
+        let denied = loader.resolve(Some(&referrer), &ModuleRequestKeyIr::plain("./link.js"));
         assert!(
             matches!(denied, Err(ModuleLoadError::Denied { .. })),
             "{denied:?}"
@@ -574,6 +575,34 @@ mod tests {
     }
 
     #[test]
+    fn phase_variants_share_one_filesystem_resolution() {
+        let base = temp_base("phase-free-resolution");
+        let root = base.join("root");
+        write_tree(
+            &root,
+            &[
+                (
+                    "entry.js",
+                    "import './dep.js';\n\
+                     import defer * as deferred from './dep.js';\n\
+                     import source artifact from './dep.js';\n\
+                     deferred; artifact;",
+                ),
+                ("dep.js", "export const value = 1;"),
+            ],
+        );
+        let loader = loader_at(&root);
+
+        let sources = load_module_graph(&entry_at(&root.join("entry.js")), &loader).unwrap();
+        assert_eq!(sources.modules.len(), 2);
+        assert_eq!(
+            sources.resolutions,
+            vec![(0, ModuleRequestKeyIr::plain("./dep.js"), 1)]
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn an_entry_that_imports_itself_stays_one_module() {
         let base = temp_base("self-import");
         let root = base.join("root");
@@ -610,7 +639,7 @@ mod tests {
         let loader = loader_at(&root);
 
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
-        let missing = loader.resolve(Some(&referrer), &ModuleRequestIr::plain("./nope.js"));
+        let missing = loader.resolve(Some(&referrer), &ModuleRequestKeyIr::plain("./nope.js"));
         assert!(
             matches!(missing, Err(ModuleLoadError::NotFound { .. })),
             "{missing:?}"
@@ -629,14 +658,14 @@ mod tests {
         write_tree(&root, &[("dep.js", "export const x = 1;")]);
         let loader = loader_at(&root);
 
-        let request = ModuleRequestIr {
-            specifier: "./dep.js".to_string(),
-            phase: lila_ir::ImportPhaseIr::Evaluation,
-            attributes: vec![ImportAttributeIr {
+        let request = ModuleRequestKeyIr::try_new(
+            "./dep.js",
+            vec![ImportAttributeIr {
                 key: "type".to_string(),
                 value: "css".to_string(),
             }],
-        };
+        )
+        .expect("the test attribute key is unique");
         let referrer = ModuleKey::from_host(root.join("dep.js").to_string_lossy().into_owned());
         let rejected = loader.resolve(Some(&referrer), &request);
         assert!(
@@ -654,14 +683,14 @@ mod tests {
         let loader = loader_at(&root);
 
         // With the attribute: `AllImportAttributesSupported` fails.
-        let request = ModuleRequestIr {
-            specifier: "./data.json".to_string(),
-            phase: lila_ir::ImportPhaseIr::Evaluation,
-            attributes: vec![ImportAttributeIr {
+        let request = ModuleRequestKeyIr::try_new(
+            "./data.json",
+            vec![ImportAttributeIr {
                 key: "type".to_string(),
                 value: "json".to_string(),
             }],
-        };
+        )
+        .expect("the test attribute key is unique");
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
         assert!(
             matches!(

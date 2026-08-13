@@ -36,7 +36,7 @@ pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneRepo
 pub use lila_ir::HostSurfacePolicy;
 pub use module_loader::{
     load_module_graph, FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind,
-    ModuleEntry, ModuleKey, ModuleLoadError,
+    ModuleEntry, ModuleKey, ModuleLoadError, ModuleRequestKeyIr,
 };
 pub use wasmtime_policy::{WasmGcCapability, WasmWeakReachabilityCapability};
 use wasmtime_policy::{WasmtimeRuntimePolicy, PRODUCT_WASMTIME_POLICY};

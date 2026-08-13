@@ -529,7 +529,7 @@ fn collect_binding_aliases(
     for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
-            if entry.request.phase == ImportPhaseIr::Source {
+            if entry.request.phase() == ImportPhaseIr::Source {
                 // Bound by the module-source prelude. `[[ImportName]]` is
                 // `default` only because the grammar reuses `ImportedBinding`;
                 // nothing is resolved against the requested module's exports,
@@ -696,7 +696,7 @@ mod tests {
     fn sources_of(
         sources: &[(&str, &str)],
         entry: usize,
-        resolutions: Vec<(ModuleUnitId, ModuleRequestIr, ModuleUnitId)>,
+        resolutions: Vec<(ModuleUnitId, ModuleRequestKeyIr, ModuleUnitId)>,
     ) -> ModuleGraphSources {
         let modules = sources
             .iter()
@@ -721,12 +721,8 @@ mod tests {
         graph
     }
 
-    fn plain(specifier: &str) -> ModuleRequestIr {
-        ModuleRequestIr {
-            specifier: specifier.to_string(),
-            phase: ImportPhaseIr::Evaluation,
-            attributes: Vec::new(),
-        }
+    fn request_key(specifier: &str) -> ModuleRequestKeyIr {
+        ModuleRequestKeyIr::plain(specifier)
     }
 
     #[test]
@@ -790,7 +786,7 @@ mod tests {
                 ("b", "import { value } from \"a\";\nprint(value + 1);"),
             ],
             1,
-            vec![(1, plain("a"), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         assert_eq!(graph.async_evaluation(), vec![true, true]);
@@ -825,7 +821,7 @@ mod tests {
                 ("b", "import { value } from \"a\";\nprint(value + 1);"),
             ],
             1,
-            vec![(1, plain("a"), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
@@ -861,7 +857,7 @@ mod tests {
                 ("b", "import { outer } from \"a\";\nprint(outer);"),
             ],
             1,
-            vec![(1, plain("a"), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("alias should link");
@@ -896,7 +892,7 @@ mod tests {
                 ),
             ],
             2,
-            vec![(2, plain("a"), 0), (2, plain("c"), 1)],
+            vec![(2, request_key("a"), 0), (2, request_key("c"), 1)],
         );
         let mut graph = graph_of(&sources);
         let diagnostics =
@@ -923,7 +919,11 @@ mod tests {
                 ),
             ],
             2,
-            vec![(1, plain("a"), 0), (2, plain("a"), 0), (2, plain("c"), 1)],
+            vec![
+                (1, request_key("a"), 0),
+                (2, request_key("a"), 0),
+                (2, request_key("c"), 1),
+            ],
         );
         let mut graph = graph_of(&sources);
         let diagnostics =
@@ -951,7 +951,11 @@ mod tests {
                 ),
             ],
             2,
-            vec![(1, plain("a"), 0), (2, plain("a"), 0), (2, plain("c"), 1)],
+            vec![
+                (1, request_key("a"), 0),
+                (2, request_key("a"), 0),
+                (2, request_key("c"), 1),
+            ],
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("agreeing aliases link");
@@ -976,7 +980,7 @@ mod tests {
                 ("b", "import d from \"a\";\nprint(d);"),
             ],
             1,
-            vec![(1, plain("a"), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("default export links");
@@ -1013,7 +1017,7 @@ mod tests {
                 ),
             ],
             2,
-            vec![(2, plain("a"), 0), (2, plain("c"), 1)],
+            vec![(2, request_key("a"), 0), (2, request_key("c"), 1)],
         );
         let mut graph = graph_of(&sources);
         let linked =
@@ -1048,7 +1052,7 @@ mod tests {
                 ("b", "import { value } from \"s\";\nprint(value);"),
             ],
             2,
-            vec![(1, plain("a"), 0), (2, plain("s"), 1)],
+            vec![(1, request_key("a"), 0), (2, request_key("s"), 1)],
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("star re-export links");
@@ -1096,7 +1100,7 @@ mod tests {
     /// namespace binding `import * as ns` would alias.
     #[test]
     fn dynamic_import_is_desugared_into_a_dispatcher_call() {
-        let sources = sources_of(&[("m", "import('m');")], 0, vec![(0, plain("m"), 0)]);
+        let sources = sources_of(&[("m", "import('m');")], 0, vec![(0, request_key("m"), 0)]);
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("import() should link");
 
@@ -1136,7 +1140,7 @@ mod tests {
                 ("c", "import * as ns from \"a\";\nprint(ns.value);"),
             ],
             1,
-            vec![(1, plain("a"), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("namespace should link");
@@ -1157,14 +1161,6 @@ mod tests {
         );
     }
 
-    fn phased(specifier: &str, phase: ImportPhaseIr) -> ModuleRequestIr {
-        ModuleRequestIr {
-            specifier: specifier.to_string(),
-            phase,
-            attributes: Vec::new(),
-        }
-    }
-
     /// `import defer`: the dependency's body still reaches the merged script,
     /// but wrapped in the thunk its namespace getters call, so nothing of it
     /// runs until an export is read.
@@ -1179,7 +1175,7 @@ mod tests {
                 ),
             ],
             1,
-            vec![(1, phased("a", ImportPhaseIr::Defer), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         assert_eq!(
@@ -1235,7 +1231,7 @@ mod tests {
                 ("d", "import source src from \"a\";\nprint(typeof src);"),
             ],
             1,
-            vec![(1, phased("a", ImportPhaseIr::Source), 0)],
+            vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
         assert_eq!(
@@ -1294,10 +1290,10 @@ mod tests {
             ],
             4,
             vec![
-                (0, plain("namespace"), 1),
-                (0, phased("nested", ImportPhaseIr::Source), 2),
-                (0, plain("dynamic"), 3),
-                (4, phased("inactive", ImportPhaseIr::Source), 0),
+                (0, request_key("namespace"), 1),
+                (0, request_key("nested"), 2),
+                (0, request_key("dynamic"), 3),
+                (4, request_key("inactive"), 0),
             ],
         );
         let mut graph = graph_of(&sources);
@@ -1372,7 +1368,7 @@ mod tests {
                 ("a", "print(\"target\");"),
             ],
             0,
-            vec![(0, plain("a"), 1)],
+            vec![(0, request_key("a"), 1)],
         );
         let mut graph = graph_of(&sources);
         // The precondition this test exists for: the entry is *not* last here.

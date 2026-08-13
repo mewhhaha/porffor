@@ -433,7 +433,7 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
         unit.record
             .import_entries
             .iter()
-            .any(|entry| entry.request.phase == ImportPhaseIr::Source)
+            .any(|entry| entry.request.phase() == ImportPhaseIr::Source)
     });
     let dynamic_source_modules = graph.dynamic_source_modules();
     if graph
@@ -822,7 +822,7 @@ fn collect_module_source_aliases(
     for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
-            if entry.request.phase != ImportPhaseIr::Source {
+            if entry.request.phase() != ImportPhaseIr::Source {
                 continue;
             }
             // As in `collect_namespace_aliases`: the binding is emitted as a
@@ -959,7 +959,7 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
         // A source-phase component hands out a module *source* object, and its
         // module is never instantiated: a namespace for it would carry getters
         // naming bindings the merged script never declares.
-        if component.request.phase != ImportPhaseIr::Source {
+        if component.request.phase() != ImportPhaseIr::Source {
             observed.insert(component.module);
         }
     }
@@ -1117,19 +1117,15 @@ mod tests {
             .contains(&&ExportName::default_export()));
     }
 
-    fn plain(specifier: &str) -> ModuleRequestIr {
-        ModuleRequestIr {
-            specifier: specifier.to_string(),
-            phase: ImportPhaseIr::Evaluation,
-            attributes: Vec::new(),
-        }
+    fn request_key(specifier: &str) -> ModuleRequestKeyIr {
+        ModuleRequestKeyIr::plain(specifier)
     }
 
     /// A graph whose entry is the *last* module listed, which is the shape the
     /// linker produces: dependencies first, importer last.
     fn linked_graph(
         modules: &[(&str, &str)],
-        resolutions: Vec<(ModuleUnitId, ModuleRequestIr, ModuleUnitId)>,
+        resolutions: Vec<(ModuleUnitId, ModuleRequestKeyIr, ModuleUnitId)>,
     ) -> ModuleGraphIr {
         let entry = ModuleUnitId::try_from(modules.len() - 1).expect("entry index fits");
         let sources = ModuleGraphSources {
@@ -1341,7 +1337,7 @@ mod tests {
                 ("a", "export const value = 41;"),
                 ("c", "import * as ns from \"./a.mjs\";\nprint(ns.value);"),
             ],
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
 
@@ -1368,7 +1364,7 @@ mod tests {
                 ("a", "export const value = 41;"),
                 ("b", "import { value } from \"./a.mjs\";\nprint(value);"),
             ],
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         assert_eq!(
             namespace_prelude_source(&graph).expect("prelude should build"),
@@ -1388,7 +1384,7 @@ mod tests {
                     "import * as ns from \"./a.mjs\";\nconst Object = 1;\nprint(ns.value);",
                 ),
             ],
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let diagnostics = namespace_prelude_source(&graph).expect_err("shadowing must be reported");
         assert!(
@@ -1414,7 +1410,7 @@ mod tests {
                     "import * as Object from \"./a.mjs\";\nprint(Object.value);",
                 ),
             ],
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let diagnostics =
             namespace_prelude_source(&graph).expect_err("a shadowing alias must be reported");
@@ -1436,7 +1432,10 @@ mod tests {
                 ("b", "import * as ns from \"./a.mjs\";\nprint(ns.value);"),
                 ("c", "import * as ns from \"./a.mjs\";\nprint(ns.value);"),
             ],
-            vec![(1, plain("./a.mjs"), 0), (2, plain("./a.mjs"), 0)],
+            vec![
+                (1, request_key("./a.mjs"), 0),
+                (2, request_key("./a.mjs"), 0),
+            ],
         );
         let diagnostics = namespace_prelude_source(&graph).expect_err("collision must be reported");
         assert!(
@@ -1457,7 +1456,7 @@ mod tests {
                 ("a", "export const value = 41;\nconst ns = 1;\nprint(ns);"),
                 ("c", "import * as ns from \"./a.mjs\";\nprint(ns.value);"),
             ],
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let diagnostics = namespace_prelude_source(&graph).expect_err("collision must be reported");
         assert!(
@@ -1482,15 +1481,7 @@ mod tests {
                     "import defer * as ns from \"./a.mjs\";\nprint(ns.value);",
                 ),
             ],
-            vec![(
-                1,
-                ModuleRequestIr {
-                    specifier: "./a.mjs".to_string(),
-                    phase: ImportPhaseIr::Defer,
-                    attributes: Vec::new(),
-                },
-                0,
-            )],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         assert_eq!(graph.evaluation_mode(0), ModuleEvaluationModeIr::Deferred);
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
@@ -1527,15 +1518,7 @@ mod tests {
                     "import defer * as ns from \"./a.mjs\";\nprint(ns.value);",
                 ),
             ],
-            vec![(
-                1,
-                ModuleRequestIr {
-                    specifier: "./a.mjs".to_string(),
-                    phase: ImportPhaseIr::Defer,
-                    attributes: Vec::new(),
-                },
-                0,
-            )],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let thunk = deferred_body_source(&graph, 0, "const value = 41;")
             .expect("the deferred body should be expressible");
@@ -1566,15 +1549,7 @@ mod tests {
                     "import source src from \"./a.mjs\";\nprint(typeof src);",
                 ),
             ],
-            vec![(
-                1,
-                ModuleRequestIr {
-                    specifier: "./a.mjs".to_string(),
-                    phase: ImportPhaseIr::Source,
-                    attributes: Vec::new(),
-                },
-                0,
-            )],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         assert_eq!(
             graph.evaluation_mode(0),
@@ -1618,7 +1593,10 @@ mod tests {
                     "import * as ns from \"./b.mjs\";\nprint(ns.inner.value);",
                 ),
             ],
-            vec![(1, plain("./a.mjs"), 0), (2, plain("./b.mjs"), 1)],
+            vec![
+                (1, request_key("./a.mjs"), 0),
+                (2, request_key("./b.mjs"), 1),
+            ],
         );
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
         assert!(

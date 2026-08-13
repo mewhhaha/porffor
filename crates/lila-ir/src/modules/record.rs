@@ -65,6 +65,72 @@ pub struct ImportAttributeIr {
     pub value: String,
 }
 
+/// A repeated key refused by [`ModuleRequestAttributesIr`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuplicateImportAttributeKeyIr {
+    key: String,
+}
+
+impl DuplicateImportAttributeKeyIr {
+    /// The duplicated attribute key.
+    #[must_use]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+}
+
+impl core::fmt::Display for DuplicateImportAttributeKeyIr {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(formatter, "duplicate import attribute key: {}", self.key)
+    }
+}
+
+impl std::error::Error for DuplicateImportAttributeKeyIr {}
+
+/// The canonical `[[Attributes]]` list of a ModuleRequest Record.
+///
+/// Keys are unique and sorted by UTF-16 code-unit order. The storage is
+/// private and only an immutable slice escapes, so derived request identity
+/// cannot drift after a request becomes a graph-map key.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct ModuleRequestAttributesIr(Vec<ImportAttributeIr>);
+
+impl ModuleRequestAttributesIr {
+    /// Validates and canonicalizes one import-attribute list.
+    ///
+    /// # Errors
+    /// Returns the duplicated key when the input contains two records with the
+    /// same key. Static import syntax rejects that shape, and dynamic import
+    /// obtains keys from an object's unique own-property keys.
+    pub fn try_new(
+        attributes: impl IntoIterator<Item = ImportAttributeIr>,
+    ) -> Result<Self, DuplicateImportAttributeKeyIr> {
+        let mut attributes: Vec<_> = attributes.into_iter().collect();
+        attributes.sort_by(|left, right| left.key.encode_utf16().cmp(right.key.encode_utf16()));
+        if let Some(pair) = attributes
+            .windows(2)
+            .find(|pair| pair[0].key == pair[1].key)
+        {
+            return Err(DuplicateImportAttributeKeyIr {
+                key: pair[0].key.clone(),
+            });
+        }
+        Ok(Self(attributes))
+    }
+
+    /// The empty attribute list.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Canonical attributes in UTF-16 key order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[ImportAttributeIr] {
+        &self.0
+    }
+}
+
 /// What graph discovery can know about an `import()` call's `with` object.
 ///
 /// `Known` includes the empty list. `Runtime` means evaluating the options
@@ -75,39 +141,173 @@ pub struct ImportAttributeIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DynamicImportAttributesIr {
     /// The exact attributes are known and sorted by UTF-16 key order.
-    Known(Vec<ImportAttributeIr>),
+    ///
+    /// ```compile_fail
+    /// use lila_ir::DynamicImportAttributesIr;
+    ///
+    /// let _ = DynamicImportAttributesIr::Known(Vec::new());
+    /// ```
+    Known(ModuleRequestAttributesIr),
     /// Runtime evaluation is required to obtain the attributes.
     Runtime,
 }
 
-fn sort_import_attributes(attributes: &mut [ImportAttributeIr]) {
-    attributes.sort_by(|left, right| left.key.encode_utf16().cmp(right.key.encode_utf16()));
+/// The phase-free identity of a `ModuleRequest` Record.
+///
+/// `ModuleRequestsEqual` compares only `[[Specifier]]` and `[[Attributes]]`.
+/// Keeping both fields private makes the canonical form immutable after this
+/// value becomes a host-resolution or module-map key.
+///
+/// ```compile_fail
+/// use lila_ir::{ModuleRequestAttributesIr, ModuleRequestKeyIr};
+///
+/// let _ = ModuleRequestKeyIr {
+///     specifier: "./m.js".to_string(),
+///     attributes: ModuleRequestAttributesIr::empty(),
+/// };
+/// ```
+///
+/// ```compile_fail
+/// use lila_ir::ModuleRequestKeyIr;
+///
+/// let mut request = ModuleRequestKeyIr::plain("./m.js");
+/// request.specifier = "./other.js".to_string();
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModuleRequestKeyIr {
+    /// `[[Specifier]]`, exactly as written.
+    specifier: String,
+    /// `[[Attributes]]`, sorted by key.
+    attributes: ModuleRequestAttributesIr,
 }
 
-/// A `ModuleRequest` Record.
+impl ModuleRequestKeyIr {
+    /// Creates a key from an already canonical attribute list.
+    #[must_use]
+    pub fn new(specifier: impl Into<String>, attributes: ModuleRequestAttributesIr) -> Self {
+        Self {
+            specifier: specifier.into(),
+            attributes,
+        }
+    }
+
+    /// Validates raw attributes and creates their key in one operation.
+    ///
+    /// # Errors
+    /// Returns the duplicated key when `attributes` contains one.
+    pub fn try_new(
+        specifier: impl Into<String>,
+        attributes: impl IntoIterator<Item = ImportAttributeIr>,
+    ) -> Result<Self, DuplicateImportAttributeKeyIr> {
+        Ok(Self::new(
+            specifier,
+            ModuleRequestAttributesIr::try_new(attributes)?,
+        ))
+    }
+
+    /// A request key with no attributes.
+    #[must_use]
+    pub fn plain(specifier: impl Into<String>) -> Self {
+        Self::new(specifier, ModuleRequestAttributesIr::empty())
+    }
+
+    /// `[[Specifier]]`, exactly as written.
+    #[must_use]
+    pub fn specifier(&self) -> &str {
+        &self.specifier
+    }
+
+    /// Canonical `[[Attributes]]` in UTF-16 key order.
+    #[must_use]
+    pub fn attributes(&self) -> &[ImportAttributeIr] {
+        self.attributes.as_slice()
+    }
+}
+
+/// One phaseful occurrence of a `ModuleRequest` Record.
 ///
-/// Equality is exact request identity: specifier, phase, and attributes. The
-/// parser and dynamic-discovery constructors keep `attributes` sorted by key,
-/// so derived `Eq` is `ModuleRequestsEqual` for compiler-produced requests.
+/// Phase is needed for import dispatch and evaluation classification, but is
+/// deliberately outside [`ModuleRequestKeyIr`]. Derived equality here means
+/// occurrence equality; host resolution and `ModuleRequestsEqual` must use
+/// [`Self::key`] instead.
+///
+/// ```compile_fail
+/// use lila_ir::{ImportPhaseIr, ModuleRequestIr, ModuleRequestKeyIr};
+///
+/// let _ = ModuleRequestIr {
+///     key: ModuleRequestKeyIr::plain("./m.js"),
+///     phase: ImportPhaseIr::Evaluation,
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModuleRequestIr {
-    /// `[[Specifier]]`, exactly as written.
-    pub specifier: String,
-    /// `[[Phase]]`.
-    pub phase: ImportPhaseIr,
-    /// `[[Attributes]]`, sorted by key.
-    pub attributes: Vec<ImportAttributeIr>,
+    key: ModuleRequestKeyIr,
+    phase: ImportPhaseIr,
 }
 
 impl ModuleRequestIr {
-    /// A plain evaluation-phase request with no attributes.
+    /// Creates an occurrence from an already canonical attribute list.
+    #[must_use]
+    pub fn new(
+        specifier: impl Into<String>,
+        phase: ImportPhaseIr,
+        attributes: ModuleRequestAttributesIr,
+    ) -> Self {
+        Self::from_key(ModuleRequestKeyIr::new(specifier, attributes), phase)
+    }
+
+    /// Creates an occurrence from its phase-free identity and phase.
+    #[must_use]
+    pub const fn from_key(key: ModuleRequestKeyIr, phase: ImportPhaseIr) -> Self {
+        Self { key, phase }
+    }
+
+    /// Validates raw attributes and creates their occurrence in one operation.
+    ///
+    /// # Errors
+    /// Returns the duplicated key when `attributes` contains one.
+    pub fn try_new(
+        specifier: impl Into<String>,
+        phase: ImportPhaseIr,
+        attributes: impl IntoIterator<Item = ImportAttributeIr>,
+    ) -> Result<Self, DuplicateImportAttributeKeyIr> {
+        Ok(Self::from_key(
+            ModuleRequestKeyIr::try_new(specifier, attributes)?,
+            phase,
+        ))
+    }
+
+    /// A plain evaluation-phase occurrence with no attributes.
     #[must_use]
     pub fn plain(specifier: impl Into<String>) -> Self {
-        Self {
-            specifier: specifier.into(),
-            phase: ImportPhaseIr::Evaluation,
-            attributes: Vec::new(),
-        }
+        Self::from_key(
+            ModuleRequestKeyIr::plain(specifier),
+            ImportPhaseIr::Evaluation,
+        )
+    }
+
+    /// The phase-free identity used by host resolution and module maps.
+    #[must_use]
+    pub const fn key(&self) -> &ModuleRequestKeyIr {
+        &self.key
+    }
+
+    /// `[[Specifier]]`, exactly as written.
+    #[must_use]
+    pub fn specifier(&self) -> &str {
+        self.key.specifier()
+    }
+
+    /// `[[Phase]]` for this occurrence.
+    #[must_use]
+    pub const fn phase(&self) -> ImportPhaseIr {
+        self.phase
+    }
+
+    /// Canonical `[[Attributes]]` in UTF-16 key order.
+    #[must_use]
+    pub fn attributes(&self) -> &[ImportAttributeIr] {
+        self.key.attributes()
     }
 }
 
@@ -127,7 +327,7 @@ impl ModuleEvaluationDependencyIr {
         request: &ModuleRequestIr,
         target: ModuleUnitId,
     ) -> Option<Self> {
-        match request.phase {
+        match request.phase() {
             ImportPhaseIr::Evaluation => Some(Self(target)),
             ImportPhaseIr::Defer | ImportPhaseIr::Source => None,
         }
@@ -255,7 +455,7 @@ pub struct DynamicImportSiteIr {
 }
 
 impl DynamicImportSiteIr {
-    /// The request graph discovery can ask the host to resolve.
+    /// The full occurrence whose key graph discovery can ask the host to resolve.
     ///
     /// Runtime attributes deliberately discover the empty request variant.
     /// The emitted dispatcher still evaluates and validates their actual
@@ -266,13 +466,9 @@ impl DynamicImportSiteIr {
         let specifier = self.static_specifier.clone()?;
         let attributes = match &self.attributes {
             DynamicImportAttributesIr::Known(attributes) => attributes.clone(),
-            DynamicImportAttributesIr::Runtime => Vec::new(),
+            DynamicImportAttributesIr::Runtime => ModuleRequestAttributesIr::empty(),
         };
-        Some(ModuleRequestIr {
-            specifier,
-            phase: self.phase,
-            attributes,
-        })
+        Some(ModuleRequestIr::new(specifier, self.phase, attributes))
     }
 }
 
@@ -289,9 +485,19 @@ pub struct SourceTextModuleRecordIr {
     pub source_len: usize,
     /// `[[HasTLA]]`: the module body contains a top-level `await`.
     pub has_top_level_await: bool,
-    /// `[[RequestedModules]]`, source order, deduplicated by
-    /// `ModuleRequestsEqual`.
+    /// `[[RequestedModules]]`, source order, deduplicated by canonical key and
+    /// phase.
+    ///
+    /// `ModuleRequestsEqual` itself is phase-free; the static-semantics list
+    /// retains one occurrence for each phase of that key. Link and evaluation
+    /// consume this list directly so an earlier source/defer occurrence cannot
+    /// move a later evaluation occurrence ahead of another dependency.
     pub requested_modules: Vec<ModuleRequestIr>,
+    /// Phase-free projection used only for host discovery and resolution.
+    ///
+    /// First-key order is retained for deterministic loading, but this is not
+    /// the specification's phaseful `[[RequestedModules]]` list.
+    pub module_resolution_requests: Vec<ModuleRequestKeyIr>,
     /// `[[ImportEntries]]`.
     pub import_entries: Vec<ImportEntryIr>,
     /// `[[LocalExportEntries]]`.
@@ -669,6 +875,12 @@ fn push_unique_request(requests: &mut Vec<ModuleRequestIr>, request: &ModuleRequ
     }
 }
 
+fn push_unique_request_key(requests: &mut Vec<ModuleRequestKeyIr>, request: &ModuleRequestKeyIr) {
+    if !requests.iter().any(|existing| existing == request) {
+        requests.push(request.clone());
+    }
+}
+
 fn resolved_name(interner: &Interner, name: Sym) -> String {
     interner.resolve_expect(name).to_string()
 }
@@ -766,7 +978,7 @@ fn module_request(
     interner: &Interner,
     request: &boa_ast::declaration::ModuleRequest,
 ) -> ModuleRequestIr {
-    let mut attributes: Vec<ImportAttributeIr> = request
+    let attributes: Vec<ImportAttributeIr> = request
         .attributes()
         .iter()
         .map(|attribute| ImportAttributeIr {
@@ -774,12 +986,13 @@ fn module_request(
             value: resolved_name(interner, attribute.value()),
         })
         .collect();
-    sort_import_attributes(&mut attributes);
-    ModuleRequestIr {
-        specifier: resolved_name(interner, request.specifier().sym()),
-        phase: ImportPhaseIr::from_ast(request.phase()),
+    let attributes = ModuleRequestAttributesIr::try_new(attributes)
+        .expect("the parser rejects duplicate static import attribute keys");
+    ModuleRequestIr::new(
+        resolved_name(interner, request.specifier().sym()),
+        ImportPhaseIr::from_ast(request.phase()),
         attributes,
-    }
+    )
 }
 
 /// `ParseModule` (16.2.1.6.1): builds a module record from the front end's
@@ -838,6 +1051,7 @@ fn build_module_record(
         source_len: source.source_text.len(),
         has_top_level_await: false,
         requested_modules: Vec::new(),
+        module_resolution_requests: Vec::new(),
         import_entries: Vec::new(),
         local_export_entries: Vec::new(),
         indirect_export_entries: Vec::new(),
@@ -847,11 +1061,10 @@ fn build_module_record(
         dynamic_import_sites: Vec::new(),
     };
 
-    // 16.2.2.2 ModuleRequests, over *all* module items in source order and
-    // deduplicated by ModuleRequestsEqual — specifier, phase and attributes.
-    // `ModuleRequestIr` keeps its attributes sorted, so derived `Eq` is that
-    // relation and `import "m" with { type: "json" }` stays a distinct request
-    // from a bare `import "m"`.
+    // 16.2.2.2 ModuleRequests, over *all* module items in source order. The
+    // phaseful list deduplicates equal `(ModuleRequestKeyIr, ImportPhaseIr)`
+    // occurrences. The parallel phase-free projection coalesces those phase
+    // variants for host discovery and resolution only.
     //
     // This is its own pass because neither entry-table pass below can produce
     // source order: ImportEntries must run before ExportEntriesForModule, so
@@ -870,6 +1083,7 @@ fn build_module_record(
             },
             ModuleItem::StatementListItem(_) => continue,
         };
+        push_unique_request_key(&mut record.module_resolution_requests, request.key());
         push_unique_request(&mut record.requested_modules, &request);
     }
 
@@ -945,9 +1159,9 @@ fn build_module_record(
                 // note. `ModuleRequestsEqual` sees every re-export request as
                 // attribute-less, so a module that both imports and re-exports
                 // one specifier with the same attributes records *two* distinct
-                // `[[RequestedModules]]` entries; and a host that keys its
-                // module map on attributes will resolve the re-export to the
-                // wrong module type. Fixing it needs a boa-side change (keep the
+                // `[[RequestedModules]]` keys; and a host that keys its module
+                // map on attributes will resolve the re-export to the wrong
+                // module type. Fixing it needs a boa-side change (keep the
                 // `ModuleRequest`), not a change here.
                 let request = ModuleRequestIr::plain(resolved_name(interner, specifier.sym()));
                 match kind {
@@ -1349,7 +1563,7 @@ fn dynamic_import_attributes(
     interner: Option<&Interner>,
 ) -> DynamicImportAttributesIr {
     let Some(options) = node.options() else {
-        return DynamicImportAttributesIr::Known(Vec::new());
+        return DynamicImportAttributesIr::Known(ModuleRequestAttributesIr::empty());
     };
     let (Expression::ObjectLiteral(options), Some(interner)) = (options, interner) else {
         return DynamicImportAttributesIr::Runtime;
@@ -1376,7 +1590,7 @@ fn dynamic_import_attributes(
     }
 
     let Some(with_value) = with_value else {
-        return DynamicImportAttributesIr::Known(Vec::new());
+        return DynamicImportAttributesIr::Known(ModuleRequestAttributesIr::empty());
     };
     let Expression::ObjectLiteral(with_object) = with_value else {
         return DynamicImportAttributesIr::Runtime;
@@ -1410,7 +1624,8 @@ fn dynamic_import_attributes(
             attributes.push(ImportAttributeIr { key, value });
         }
     }
-    sort_import_attributes(&mut attributes);
+    let attributes = ModuleRequestAttributesIr::try_new(attributes)
+        .expect("object-literal property replacement leaves unique attribute keys");
     DynamicImportAttributesIr::Known(attributes)
 }
 
@@ -1477,12 +1692,12 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
     }
 }
 
-/// Reads `[[RequestedModules]]` plus string-literal `import(...)` specifiers
-/// without lowering anything.
+/// Projects `[[RequestedModules]]` to phase-free host-resolution keys and adds
+/// string-literal `import(...)` keys, without lowering anything.
 ///
 /// This is what the host loader driver calls to discover a module's
 /// dependencies before the graph is assembled.
-pub fn scan_module_requests(source: &ParsedModule) -> Vec<ModuleRequestIr> {
+pub fn scan_module_requests(source: &ParsedModule) -> Vec<ModuleRequestKeyIr> {
     let record = source.with_compiler_session(|module, interner| {
         build_module_record(
             module,
@@ -1492,7 +1707,10 @@ pub fn scan_module_requests(source: &ParsedModule) -> Vec<ModuleRequestIr> {
             ModuleKey::from_host(ANONYMOUS_MODULE_KEY),
         )
     });
-    requests_with_dynamic_imports(record.requested_modules, &record.dynamic_import_sites)
+    requests_with_dynamic_imports(
+        record.module_resolution_requests,
+        &record.dynamic_import_sites,
+    )
 }
 
 /// Reads the statically resolvable `import(...)` requests in a Script without
@@ -1502,7 +1720,7 @@ pub fn scan_module_requests(source: &ParsedModule) -> Vec<ModuleRequestIr> {
 /// contribute. This exists specifically so graph discovery never reparses a
 /// Script as Module code (which would both violate parse-once and reject legal
 /// sloppy Script forms).
-pub fn scan_script_module_requests(source: &ParsedScript) -> Vec<ModuleRequestIr> {
+pub fn scan_script_module_requests(source: &ParsedScript) -> Vec<ModuleRequestKeyIr> {
     let sites = script_dynamic_import_sites(source);
     requests_with_dynamic_imports(Vec::new(), &sites)
 }
@@ -1518,6 +1736,7 @@ pub(crate) fn script_entry_record(
         source_len: source.source_text.len(),
         has_top_level_await: false,
         requested_modules: Vec::new(),
+        module_resolution_requests: Vec::new(),
         import_entries: Vec::new(),
         local_export_entries: Vec::new(),
         indirect_export_entries: Vec::new(),
@@ -1541,14 +1760,14 @@ fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr
 }
 
 fn requests_with_dynamic_imports(
-    mut requests: Vec<ModuleRequestIr>,
+    mut requests: Vec<ModuleRequestKeyIr>,
     sites: &[DynamicImportSiteIr],
-) -> Vec<ModuleRequestIr> {
+) -> Vec<ModuleRequestKeyIr> {
     for site in sites {
         let Some(request) = site.discovery_request() else {
             continue;
         };
-        push_unique_request(&mut requests, &request);
+        push_unique_request_key(&mut requests, request.key());
     }
     requests
 }
@@ -1635,6 +1854,35 @@ mod tests {
         }
     }
 
+    fn attributes(attributes: Vec<ImportAttributeIr>) -> ModuleRequestAttributesIr {
+        ModuleRequestAttributesIr::try_new(attributes).expect("test attributes are unique")
+    }
+
+    fn request_key(specifier: &str) -> ModuleRequestKeyIr {
+        ModuleRequestKeyIr::plain(specifier)
+    }
+
+    fn attributed_key(
+        specifier: &str,
+        request_attributes: Vec<ImportAttributeIr>,
+    ) -> ModuleRequestKeyIr {
+        ModuleRequestKeyIr::try_new(specifier, request_attributes)
+            .expect("test attributes are unique")
+    }
+
+    fn attributed_request(
+        specifier: &str,
+        phase: ImportPhaseIr,
+        request_attributes: Vec<ImportAttributeIr>,
+    ) -> ModuleRequestIr {
+        ModuleRequestIr::try_new(specifier, phase, request_attributes)
+            .expect("test attributes are unique")
+    }
+
+    fn known_attributes(attributes: Vec<ImportAttributeIr>) -> DynamicImportAttributesIr {
+        DynamicImportAttributesIr::Known(self::attributes(attributes))
+    }
+
     // -- 16.2.2.3 ImportEntries -------------------------------------------
 
     #[test]
@@ -1693,38 +1941,46 @@ mod tests {
     // -- 16.2.2.2 ModuleRequests ------------------------------------------
 
     #[test]
-    fn requested_modules_dedup_by_specifier_and_attributes() {
+    fn requested_modules_dedup_by_key_within_one_phase() {
         let record = record_of(
             "import { alpha } from \"./m.mjs\" with { type: \"json\" };\n\
              import { beta } from \"./m.mjs\" with { type: \"json\" };\n\
              import { gamma } from \"./m.mjs\";\n",
         );
 
-        // ModuleRequestsEqual compares specifier, phase and attributes, so the two
-        // attributed requests collapse and the bare one does not.
+        // ModuleRequestsEqual compares specifier and attributes. Within this
+        // shared evaluation phase the two attributed requests collapse and
+        // the bare key does not.
         assert_eq!(
             record.requested_modules,
             vec![
-                ModuleRequestIr {
-                    specifier: "./m.mjs".to_string(),
-                    phase: ImportPhaseIr::Evaluation,
-                    attributes: vec![attribute("type", "json")],
-                },
+                attributed_request(
+                    "./m.mjs",
+                    ImportPhaseIr::Evaluation,
+                    vec![attribute("type", "json")],
+                ),
                 ModuleRequestIr::plain("./m.mjs"),
             ]
         );
     }
 
     #[test]
-    fn request_attributes_are_sorted_so_derived_eq_is_module_requests_equal() {
+    fn request_attributes_are_sorted_so_keys_implement_module_requests_equal() {
         let first = record_of("import \"./m.mjs\" with { type: \"json\", charset: \"utf8\" };\n");
         let second = record_of("import \"./m.mjs\" with { charset: \"utf8\", type: \"json\" };\n");
 
         assert_eq!(
-            first.requested_modules[0].attributes,
-            vec![attribute("charset", "utf8"), attribute("type", "json")]
+            first.requested_modules[0].attributes(),
+            attributes(vec![
+                attribute("charset", "utf8"),
+                attribute("type", "json")
+            ])
+            .as_slice()
         );
-        assert_eq!(first.requested_modules, second.requested_modules);
+        assert_eq!(
+            first.requested_modules[0].key(),
+            second.requested_modules[0].key()
+        );
 
         // U+10000 starts with UTF-16 code unit D800, which sorts before E000
         // even though Rust's scalar-value String ordering puts it after.
@@ -1732,12 +1988,61 @@ mod tests {
             "import \"./m.mjs\" with { \"\u{10000}\": \"astral\", \"\u{e000}\": \"bmp\" };\n",
         );
         assert_eq!(
-            utf16.requested_modules[0].attributes,
-            vec![
+            utf16.requested_modules[0].attributes(),
+            attributes(vec![
                 attribute("\u{10000}", "astral"),
                 attribute("\u{e000}", "bmp")
-            ]
+            ])
+            .as_slice()
         );
+    }
+
+    #[test]
+    fn request_key_constructor_canonicalizes_reverse_utf16_attribute_order() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // Rust String ordering puts E000 before U+10000, while ECMAScript
+        // UTF-16 ordering sees D800 first and therefore puts U+10000 first.
+        let scalar_order = vec![
+            attribute("\u{e000}", "bmp"),
+            attribute("\u{10000}", "astral"),
+        ];
+        let utf16_order = vec![
+            attribute("\u{10000}", "astral"),
+            attribute("\u{e000}", "bmp"),
+        ];
+        let first = attributed_key("./m.mjs", scalar_order);
+        let second = attributed_key("./m.mjs", utf16_order.clone());
+
+        assert_eq!(first, second);
+        assert_eq!(first.cmp(&second), core::cmp::Ordering::Equal);
+        assert_eq!(first.attributes(), utf16_order.as_slice());
+        let mut first_hash = DefaultHasher::new();
+        first.hash(&mut first_hash);
+        let mut second_hash = DefaultHasher::new();
+        second.hash(&mut second_hash);
+        assert_eq!(first_hash.finish(), second_hash.finish());
+
+        let evaluation = ModuleRequestIr::from_key(first.clone(), ImportPhaseIr::Evaluation);
+        let source = ModuleRequestIr::from_key(first, ImportPhaseIr::Source);
+        assert_ne!(evaluation, source, "occurrences retain their phase");
+        assert_eq!(
+            evaluation.key(),
+            source.key(),
+            "host identity ignores phase"
+        );
+    }
+
+    #[test]
+    fn request_attributes_reject_duplicate_keys() {
+        let error = ModuleRequestAttributesIr::try_new(vec![
+            attribute("type", "json"),
+            attribute("type", "css"),
+        ])
+        .expect_err("duplicate keys cannot inhabit the canonical list");
+
+        assert_eq!(error.key(), "type");
     }
 
     #[test]
@@ -1751,6 +2056,60 @@ mod tests {
                 ModuleRequestIr::plain("./first.mjs"),
                 ModuleRequestIr::plain("./second.mjs"),
             ]
+        );
+    }
+
+    #[test]
+    fn requested_modules_retain_phases_while_resolution_requests_coalesce_them() {
+        let record = record_of(
+            "import './m.mjs';\n\
+             import './m.mjs';\n\
+             import defer * as deferred from './m.mjs';\n\
+             import source artifact from './m.mjs';\n",
+        );
+
+        assert_eq!(
+            record
+                .requested_modules
+                .iter()
+                .map(ModuleRequestIr::phase)
+                .collect::<Vec<_>>(),
+            vec![
+                ImportPhaseIr::Evaluation,
+                ImportPhaseIr::Defer,
+                ImportPhaseIr::Source,
+            ]
+        );
+        assert!(record
+            .requested_modules
+            .iter()
+            .all(|request| request.key() == &record.module_resolution_requests[0]));
+        assert_eq!(
+            record.module_resolution_requests,
+            vec![request_key("./m.mjs")]
+        );
+    }
+
+    #[test]
+    fn requested_modules_keep_phaseful_order_after_an_earlier_key_projection() {
+        let record = record_of(
+            "import source artifact from './m.mjs';\n\
+             import './n.mjs';\n\
+             import './m.mjs';\n\
+             artifact;",
+        );
+
+        assert_eq!(
+            record.requested_modules,
+            vec![
+                ModuleRequestIr::from_key(request_key("./m.mjs"), ImportPhaseIr::Source,),
+                ModuleRequestIr::plain("./n.mjs"),
+                ModuleRequestIr::plain("./m.mjs"),
+            ]
+        );
+        assert_eq!(
+            record.module_resolution_requests,
+            vec![request_key("./m.mjs"), request_key("./n.mjs")]
         );
     }
 
@@ -2015,21 +2374,21 @@ mod tests {
                 DynamicImportSiteIr {
                     static_specifier: Some("./static.mjs".to_string()),
                     phase: ImportPhaseIr::Evaluation,
-                    attributes: DynamicImportAttributesIr::Known(Vec::new()),
+                    attributes: known_attributes(Vec::new()),
                 },
                 // A computed specifier is not statically discoverable, so the
                 // target cannot be compiled into the artifact.
                 DynamicImportSiteIr {
                     static_specifier: None,
                     phase: ImportPhaseIr::Evaluation,
-                    attributes: DynamicImportAttributesIr::Known(Vec::new()),
+                    attributes: known_attributes(Vec::new()),
                 },
                 // Nesting inside a function does not hide the site: the whole
                 // point is that the target is reachable at run time.
                 DynamicImportSiteIr {
                     static_specifier: Some("./nested.mjs".to_string()),
                     phase: ImportPhaseIr::Evaluation,
-                    attributes: DynamicImportAttributesIr::Known(Vec::new()),
+                    attributes: known_attributes(Vec::new()),
                 },
             ]
         );
@@ -2170,10 +2529,7 @@ mod tests {
         ));
         assert_eq!(
             requests,
-            vec![
-                ModuleRequestIr::plain("./static.mjs"),
-                ModuleRequestIr::plain("./dynamic.mjs"),
-            ]
+            vec![request_key("./static.mjs"), request_key("./dynamic.mjs"),]
         );
     }
 
@@ -2190,7 +2546,7 @@ mod tests {
 
         assert_eq!(
             record.dynamic_import_sites[0].attributes,
-            DynamicImportAttributesIr::Known(vec![
+            known_attributes(vec![
                 attribute("charset", "utf8"),
                 attribute("type", "json"),
             ])
@@ -2201,7 +2557,7 @@ mod tests {
         );
         assert_eq!(
             record.dynamic_import_sites[2].attributes,
-            DynamicImportAttributesIr::Known(Vec::new())
+            known_attributes(Vec::new())
         );
         assert_eq!(
             record.dynamic_import_sites[3].attributes,
@@ -2210,17 +2566,16 @@ mod tests {
         assert_eq!(
             scan_module_requests(&source),
             vec![
-                ModuleRequestIr {
-                    specifier: "./known.mjs".to_string(),
-                    phase: ImportPhaseIr::Evaluation,
-                    attributes: vec![attribute("charset", "utf8"), attribute("type", "json"),],
-                },
+                attributed_key(
+                    "./known.mjs",
+                    vec![attribute("charset", "utf8"), attribute("type", "json")],
+                ),
                 // A runtime options shape discovers the attribute-free request
                 // as the AOT registry's safe baseline. Runtime matching still
                 // requires the eventual attribute list to be exactly empty.
-                ModuleRequestIr::plain("./runtime.mjs"),
-                ModuleRequestIr::plain("./proto.mjs"),
-                ModuleRequestIr::plain("./inherited.mjs"),
+                request_key("./runtime.mjs"),
+                request_key("./proto.mjs"),
+                request_key("./inherited.mjs"),
             ]
         );
     }

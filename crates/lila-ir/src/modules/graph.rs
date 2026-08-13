@@ -142,7 +142,7 @@ impl ModuleSourceIr {
     /// Requests needed by host graph discovery, derived from the retained AST.
     /// `None` means the one parse attempt was rejected and must not be retried.
     #[must_use]
-    pub fn module_requests(&self) -> Option<Vec<ModuleRequestIr>> {
+    pub fn module_requests(&self) -> Option<Vec<ModuleRequestKeyIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_requests(source)),
             ModuleParse::ScriptEntry(source) => Some(scan_script_module_requests(source)),
@@ -162,7 +162,8 @@ impl ModuleSourceIr {
 /// The loaded transitive closure of an entry module.
 ///
 /// `resolutions` is the host's `HostResolveImportedModule` result table: for
-/// each `(referrer, request)` pair it names the unit that request resolves to.
+/// each `(referrer, request key)` pair it names the unit that request resolves
+/// to. Phase is occurrence metadata and does not participate in host identity.
 /// A request with no entry here is an unresolved-module link error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleGraphSources {
@@ -170,8 +171,21 @@ pub struct ModuleGraphSources {
     pub modules: Vec<ModuleSourceIr>,
     /// Index of the entry module in `modules`.
     pub entry: ModuleUnitId,
-    /// `(referrer, request) -> target` resolutions the host produced.
-    pub resolutions: Vec<(ModuleUnitId, ModuleRequestIr, ModuleUnitId)>,
+    /// `(referrer, request key) -> target` resolutions the host produced.
+    ///
+    /// ```compile_fail
+    /// use lila_ir::{ModuleGraphSources, ModuleRequestIr};
+    ///
+    /// let mut sources = ModuleGraphSources {
+    ///     modules: Vec::new(),
+    ///     entry: 0,
+    ///     resolutions: Vec::new(),
+    /// };
+    /// sources
+    ///     .resolutions
+    ///     .push((0, ModuleRequestIr::plain("./m.js"), 1));
+    /// ```
+    pub resolutions: Vec<(ModuleUnitId, ModuleRequestKeyIr, ModuleUnitId)>,
 }
 
 /// Key a one-node graph uses when the caller supplied no filename.
@@ -249,7 +263,7 @@ pub enum ModuleLinkErrorIr {
         /// Module that made the request.
         referrer: ModuleUnitId,
         /// The unresolved request.
-        request: ModuleRequestIr,
+        request: ModuleRequestKeyIr,
     },
     /// The requested module does not export the imported name.
     MissingExport {
@@ -282,6 +296,13 @@ pub enum ModuleLinkErrorIr {
     InconsistentLoad {
         /// The key loaded inconsistently.
         key: ModuleKey,
+    },
+    /// Public host rows resolved one phase-free request key to two targets.
+    InconsistentResolution {
+        /// Module that made the request.
+        referrer: ModuleUnitId,
+        /// Request whose host resolution contradicted itself.
+        request: ModuleRequestKeyIr,
     },
     /// The closure holds more units than the source-text linker can name.
     ///
@@ -325,6 +346,7 @@ impl ModuleLinkErrorIr {
             Self::AmbiguousExport { .. } => EarlyErrorCode::ModuleAmbiguousExport,
             Self::DuplicateExport { .. } => EarlyErrorCode::ModuleDuplicateExport,
             Self::InconsistentLoad { .. } => EarlyErrorCode::ModuleInconsistentLoad,
+            Self::InconsistentResolution { .. } => EarlyErrorCode::ModuleInconsistentLoad,
             Self::UnsupportedPhase { .. } => EarlyErrorCode::ModuleUnsupportedPhase,
             Self::TooManyUnits { .. } => EarlyErrorCode::ModuleTooManyUnits,
         }
@@ -335,7 +357,7 @@ impl ModuleLinkErrorIr {
     pub fn message(&self) -> String {
         match self {
             Self::UnresolvedModule { request, .. } => {
-                format!("unresolved module request: {}", request.specifier)
+                format!("unresolved module request: {}", request.specifier())
             }
             Self::MissingExport {
                 request,
@@ -343,7 +365,7 @@ impl ModuleLinkErrorIr {
                 ..
             } => format!(
                 "module {} does not export {}",
-                request.specifier,
+                request.specifier(),
                 import_name.as_str()
             ),
             Self::AmbiguousExport { export_name, .. } => {
@@ -355,6 +377,10 @@ impl ModuleLinkErrorIr {
             Self::InconsistentLoad { key } => {
                 format!("module loaded inconsistently: {}", key.as_str())
             }
+            Self::InconsistentResolution { request, .. } => format!(
+                "module request resolved inconsistently: {}",
+                request.specifier()
+            ),
             Self::UnsupportedPhase { phase, reason, .. } => format!(
                 "unsupported in lila wasm-aot: {} phase module request: {reason}",
                 phase.as_str()
@@ -372,7 +398,7 @@ impl ModuleLinkErrorIr {
     /// them from the code, so `DuplicateExport` lands on `EarlyError`/`Early`
     /// — 16.2.3.1 makes it an early error and
     /// `test/language/module-code/early-dup-export-id.js` is `phase: parse` —
-    /// while the six genuine link conditions land on `LinkError`/`Resolution`.
+    /// while the genuine link conditions land on `LinkError`/`Resolution`.
     #[must_use]
     pub fn to_diagnostic(&self) -> IrDiagnostic {
         IrDiagnostic::rejected(self.code(), self.message(), None)
@@ -479,8 +505,8 @@ pub struct ModuleGraphIr {
     pub units: Vec<ModuleUnitIr>,
     /// Host-normalized key to unit index.
     pub keys: BTreeMap<ModuleKey, ModuleUnitId>,
-    /// `(referrer, request) -> target`, as resolved by the host.
-    pub resolutions: BTreeMap<(ModuleUnitId, ModuleRequestIr), ModuleUnitId>,
+    /// `(referrer, phase-free request key) -> target`, as resolved by the host.
+    pub resolutions: BTreeMap<(ModuleUnitId, ModuleRequestKeyIr), ModuleUnitId>,
     /// Post-order DFS. Members of one strongly-connected component are
     /// contiguous.
     pub evaluation_order: Vec<ModuleUnitId>,
@@ -761,6 +787,16 @@ impl ModuleGraphIr {
         referrer: ModuleUnitId,
         request: &ModuleRequestIr,
     ) -> Option<ModuleUnitId> {
+        self.resolve_request_key(referrer, request.key())
+    }
+
+    /// Target of a phase-free host request key made by `referrer`.
+    #[must_use]
+    pub fn resolve_request_key(
+        &self,
+        referrer: ModuleUnitId,
+        request: &ModuleRequestKeyIr,
+    ) -> Option<ModuleUnitId> {
         self.resolutions.get(&(referrer, request.clone())).copied()
     }
 
@@ -1005,20 +1041,40 @@ pub(crate) fn build_graph(
         .get(sources.entry as usize)
         .copied()
         .unwrap_or_default();
+    let mut inconsistent_resolutions = BTreeSet::new();
     for (referrer, request, target) in &sources.resolutions {
         let (Some(&referrer), Some(&target)) =
             (remap.get(*referrer as usize), remap.get(*target as usize))
         else {
             continue;
         };
-        graph
-            .resolutions
-            .insert((referrer, request.clone()), target);
+        let identity = (referrer, request.clone());
+        if inconsistent_resolutions.contains(&identity) {
+            continue;
+        }
+        match graph.resolutions.get(&identity).copied() {
+            None => {
+                graph.resolutions.insert(identity, target);
+            }
+            Some(existing) if existing == target => {}
+            Some(_) => {
+                // A phase-free request has exactly one host resolution. Keep
+                // no winner: last-write-wins would make public row order part
+                // of module identity.
+                graph.resolutions.remove(&identity);
+                inconsistent_resolutions.insert(identity);
+            }
+        }
     }
     for key in inconsistent {
         graph
             .link_errors
             .push(ModuleLinkErrorIr::InconsistentLoad { key });
+    }
+    for (referrer, request) in inconsistent_resolutions {
+        graph
+            .link_errors
+            .push(ModuleLinkErrorIr::InconsistentResolution { referrer, request });
     }
     Ok(graph)
 }
@@ -1041,8 +1097,22 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
 
         // Requests the host could not resolve.
         let requests = graph.units[module].record.requested_modules.clone();
+        let mut checked = BTreeSet::new();
         for request in requests {
-            if graph.resolve_request(id, &request).is_none() {
+            let request = request.key().clone();
+            if !checked.insert(request.clone()) {
+                continue;
+            }
+            let inconsistent = graph.link_errors.iter().any(|error| {
+                matches!(
+                    error,
+                    ModuleLinkErrorIr::InconsistentResolution {
+                        referrer,
+                        request: inconsistent_request,
+                    } if *referrer == id && inconsistent_request == &request
+                )
+            });
+            if graph.resolve_request_key(id, &request).is_none() && !inconsistent {
                 graph.link_errors.push(ModuleLinkErrorIr::UnresolvedModule {
                     referrer: id,
                     request,
@@ -1062,7 +1132,7 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
             // exports: it hands out a module source object, and the module is
             // not even instantiated. `[[ImportName]]` is `default` only because
             // the grammar reuses `ImportedBinding`.
-            if entry.request.phase == ImportPhaseIr::Source {
+            if entry.request.phase() == ImportPhaseIr::Source {
                 resolved.push(ResolvedBindingIr::Resolved {
                     module: target,
                     binding: ModuleBindingNameIr::ModuleSource,
@@ -1195,7 +1265,7 @@ fn classify_evaluation_modes(graph: &mut ModuleGraphIr, components: &[DynamicCom
                 continue;
             };
             targeted[target] = true;
-            edges.push((module, request.phase, target));
+            edges.push((module, request.phase(), target));
         }
     }
     // `import()` call sites, which are not in `[[RequestedModules]]` but reach
@@ -1213,7 +1283,7 @@ fn classify_evaluation_modes(graph: &mut ModuleGraphIr, components: &[DynamicCom
             continue;
         }
         targeted[target] = true;
-        edges.push((referrer, component.request.phase, target));
+        edges.push((referrer, component.request.phase(), target));
     }
 
     let mut eager = vec![false; count];
@@ -1495,7 +1565,7 @@ mod tests {
             for request in requests {
                 let target = files
                     .iter()
-                    .position(|(key, _)| last_segment(key) == last_segment(&request.specifier));
+                    .position(|(key, _)| last_segment(key) == last_segment(request.specifier()));
                 if let Some(target) = target {
                     let target = u32::try_from(target).expect("test graph is small");
                     resolutions.push((referrer, request, target));
@@ -1711,6 +1781,133 @@ mod tests {
         assert!(graph.resolutions.values().all(|target| *target == shared));
     }
 
+    /// `ModuleGraphSources::resolutions` is a public embedder boundary. Its
+    /// request may be constructed independently of the retained parse, so an
+    /// opposite input order must still name the same ModuleRequest Record.
+    #[test]
+    fn a_public_host_resolution_row_matches_canonical_request_attributes() {
+        fn attribute(key: &str, value: &str) -> ImportAttributeIr {
+            ImportAttributeIr {
+                key: key.to_string(),
+                value: value.to_string(),
+            }
+        }
+
+        let modules = vec![
+            ModuleSourceIr::new(
+                ModuleKey::from_host("/root/entry.js"),
+                "import { value } from './dep.js' with { charset: 'utf8', type: 'text' };\n\
+                 value;"
+                    .to_string(),
+                "file:///root/entry.js".to_string(),
+            ),
+            ModuleSourceIr::new(
+                ModuleKey::from_host("/root/dep.js"),
+                "export const value = 41;".to_string(),
+                "file:///root/dep.js".to_string(),
+            ),
+        ];
+        let host_request = ModuleRequestKeyIr::try_new(
+            "./dep.js",
+            // Reverse of the source's canonical order.
+            vec![attribute("type", "text"), attribute("charset", "utf8")],
+        )
+        .expect("host attributes are unique");
+        let sources = ModuleGraphSources {
+            modules,
+            entry: 0,
+            resolutions: vec![(0, host_request, 1)],
+        };
+
+        let mut graph = build_graph(&sources).expect("test modules parse");
+        link(&mut graph);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(
+            graph.units[0].resolved_imports,
+            vec![ResolvedBindingIr::Resolved {
+                module: 1,
+                binding: ModuleBindingNameIr::Name(LocalName::from_bound_name("value")),
+            }]
+        );
+    }
+
+    #[test]
+    fn eval_defer_and_source_occurrences_share_one_resolution_key() {
+        let sources = ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './dep.js';\n\
+                     import defer * as deferred from './dep.js';\n\
+                     import source artifact from './dep.js';\n\
+                     deferred; artifact;"
+                        .to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/dep.js"),
+                    "export const value = 41;".to_string(),
+                    "file:///root/dep.js".to_string(),
+                ),
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./dep.js"), 1)],
+        };
+
+        let mut graph = build_graph(&sources).expect("test modules parse");
+        assert_eq!(graph.resolutions.len(), 1);
+        assert_eq!(graph.units[0].record.requested_modules.len(), 3);
+        assert_eq!(graph.units[0].record.module_resolution_requests.len(), 1);
+        for phase in [
+            ImportPhaseIr::Evaluation,
+            ImportPhaseIr::Defer,
+            ImportPhaseIr::Source,
+        ] {
+            let request = ModuleRequestIr::from_key(ModuleRequestKeyIr::plain("./dep.js"), phase);
+            assert_eq!(graph.resolve_request(0, &request), Some(1));
+        }
+
+        link(&mut graph);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        assert_eq!(graph.evaluation_mode(1), ModuleEvaluationModeIr::Eager);
+    }
+
+    #[test]
+    fn conflicting_public_resolution_rows_have_no_last_write_winner() {
+        let request = ModuleRequestKeyIr::plain("./dep.js");
+        let sources = ModuleGraphSources {
+            modules: vec![
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/entry.js"),
+                    "import './dep.js';".to_string(),
+                    "file:///root/entry.js".to_string(),
+                ),
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/first.js"),
+                    "export const first = 1;".to_string(),
+                    "file:///root/first.js".to_string(),
+                ),
+                ModuleSourceIr::new(
+                    ModuleKey::from_host("/root/second.js"),
+                    "export const second = 2;".to_string(),
+                    "file:///root/second.js".to_string(),
+                ),
+            ],
+            entry: 0,
+            resolutions: vec![(0, request.clone(), 1), (0, request.clone(), 2)],
+        };
+
+        let graph = build_graph(&sources).expect("test modules parse");
+        assert_eq!(graph.resolve_request_key(0, &request), None);
+        assert_eq!(
+            graph.link_errors,
+            vec![ModuleLinkErrorIr::InconsistentResolution {
+                referrer: 0,
+                request,
+            }]
+        );
+    }
+
     #[test]
     fn a_repeated_key_with_different_text_is_one_unit_and_an_inconsistent_load() {
         let sources = ModuleGraphSources {
@@ -1888,7 +2085,7 @@ mod tests {
             graph.link_errors,
             vec![ModuleLinkErrorIr::UnresolvedModule {
                 referrer: 0,
-                request: ModuleRequestIr::plain("./missing.js"),
+                request: ModuleRequestKeyIr::plain("./missing.js"),
             }]
         );
     }
@@ -1904,6 +2101,45 @@ mod tests {
         let a = unit_of(&graph, "/root/a.js");
         let b = unit_of(&graph, "/root/b.js");
         assert_eq!(graph.evaluation_order, vec![a, b, graph.entry]);
+    }
+
+    #[test]
+    fn an_earlier_source_occurrence_does_not_reorder_later_evaluation_dependencies() {
+        let graph = linked(&[
+            (
+                "/root/entry.js",
+                "import source artifact from './m.js';\n\
+                 import './n.js';\n\
+                 import './m.js';\n\
+                 artifact;",
+            ),
+            ("/root/m.js", "export const m = 1;"),
+            ("/root/n.js", "export const n = 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        let m = unit_of(&graph, "/root/m.js");
+        let n = unit_of(&graph, "/root/n.js");
+        assert_eq!(graph.evaluation_order, vec![n, m, graph.entry]);
+    }
+
+    #[test]
+    fn an_earlier_defer_occurrence_does_not_reorder_later_evaluation_dependencies() {
+        let graph = linked(&[
+            (
+                "/root/entry.js",
+                "import defer * as deferred from './m.js';\n\
+                 import './n.js';\n\
+                 import './m.js';\n\
+                 deferred;",
+            ),
+            ("/root/m.js", "export const m = 1;"),
+            ("/root/n.js", "export const n = 1;"),
+        ]);
+        assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+        let m = unit_of(&graph, "/root/m.js");
+        let n = unit_of(&graph, "/root/n.js");
+        assert_eq!(graph.evaluation_order, vec![n, m, graph.entry]);
+        assert_eq!(graph.evaluation_mode(m), ModuleEvaluationModeIr::Eager);
     }
 
     #[test]

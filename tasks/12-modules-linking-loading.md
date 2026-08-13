@@ -10,12 +10,12 @@
 
 The Rust path now has a host loader, parse-once graph assembly, export
 resolution, evaluation ordering, live-binding aliases and an AOT dynamic-import
-registry. Dynamic-import components now retain the exact typed request the host
-resolved, including phase and attributes, and the generated executor preserves
-the specifier/options/coercion/property-read order. Those are foundations rather
-than completion: exact module namespace exotic behavior, lazy dynamic target
-evaluation, all cyclic/deferred/async evaluation cases and the
-`language/module-code` current-pin closure remain unverified.
+registry. Dynamic-import components retain the full phaseful occurrence whose
+phase-free key the host resolved, and the generated executor preserves the
+specifier/options/coercion/property-read order. Those are foundations rather
+than completion: attributed re-exports, exact module namespace exotic
+behavior, lazy dynamic target evaluation, all cyclic/deferred/async evaluation
+cases and the `language/module-code` current-pin closure remain unverified.
 
 ## Objective
 
@@ -80,14 +80,18 @@ source units are concatenated before the single lowering pass.
 
 ### Module identity domain
 
-`ModuleRequestIr::specifier` is source spelling interpreted relative to a
-referrer. `ModuleKey` is the distinct, opaque identity returned by the host
-after resolution/canonicalization. The engine retains that type through its
-parse-once discovery map, `ModuleSourceIr`, `SourceTextModuleRecordIr`, the IR
-graph key map and `DynamicComponentIr`; it is never recovered by comparing a
-raw request spelling with a normalized key. This prevents a missing host
-resolution from becoming an accidental match merely because the two strings
-happen to be equal, without changing graph sharing or evaluation order.
+`ModuleRequestKeyIr::specifier` is source spelling interpreted relative to a
+referrer. The key combines that spelling with canonical attributes and is the
+phase-free identity `ModuleRequestsEqual` and host resolution consume.
+`ModuleRequestIr` adds occurrence phase for dispatch and evaluation, but never
+becomes a module-map key. `ModuleKey` is the distinct, opaque identity returned
+by the host after resolution/canonicalization. The engine retains `ModuleKey`
+through its parse-once discovery map, `ModuleSourceIr`,
+`SourceTextModuleRecordIr`, the IR graph key map and `DynamicComponentIr`; it is
+never recovered by comparing a raw request spelling with a normalized key. This
+prevents a missing host resolution from becoming an accidental match merely
+because the two strings happen to be equal, without changing graph sharing or
+evaluation order.
 
 ### Evaluation dependency domain
 
@@ -133,8 +137,8 @@ backend change with no source-loading fallback.
 `import()` must work without runtime source compilation. Every statically
 discoverable dynamic-import target is resolved with the graph and compiled as a
 guarded module unit inside the same graph artifact. At runtime, the exact typed
-request — resolved module identity, phase and attributes — must match an entry
-in that artifact's precompiled registry. A runtime-computed specifier may select
+occurrence — referrer, specifier, phase and attributes — must match an entry in
+that artifact's precompiled registry. A runtime-computed specifier may select
 only such a precompiled entry; a request with no exact match rejects its promise
 with a host resolution error. There is no source-loading, parsing or evaluation
 fallback inside the artifact. This keeps dynamic import out of T13's
@@ -154,9 +158,11 @@ is sorted by key in UTF-16 code-unit order before host resolution.
 
 The AOT graph preserves that boundary by leaving both source operands at the
 rewritten call site and doing coercion and option inspection inside the
-generated promise executor. A dynamic component owns the exact
-`ModuleRequestIr` accepted by the host: referrer plus that request is its
-identity, so phase and attributes cannot drift into parallel lookup keys.
+generated promise executor. The host accepts the phase-free
+`ModuleRequestKeyIr`; a dynamic component retains the corresponding full
+`ModuleRequestIr`, and referrer plus that occurrence is the runtime registry
+identity. Phase therefore stays available to dispatch without splitting host
+resolution into parallel keys.
 Literal `{ with: { ... } }` attributes are carried into graph discovery and
 therefore reach `HostModuleLoader::resolve`. An option shape whose eventual
 attributes depend on runtime code discovers the attribute-free request as the
@@ -166,6 +172,35 @@ runtime parsing or loading. The default filesystem host currently supports no
 attributes, so attributed dynamic requests are retained and rejected honestly;
 embedders that implement a module type can resolve the same typed requests
 without changing compiler IR.
+
+### Canonical request identity
+
+Module request attributes cross graph and host boundaries only as
+`ModuleRequestAttributesIr`: an immutable, duplicate-free list sorted by
+UTF-16 key order. `ModuleRequestKeyIr` keeps specifier and attributes private
+and is the sole phase-free identity used by `HostModuleLoader::resolve`, public
+resolution rows and graph maps. `ModuleRequestIr` separately carries phaseful
+occurrences for `[[RequestedModules]]`, entry tables, evaluation classification
+and the artifact registry. Evaluation, defer and source occurrences with the
+same key therefore share one host resolution but remain distinct at dispatch.
+
+`SourceTextModuleRecordIr::requested_modules` is the phaseful source-order list,
+deduplicated by `(key, phase)`. `module_resolution_requests` is its separately
+named phase-free projection for host discovery only. Evaluation and linking
+walk the phaseful list, so `source m; eval n; eval m` retains evaluation order
+`n, m` rather than being reordered by the first occurrence of key `m`.
+Duplicate public rows for the same `(referrer, key, target)` coalesce; rows
+naming two targets for one key produce `InconsistentResolution` with no
+last-write winner.
+
+The contract and public embedder regressions live in
+`docs/rust-rewrite/contracts/module-request-identity.md`.
+
+Boa 0.21.1 drops import attributes from re-export AST nodes, so attributed
+re-exports are still recorded as attribute-free requests. This seam does not
+claim support for them. It also does not add attribute support to the default
+filesystem host, which continues to reject attributed requests until their
+module type is implemented.
 
 ## Acceptance criteria
 

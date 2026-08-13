@@ -139,7 +139,7 @@
 //! it into the artifact.
 //!
 //! A literal `with` object containing literal String values is also available
-//! during graph discovery and reaches the host in `ModuleRequestIr`. A runtime
+//! during graph discovery and reaches the host in `ModuleRequestKeyIr`. A runtime
 //! options shape discovers the attribute-free request as a safe baseline; its
 //! eventual attributes still have to match an exact request already present in
 //! the compiled registry. This may compile a target the call later rejects, but
@@ -210,7 +210,7 @@ pub struct DynamicComponentIr {
     /// it; the runtime string is *not* matched against it, because the runtime
     /// string is the specifier as written.
     pub key: ModuleKey,
-    /// Exact request the host resolved, including phase and sorted attributes.
+    /// Full occurrence whose phase-free key the host resolved.
     pub request: ModuleRequestIr,
     /// Module that wrote the call site.
     pub referrer: ModuleUnitId,
@@ -291,7 +291,7 @@ impl ModuleGraphIr {
     pub fn dynamic_source_modules(&self) -> BTreeSet<ModuleUnitId> {
         self.components
             .iter()
-            .filter(|component| component.request.phase == ImportPhaseIr::Source)
+            .filter(|component| component.request.phase() == ImportPhaseIr::Source)
             .map(|component| component.module)
             .collect()
     }
@@ -410,7 +410,7 @@ fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String 
 /// * source — the module source object, which is not a namespace at all: the
 ///   module is loaded and parsed but never instantiated.
 fn component_resolution_cell(component: &DynamicComponentIr) -> MergedName {
-    match component.request.phase {
+    match component.request.phase() {
         ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {
             MergedName::minted(component.module, UnitCellRole::Namespace)
         }
@@ -514,16 +514,14 @@ impl ModuleGraphIr {
              attributeKeys[insertionIndex] = sortKey; attributeValues[insertionIndex] = \
              sortValue; sortIndex++; } } }",
         );
-        for component in self
-            .components
-            .iter()
-            .filter(|component| component.referrer == referrer && component.request.phase == phase)
-        {
+        for component in self.components.iter().filter(|component| {
+            component.referrer == referrer && component.request.phase() == phase
+        }) {
             text.push_str(" if (key === ");
-            text.push_str(&js_string_literal(&component.request.specifier));
+            text.push_str(&js_string_literal(component.request.specifier()));
             text.push_str(" && attributeKeys.length === ");
-            text.push_str(&component.request.attributes.len().to_string());
-            for (index, attribute) in component.request.attributes.iter().enumerate() {
+            text.push_str(&component.request.attributes().len().to_string());
+            for (index, attribute) in component.request.attributes().iter().enumerate() {
                 text.push_str(" && attributeKeys[");
                 text.push_str(&index.to_string());
                 text.push_str("] === ");
@@ -818,7 +816,7 @@ impl ModuleGraphIr {
         let mut observed: BTreeSet<ModuleUnitId> = self
             .components
             .iter()
-            .filter(|entry| entry.request.phase != ImportPhaseIr::Source)
+            .filter(|entry| entry.request.phase() != ImportPhaseIr::Source)
             .map(|entry| entry.module)
             .collect();
         let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();
@@ -1362,7 +1360,7 @@ mod tests {
     fn sources_of(
         sources: &[(&str, &str)],
         entry: usize,
-        resolutions: Vec<(ModuleUnitId, ModuleRequestIr, ModuleUnitId)>,
+        resolutions: Vec<(ModuleUnitId, ModuleRequestKeyIr, ModuleUnitId)>,
     ) -> ModuleGraphSources {
         ModuleGraphSources {
             entry: ModuleUnitId::try_from(entry).expect("entry index fits"),
@@ -1390,27 +1388,19 @@ mod tests {
         graph
     }
 
-    fn plain(specifier: &str) -> ModuleRequestIr {
-        phased(specifier, ImportPhaseIr::Evaluation)
+    fn request_key(specifier: &str) -> ModuleRequestKeyIr {
+        ModuleRequestKeyIr::plain(specifier)
     }
 
-    fn phased(specifier: &str, phase: ImportPhaseIr) -> ModuleRequestIr {
-        ModuleRequestIr {
-            specifier: specifier.to_string(),
-            phase,
-            attributes: Vec::new(),
-        }
-    }
-
-    fn attributed(specifier: &str, key: &str, value: &str) -> ModuleRequestIr {
-        ModuleRequestIr {
-            specifier: specifier.to_string(),
-            phase: ImportPhaseIr::Evaluation,
-            attributes: vec![ImportAttributeIr {
+    fn attributed(specifier: &str, key: &str, value: &str) -> ModuleRequestKeyIr {
+        ModuleRequestKeyIr::try_new(
+            specifier,
+            vec![ImportAttributeIr {
                 key: key.to_string(),
                 value: value.to_string(),
             }],
-        }
+        )
+        .expect("the test attribute key is unique")
     }
 
     /// The `d.mjs` shape the lane exists for: a dispatcher that answers the
@@ -1424,7 +1414,7 @@ mod tests {
                 ("d", "import(\"./a.mjs\").then(m => print(m.value));"),
             ],
             1,
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let graph = graph_of(&sources);
         let prelude = graph.dynamic_import_prelude();
@@ -1478,7 +1468,7 @@ mod tests {
             ],
             2,
             vec![
-                (2, plain("./a.mjs"), 0),
+                (2, request_key("./a.mjs"), 0),
                 (2, attributed("./a.mjs", "type", "json"), 1),
             ],
         );
@@ -1514,7 +1504,10 @@ mod tests {
                 ),
             ],
             2,
-            vec![(2, plain("./a.mjs"), 0), (2, plain("./b.mjs"), 1)],
+            vec![
+                (2, request_key("./a.mjs"), 0),
+                (2, request_key("./b.mjs"), 1),
+            ],
         );
         let graph = graph_of(&sources);
         let prelude = graph.dynamic_import_prelude();
@@ -1708,7 +1701,7 @@ mod tests {
                 ("d", "import(\"./a.mjs\");"),
             ],
             1,
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let graph = graph_of(&sources);
         assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
@@ -1731,8 +1724,8 @@ mod tests {
             ],
             2,
             vec![
-                (2, phased("./a.mjs", ImportPhaseIr::Defer), 0),
-                (2, phased("./b.mjs", ImportPhaseIr::Source), 1),
+                (2, request_key("./a.mjs"), 0),
+                (2, request_key("./b.mjs"), 1),
             ],
         );
         let graph = graph_of(&sources);
@@ -1864,7 +1857,7 @@ mod tests {
                 ("d", "import(\"./a.mjs\");"),
             ],
             1,
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let graph = graph_of(&sources);
         assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
@@ -1892,7 +1885,7 @@ mod tests {
                 ("d", "import(\"./a.mjs\");\nimport(\"a\");"),
             ],
             1,
-            vec![(1, plain("./a.mjs"), 0), (1, plain("a"), 0)],
+            vec![(1, request_key("./a.mjs"), 0), (1, request_key("a"), 0)],
         );
         let graph = graph_of(&sources);
         let prelude = graph.dynamic_import_prelude();
@@ -1923,7 +1916,7 @@ mod tests {
                 ),
             ],
             1,
-            vec![(1, plain("./a.mjs"), 0)],
+            vec![(1, request_key("./a.mjs"), 0)],
         );
         let graph = graph_of(&sources);
         let prelude = graph.dynamic_import_prelude();

@@ -161,6 +161,7 @@ mod tests {
             source_len: 0,
             has_top_level_await: false,
             requested_modules: Vec::new(),
+            module_resolution_requests: Vec::new(),
             import_entries: Vec::new(),
             local_export_entries: Vec::new(),
             indirect_export_entries: Vec::new(),
