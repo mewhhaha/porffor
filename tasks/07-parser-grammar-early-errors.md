@@ -1,6 +1,6 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
-**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter classification implemented; grammar and early-error closure remain
+**Status:** In progress — parse-once boundary plus duplicate formal/catch-parameter and catch-body conflict classification implemented; grammar and early-error closure remain
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  
@@ -42,8 +42,15 @@ Test262 verification is deferred to the shared verification lane.
 
 Duplicate catch-parameter `BoundNames` now form a separate closed condition,
 selected by pinned Boa's sole exact wording across both parse goals and retained
-dependency failures. This does not absorb the distinct catch-body lexical/var
-conflict rule, nor does it change catch binding initialization or lowering.
+dependency failures. It remains distinct from the catch-body conflict
+classifier and does not change catch binding initialization or lowering.
+
+Catch-parameter/body declaration conflicts now have one closed condition for
+Boa's one exact wording across both reachable branches: overlap with catch-body
+lexical declarations, and overlap between a binding-pattern parameter and
+catch-body `var` declarations. Script and Module tests preserve the specified
+simple-`BindingIdentifier` `var` exception. This classification does not change
+runtime catch environments, destructuring evaluation, or lowering.
 
 ## Objective
 

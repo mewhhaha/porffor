@@ -1,12 +1,27 @@
 # Contract: early-error taxonomy — one closed `EarlyErrorCode` domain and one fragment table
 
+## 2026-08-13 normative catch-body-declaration-conflict amendment
+
+T07 extends the closed taxonomy with
+`EarlyErrorCode::CatchBodyDeclarationConflict` /
+`E_CATCH_BODY_DECLARATION_CONFLICT` and exactly one classifier row for the
+single case-sensitive message emitted by two reachable branches in pinned
+`boa_parser-0.21.1`. The current domain therefore has 21 variants and the
+current parse-failure table has 19 rows.
+
+The theory, exact producer inventory, union-shaped encoding, source
+regressions, simple-identifier exception, and nonclaims live in
+`docs/rust-rewrite/contracts/catch-body-declaration-conflict-early-errors.md`
+and are normative. The counts in older amendments and the historical
+measurement below remain descriptions of their respective encoder checkpoints.
+
 ## 2026-08-13 normative duplicate-catch-parameter amendment
 
 T07 extends the closed taxonomy with
 `EarlyErrorCode::DuplicateCatchParameter` /
 `E_DUPLICATE_CATCH_PARAMETER` and exactly one classifier row for the sole
-case-sensitive message emitted by pinned `boa_parser-0.21.1`. The current domain
-therefore has 20 variants and the current parse-failure table has 18 rows.
+case-sensitive message emitted by pinned `boa_parser-0.21.1`. After that
+amendment the domain had 20 variants and the parse-failure table had 18 rows.
 
 The theory, measured producer, encoding, regressions, and deliberate separation
 from catch-body conflicts live in

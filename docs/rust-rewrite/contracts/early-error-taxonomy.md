@@ -1,5 +1,18 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-08-13 catch-body-declaration-conflict amendment
+
+T07 now classifies the two catch-parameter/body declaration intersections as
+one closed union-shaped condition. Pinned Boa emits one exact, case-sensitive
+message from both the lexical-declaration branch and the binding-pattern/`var`
+branch. The normative extension is:
+
+`docs/rust-rewrite/contracts/catch-body-declaration-conflict-early-errors.md`
+
+The current domain has **21** variants and the one parse-failure table has
+**19** rows. Script and Module source tests preserve the specified
+simple-`BindingIdentifier` `var` redeclaration exception.
+
 ## 2026-08-13 duplicate-catch-parameter amendment
 
 T07 now classifies duplicate `BoundNames` in a `CatchParameter` through one new
@@ -8,10 +21,10 @@ The normative extension is:
 
 `docs/rust-rewrite/contracts/duplicate-catch-parameter-early-errors.md`
 
-The current domain has **20** variants and the one parse-failure table has
-**18** rows. The new condition is deliberately separate from duplicate formal
-parameters and from catch-parameter names that conflict with declarations in
-the catch body.
+At that extension's checkpoint the domain had **20** variants and the one
+parse-failure table had **18** rows. The condition remains deliberately
+separate from duplicate formal parameters and from the catch-body conflict
+classified by the later amendment above.
 
 ## 2026-08-13 duplicate-formal-parameter amendment
 
@@ -55,7 +68,8 @@ area brief, three of which change the encoding:
 - §0.2 — the original domain had **18** inhabitants, not 20.
   `E_IR_DIAGNOSTIC` names the absence of a code and `E_TEST_EARLY` is a test
   fixture. The duplicate-formal-parameter extension adds the nineteenth real
-  condition; the duplicate-catch-parameter extension above adds the twentieth.
+  condition; the duplicate-catch-parameter extension adds the twentieth; and
+  the catch-body-declaration-conflict extension above adds the twenty-first.
 - §0.4 — the `E_DUPLICATE_LEXICAL_DECLARATION` drift is bidirectional and one
   direction is conformance-visible, not merely taxonomy-visible.
 

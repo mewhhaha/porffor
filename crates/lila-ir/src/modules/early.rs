@@ -347,6 +347,10 @@ mod tests {
                 EarlyErrorCode::DuplicateCatchParameter,
             ),
             (
+                "catch parameter identifier declared in catch body",
+                EarlyErrorCode::CatchBodyDeclarationConflict,
+            ),
+            (
                 "module cannot contain `super` on the top-level",
                 EarlyErrorCode::ModuleTopLevelSuper,
             ),
@@ -431,6 +435,32 @@ mod tests {
         );
         assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
+    }
+
+    #[test]
+    fn catch_body_declaration_conflicts_map_to_early_syntax_errors() {
+        for source in [
+            "try {} catch (a) { let a; }",
+            "try {} catch ({ a }) { var a; }",
+        ] {
+            let error = lila_front::parse(source, lila_front::ParseOptions::module())
+                .expect_err("catch parameter/body declaration conflict should fail");
+            let diagnostic = module_parse_failure_diagnostic(&error);
+
+            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
+            assert_eq!(
+                diagnostic.code(),
+                Some(EarlyErrorCode::CatchBodyDeclarationConflict),
+                "{source:?}"
+            );
+            assert_eq!(
+                diagnostic.error_type(),
+                Some(NativeErrorKind::SyntaxError),
+                "{source:?}"
+            );
+            assert!(diagnostic.span.is_some(), "{source:?}: {diagnostic:?}");
+        }
     }
 
     /// Drift B1, closed. A duplicate `__proto__` inside a *dependency* module

@@ -47,9 +47,12 @@ to `Unsupported`, losing both the spec rejection code and `SyntaxError` type.
   constructible there, while the exhaustive IR match makes an omitted consumer
   a compile error.
 
-The current closed domain has 20 variants and the one parse-failure table has
-18 rows. Existing const gates prove row population, witness disjointness,
-wire-name closure, classifier reachability, and parse-to-IR phase consistency.
+At this extension's checkpoint the closed domain had 20 variants and the one
+parse-failure table had 18 rows. The later catch-body-declaration-conflict
+extension brings those counts to 21 and 19 without changing
+`DuplicateCatchParameter`. Existing const gates prove row population, witness
+disjointness, wire-name closure, classifier reachability, and parse-to-IR phase
+consistency.
 
 ## Durable regressions
 
@@ -69,8 +72,9 @@ for the table boundary, but cannot substitute for this source-to-IR route.
 TryStatement condition. Boa emits it from two branches at `catch.rs:91-113`:
 one for overlap with `LexicallyDeclaredNames`, and one for overlap with
 `VarDeclaredNames` when the catch parameter is a binding pattern. It must not
-map to `DuplicateCatchParameter`; classifying that condition requires its own
-code and regression batch.
+map to `DuplicateCatchParameter`. It is now classified separately as
+`CatchBodyDeclarationConflict`; see
+`catch-body-declaration-conflict-early-errors.md`.
 
 `DuplicateFormalParameter` also remains distinct: it concerns
 `FormalParameters`, has two pinned Boa wordings, and includes the sloppy

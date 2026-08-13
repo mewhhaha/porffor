@@ -763,14 +763,33 @@ mod tests {
     }
 
     #[test]
-    fn catch_body_declaration_conflict_is_not_a_duplicate_catch_parameter() {
-        let err = parse("try {} catch (a) { let a; }", ParseOptions::script())
-            .expect_err("a catch parameter cannot conflict with a lexical body declaration");
-        assert_ne!(
-            err.diagnostic().code,
-            early(EarlyErrorCode::DuplicateCatchParameter),
-            "the catch-body conflict is a distinct TryStatement condition: {err:?}"
-        );
+    fn catch_body_declaration_conflicts_report_one_early_error_in_both_goals() {
+        for source in [
+            "try {} catch (a) { let a; }",
+            "try {} catch ({ a }) { var a; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("catch parameter/body declaration conflict should fail");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::CatchBodyDeclarationConflict),
+                    "{source:?}: {err:?}"
+                );
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn simple_catch_identifier_preserves_var_redeclaration_exception_in_both_goals() {
+        let source = "try {} catch (a) { var a; }";
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            parse(source, options)
+                .expect("a simple catch identifier may be redeclared with var in its body");
+        }
     }
 
     /// Drift B3, closed.
@@ -1189,6 +1208,9 @@ switch (0) {
         assert!(ParseClassified::from_early(EarlyErrorCode::ObjectDuplicateProto).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateFormalParameter).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::DuplicateCatchParameter).is_some());
+        assert!(
+            ParseClassified::from_early(EarlyErrorCode::CatchBodyDeclarationConflict).is_some()
+        );
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleDuplicateExport).is_some());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleMissingExport).is_none());
         assert!(ParseClassified::from_early(EarlyErrorCode::ModuleUnresolved).is_none());
