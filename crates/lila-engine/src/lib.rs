@@ -19432,6 +19432,39 @@ Object.prototype.hasOwnProperty.call(object, "value") + "|" +
     }
 
     #[test]
+    fn wasm_backend_module_root_this_is_undefined_through_lexical_arrows() {
+        let outcome = engine()
+            .run_module(
+                r#"
+if (this !== undefined) throw "direct root this";
+if ((() => this)() !== undefined) throw "root arrow this";
+if ((() => () => this)()() !== undefined) throw "nested root arrow this";
+let undefinedThisError;
+try {
+  this.propertyIsEnumerable("Infinity");
+} catch (error) {
+  undefinedThisError = error;
+}
+if (!(undefinedThisError instanceof TypeError)) throw "module this was folded as globalThis";
+function ordinary() { return this; }
+if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("module root and activation this bindings should remain distinct");
+        assert!(
+            outcome.note.contains("number(262"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_supports_default_rest_and_arguments_core() {
         for (source, expected, label) in [
             (

@@ -12,8 +12,14 @@ The Rust path now has a host loader, parse-once graph assembly, export
 resolution, evaluation ordering, live-binding aliases and an AOT dynamic-import
 registry. Dynamic-import components retain the full phaseful occurrence whose
 phase-free key the host resolved, and the generated executor preserves the
-specifier/options/coercion/property-read order. Those are foundations rather
-than completion: attributed re-exports, exact module namespace exotic
+specifier/options/coercion/property-read order. The original parse goal is also
+retained as a closed root-`this` binding domain. In a flat eager synchronous
+Module-entry graph, direct and lexical-arrow module-root reads lower to
+`undefined` without changing ordinary function activations or Script-global
+`this`; existing Script-entry, deferred and top-level-await wrappers retain
+their activation route and obtain the same value from a bare strict call.
+Those are foundations rather than completion: attributed re-exports, exact
+module namespace exotic
 behavior, lazy dynamic target evaluation, all cyclic/deferred/async evaluation
 cases and the `language/module-code` current-pin closure remain unverified.
 
@@ -122,6 +128,22 @@ removed from the artifact registry. This preserves dynamic edges needed by the
 fixed point without compiling an `import()` call site whose containing module
 can never run. The precise invariants and regression shape live in
 `docs/rust-rewrite/contracts/module-runtime-participation.md`.
+
+### Root `this` binding domain
+
+The merged graph is reparsed with the Script goal for one shared lowering, but
+that implementation goal does not replace the source goal's Environment Record
+semantics. `RootThisBinding` is derived once from the original goal and is
+required by every lowerer construction. `CurrentThisBinding` then distinguishes
+that root binding from a real function activation. Flat eager synchronous
+Module-entry root reads, including nested lexical arrows, lower directly to
+`undefined`; root Script reads retain the global-object operation; ordinary and
+derived activations remain dynamic. Existing Script-entry module closures,
+deferred thunks and top-level-await async wrappers continue to use activation
+`this`, supplied as `undefined` by their bare strict invocation. Only
+global-object root reads contribute to `ScriptIr::top_level_this_uses` and
+therefore to AOT global bootstrap. The invariant and regression shape live in
+`docs/rust-rewrite/contracts/module-root-this-binding.md`.
 
 Dynamic-import targets are compiled into the same artifact, not separate Wasm
 modules, and dispatch through the artifact's generated dynamic-import registry.

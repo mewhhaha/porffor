@@ -235,6 +235,17 @@ mod tests {
         }
     }
 
+    fn function_return(function: &FunctionIr) -> Option<&TypedExpr> {
+        function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Return(value) => Some(value),
+                _ => None,
+            })
+    }
+
     fn collect_annex_b_copies(
         block: &BlockIr,
     ) -> Vec<(String, String, AnnexBFunctionCopyTargetIr)> {
@@ -1372,6 +1383,98 @@ mod tests {
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
         assert_eq!(script.result_kind(), ValueKind::Number);
+    }
+
+    #[test]
+    fn module_root_this_is_statically_undefined_through_arrow_chains() {
+        let program =
+            lower_module("const direct = () => this; const nested = () => () => this; this;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(root_this) = script
+            .body
+            .statements
+            .last()
+            .expect("module root this should remain an expression")
+        else {
+            panic!("expected module root this expression");
+        };
+        assert!(matches!(root_this.expr, ExprIr::Undefined));
+        assert_eq!(script.top_level_this_uses, 0);
+
+        let arrows = script
+            .functions
+            .iter()
+            .filter(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .collect::<Vec<_>>();
+        assert_eq!(arrows.len(), 3);
+        assert_eq!(
+            arrows
+                .iter()
+                .filter(|function| {
+                    function_return(function)
+                        .is_some_and(|value| matches!(value.expr, ExprIr::Undefined))
+                })
+                .count(),
+            2,
+            "direct and innermost root arrows should return undefined"
+        );
+        assert!(arrows
+            .iter()
+            .all(|function| !function.captures_lexical_this));
+    }
+
+    #[test]
+    fn module_function_activations_keep_runtime_this() {
+        let program = lower_module(
+            "function ordinary() { return this; } function make() { return () => this; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let ordinary = script
+            .functions
+            .iter()
+            .find(|function| function.name == "ordinary")
+            .expect("ordinary function should be lowered");
+        assert!(matches!(
+            function_return(ordinary).map(|value| &value.expr),
+            Some(ExprIr::This)
+        ));
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .expect("lexical arrow should be lowered");
+        assert!(arrow.captures_lexical_this);
+        assert!(matches!(
+            function_return(arrow).map(|value| &value.expr),
+            Some(ExprIr::This)
+        ));
+    }
+
+    #[test]
+    fn script_root_this_stays_global_through_arrow_chains() {
+        let program =
+            lower_script("this; const direct = () => this; const nested = () => () => this;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(root_this) = &script.body.statements[0] else {
+            panic!("expected Script root this expression");
+        };
+        assert!(matches!(root_this.expr, ExprIr::This));
+        assert_eq!(script.top_level_this_uses, 3);
+        assert_eq!(
+            script
+                .functions
+                .iter()
+                .filter(|function| {
+                    function.protocol.flavor() == FunctionFlavor::Arrow
+                        && function_return(function)
+                            .is_some_and(|value| matches!(value.expr, ExprIr::This))
+                })
+                .count(),
+            2
+        );
     }
 
     /// A single-source `lower` has no host loader, so it resolves no specifier.

@@ -36,10 +36,14 @@
 //!   strict (16.2.1.6.1 parses module code as strict regardless of its text).
 //! * Unit bodies are separated by an empty statement so that no unit's last
 //!   token can join the next unit's first token through ASI.
-//! * Module top-level `this` is `undefined`. The merged source is Script text,
-//!   whose top-level `this` is `globalThis`, so a synchronous unit that
-//!   observes top-level `this` is reported rather than silently given the wrong
-//!   value — see [`lowering::lower_module_graph`].
+//! * Module top-level `this` is `undefined`. For a flat eager synchronous
+//!   Module-entry graph, lowering retains the original goal as a closed
+//!   root-`this` binding and lowers module-root reads (including root lexical
+//!   arrows) directly to `undefined` — see [`lowering::lower_module_graph`].
+//!   Existing Script-entry module closures, deferred units and top-level-await
+//!   graphs still use their strict ordinary-function, thunk and async-function
+//!   wrappers respectively; their source-level module `this` therefore remains
+//!   an activation read whose bare strict invocation supplies `undefined`.
 //! * A graph any of whose modules has `[[HasTLA]]` has its whole body wrapped
 //!   in an immediately-invoked strict async function — see [`wrap_async_body`],
 //!   which is also where the two deviations below stop applying, because such a
@@ -342,8 +346,9 @@ pub(crate) fn linked_script_source(
 /// * `"use strict"` inside it makes every module strict (16.2.1.6.1) without
 ///   touching the Script that follows;
 /// * a plain call gives the wrapper a `this` of `undefined`, which is module
-///   top-level `this` (16.2.1.6.2) — the merged *module* path has to report
-///   that case rather than serve it;
+///   top-level `this` (16.2.1.6.2); a flat eager synchronous *module-entry*
+///   path obtains the same value from its goal-typed root binding without a
+///   new wrapper;
 /// * `var` and function declarations in a module body become function-scoped,
 ///   which is the module environment's behaviour rather than the global
 ///   object's.

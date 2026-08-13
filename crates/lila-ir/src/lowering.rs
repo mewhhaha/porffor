@@ -221,6 +221,27 @@ pub(crate) struct GeneratedFunctionOutput {
     pub(crate) construct_this_info: Option<ValueInfo>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootThisBinding {
+    GlobalObject,
+    Undefined,
+}
+
+impl RootThisBinding {
+    const fn for_goal(goal: ParseGoal) -> Self {
+        match goal {
+            ParseGoal::Script => Self::GlobalObject,
+            ParseGoal::Module => Self::Undefined,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum CurrentThisBinding {
+    Root(RootThisBinding),
+    Activation(ValueInfo),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FunctionSignature {
     pub(crate) id: FunctionId,
@@ -419,36 +440,14 @@ fn lower_graph(
         }
     };
 
-    let mut program = lower_script_program(
+    lower_script_program(
         &linked,
         goal,
         source_len,
         stages,
         Some(graph),
         host_surface_policy,
-    );
-    // Module top-level `this` is `undefined` (16.2.1.6.2 seeds the module
-    // environment's `this` with undefined), while the merged Script text gives
-    // it `globalThis`. Rather than hand a unit the wrong `this`, report it.
-    //
-    // A script graph's entry is Script code, whose top-level `this` really is
-    // `globalThis`, and every module of it sits inside a wrapper with a `this`
-    // of its own — so there is nothing to report there.
-    if !entry_is_script
-        && program
-            .script
-            .as_ref()
-            .is_some_and(|script| script.top_level_this_uses > 0)
-    {
-        program.script = None;
-        program.diagnostics.push(IrDiagnostic::unsupported(
-            "unsupported in lila wasm-aot: module top-level `this`",
-        ));
-        program
-            .stages
-            .push(LoweringStage::UnsupportedFeaturesRecorded);
-    }
-    program
+    )
 }
 
 fn new_program(goal: ParseGoal, source_len: usize, stages: Vec<LoweringStage>) -> ProgramIr {
@@ -475,6 +474,7 @@ fn lower_script_program(
     modules: Option<ModuleGraphIr>,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
+    let root_this_binding = RootThisBinding::for_goal(goal);
     let mut program = new_program(goal, source_len, stages);
     program.modules = modules;
 
@@ -491,6 +491,7 @@ fn lower_script_program(
             interner,
             &analysis,
             script_source.source_text.as_str(),
+            root_this_binding,
             SCRIPT_OWNER_ID.to_string(),
             host_surface_policy,
         )
@@ -623,7 +624,8 @@ pub(crate) struct ScriptLowerer<'a> {
     /// Operands already evaluated into `async_expression_prefix`, keyed by the
     /// address of the AST node they came from. See `lower_expression`.
     pinned_async_operands: HashMap<usize, TypedExpr>,
-    current_this_info: ValueInfo,
+    root_this_binding: RootThisBinding,
+    current_this_binding: CurrentThisBinding,
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
     global_properties: BTreeMap<String, GlobalPropertyInfo>,
@@ -997,6 +999,7 @@ impl<'a> ScriptLowerer<'a> {
         interner: &'a Interner,
         analysis: &'a Analysis<'a>,
         source_text: &'a str,
+        root_this_binding: RootThisBinding,
         current_owner_id: String,
         host_surface_policy: HostSurfacePolicy,
     ) -> Self {
@@ -1029,7 +1032,8 @@ impl<'a> ScriptLowerer<'a> {
             next_resumable_suspension_index: 0,
             async_expression_prefix: None,
             pinned_async_operands: HashMap::new(),
-            current_this_info: ValueInfo::undefined(),
+            root_this_binding,
+            current_this_binding: CurrentThisBinding::Root(root_this_binding),
             current_new_target_info: ValueInfo::undefined(),
             current_construct_this_info: None,
             global_properties: {
@@ -1533,6 +1537,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             SCRIPT_OWNER_ID.to_string(),
             self.host_surface_policy,
         );
@@ -1716,6 +1721,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.interner,
                 self.analysis,
                 self.source_text,
+                self.root_this_binding,
                 SCRIPT_OWNER_ID.to_string(),
                 self.host_surface_policy,
             );
@@ -1888,6 +1894,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             SCRIPT_OWNER_ID.to_string(),
             self.host_surface_policy,
         );
@@ -1954,6 +1961,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             function_id.clone(),
             self.host_surface_policy,
         );
@@ -4271,7 +4279,10 @@ impl<'a> ScriptLowerer<'a> {
 
     fn for_in_global_target(&self, target: &Expression) -> bool {
         match target {
-            Expression::This(_) => !self.is_function_body,
+            Expression::This(_) => matches!(
+                &self.current_this_binding,
+                CurrentThisBinding::Root(RootThisBinding::GlobalObject)
+            ),
             Expression::Identifier(identifier) => {
                 self.interner.resolve_expect(identifier.sym()).to_string() == GLOBAL_THIS_NAME
             }
@@ -4840,8 +4851,7 @@ impl<'a> ScriptLowerer<'a> {
                 let Some(key) = self.lower_super_property_key(access.field()) else {
                     return TypedExpr::undefined();
                 };
-                DeleteSuperReferencePlan::new(self.current_this_info.clone(), key)
-                    .into_reference_error()
+                DeleteSuperReferencePlan::new(self.current_this_info(), key).into_reference_error()
             }
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -7880,6 +7890,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             function.id.clone(),
             self.host_surface_policy,
         );
@@ -7985,42 +7996,45 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        lowerer.current_this_info = if function.protocol.flavor() == FunctionFlavor::Arrow {
-            function
-                .captures
-                .get(LEXICAL_THIS_NAME)
-                .map(|capture| {
-                    lowerer.capture_value_info(capture.owner_id.as_str(), LEXICAL_THIS_NAME)
-                })
-                .unwrap_or_else(|| {
-                    if function.parent_owner_id == SCRIPT_OWNER_ID {
-                        lowerer.global_this_info()
-                    } else {
-                        ValueInfo::undefined()
-                    }
-                })
+        lowerer.current_this_binding = if function.protocol.flavor() == FunctionFlavor::Arrow {
+            if let Some(capture) = function.captures.get(LEXICAL_THIS_NAME) {
+                if capture.owner_id == SCRIPT_OWNER_ID {
+                    CurrentThisBinding::Root(lowerer.root_this_binding)
+                } else {
+                    CurrentThisBinding::Activation(
+                        lowerer.capture_value_info(capture.owner_id.as_str(), LEXICAL_THIS_NAME),
+                    )
+                }
+            } else if function.lexical_derived_activation_owner.is_some() {
+                CurrentThisBinding::Activation(ValueInfo::undefined())
+            } else {
+                CurrentThisBinding::Root(lowerer.root_this_binding)
+            }
         } else {
-            exact_context_signature
-                .as_ref()
-                .or_else(|| lowerer.function_signatures.get(&function.id))
-                .map(|signature| {
-                    if signature.this_observed {
-                        signature.this_info.clone()
-                    } else if function.strict {
-                        ValueInfo::undefined()
-                    } else {
-                        lowerer.global_this_info()
-                    }
-                })
-                .unwrap_or_else(ValueInfo::undefined)
+            CurrentThisBinding::Activation(
+                exact_context_signature
+                    .as_ref()
+                    .or_else(|| lowerer.function_signatures.get(&function.id))
+                    .map(|signature| {
+                        if signature.this_observed {
+                            signature.this_info.clone()
+                        } else if function.strict {
+                            ValueInfo::undefined()
+                        } else {
+                            lowerer.global_this_info()
+                        }
+                    })
+                    .unwrap_or_else(ValueInfo::undefined),
+            )
         };
         if function.protocol.flavor() != FunctionFlavor::Arrow
             && !function.strict
-            && lowerer.current_this_info.possible_kinds.is_subset_of(
+            && lowerer.current_this_info().possible_kinds.is_subset_of(
                 KindSet::from_kind(ValueKind::Undefined).union(KindSet::from_kind(ValueKind::Null)),
             )
         {
-            lowerer.current_this_info = lowerer.global_this_info();
+            lowerer.current_this_binding =
+                CurrentThisBinding::Activation(lowerer.global_this_info());
         }
         lowerer.current_construct_this_info = function
             .protocol
@@ -8483,6 +8497,7 @@ impl<'a> ScriptLowerer<'a> {
         self.completed_direct_call_propagations = lowerer.completed_direct_call_propagations;
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls += lowerer.host_builtin_calls;
+        self.top_level_this_uses += lowerer.top_level_this_uses;
         self.generated_functions.extend(lowerer.generated_functions);
 
         let body_uses_super = summarize_block(&body).super_uses > 0;
@@ -10355,6 +10370,35 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn root_this_info_for(&self, binding: RootThisBinding) -> ValueInfo {
+        match binding {
+            RootThisBinding::GlobalObject => self.global_this_info(),
+            RootThisBinding::Undefined => ValueInfo::undefined(),
+        }
+    }
+
+    fn root_this_info(&self) -> ValueInfo {
+        self.root_this_info_for(self.root_this_binding)
+    }
+
+    fn current_this_info(&self) -> ValueInfo {
+        match &self.current_this_binding {
+            CurrentThisBinding::Root(binding) => self.root_this_info_for(*binding),
+            CurrentThisBinding::Activation(info) => info.clone(),
+        }
+    }
+
+    fn lower_current_this(&mut self) -> TypedExpr {
+        match self.current_this_binding.clone() {
+            CurrentThisBinding::Root(RootThisBinding::GlobalObject) => {
+                self.top_level_this_uses += 1;
+                TypedExpr::from_info(self.global_this_info(), ExprIr::This)
+            }
+            CurrentThisBinding::Root(RootThisBinding::Undefined) => TypedExpr::undefined(),
+            CurrentThisBinding::Activation(info) => TypedExpr::from_info(info, ExprIr::This),
+        }
+    }
+
     fn function_target_is_strict(&self, function_id: &FunctionId) -> bool {
         if StandardBuiltinId::from_function_id(function_id).is_some()
             || HostBuiltinId::from_function_id(function_id).is_some()
@@ -10895,13 +10939,7 @@ impl<'a> ScriptLowerer<'a> {
             Expression::PropertyAccess(access) => self.lower_property_access(access),
             Expression::Optional(optional) => self.lower_optional_property_chain(optional),
             Expression::SuperCall(call) => self.lower_super_call(call),
-            Expression::This(_) => {
-                if !self.is_function_body {
-                    self.top_level_this_uses += 1;
-                    return TypedExpr::from_info(self.global_this_info(), ExprIr::This);
-                }
-                TypedExpr::from_info(self.current_this_info.clone(), ExprIr::This)
-            }
+            Expression::This(_) => self.lower_current_this(),
             Expression::NewTarget(_) => {
                 if !self.is_function_body {
                     return self.unsupported_expr("unsupported expression form: NewTarget");
@@ -11065,6 +11103,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             function_id.clone(),
             self.host_surface_policy,
         );
@@ -11095,7 +11134,7 @@ impl<'a> ScriptLowerer<'a> {
             lowerer.current_generator_resume_state = Some(0);
         }
         lowerer.current_owner_id = function_id.clone();
-        lowerer.current_this_info = this_info.clone();
+        lowerer.current_this_binding = CurrentThisBinding::Activation(this_info.clone());
         lowerer.current_new_target_info = ValueInfo::undefined();
         lowerer.current_construct_this_info = None;
         lowerer.push_scope();
@@ -13004,6 +13043,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             function_id.clone(),
             self.host_surface_policy,
         );
@@ -13051,7 +13091,7 @@ impl<'a> ScriptLowerer<'a> {
             FunctionExecutionKind::Ordinary | FunctionExecutionKind::Generator => {}
         }
         lowerer.current_owner_id = function_id.clone();
-        lowerer.current_this_info = current_this_info.clone();
+        lowerer.current_this_binding = CurrentThisBinding::Activation(current_this_info.clone());
         lowerer.current_new_target_info = current_new_target_info;
         lowerer.current_construct_this_info = current_construct_this_info.clone();
         lowerer.class_context = Some(class_context.clone());
@@ -13435,6 +13475,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
+            self.root_this_binding,
             function_id.clone(),
             self.host_surface_policy,
         );
@@ -13461,7 +13502,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function_id.clone());
         lowerer.current_owner_id = function_id.clone();
-        lowerer.current_this_info = current_this_info.clone();
+        lowerer.current_this_binding = CurrentThisBinding::Activation(current_this_info.clone());
         lowerer.current_new_target_info = ValueInfo::undefined();
         lowerer.class_context = Some(class_context.clone());
         lowerer.push_scope();
@@ -16542,7 +16583,7 @@ impl<'a> ScriptLowerer<'a> {
                             ExprIr::CallIndirect {
                                 callee: Box::new(callee),
                                 this_arg: Some(Box::new(TypedExpr::from_info(
-                                    self.current_this_info.clone(),
+                                    self.current_this_info(),
                                     ExprIr::This,
                                 ))),
                                 args,
@@ -16564,7 +16605,7 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::CallIndirect {
                             callee: Box::new(callee),
                             this_arg: Some(Box::new(TypedExpr::from_info(
-                                self.current_this_info.clone(),
+                                self.current_this_info(),
                                 ExprIr::This,
                             ))),
                             args,
@@ -22180,7 +22221,7 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         OptionalChainCallReceiverIr::CurrentThis => {
                             property_receiver = None;
-                            Some(self.current_this_info.clone())
+                            Some(self.current_this_info())
                         }
                     };
                     current =
@@ -22505,7 +22546,7 @@ impl<'a> ScriptLowerer<'a> {
         let info = self
             .current_construct_this_info
             .clone()
-            .unwrap_or_else(|| self.current_this_info.clone());
+            .unwrap_or_else(|| self.current_this_info());
         TypedExpr::from_info(info, ExprIr::SuperConstruct { args })
     }
 
@@ -30599,7 +30640,7 @@ impl<'a> ScriptLowerer<'a> {
     fn capture_value_info(&self, owner_id: &str, name: &str) -> ValueInfo {
         if name == LEXICAL_THIS_NAME {
             if owner_id == SCRIPT_OWNER_ID {
-                return self.global_this_info();
+                return self.root_this_info();
             }
             return self
                 .function_signatures
