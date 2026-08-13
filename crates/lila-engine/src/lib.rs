@@ -14901,6 +14901,143 @@ try {
     }
 
     #[test]
+    fn wasm_backend_proxy_descriptor_facts_cover_direct_exotic_targets() {
+        let outcome = engine()
+            .run_script(
+                r#"
+function rejectsTypeError(operation) {
+  try {
+    operation();
+    return false;
+  } catch (error) {
+    return error instanceof TypeError;
+  }
+}
+
+function falseHas(target) {
+  return new Proxy(target, {
+    has: function() { return false; }
+  });
+}
+
+function hidesDescriptor(target) {
+  return new Proxy(target, {
+    getOwnPropertyDescriptor: function() { return undefined; }
+  });
+}
+
+var arrayIndex = [1];
+Object.defineProperty(arrayIndex, "0", { configurable: false });
+
+var arrayOrdinaryIndex = [1];
+Object.preventExtensions(arrayOrdinaryIndex);
+
+var arrayNamed = [];
+arrayNamed.named = 1;
+Object.preventExtensions(arrayNamed);
+
+var allFalse = {};
+Object.defineProperty(allFalse, "fixed", { value: 1 });
+
+var typed = new Uint8Array(1);
+Object.preventExtensions(typed);
+
+var argumentsTarget = (function() { return arguments; })(1);
+Object.defineProperty(argumentsTarget, "length", {
+  writable: false,
+  enumerable: false,
+  configurable: false
+});
+var argumentsLength = Object.getOwnPropertyDescriptor(argumentsTarget, "length");
+
+var argumentsRecreatedLength = (function() { return arguments; })(1);
+delete argumentsRecreatedLength.length;
+argumentsRecreatedLength.length = 1;
+var recreatedArgumentsLength = Object.getOwnPropertyDescriptor(
+  argumentsRecreatedLength,
+  "length"
+);
+Object.preventExtensions(argumentsRecreatedLength);
+
+var argumentsOrdinaryIndex = (function() { return arguments; })(1);
+Object.preventExtensions(argumentsOrdinaryIndex);
+
+var nonExtensibleArray = [];
+Object.preventExtensions(nonExtensibleArray);
+var fabricatedDescriptor = new Proxy(nonExtensibleArray, {
+  getOwnPropertyDescriptor: function() {
+    return {
+      value: 1,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    };
+  }
+});
+
+var absent = [];
+Object.preventExtensions(absent);
+
+[
+  rejectsTypeError(function() { return "length" in falseHas([1]); }),
+  rejectsTypeError(function() {
+    return Object.getOwnPropertyDescriptor(hidesDescriptor([1]), "length");
+  }),
+  rejectsTypeError(function() {
+    return Object.getOwnPropertyDescriptor(new Proxy([1], {
+      getOwnPropertyDescriptor: function() {
+        return {
+          value: 1,
+          writable: true,
+          enumerable: false,
+          configurable: true
+        };
+      }
+  }), "length");
+  }),
+  rejectsTypeError(function() { return 0 in falseHas(arrayIndex); }),
+  rejectsTypeError(function() { return 0 in falseHas(arrayOrdinaryIndex); }),
+  rejectsTypeError(function() { return "named" in falseHas(arrayNamed); }),
+  rejectsTypeError(function() { return "fixed" in falseHas(allFalse); }),
+  rejectsTypeError(function() { return "1" in falseHas(new String("xy")); }),
+  rejectsTypeError(function() { return 0 in falseHas(typed); }),
+  argumentsLength.writable === false &&
+    argumentsLength.enumerable === false &&
+    argumentsLength.configurable === false,
+  rejectsTypeError(function() { return "length" in falseHas(argumentsTarget); }),
+  rejectsTypeError(function() {
+    return Object.getOwnPropertyDescriptor(hidesDescriptor(argumentsTarget), "length");
+  }),
+  recreatedArgumentsLength.writable === true &&
+    recreatedArgumentsLength.enumerable === true &&
+    recreatedArgumentsLength.configurable === true &&
+    rejectsTypeError(function() {
+      return "length" in falseHas(argumentsRecreatedLength);
+    }),
+  rejectsTypeError(function() { return 0 in falseHas(argumentsOrdinaryIndex); }),
+  rejectsTypeError(function() {
+    return Object.getOwnPropertyDescriptor(fabricatedDescriptor, "new");
+  }),
+  ("missing" in falseHas(absent)) === false
+].join("|");
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("Proxy descriptor facts should cover every direct target representation");
+        assert!(
+            outcome.note.contains(
+                "string(true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true)"
+            ),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_prototype_and_extensibility_methods_cross_deep_proxy_chains() {
         let outcome = engine()
             .run_script(

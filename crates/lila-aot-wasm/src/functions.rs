@@ -6830,7 +6830,9 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             arguments_local,
             HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET,
-            OBJECT_DESCRIPTOR_WRITABLE | OBJECT_DESCRIPTOR_CONFIGURABLE,
+            ARRAY_DESCRIPTOR_OWN_PROPERTY
+                | OBJECT_DESCRIPTOR_WRITABLE
+                | OBJECT_DESCRIPTOR_CONFIGURABLE,
             function,
         );
         self.store_i64_const_at_offset(
@@ -7243,7 +7245,8 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             arguments_local,
             HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET,
-            OBJECT_DESCRIPTOR_DATA
+            ARRAY_DESCRIPTOR_OWN_PROPERTY
+                | OBJECT_DESCRIPTOR_DATA
                 | OBJECT_DESCRIPTOR_WRITABLE
                 | OBJECT_DESCRIPTOR_ENUMERABLE
                 | OBJECT_DESCRIPTOR_CONFIGURABLE,

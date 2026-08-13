@@ -5,6 +5,7 @@ use super::array::{
 };
 use super::bigint::BigIntBuiltin;
 use super::boolean::BooleanBuiltin;
+use super::errors::ErrorBuiltin;
 use super::global_numeric::GlobalNumericBuiltin;
 use super::math::MathBuiltin as MathFn;
 use super::object::{EnumerableOwnProperties, IntegrityTest, PrototypeLookup};
@@ -4690,70 +4691,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion(function);
-        Ok(())
-    }
-
-    fn emit_native_error_constructor_wrapper(
-        &mut self,
-        builtin: StandardBuiltinId,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // Native error subclasses direct-call the shared `Error` body, so its
-        // real body must be emitted — see `FunctionMetaRegistry`.
-        self.functions
-            .record_standard_builtin(StandardBuiltinId::ErrorConstructor);
-        let error_wasm_index = self
-            .functions
-            .get(&StandardBuiltinId::ErrorConstructor.function_id())
-            .map(|meta| meta.wasm_index)
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Error`",
-                )
-            })?;
-        let constructor_global_index = standard_builtin_constructor_global_index(builtin)
-            .ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing constructor global for `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-        let new_target_payload_local = self.reserve_temp_local();
-        let new_target_tag_local = self.reserve_temp_local();
-
-        self.compile_new_target_to_locals(
-            new_target_payload_local,
-            new_target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(constructor_global_index));
-        function.instruction(&Instruction::LocalSet(new_target_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(new_target_tag_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalGet(
-            self.this_payload_local
-                .expect("native error wrapper must use function ABI"),
-        ));
-        function.instruction(&Instruction::LocalGet(
-            self.this_tag_local
-                .expect("native error wrapper must use function ABI"),
-        ));
-        function.instruction(&Instruction::LocalGet(new_target_payload_local));
-        function.instruction(&Instruction::LocalGet(new_target_tag_local));
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::LocalGet(self.argv_param_local()));
-        function.instruction(&Instruction::Call(error_wasm_index));
-        self.store_call_results(self.result_local, self.result_tag_local, function);
-
-        self.release_temp_local(new_target_tag_local);
-        self.release_temp_local(new_target_payload_local);
         Ok(())
     }
 
@@ -31357,242 +31294,43 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
+            StandardBuiltinId::ErrorConstructor => self
+                .emit_error_builtin(ErrorBuiltin::Constructor(NativeErrorKind::Error), function)?,
             StandardBuiltinId::ErrorIsError => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let brand_local = self.reserve_temp_local();
-
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.emit_is_heap_object_like_tag_i32(arg_tag_local, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    arg_payload_local,
-                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                    brand_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(brand_local));
-                function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_ERROR as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-
-                self.release_temp_local(brand_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                self.emit_error_builtin(ErrorBuiltin::IsError, function)?
             }
-            StandardBuiltinId::ErrorConstructor
-            | StandardBuiltinId::EvalErrorConstructor
-            | StandardBuiltinId::AggregateErrorConstructor
-            | StandardBuiltinId::SuppressedErrorConstructor
-            | StandardBuiltinId::RangeErrorConstructor
-            | StandardBuiltinId::SyntaxErrorConstructor
-            | StandardBuiltinId::TypeErrorConstructor
-            | StandardBuiltinId::URIErrorConstructor
-            | StandardBuiltinId::ReferenceErrorConstructor => {
-                let error_kind = NativeErrorKind::from_constructor(builtin)
-                    .expect("native error constructor arm must contain only error constructors");
-                if builtin == StandardBuiltinId::AggregateErrorConstructor {
-                    let errors_arg_payload_local = self.reserve_temp_local();
-                    let errors_arg_tag_local = self.reserve_temp_local();
-                    let message_arg_payload_local = self.reserve_temp_local();
-                    let message_arg_tag_local = self.reserve_temp_local();
-                    let errors_payload_local = self.reserve_temp_local();
-                    let message_payload_local = self.reserve_temp_local();
-                    let prototype_payload_local = self.reserve_temp_local();
-                    self.emit_builtin_arg_to_locals(
-                        0,
-                        errors_arg_payload_local,
-                        errors_arg_tag_local,
-                        function,
-                    );
-                    self.emit_builtin_arg_to_locals(
-                        1,
-                        message_arg_payload_local,
-                        message_arg_tag_local,
-                        function,
-                    );
-                    self.emit_aggregate_error_new_target_prototype_to_local(
-                        prototype_payload_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(message_arg_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_aggregate_error_iterable_to_list_payload(
-                        errors_arg_payload_local,
-                        errors_arg_tag_local,
-                        errors_payload_local,
-                        function,
-                    )?;
-                    self.emit_alloc_aggregate_error_instance_from_locals(
-                        None,
-                        errors_payload_local,
-                        prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_install_error_cause_from_arg(self.result_local, 2, function)?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(
-                        message_arg_payload_local,
-                        message_arg_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(message_payload_local));
-                    self.emit_aggregate_error_iterable_to_list_payload(
-                        errors_arg_payload_local,
-                        errors_arg_tag_local,
-                        errors_payload_local,
-                        function,
-                    )?;
-                    self.emit_alloc_aggregate_error_instance_from_locals(
-                        Some(message_payload_local),
-                        errors_payload_local,
-                        prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_install_error_cause_from_arg(self.result_local, 2, function)?;
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(prototype_payload_local);
-                    self.release_temp_local(message_payload_local);
-                    self.release_temp_local(errors_payload_local);
-                    self.release_temp_local(message_arg_tag_local);
-                    self.release_temp_local(message_arg_payload_local);
-                    self.release_temp_local(errors_arg_tag_local);
-                    self.release_temp_local(errors_arg_payload_local);
-                    return Ok(());
-                }
-                if builtin == StandardBuiltinId::SuppressedErrorConstructor {
-                    let error_arg_payload_local = self.reserve_temp_local();
-                    let error_arg_tag_local = self.reserve_temp_local();
-                    let suppressed_arg_payload_local = self.reserve_temp_local();
-                    let suppressed_arg_tag_local = self.reserve_temp_local();
-                    let message_arg_payload_local = self.reserve_temp_local();
-                    let message_arg_tag_local = self.reserve_temp_local();
-                    let message_payload_local = self.reserve_temp_local();
-                    let prototype_payload_local = self.reserve_temp_local();
-                    self.emit_builtin_arg_to_locals(
-                        0,
-                        error_arg_payload_local,
-                        error_arg_tag_local,
-                        function,
-                    );
-                    self.emit_builtin_arg_to_locals(
-                        1,
-                        suppressed_arg_payload_local,
-                        suppressed_arg_tag_local,
-                        function,
-                    );
-                    self.emit_builtin_arg_to_locals(
-                        2,
-                        message_arg_payload_local,
-                        message_arg_tag_local,
-                        function,
-                    );
-                    self.emit_error_new_target_prototype_to_local(
-                        SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-                        Some(HEAP_FUNCTION_REALM_SUPPRESSED_ERROR_PROTOTYPE_OFFSET),
-                        prototype_payload_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(message_arg_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_alloc_suppressed_error_instance_from_locals(
-                        None,
-                        error_arg_payload_local,
-                        error_arg_tag_local,
-                        suppressed_arg_payload_local,
-                        suppressed_arg_tag_local,
-                        prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(
-                        message_arg_payload_local,
-                        message_arg_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(message_payload_local));
-                    self.emit_alloc_suppressed_error_instance_from_locals(
-                        Some(message_payload_local),
-                        error_arg_payload_local,
-                        error_arg_tag_local,
-                        suppressed_arg_payload_local,
-                        suppressed_arg_tag_local,
-                        prototype_payload_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(prototype_payload_local);
-                    self.release_temp_local(message_payload_local);
-                    self.release_temp_local(message_arg_tag_local);
-                    self.release_temp_local(message_arg_payload_local);
-                    self.release_temp_local(suppressed_arg_tag_local);
-                    self.release_temp_local(suppressed_arg_payload_local);
-                    self.release_temp_local(error_arg_tag_local);
-                    self.release_temp_local(error_arg_payload_local);
-                    return Ok(());
-                }
-                if builtin != StandardBuiltinId::ErrorConstructor {
-                    self.emit_native_error_constructor_wrapper(builtin, function)?;
-                    return Ok(());
-                }
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let message_payload_local = self.reserve_temp_local();
-                let prototype_payload_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                self.emit_error_new_target_prototype_to_local(
-                    error_prototype_global_index(error_kind),
-                    Some(error_realm_prototype_offset(error_kind)),
-                    prototype_payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_alloc_error_instance_from_locals(
-                    prototype_payload_local,
-                    None,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
-                function.instruction(&Instruction::Else);
-                self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
-                function.instruction(&Instruction::LocalSet(message_payload_local));
-                self.emit_alloc_error_instance_from_locals(
-                    prototype_payload_local,
-                    Some(message_payload_local),
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_install_error_cause_from_arg(self.result_local, 1, function)?;
-                function.instruction(&Instruction::End);
-                self.release_temp_local(prototype_payload_local);
-                self.release_temp_local(message_payload_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
-            }
+            StandardBuiltinId::EvalErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::EvalError),
+                function,
+            )?,
+            StandardBuiltinId::AggregateErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::AggregateError),
+                function,
+            )?,
+            StandardBuiltinId::SuppressedErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::SuppressedError),
+                function,
+            )?,
+            StandardBuiltinId::RangeErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::RangeError),
+                function,
+            )?,
+            StandardBuiltinId::SyntaxErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::SyntaxError),
+                function,
+            )?,
+            StandardBuiltinId::TypeErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::TypeError),
+                function,
+            )?,
+            StandardBuiltinId::URIErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::URIError),
+                function,
+            )?,
+            StandardBuiltinId::ReferenceErrorConstructor => self.emit_error_builtin(
+                ErrorBuiltin::Constructor(NativeErrorKind::ReferenceError),
+                function,
+            )?,
             StandardBuiltinId::FunctionPrototypeToString => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
                     EmitError::unsupported(
@@ -35105,169 +34843,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(string_local);
             }
             StandardBuiltinId::ErrorPrototypeToString => {
-                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Error.prototype.toString receiver",
-                    )
-                })?;
-                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Error.prototype.toString receiver",
-                    )
-                })?;
-                let name_key_local = self.reserve_temp_local();
-                let message_key_local = self.reserve_temp_local();
-                let name_payload_local = self.reserve_temp_local();
-                let name_tag_local = self.reserve_temp_local();
-                let message_payload_local = self.reserve_temp_local();
-                let message_tag_local = self.reserve_temp_local();
-                let name_string_local = self.reserve_temp_local();
-                let message_string_local = self.reserve_temp_local();
-                let separator_local = self.reserve_temp_local();
-
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(self.strings.payload("name")));
-                function.instruction(&Instruction::LocalSet(name_key_local));
-                function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-                function.instruction(&Instruction::LocalSet(message_key_local));
-
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_object_read(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    name_key_local,
-                    name_payload_local,
-                    name_tag_local,
-                    function,
-                )?;
-                self.emit_object_read(
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    receiver_payload_local,
-                    receiver_tag_local,
-                    message_key_local,
-                    message_payload_local,
-                    message_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(name_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(name_tag_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(message_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(message_tag_local));
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(name_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(self.strings.payload(ERROR_NAME)));
-                function.instruction(&Instruction::LocalSet(name_string_local));
-                function.instruction(&Instruction::Else);
-                self.emit_value_to_string_payload(name_payload_local, name_tag_local, function)?;
-                function.instruction(&Instruction::LocalSet(name_string_local));
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(message_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                function.instruction(&Instruction::LocalSet(message_string_local));
-                function.instruction(&Instruction::Else);
-                self.emit_value_to_string_payload(
-                    message_payload_local,
-                    message_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(message_string_local));
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                function.instruction(&Instruction::LocalSet(separator_local));
-                self.emit_string_payload_equality_i32(name_string_local, separator_local, function);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(message_string_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::Else);
-                self.emit_string_payload_equality_i32(
-                    message_string_local,
-                    separator_local,
-                    function,
-                );
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(name_string_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::I64Const(self.strings.payload(": ")));
-                function.instruction(&Instruction::LocalSet(separator_local));
-                self.emit_concat_string_payloads_local(
-                    name_string_local,
-                    separator_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(name_string_local));
-                self.emit_concat_string_payloads_local(
-                    name_string_local,
-                    message_string_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                self.emit_throw_current_function_realm_type_error(
-                    "Error.prototype.toString receiver is not object",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::End);
-
-                self.release_temp_local(separator_local);
-                self.release_temp_local(message_string_local);
-                self.release_temp_local(name_string_local);
-                self.release_temp_local(message_tag_local);
-                self.release_temp_local(message_payload_local);
-                self.release_temp_local(name_tag_local);
-                self.release_temp_local(name_payload_local);
-                self.release_temp_local(message_key_local);
-                self.release_temp_local(name_key_local);
+                self.emit_error_builtin(ErrorBuiltin::PrototypeToString, function)?
             }
             StandardBuiltinId::BoundFunctionInvoker => {
                 let record_local = self.current_env_local;

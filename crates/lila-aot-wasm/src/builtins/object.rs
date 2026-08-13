@@ -1090,6 +1090,11 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Or);
         }
+        // Zero is the deletion sentinel. Keep presence orthogonal to the four
+        // descriptor attributes so a live all-false data descriptor remains an
+        // own property and can be observed by Proxy invariant checks.
+        function.instruction(&Instruction::I64Const(ARRAY_DESCRIPTOR_OWN_PROPERTY as i64));
+        function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(existing_descriptor_kind_local));
         self.store_i64_local_at_offset(
             arguments_local,
@@ -1223,134 +1228,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         self.release_temp_local(existing_descriptor_kind_local);
-    }
-
-    fn emit_proxy_array_target_own_descriptor_flags(
-        &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        key_payload_local: u32,
-        key_tag_local: u32,
-        descriptor_kind_local: u32,
-        found_local: u32,
-        configurable_local: u32,
-        writable_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let index_local = self.reserve_temp_local();
-        let index_found_local = self.reserve_temp_local();
-        let descriptor_payload_local = self.reserve_temp_local();
-        let descriptor_tag_local = self.reserve_temp_local();
-        let descriptor_field_present_local = self.reserve_temp_local();
-        let descriptor_field_payload_local = self.reserve_temp_local();
-        let descriptor_field_tag_local = self.reserve_temp_local();
-        let descriptor_field_key_local = self.reserve_temp_local();
-        let length_key_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_known_array_index_from_property_key(
-            key_payload_local,
-            index_local,
-            index_found_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(index_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_descriptor_kind_for_index(
-            target_payload_local,
-            index_local,
-            descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found_local));
-        for (flag, flag_local) in [
-            (DescriptorMask::CONFIGURABLE, configurable_local),
-            (DescriptorMask::WRITABLE, writable_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-            function.instruction(&Instruction::I64Const(flag.as_i64()));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(flag_local));
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(length_key_local));
-        self.emit_string_payload_equality_i32(key_payload_local, length_key_local, function);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(configurable_local));
-        self.emit_array_length_writable_i64(target_payload_local, writable_local, function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(descriptor_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-        self.emit_array_named_prop_descriptor_read(
-            target_payload_local,
-            key_payload_local,
-            descriptor_payload_local,
-            descriptor_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found_local));
-        for (field_name, flag_local) in [
-            ("configurable", configurable_local),
-            ("writable", writable_local),
-        ] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(field_name)));
-            function.instruction(&Instruction::LocalSet(descriptor_field_key_local));
-            self.emit_object_own_data_field_read(
-                descriptor_payload_local,
-                descriptor_tag_local,
-                descriptor_field_key_local,
-                descriptor_field_present_local,
-                descriptor_field_payload_local,
-                descriptor_field_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(descriptor_field_payload_local));
-            function.instruction(&Instruction::LocalSet(flag_local));
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(length_key_local);
-        self.release_temp_local(descriptor_field_key_local);
-        self.release_temp_local(descriptor_field_tag_local);
-        self.release_temp_local(descriptor_field_payload_local);
-        self.release_temp_local(descriptor_field_present_local);
-        self.release_temp_local(descriptor_tag_local);
-        self.release_temp_local(descriptor_payload_local);
-        self.release_temp_local(index_found_local);
-        self.release_temp_local(index_local);
-        Ok(())
     }
 
     pub(super) fn compile_object_assign_builtin(
@@ -4235,6 +4112,8 @@ impl<'a> FunctionBuilder<'a> {
         let typed_array_numeric_index_payload_local = self.reserve_temp_local();
         let typed_array_canonical_numeric_index_local = self.reserve_temp_local();
         let typed_array_valid_index_local = self.reserve_temp_local();
+        let proxy_target_extensible_local = self.reserve_temp_local();
+        let proxy_target_descriptor_fact = self.reserve_own_descriptor_fact_locals();
 
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
         self.emit_builtin_arg_to_locals(1, key_payload_local, key_tag_local, function);
@@ -4370,104 +4249,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            value_payload_local,
-            HEAP_PTR_OFFSET,
-            entry_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            value_payload_local,
-            HEAP_LEN_OFFSET,
-            entry_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(entry_index_local));
-        function.instruction(&Instruction::LocalGet(entry_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(entry_buffer_local));
-        function.instruction(&Instruction::LocalGet(entry_index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_KEY_OFFSET,
-            entry_key_local,
-            function,
-        );
-        self.emit_property_key_payload_equality_i32(entry_key_local, key_string_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(proxy_target_desc_found_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-            descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap returned undefined for non-configurable target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(entry_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.emit_proxy_array_target_own_descriptor_flags(
+        self.emit_direct_own_descriptor_fact(
             value_payload_local,
             value_tag_local,
             key_string_local,
             key_tag_local,
-            descriptor_kind_local,
-            proxy_target_desc_found_local,
-            configurable_payload_local,
-            writable_payload_local,
+            proxy_target_descriptor_fact,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(configurable_payload_local));
+        proxy_target_descriptor_fact.emit_present_i32(function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        proxy_target_descriptor_fact.emit_configurable_i32(function);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
             "Proxy getOwnPropertyDescriptor trap returned undefined for non-configurable target property",
@@ -4477,17 +4270,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
+        self.emit_object_is_extensible_i32(
             value_payload_local,
-            HEAP_CAP_OFFSET,
-            descriptor_kind_local,
+            value_tag_local,
+            proxy_target_extensible_local,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        )?;
+        function.instruction(&Instruction::LocalGet(proxy_target_extensible_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -4504,100 +4293,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(configurable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(writable_payload_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            value_payload_local,
-            HEAP_PTR_OFFSET,
-            entry_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            value_payload_local,
-            HEAP_LEN_OFFSET,
-            entry_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(entry_index_local));
-        function.instruction(&Instruction::LocalGet(entry_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(entry_buffer_local));
-        function.instruction(&Instruction::LocalGet(entry_index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_KEY_OFFSET,
-            entry_key_local,
-            function,
-        );
-        self.emit_property_key_payload_equality_i32(entry_key_local, key_string_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(proxy_target_desc_found_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-            descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(configurable_payload_local));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_WRITABLE as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(writable_payload_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(entry_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_proxy_array_target_own_descriptor_flags(
+        self.emit_direct_own_descriptor_fact(
             value_payload_local,
             value_tag_local,
             key_string_local,
             key_tag_local,
-            descriptor_kind_local,
-            proxy_target_desc_found_local,
-            configurable_payload_local,
-            writable_payload_local,
+            proxy_target_descriptor_fact,
             function,
         )?;
+        proxy_target_descriptor_fact.emit_present_i32(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(proxy_target_desc_found_local));
+        proxy_target_descriptor_fact.emit_configurable_i32(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(configurable_payload_local));
+        proxy_target_descriptor_fact.emit_writable_i32(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(writable_payload_local));
 
         function.instruction(&Instruction::I64Const(self.strings.payload("configurable")));
         function.instruction(&Instruction::LocalSet(entry_key_local));
@@ -4625,13 +4337,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_target_desc_found_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
+        self.emit_object_is_extensible_i32(
             value_payload_local,
-            HEAP_CAP_OFFSET,
-            descriptor_kind_local,
+            value_tag_local,
+            proxy_target_extensible_local,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        )?;
+        function.instruction(&Instruction::LocalGet(proxy_target_extensible_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -5733,6 +5445,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_own_descriptor_fact_locals(proxy_target_descriptor_fact);
+        self.release_temp_local(proxy_target_extensible_local);
         self.release_temp_local(typed_array_valid_index_local);
         self.release_temp_local(typed_array_canonical_numeric_index_local);
         self.release_temp_local(typed_array_numeric_index_payload_local);

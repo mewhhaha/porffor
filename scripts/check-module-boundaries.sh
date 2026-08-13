@@ -228,20 +228,22 @@ if ! grep -q 'match builtin\.intrinsic_installer()' "$wasm_builtin_bootstrap"; t
 fi
 
 
-# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric and URI
+# T02's Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric, URI and
+# Error
 # builtin body boundaries. The exhaustive StandardBuiltinId dispatch remains in
 # standard.rs, but family bodies are one-line delegates so unrelated builtin
 # work no longer collides with ~11k lines of Object descriptor/prototype
 # implementation, the Proxy lifecycle, the Math emitter family, Symbol's
 # registry/prototype implementation or BigInt's constructor, fixed-width and
-# prototype implementation, or Boolean's constructor and prototype receiver
-# logic. The two coercing global numeric predicates and the six global URI and
-# Annex-B codec wrappers likewise stay out of the shared dispatcher.
+# prototype implementation, Boolean's constructor and prototype receiver
+# logic, or the Error intrinsic family. The two coercing global numeric
+# predicates and the six global URI and Annex-B codec wrappers likewise stay
+# out of the shared dispatcher.
 check_no_inline_legacy_includes "$wasm_standard_builtins"
-# Measured immediately after global numeric extraction: 35,372 raw lines. This
-# keeps roughly the same small dispatch-only margin as the prior 35,600-line cap;
+# Measured immediately after Error extraction: 34,948 raw lines. This keeps
+# roughly the same small dispatch-only margin as the prior 35,575-line cap;
 # substantive bodies belong in family modules.
-check_raw_line_budget "$wasm_standard_builtins" 35575
+check_raw_line_budget "$wasm_standard_builtins" 35150
 
 wasm_boolean_builtins="crates/lila-aot-wasm/src/builtins/boolean.rs"
 check_no_inline_legacy_includes "$wasm_boolean_builtins"
@@ -299,6 +301,23 @@ require_fixed_string_count "$wasm_standard_builtins" 'self.emit_uri_builtin(' 6 
 # Measured immediately after extraction: 82 raw lines. The narrow margin is
 # for maintenance of this family, not adjacent builtin implementations.
 check_raw_line_budget "$wasm_uri_builtins" 115
+
+wasm_error_builtins="crates/lila-aot-wasm/src/builtins/errors.rs"
+check_no_inline_legacy_includes "$wasm_error_builtins"
+if ! grep -q '^pub(super) enum ErrorBuiltin' "$wasm_error_builtins" \
+  || ! grep -q '^        match builtin {' "$wasm_error_builtins" \
+  || ! grep -q '^            ErrorBuiltin::Constructor(error_kind) => match error_kind {' "$wasm_error_builtins"; then
+  fail "$wasm_error_builtins must dispatch through the closed ErrorBuiltin domain"
+fi
+require_fixed_string_count \
+  "$wasm_standard_builtins" \
+  '.emit_error_builtin(' \
+  11 \
+  'Error builtin delegate'
+# Measured after making the nested NativeErrorKind match exhaustive: 1,646 raw
+# lines. The narrow margin is
+# for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_error_builtins" 1700
 
 # The Temporal record/constructor/accessor vs prototype-method-body boundary.
 # `temporal.rs` and `temporal_plain_date_time.rs` hold the heap record, the
@@ -366,6 +385,28 @@ require_fixed_string_count crates/lila-aot-wasm/src/builtins/string.rs "$uint32_
 require_fixed_string_count crates/lila-aot-wasm/src/expressions.rs "$uint32_call" 1 'ToUint32 authority call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$uint32_call" 1 'ToUint32 authority call'
 require_fixed_string_count crates/lila-aot-wasm/src/operations.rs "$uint32_call" 4 'ToUint32 authority call'
+
+# T11's value-free direct [[GetOwnProperty]] fact. One typed authority owns the
+# representation split used by both the public descriptor invariant checks and
+# Proxy [[HasProperty]]. Array-only mirrors would let a new exotic silently
+# escape one consumer again, so keep the closed branch order and reviewed call
+# sites exact.
+own_descriptor_fact='emit_direct_own_descriptor_fact('
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'pub(crate) fn emit_direct_own_descriptor_fact(' \
+  1 \
+  'typed own-descriptor fact authority'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects.rs \
+  'for branch in ObjectInternalMethodBranch::ORDER.iter().copied() {' \
+  2 \
+  'closed object-internal-method branch consumer'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 2 'own-descriptor fact definition/HasProperty call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object.rs "$own_descriptor_fact" 2 'Object.getOwnPropertyDescriptor invariant call'
+if grep -RFl --include='*.rs' 'emit_proxy_array_target_own_descriptor_flags' crates/lila-aot-wasm/src >/dev/null; then
+  fail 'Array-only Proxy own-descriptor mirrors must not bypass the typed authority'
+fi
 
 if [ "$failures" -ne 0 ]; then
   exit 1

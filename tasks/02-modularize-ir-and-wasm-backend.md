@@ -19,7 +19,7 @@ hotspots.
 
 ### Landed 2026-08-12–13: builtin metadata and family body boundaries
 
-Ten previously coupled builtin stores now have separate owners:
+Eleven previously coupled builtin stores now have separate owners:
 
 - `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
@@ -73,6 +73,14 @@ Ten previously coupled builtin stores now have separate owners:
   non-coercing Number family, while `parseInt` and `parseFloat` remain host
   builtin emitters. The catalog dispatch keeps one typed delegate for each of
   `isFinite` and `isNaN`, and `standard.rs` fell from 35,394 to 35,372 lines.
+- `lila-aot-wasm/src/builtins/errors.rs` owns the complete eleven-member Error
+  intrinsic family as well as its pre-existing allocation, realm-prototype,
+  cause, iterable and throw helpers. A private closed `ErrorBuiltin` domain
+  distinguishes the static predicate, the nine constructors carried by the
+  existing closed `NativeErrorKind`, and `Error.prototype.toString`; unrelated
+  `StandardBuiltinId` values cannot reach this family emitter. Eleven typed
+  delegates preserve the catalog dispatch without duplicating the error-kind
+  registry, and `standard.rs` fell from 35,372 to 34,948 lines.
 
 The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
 and `lila-intl`, and the focused builtin catalog tests pass for the moves that
@@ -99,6 +107,12 @@ The global numeric move is statically source-equivalent after normalizing only
 the closed enum path, and is boundary-checked; its compile, focused coercion
 and cross-realm fixture gates and real `isFinite`/`isNaN` shards remain queued
 behind that matrix run.
+The Error move preserves the existing emitter and local-allocation sequences;
+its only semantic-free rewrites replace raw builtin-ID tests with the closed
+`ErrorBuiltin` and `NativeErrorKind` domains. Its compile, focused constructor,
+cross-realm, static predicate and prototype-method fixtures, and real Error,
+NativeErrors, AggregateError and SuppressedError shards remain queued behind
+the same matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
@@ -128,8 +142,8 @@ bounded owners:
   `bootstrap.rs` consumes it through an exhaustive installer match.
 - **Resolved 2026-08-12:** the parallel `StandardBuiltinId` tables are one
   catalog with compile-time ordering and uniqueness invariants.
-- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric
-  and URI 2026-08-13:** their bodies are family modules; Reflect already has
+- **Resolved for Object, Proxy, Math, Symbol, BigInt, Boolean, global numeric,
+  URI and Error 2026-08-13:** their bodies are family modules; Reflect already has
   the same boundary. Other large inline families should follow the same
   exhaustive-delegate shape.
 

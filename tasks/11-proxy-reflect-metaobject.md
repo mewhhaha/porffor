@@ -51,20 +51,44 @@ remain separate T11 migrations over the same stored slot. The exact Wasm-AOT
 regression for Function, Array, arguments and nested-Proxy handlers, tagged
 handler `this`, and an abrupt lookup getter is written but has not run.
 
-The post-trap false-result check remains incomplete and this task stays open:
-it still scans ordinary Object/Function descriptor storage directly instead of
-calling typed `[[GetOwnProperty]]` and `[[IsExtensible]]` dispatch. Therefore an
-Array target's non-configurable `length` (and corresponding exotic cases) can
-still evade the required invariant: a false `has` trap for `length` must throw,
-but the current checker can return `false`. No Array-only special case or
-expected failure was added; the durable repair is the shared typed descriptor
-and extensibility seam. The public descriptor builtin does cover Array,
-arguments and integer-indexed storage, but calling that allocating builtin
-from inside the raw HasProperty branch would couple completion routing and
-allocation into this dispatcher. The next bounded seam should instead expose
-a value-free typed own-descriptor fact emitter shared by that builtin and
-Proxy invariant checks; the existing compact helper is Array-specific and is
-not duplicated here.
+The post-trap false-result batch now has one direct-target contract. A private,
+closed object-representation order is shared by `[[HasProperty]]` and a
+value-free own-descriptor fact emitter. The fact is two distinct Wasm locals,
+`present` and `descriptor`: zero is a legal descriptor word for a present data
+property whose three attributes are false, so it may never double as the
+absence sentinel. Its fields are private and consumers can ask only the named
+presence/configurability/writability questions, making a raw-local
+transposition a compile error. The emitter allocates no JavaScript descriptor
+object and invokes no property getter.
+
+That direct emitter owns integer-indexed, Array, arguments, boxed-String,
+Function-special and ordinary storage in the same exhaustive representation
+match. In particular, Array `length` is an unconditional present,
+non-configurable descriptor; arguments `length` carries an explicit own-property
+bit while it is live, including the all-false data-descriptor state; and an
+invalid canonical integer-index is handled as absent rather than falling
+through to ordinary storage. Both the public descriptor builtin's Proxy target
+checks and the `has` false-result check consume this fact. Only after a present,
+configurable descriptor does `has` call the shared typed `[[IsExtensible]]`
+emitter, preserving the ECMA-262 order and the distinct Array/arguments
+extensibility slots. The former Array-only target mirror is deleted.
+
+The exact Wasm-AOT regression is written for Array `length`, both ordinary and
+non-configurable Array indices, a configurable named property on a
+non-extensible Array, a present ordinary all-false descriptor word,
+boxed-String indices, a fixed typed-array index, ordinary arguments indices,
+arguments `length` (including delete-and-recreate), both public descriptor-trap
+result forms and the absent/non-extensible ordering case. It has not run while
+the release matrix owns runtime verification.
+
+This is deliberately not the recursive Proxy descriptor-record protocol.
+When `[[ProxyTarget]]` is itself a Proxy, `[[GetOwnProperty]]` must run that
+Proxy's `GetMethod`, call and full `IsCompatiblePropertyDescriptor` validation;
+re-entering the allocating public builtin would violate this seam. Handler-tag
+preservation in that descriptor path, nested Proxy targets, full descriptor
+compatibility and module-namespace exotics therefore remain explicit T11 work.
+The direct-target batch closes the Array/arguments/integer-indexed/boxed-String
+and ordinary invariant gap without claiming those cases.
 
 ## Objective
 
