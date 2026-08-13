@@ -307,7 +307,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            5
+            6
         );
         assert!(
             !domain.contains("Array"),
@@ -358,6 +358,87 @@ mod tests {
         assert!(install.contains("prototype: ResolvedRealmOrdinaryPrototypeLocal"));
         assert_eq!(install.matches("prototype.0").count(), 2);
         assert_eq!(install.matches("ValueKind::Object.tag() as i64").count(), 1);
+    }
+
+    #[test]
+    fn iterator_constructor_realm_prototype_is_required_tagged_and_published() {
+        let functions = include_str!("functions.rs");
+        let standard = include_str!("builtins/standard.rs");
+        let bootstrap = include_str!("builtins/bootstrap.rs");
+        let host = include_str!("builtins/host.rs");
+
+        let domain = functions
+            .split_once("enum OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype domain should exist")
+            .1
+            .split_once("}\n\nimpl OrdinaryDefaultPrototype")
+            .expect("ordinary default-prototype domain should be bounded")
+            .0;
+        let offsets = functions
+            .split_once("impl OrdinaryDefaultPrototype {")
+            .expect("ordinary default-prototype offset map should exist")
+            .1
+            .split_once("struct ResolvedRealmOrdinaryPrototypeLocal")
+            .expect("ordinary default-prototype offset map should be bounded")
+            .0;
+        assert_eq!(domain.matches("    Iterator,").count(), 1);
+        assert_eq!(
+            offsets
+                .matches("Self::Iterator => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET")
+                .count(),
+            1
+        );
+
+        let constructor = standard
+            .split_once("StandardBuiltinId::IteratorConstructor => {")
+            .expect("Iterator constructor builtin should exist")
+            .1
+            .split_once("StandardBuiltinId::FunctionConstructor => {")
+            .expect("Iterator constructor builtin should be bounded")
+            .0;
+        for (operation, count) in [
+            ("emit_new_target_prototype_to_locals(", 1),
+            (
+                "NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(",
+                1,
+            ),
+            ("OrdinaryDefaultPrototype::Iterator", 1),
+            ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
+        ] {
+            assert_eq!(
+                constructor.matches(operation).count(),
+                count,
+                "Iterator construction must retain exactly {count} {operation} occurrence(s)"
+            );
+        }
+        let prototype_resolution = constructor
+            .find("emit_new_target_prototype_to_locals(")
+            .unwrap();
+        let tagged_allocation = "emit_alloc_plain_object_with_prototype_and_tag(\n                    Some(prototype_payload_local),\n                    Some(prototype_tag_local),\n                    None";
+        assert_eq!(constructor.matches(tagged_allocation).count(), 1);
+        assert!(prototype_resolution < constructor.find(tagged_allocation).unwrap());
+        for forbidden in [
+            "emit_error_new_target_prototype_to_local(",
+            "NewTargetPrototypeFallback::CurrentGlobal",
+            "emit_alloc_plain_object_with_prototype(",
+        ] {
+            assert!(
+                !constructor.contains(forbidden),
+                "Iterator construction must not retain {forbidden}"
+            );
+        }
+        let temp_reservation = "let prototype_payload_local = self.reserve_temp_local();\n                let prototype_tag_local = self.reserve_temp_local();";
+        let temp_release = "self.release_temp_local(prototype_tag_local);\n                self.release_temp_local(prototype_payload_local);";
+        assert_eq!(constructor.matches(temp_reservation).count(), 1);
+        assert_eq!(constructor.matches(temp_release).count(), 1);
+
+        let entry_publication = "emit_store_current_realm_global_intrinsic(\n            ITERATOR_PROTOTYPE_GLOBAL_INDEX,\n            NonArrayRealmIntrinsicSlot::IteratorPrototype";
+        assert_eq!(bootstrap.matches(entry_publication).count(), 1);
+        assert_eq!(
+            host.matches("self.emit_store_realm_iterator_prototype(")
+                .count(),
+            1
+        );
     }
 
     #[test]

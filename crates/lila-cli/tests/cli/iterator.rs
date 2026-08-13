@@ -657,3 +657,29 @@ fn run_wasm_backend_succeeds_for_collection_data_receiver_realm_fixture() {
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
+
+/// `GetPrototypeFromConstructor` chooses `%Iterator.prototype%` from the
+/// new-target function's realm when its observable `prototype` value is a
+/// primitive. The fixture repeats the pinned six-value primitive matrix,
+/// preserves Object/Function/Array custom-prototype tags, and pins a single
+/// observable Get, abrupt propagation and revoked-Proxy realm routing.
+#[test]
+fn run_wasm_backend_uses_new_target_realm_for_iterator_prototype() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_iterator_constructor_realm_prototype.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+}

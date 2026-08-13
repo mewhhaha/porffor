@@ -18,7 +18,9 @@ use super::object::{EnumerableOwnProperties, IntegrityTest, PrototypeLookup};
 use super::symbol::SymbolBuiltin as SymbolFn;
 use super::temporal::ZonedDateTimeField;
 use super::uri::UriBuiltin;
-use crate::functions::FunctionRealmRevokedRoute;
+use crate::functions::{
+    FunctionRealmRevokedRoute, NewTargetPrototypeFallback, OrdinaryDefaultPrototype,
+};
 use crate::operations::PrimitiveToStringAbruptRoute;
 use lila_ir::NativeErrorKind;
 use lila_runtime::AgentHostOperation;
@@ -7868,7 +7870,8 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StandardBuiltinId::IteratorConstructor => {
-                let prototype_local = self.reserve_temp_local();
+                let prototype_payload_local = self.reserve_temp_local();
+                let prototype_tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::LocalGet(self.new_target_tag_local().unwrap()));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
@@ -7890,18 +7893,27 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::Else);
-                self.emit_error_new_target_prototype_to_local(
+                self.emit_new_target_prototype_to_locals(
                     ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-                    None,
-                    prototype_local,
+                    NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                        OrdinaryDefaultPrototype::Iterator,
+                    ),
+                    prototype_payload_local,
+                    prototype_tag_local,
                     function,
                 )?;
-                self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+                self.emit_alloc_plain_object_with_prototype_and_tag(
+                    Some(prototype_payload_local),
+                    Some(prototype_tag_local),
+                    None,
+                    function,
+                )?;
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::End);
-                self.release_temp_local(prototype_local);
+                self.release_temp_local(prototype_tag_local);
+                self.release_temp_local(prototype_payload_local);
             }
             StandardBuiltinId::FunctionConstructor => {
                 self.emit_function_builtin(FunctionBuiltin::Constructor, function)?

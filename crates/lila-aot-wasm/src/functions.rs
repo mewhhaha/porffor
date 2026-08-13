@@ -492,6 +492,7 @@ pub(crate) enum OrdinaryDefaultPrototype {
     Number,
     Boolean,
     Date,
+    Iterator,
 }
 
 impl OrdinaryDefaultPrototype {
@@ -502,6 +503,7 @@ impl OrdinaryDefaultPrototype {
             Self::Number => HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET,
             Self::Boolean => HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET,
             Self::Date => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
+            Self::Iterator => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
         }
     }
 }

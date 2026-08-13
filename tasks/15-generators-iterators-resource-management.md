@@ -90,6 +90,20 @@ semantics or IteratorClose coverage are complete. The seam is dry-written and
 statically checked; Cargo, runtime and pinned Test262 gates remain deferred to
 the central verifier.
 
+The `%Iterator%` constructor now selects its primitive
+`NewTarget.prototype` fallback through the closed
+`OrdinaryDefaultPrototype::Iterator` domain and the required resolved-Realm
+policy. The observable prototype Get precedes function-Realm resolution; abrupt
+and revoked Proxy routes remain explicit. Allocation consumes the prototype
+payload and representation tag together, preserving exact Object, Function and
+Array custom-prototype identity. The realm slot and both publication paths
+already existed, so this seam changes no heap layout. A structural guard and one
+CLI fixture pin the typed policy, tagged allocation, six primitive cross-Realm
+fallbacks, one-read/abrupt ordering and revoked-Proxy behavior. This is not a
+claim that generator state machines, IteratorClose, helper closing or the whole
+Iterator tree are complete. The seam is dry-written and statically checked;
+Cargo, runtime and pinned Test262 gates remain deferred to the central verifier.
+
 ## Objective
 
 Implement resumable generator execution, the complete iterator protocols, iterator helpers and explicit resource management through reusable state-machine and iterator-operation layers.
