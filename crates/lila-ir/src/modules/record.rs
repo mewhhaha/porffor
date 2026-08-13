@@ -1747,7 +1747,7 @@ pub(crate) fn script_entry_record(
     }
 }
 
-fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr> {
+pub(super) fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr> {
     source.with_compiler_session(|script, interner| {
         let mut scan = ModuleBodyScan {
             interner: Some(interner),

@@ -1,6 +1,6 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-**Status:** Bounded campaign in progress — versioned replay, one deterministic Add/Sub generator/reducer, an additive observed-execution seam, schema-v2 primitive completion and schema-v3 primitive-plus-print comparison exist; object/identity comparison, broader generation/reduction, performance budgets and CI remain open
+**Status:** Bounded campaign in progress — versioned dependency-sealed Script replay, one deterministic Add/Sub generator/reducer, an additive observed-execution seam, schema-v2 primitive completion and schema-v3 primitive-plus-print comparison exist; embedded module graphs, object/identity comparison, broader generation/reduction, performance budgets and CI remain open
 
 **Parallel group:** Validation lane  
 **Depends on:** T01, T02, T03, T04  
@@ -19,6 +19,21 @@ when both the cargo feature and explicit `--oracle spec-exec` flag are present.
 Its JSON report has a versioned stable case fingerprint and mismatch signature.
 Replay compiles both backends with the ordinary product host-surface policy;
 probes do not silently gain Test262-only globals.
+
+Those schemas carry one entry source and no dependency graph, so their corpus
+decoder admits only Scripts whose outer AST contains no dynamic import. Module
+goals, true outer Script dynamic imports and Script sources whose outer closure
+cannot be proved are rejected before execution. Because eval, Function
+constructors, created realms and agents can create an import absent from that
+AST, replay also fixes both backends to the shared `RejectAll` module-loading
+policy. AOT graph discovery, including agent worker compilation and its cache
+retry, rejects requests before filesystem access; spec-exec root, created-realm
+and agent contexts use Boa's rejecting loader. Valid existing Script wire bytes
+and fingerprint inputs stay unchanged; module replay is deferred to an additive
+protocol that embeds and fingerprints the complete normalized graph. The
+program-Wasm cache key carries the policy in a versioned fixed-discriminator,
+presence/length-framed tuple, so variable filename/source bytes cannot alias a
+different policy.
 
 The Rust-owned `integer-arithmetic-v1` campaign is the first non-decorative
 consumer of that replay path. `lila differential generate-arithmetic` uses a
@@ -69,7 +84,9 @@ they do not satisfy object/identity
 comparison, full-corpus replay, layered generation, a general AST reducer,
 fuzz, performance, or CI requirements.
 
-The closed schema-v3 comparison and signature rules are normative in
+The replay source domain and closed schema-v3 comparison/signature rules are
+normative in
+`docs/rust-rewrite/contracts/differential-source-closure.md` and
 `docs/rust-rewrite/contracts/differential-primitive-print-transcript.md`.
 
 ## Objective
@@ -138,6 +155,13 @@ version/contract cross-pair cannot inhabit the in-memory corpus type. Schema v3
 is additive again: a closed output policy requires both root transcripts to be
 captured and compares their ordered `PrintLine` strings alongside the v2
 primitive domain. No protocol establishes whole-program semantic equivalence.
+
+All three current corpus protocols also couple goal and source into one
+outer-source-closed Script program type. The wire still spells both fields, but
+a Module or actual/conservatively possible outer Script dynamic import cannot
+inhabit the validated case type because no current schema carries the graph it
+needs. Admitted dynamic source does not weaken dependency sealing: imports it
+creates reach only the fixed rejecting loader.
 
 This seam does not yet carry a partial transcript inside `EngineError`,
 identify Symbols or Objects, expose Symbol descriptions, classify Error

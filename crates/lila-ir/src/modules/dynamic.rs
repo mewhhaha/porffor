@@ -336,6 +336,51 @@ pub(crate) fn lower_import_call(
     ))
 }
 
+/// Whether one Script's outer source directly requires a host-provided module
+/// graph.
+///
+/// This is deliberately a closed classification rather than a Boolean:
+/// callers that persist or replay source must reject
+/// [`OuterScriptModuleDependency::Indeterminate`] instead of silently treating
+/// scanner uncertainty as absence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OuterScriptModuleDependency {
+    /// The outer Script AST contains no module request.
+    None,
+    /// A retained, successfully parsed Script AST contains dynamic import.
+    RequiresModuleGraph,
+    /// Parsing failed and lexical evidence cannot prove absence of a request.
+    Indeterminate,
+}
+
+/// Classifies whether the outer `source` directly requests a module graph.
+///
+/// A successfully parsed Script is decided from its retained AST, so a method
+/// or property named `import` is not confused with an import call. Parse-failure
+/// probes use the ECMAScript-aware import-call scanner only as conservative
+/// evidence: a possible call or scanner failure is
+/// [`OuterScriptModuleDependency::Indeterminate`].
+#[must_use]
+pub fn classify_outer_script_module_dependency(source: &str) -> OuterScriptModuleDependency {
+    match lila_front::parse(source, lila_front::ParseOptions::script()) {
+        Ok(ParsedSource::Script(script)) => {
+            if super::record::script_dynamic_import_sites(&script).is_empty() {
+                OuterScriptModuleDependency::None
+            } else {
+                OuterScriptModuleDependency::RequiresModuleGraph
+            }
+        }
+        // Script parse options make this unreachable today. Treat a future
+        // front-end contract violation as uncertainty rather than admitting
+        // source whose dependency shape was classified under the wrong goal.
+        Ok(ParsedSource::Module(_)) => OuterScriptModuleDependency::Indeterminate,
+        Err(_) => match ImportCallScanner::new(source).run() {
+            Ok(sites) if sites.is_empty() => OuterScriptModuleDependency::None,
+            Ok(_) | Err(_) => OuterScriptModuleDependency::Indeterminate,
+        },
+    }
+}
+
 /// Whether `source` writes an `import()` call of any phase.
 ///
 /// A *lexical* answer, so a host can ask it of a Script without parsing one: the
@@ -1356,6 +1401,48 @@ fn is_js_whitespace(character: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outer_script_dependency_uses_retained_ast_dynamic_import_sites() {
+        assert_eq!(
+            classify_outer_script_module_dependency("1 + 2;"),
+            OuterScriptModuleDependency::None
+        );
+        assert_eq!(
+            classify_outer_script_module_dependency("import('./ambient.mjs');"),
+            OuterScriptModuleDependency::RequiresModuleGraph
+        );
+        assert_eq!(
+            classify_outer_script_module_dependency("const name = './ambient.mjs'; import(name);"),
+            OuterScriptModuleDependency::RequiresModuleGraph
+        );
+    }
+
+    #[test]
+    fn outer_script_dependency_does_not_mistake_a_method_named_import_for_a_call() {
+        let source = "const object = { import(value) { return value; } }; object.import(1);";
+        assert_eq!(
+            classify_outer_script_module_dependency(source),
+            OuterScriptModuleDependency::None
+        );
+    }
+
+    #[test]
+    fn outer_script_dependency_is_conservative_for_unparseable_possible_imports() {
+        assert_eq!(
+            classify_outer_script_module_dependency("import("),
+            OuterScriptModuleDependency::Indeterminate
+        );
+        assert_eq!(
+            classify_outer_script_module_dependency("const text = \"unterminated"),
+            OuterScriptModuleDependency::Indeterminate
+        );
+        assert_eq!(
+            classify_outer_script_module_dependency("let ="),
+            OuterScriptModuleDependency::None,
+            "a parse failure with no possible import remains a source-closed negative probe"
+        );
+    }
 
     fn sources_of(
         sources: &[(&str, &str)],

@@ -358,6 +358,29 @@ fn compiler_fingerprint() -> &'static [u8; 32] {
     })
 }
 
+const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v2";
+
+fn hash_program_cache_field(hash: &mut Sha256, bytes: &[u8]) {
+    let length = u64::try_from(bytes.len()).expect("cache-key field length must fit in u64");
+    hash.update(length.to_le_bytes());
+    hash.update(bytes);
+}
+
+fn hash_optional_program_cache_field(hash: &mut Sha256, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            hash.update([1]);
+            hash_program_cache_field(hash, value.as_bytes());
+        }
+        None => hash.update([0]),
+    }
+}
+
+/// Hashes one injectively framed program-compilation tuple.
+///
+/// Fixed-width enum discriminators and presence-tagged, length-prefixed byte
+/// fields prevent a suffix of one field from being reinterpreted as the next.
+/// The domain changes when this framing grammar changes.
 fn program_wasm_cache_key_with_compiler_fingerprint(
     source: &str,
     goal: ParseGoal,
@@ -366,29 +389,32 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
     compiler_fingerprint: &[u8; 32],
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
+    hash.update(PROGRAM_WASM_CACHE_KEY_DOMAIN);
     hash.update(compiler_fingerprint);
-    hash.update(std::env::consts::ARCH.as_bytes());
-    hash.update(match goal {
-        ParseGoal::Script => b"script" as &[u8],
-        ParseGoal::Module => b"module" as &[u8],
-    });
+    hash_program_cache_field(&mut hash, std::env::consts::ARCH.as_bytes());
+    hash.update([match goal {
+        ParseGoal::Script => 0,
+        ParseGoal::Module => 1,
+    }]);
     hash.update([u8::from(options.optimize)]);
-    hash.update(match options.host_surface_policy {
-        HostSurfacePolicy::Product => b"host-surface:product" as &[u8],
-        HostSurfacePolicy::Test262 => b"host-surface:test262" as &[u8],
-    });
-    if let Some(filename) = &options.filename {
-        hash.update(filename.as_bytes());
-    }
-    if let Some(target) = &options.target_triple {
-        hash.update(target.as_bytes());
-    }
-    if let Some(root) = &options.module_root {
-        hash.update(root.as_bytes());
-    }
-    hash.update(source.as_bytes());
-    if let Some(digest) = graph_digest {
-        hash.update(digest);
+    hash.update([match options.host_surface_policy {
+        HostSurfacePolicy::Product => 0,
+        HostSurfacePolicy::Test262 => 1,
+    }]);
+    hash_optional_program_cache_field(&mut hash, options.filename.as_deref());
+    hash_optional_program_cache_field(&mut hash, options.target_triple.as_deref());
+    hash_optional_program_cache_field(&mut hash, options.module_root.as_deref());
+    hash.update([match options.module_loading_policy {
+        ModuleLoadingPolicy::Filesystem => 0,
+        ModuleLoadingPolicy::RejectAll => 1,
+    }]);
+    hash_program_cache_field(&mut hash, source.as_bytes());
+    match graph_digest {
+        Some(digest) => {
+            hash.update([1]);
+            hash.update(digest);
+        }
+        None => hash.update([0]),
     }
     hash.finalize().into()
 }
@@ -420,8 +446,23 @@ fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOption
     )
 }
 
-/// Loads the module graph rooted at `source`, using the filesystem loader
-/// configured by `options`.
+fn configured_module_loader(
+    options: &CompileOptions,
+) -> Option<Box<dyn HostModuleLoader + 'static>> {
+    match options.module_loading_policy {
+        ModuleLoadingPolicy::Filesystem => Some(Box::new(
+            FilesystemModuleLoader::new(
+                options.module_root.as_deref(),
+                options.filename.as_deref(),
+            )
+            .ok()?,
+        )),
+        ModuleLoadingPolicy::RejectAll => Some(Box::new(module_loader::RejectAllModuleLoader)),
+    }
+}
+
+/// Loads the module graph rooted at `source`, using the loader policy selected
+/// by `options`.
 ///
 /// `source` is the entry text as the caller supplied it, which may differ from
 /// what is on disk (test262 prepends harness text). Resolution still keys off
@@ -431,9 +472,7 @@ fn module_entry_graph(
     source: &lila_front::ParsedModule,
     options: &CompileOptions,
 ) -> Option<lila_ir::ModuleGraphSources> {
-    let loader =
-        FilesystemModuleLoader::new(options.module_root.as_deref(), options.filename.as_deref())
-            .ok()?;
+    let loader = configured_module_loader(options)?;
     let entry = ModuleEntry {
         key: options
             .filename
@@ -441,7 +480,7 @@ fn module_entry_graph(
             .unwrap_or_else(|| "<entry>".to_string()),
         source_override: Some(source.source_text.clone()),
     };
-    module_loader::load_module_graph_from_parsed(&entry, source.clone(), &loader).ok()
+    module_loader::load_module_graph_from_parsed(&entry, source.clone(), loader.as_ref()).ok()
 }
 
 /// The module graph a Script's `import()` calls reach, or `None` when the Script
@@ -465,9 +504,7 @@ fn script_entry_graph(
     if !source_writes_dynamic_import(&source.source_text) {
         return None;
     }
-    let loader =
-        FilesystemModuleLoader::new(options.module_root.as_deref(), options.filename.as_deref())
-            .ok()?;
+    let loader = configured_module_loader(options)?;
     let entry = ModuleEntry {
         key: options
             .filename
@@ -475,9 +512,12 @@ fn script_entry_graph(
             .unwrap_or_else(|| "<entry>".to_string()),
         source_override: Some(source.source_text.clone()),
     };
-    let graph =
-        module_loader::load_module_graph_from_parsed_script(&entry, source.clone(), &loader)
-            .ok()?;
+    let graph = module_loader::load_module_graph_from_parsed_script(
+        &entry,
+        source.clone(),
+        loader.as_ref(),
+    )
+    .ok()?;
     let requests = graph.modules.get(graph.entry as usize)?.module_requests()?;
     if requests.is_empty() {
         return None;
@@ -516,6 +556,7 @@ struct PreparedCompilation {
     source: ParsedSource,
     graph: Option<lila_ir::ModuleGraphSources>,
     host_surface_policy: HostSurfacePolicy,
+    module_loading_policy: ModuleLoadingPolicy,
 }
 
 fn wasm_aot_program_is_cached(source: &str, goal: ParseGoal, options: &CompileOptions) -> bool {
@@ -1076,11 +1117,11 @@ pub use lila_runtime::{
     AgentId, GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom,
     HostRandomError, IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind,
     IntrinsicLink, IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
-    IntrinsicPropertyValue, IntrinsicRole, MonotonicClockDuration, MonotonicClockInstant,
-    NullHostHooks, ObservedCompletion, ObservedJsValue, ObservedNumber, RandomUnitInterval, Realm,
-    RealmBuilder, RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId, RealmObjectKind,
-    SystemHostClock, SystemHostRandom, UtcEpochMilliseconds, INTRINSIC_DESCRIPTORS,
-    INTRINSIC_PROPERTY_DESCRIPTORS,
+    IntrinsicPropertyValue, IntrinsicRole, ModuleLoadingPolicy, MonotonicClockDuration,
+    MonotonicClockInstant, NullHostHooks, ObservedCompletion, ObservedJsValue, ObservedNumber,
+    RandomUnitInterval, Realm, RealmBuilder, RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId,
+    RealmObjectKind, SystemHostClock, SystemHostRandom, UtcEpochMilliseconds,
+    INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1148,6 +1189,12 @@ pub struct CompileOptions {
     /// `None` means the entry file's parent directory. A specifier that
     /// resolves outside the root is rejected rather than read.
     pub module_root: Option<String>,
+    /// Which host module loader compilation and oracle execution may use.
+    ///
+    /// `RejectAll` is load-bearing for source-only differential protocols: it
+    /// prevents both AOT graph discovery and spec-exec dynamic source from
+    /// consulting ambient files.
+    pub module_loading_policy: ModuleLoadingPolicy,
     /// Which closed set of host-backed globals lowering may expose.
     pub host_surface_policy: HostSurfacePolicy,
 }
@@ -1159,6 +1206,7 @@ impl Default for CompileOptions {
             optimize: true,
             target_triple: None,
             module_root: None,
+            module_loading_policy: ModuleLoadingPolicy::default(),
             host_surface_policy: HostSurfacePolicy::default(),
         }
     }
@@ -1197,6 +1245,7 @@ impl Default for RunOptions {
 pub struct CompilationUnit {
     pub source: SourceUnit,
     pub ir: ProgramIr,
+    module_loading_policy: ModuleLoadingPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1673,12 +1722,41 @@ struct WasmAgentAsyncWaiterRegistry {
     waiters: VecDeque<WasmAgentAsyncWaiter>,
 }
 
+/// The closed subset of root compilation authority inherited by an agent.
+///
+/// Keeping both policies in one value prevents either the harness-to-group
+/// handoff or a worker-cache retry from rebuilding options with an ambient
+/// default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WasmAgentCompilePolicy {
+    host_surface_policy: HostSurfacePolicy,
+    module_loading_policy: ModuleLoadingPolicy,
+}
+
+impl WasmAgentCompilePolicy {
+    const fn from_root(options: &CompileOptions) -> Self {
+        Self {
+            host_surface_policy: options.host_surface_policy,
+            module_loading_policy: options.module_loading_policy,
+        }
+    }
+
+    fn worker_options(self) -> CompileOptions {
+        CompileOptions {
+            filename: Some("<test262-agent>".to_string()),
+            host_surface_policy: self.host_surface_policy,
+            module_loading_policy: self.module_loading_policy,
+            ..CompileOptions::default()
+        }
+    }
+}
+
 struct WasmAgentGroup {
     engine: WasmtimeEngine,
     realm: Realm,
     shared_memory_backing: Arc<WasmSharedMemoryBacking>,
     prelude: Arc<str>,
-    host_surface_policy: HostSurfacePolicy,
+    compile_policy: WasmAgentCompilePolicy,
     timeout_ms: Option<u64>,
     started_at: MonotonicClockInstant,
     reports: Mutex<VecDeque<Vec<u8>>>,
@@ -1688,7 +1766,7 @@ struct WasmAgentGroup {
 
 struct WasmAgentHarness {
     prelude: Arc<str>,
-    host_surface_policy: HostSurfacePolicy,
+    compile_policy: WasmAgentCompilePolicy,
 }
 
 struct WasmAgentExecution {
@@ -1793,11 +1871,7 @@ impl WasmSharedMemoryBacking {
 impl WasmAgentGroup {
     fn start(self: &Arc<Self>, source: String) -> Result<(), EngineError> {
         let worker_source = format!("{}\n{}", self.prelude, source);
-        let worker_options = CompileOptions {
-            filename: Some("<test262-agent>".to_string()),
-            host_surface_policy: self.host_surface_policy,
-            ..CompileOptions::default()
-        };
+        let worker_options = self.compile_policy.worker_options();
         let mut worker_artifact = self
             .worker_artifacts
             .lock()
@@ -2005,6 +2079,7 @@ impl Engine {
                 source,
                 options.filename.as_deref(),
                 ParseGoal::Script,
+                options.module_loading_policy,
                 run,
             );
         }
@@ -2028,6 +2103,7 @@ impl Engine {
                 source,
                 options.filename.as_deref(),
                 ParseGoal::Module,
+                options.module_loading_policy,
                 run,
             );
         }
@@ -2070,7 +2146,13 @@ impl Engine {
         run: RunOptions,
     ) -> Result<ObservedRunOutcome, EngineError> {
         if run.backend == ExecutionBackend::SpecExec {
-            return self.observe_with_spec_exec(source, options.filename.as_deref(), goal, run);
+            return self.observe_with_spec_exec(
+                source,
+                options.filename.as_deref(),
+                goal,
+                options.module_loading_policy,
+                run,
+            );
         }
         self.observe_source_with_cached_wasm(source, goal, options, run.timeout_ms, run.can_block)
     }
@@ -2129,7 +2211,7 @@ impl Engine {
         can_block: bool,
         agent_prelude: String,
     ) -> Result<RunOutcome, EngineError> {
-        let host_surface_policy = options.host_surface_policy;
+        let agent_compile_policy = WasmAgentCompilePolicy::from_root(&options);
         let cache = program_wasm_cache();
         let artifact = self.load_or_compile_program_wasm_on_current_thread(
             source,
@@ -2140,7 +2222,7 @@ impl Engine {
         let agent_prelude: Arc<str> = Arc::from(agent_prelude);
         let agent_harness = || WasmAgentHarness {
             prelude: Arc::clone(&agent_prelude),
-            host_surface_policy,
+            compile_policy: agent_compile_policy,
         };
         let result = self.run_with_wasm_bytes_inner_with_agents(
             &artifact.bytes,
@@ -2522,6 +2604,7 @@ impl Engine {
             source,
             graph,
             host_surface_policy: options.host_surface_policy,
+            module_loading_policy: options.module_loading_policy,
         })
     }
 
@@ -2533,6 +2616,7 @@ impl Engine {
             source,
             graph,
             host_surface_policy,
+            module_loading_policy,
         } = prepared;
         let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
         let lower_started = std::time::Instant::now();
@@ -2580,6 +2664,7 @@ impl Engine {
         Ok(CompilationUnit {
             source: source.source().clone(),
             ir,
+            module_loading_policy,
         })
     }
 
@@ -2594,6 +2679,7 @@ impl Engine {
                 source,
                 unit.source.filename.as_deref(),
                 unit.source.goal,
+                unit.module_loading_policy,
                 run,
             ),
             ExecutionBackend::WasmAot => {
@@ -2612,6 +2698,7 @@ impl Engine {
         source: &str,
         filename: Option<&str>,
         goal: ParseGoal,
+        module_loading_policy: ModuleLoadingPolicy,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
         run_on_sized_stack(move || {
@@ -2622,13 +2709,18 @@ impl Engine {
                     lila_spec_exec::ModuleHostConfig {
                         module_root: run.module_root.clone().map(Into::into),
                         test_path: run.test_path.clone().map(Into::into),
+                        module_loading_policy,
                     },
                     &run.argv,
                     run.can_block,
                 ),
-                ParseGoal::Script => {
-                    lila_spec_exec::execute_script(source, filename, &run.argv, run.can_block)
-                }
+                ParseGoal::Script => lila_spec_exec::execute_script_with_module_loading_policy(
+                    source,
+                    filename,
+                    module_loading_policy,
+                    &run.argv,
+                    run.can_block,
+                ),
             }
             .map_err(|err| EngineError::new(err.to_string()))?;
 
@@ -2645,6 +2737,7 @@ impl Engine {
         source: &str,
         filename: Option<&str>,
         goal: ParseGoal,
+        module_loading_policy: ModuleLoadingPolicy,
         run: RunOptions,
     ) -> Result<ObservedRunOutcome, EngineError> {
         let host_hooks = self.realm.host_hooks();
@@ -2656,14 +2749,16 @@ impl Engine {
                     lila_spec_exec::ModuleHostConfig {
                         module_root: run.module_root.clone().map(Into::into),
                         test_path: run.test_path.clone().map(Into::into),
+                        module_loading_policy,
                     },
                     &run.argv,
                     run.can_block,
                     host_hooks,
                 ),
-                ParseGoal::Script => lila_spec_exec::observe_script(
+                ParseGoal::Script => lila_spec_exec::observe_script_with_module_loading_policy(
                     source,
                     filename,
+                    module_loading_policy,
                     &run.argv,
                     run.can_block,
                     host_hooks,
@@ -2686,6 +2781,7 @@ impl Engine {
         _source: &str,
         _filename: Option<&str>,
         _goal: ParseGoal,
+        _module_loading_policy: ModuleLoadingPolicy,
         _run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
         Err(EngineError::new(
@@ -2701,6 +2797,7 @@ impl Engine {
         _source: &str,
         _filename: Option<&str>,
         _goal: ParseGoal,
+        _module_loading_policy: ModuleLoadingPolicy,
         _run: RunOptions,
     ) -> Result<ObservedRunOutcome, EngineError> {
         Err(EngineError::new(
@@ -2988,7 +3085,7 @@ impl Engine {
                 realm: self.realm.clone(),
                 shared_memory_backing: Arc::clone(shared_memory_backing),
                 prelude: agent_harness.prelude,
-                host_surface_policy: agent_harness.host_surface_policy,
+                compile_policy: agent_harness.compile_policy,
                 timeout_ms,
                 started_at: self.realm.host_clock().monotonic_instant(),
                 reports: Mutex::new(VecDeque::new()),
@@ -4097,6 +4194,19 @@ var $262 = {
         }
     }
 
+    #[test]
+    fn wasm_agent_compile_policy_preserves_root_module_authority() {
+        let root = CompileOptions {
+            host_surface_policy: HostSurfacePolicy::Test262,
+            module_loading_policy: ModuleLoadingPolicy::RejectAll,
+            ..CompileOptions::default()
+        };
+        let worker = WasmAgentCompilePolicy::from_root(&root).worker_options();
+
+        assert_eq!(worker.host_surface_policy, HostSurfacePolicy::Test262);
+        assert_eq!(worker.module_loading_policy, ModuleLoadingPolicy::RejectAll);
+    }
+
     fn push_wasm_u32(mut value: u32, bytes: &mut Vec<u8>) {
         loop {
             let mut byte = (value & 0x7f) as u8;
@@ -4219,6 +4329,61 @@ report;
     }
 
     #[test]
+    fn wasm_agent_worker_loading_obeys_the_root_policy() {
+        let directory = std::env::current_dir()
+            .expect("workspace directory should exist")
+            .join("target")
+            .join(format!(
+                "lila-wasm-agent-module-policy-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+        let ambient_path = directory.join("ambient.mjs");
+        let entry_path = directory.join("entry.js");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("ambient witness directory should exist");
+        std::fs::write(&ambient_path, "export const value = 1;\n")
+            .expect("ambient witness module should exist");
+
+        let specifier = ambient_path.to_string_lossy();
+        let worker_source = format!(
+            "import({specifier:?}).then(function () {{ $262.agent.leaving(); }}, function () {{ $262.agent.leaving(); }});"
+        );
+        let source = format!("{TEST262_AGENT_PRELUDE}\n$262.agent.start({worker_source:?});\n");
+        let options = |module_loading_policy| CompileOptions {
+            filename: Some(entry_path.to_string_lossy().into_owned()),
+            module_loading_policy,
+            ..test262_compile_options()
+        };
+
+        Engine::new(RealmBuilder::new().build())
+            .run_wasm_aot_script_with_agents(
+                &source,
+                options(ModuleLoadingPolicy::Filesystem),
+                Some(30_000),
+                true,
+                TEST262_AGENT_PRELUDE.to_string(),
+            )
+            .expect("the filesystem control should load the on-disk worker dependency");
+
+        let error = Engine::new(RealmBuilder::new().build())
+            .run_wasm_aot_script_with_agents(
+                &source,
+                options(ModuleLoadingPolicy::RejectAll),
+                Some(30_000),
+                true,
+                TEST262_AGENT_PRELUDE.to_string(),
+            )
+            .expect_err("a reject-all root must close the worker module graph");
+        assert!(
+            error.message().contains("unresolved module request"),
+            "{error}"
+        );
+
+        std::fs::remove_dir_all(&directory).expect("ambient witness directory should be removed");
+    }
+
+    #[test]
     fn wasm_agents_notify_wait_async_promises_across_instances() {
         let source = format!(
             r#"{TEST262_AGENT_PRELUDE}
@@ -4313,6 +4478,58 @@ report;
         assert_ne!(
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_policy)
+        );
+        let mut changed_module_policy = base.clone();
+        changed_module_policy.module_loading_policy = ModuleLoadingPolicy::RejectAll;
+        assert_ne!(
+            key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_module_policy)
+        );
+    }
+
+    #[test]
+    fn program_cache_key_frames_the_adversarial_policy_filename_source_tuple() {
+        let compiler = [0x5a; 32];
+        let reject_all_source = "throw 1;//module-loading:filesystem\n42;";
+        let reject_all = CompileOptions {
+            filename: Some("case.js".to_string()),
+            module_loading_policy: ModuleLoadingPolicy::RejectAll,
+            ..CompileOptions::default()
+        };
+        let filesystem_source = "\n42;";
+        let filesystem = CompileOptions {
+            filename: Some("case.jsmodule-loading:reject-allthrow 1;//".to_string()),
+            module_loading_policy: ModuleLoadingPolicy::Filesystem,
+            ..CompileOptions::default()
+        };
+
+        // This is the exact byte collision in the retired unframed tail:
+        // filename || module-loading-policy-string || source.
+        assert_eq!(
+            format!(
+                "{}module-loading:reject-all{reject_all_source}",
+                reject_all.filename.as_deref().unwrap()
+            ),
+            format!(
+                "{}module-loading:filesystem{filesystem_source}",
+                filesystem.filename.as_deref().unwrap()
+            )
+        );
+        assert_ne!(
+            program_wasm_cache_key_with_compiler_fingerprint(
+                reject_all_source,
+                ParseGoal::Script,
+                &reject_all,
+                None,
+                &compiler,
+            ),
+            program_wasm_cache_key_with_compiler_fingerprint(
+                filesystem_source,
+                ParseGoal::Script,
+                &filesystem,
+                None,
+                &compiler,
+            )
         );
     }
 

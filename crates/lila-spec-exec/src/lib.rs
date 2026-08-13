@@ -10,7 +10,7 @@ use std::time::{Duration as StdDuration, Instant as StdInstant};
 use boa_engine::builtins::array_buffer::SharedArrayBuffer as RawSharedArrayBuffer;
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::job::SimpleJobExecutor;
-use boa_engine::module::{Module, ModuleLoader, ModuleRequest, Referrer};
+use boa_engine::module::{IdleModuleLoader, Module, ModuleLoader, ModuleRequest, Referrer};
 use boa_engine::native_function::NativeFunction;
 use boa_engine::object::builtins::{
     AlignedVec, JsArrayBuffer, JsPromise, JsSharedArrayBuffer, JsUint8Array,
@@ -23,13 +23,15 @@ use boa_engine::{
     Script, Source,
 };
 use lila_runtime::{
-    HostHooks, HostOutputEvent, ObservedCompletion, ObservedJsValue, ObservedNumber,
+    HostHooks, HostOutputEvent, ModuleLoadingPolicy, ObservedCompletion, ObservedJsValue,
+    ObservedNumber,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleHostConfig {
     pub module_root: Option<PathBuf>,
     pub test_path: Option<PathBuf>,
+    pub module_loading_policy: ModuleLoadingPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +91,7 @@ struct HostRealmScope {
 
 struct HostSession {
     can_block: bool,
+    module_loading_policy: ModuleLoadingPolicy,
     started_at: StdInstant,
     host_hooks: Arc<dyn HostHooks>,
     output_events: HostOutputEvents,
@@ -121,13 +124,27 @@ struct AgentThreadState {
 }
 
 impl HostRealmScope {
-    fn legacy(can_block: bool, host_hooks: Arc<dyn HostHooks>) -> Self {
-        Self::new(can_block, host_hooks, HostOutputEvents::DelegateOnly)
-    }
-
-    fn observed(can_block: bool, host_hooks: Arc<dyn HostHooks>) -> Self {
+    fn legacy(
+        can_block: bool,
+        module_loading_policy: ModuleLoadingPolicy,
+        host_hooks: Arc<dyn HostHooks>,
+    ) -> Self {
         Self::new(
             can_block,
+            module_loading_policy,
+            host_hooks,
+            HostOutputEvents::DelegateOnly,
+        )
+    }
+
+    fn observed(
+        can_block: bool,
+        module_loading_policy: ModuleLoadingPolicy,
+        host_hooks: Arc<dyn HostHooks>,
+    ) -> Self {
+        Self::new(
+            can_block,
+            module_loading_policy,
             host_hooks,
             HostOutputEvents::Capture(Mutex::new(Vec::new())),
         )
@@ -135,6 +152,7 @@ impl HostRealmScope {
 
     fn new(
         can_block: bool,
+        module_loading_policy: ModuleLoadingPolicy,
         host_hooks: Arc<dyn HostHooks>,
         output_events: HostOutputEvents,
     ) -> Self {
@@ -142,6 +160,7 @@ impl HostRealmScope {
         let (reports_tx, reports_rx) = mpsc::channel();
         let host_session = Arc::new(HostSession {
             can_block,
+            module_loading_policy,
             started_at: StdInstant::now(),
             host_hooks,
             output_events,
@@ -319,6 +338,27 @@ fn with_agent_state<R>(action: impl FnOnce(&AgentThreadState) -> R) -> Option<R>
     CURRENT_AGENT_STATE.with(|state| state.borrow().as_ref().map(action))
 }
 
+/// Builds every Script-capable context under the session's closed loader
+/// policy. Boa otherwise defaults to a `SimpleModuleLoader` rooted at the
+/// process working directory, which would let dynamic source escape a replay's
+/// serialized inputs.
+fn build_host_context(
+    can_block: bool,
+    module_loading_policy: ModuleLoadingPolicy,
+) -> JsResult<Context> {
+    match module_loading_policy {
+        ModuleLoadingPolicy::Filesystem => Context::builder()
+            .job_executor(Rc::new(SimpleJobExecutor::new()))
+            .can_block(can_block)
+            .build(),
+        ModuleLoadingPolicy::RejectAll => Context::builder()
+            .job_executor(Rc::new(SimpleJobExecutor::new()))
+            .module_loader(Rc::new(IdleModuleLoader))
+            .can_block(can_block)
+            .build(),
+    }
+}
+
 fn run_agent_thread(
     session: Arc<HostSession>,
     source: String,
@@ -337,11 +377,7 @@ fn run_agent_thread(
         });
     });
 
-    let mut context = match Context::builder()
-        .job_executor(Rc::new(SimpleJobExecutor::new()))
-        .can_block(true)
-        .build()
-    {
+    let mut context = match build_host_context(true, session.module_loading_policy) {
         Ok(context) => context,
         Err(err) => {
             let _ = ready_tx.send(Err(err.to_string()));
@@ -483,11 +519,30 @@ pub fn execute_script(
     argv: &[String],
     can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms = HostRealmScope::legacy(can_block, Arc::new(StdoutHostHooks));
-    let mut context = Context::builder()
-        .job_executor(Rc::new(SimpleJobExecutor::new()))
-        .can_block(can_block)
-        .build()
+    execute_script_with_module_loading_policy(
+        source,
+        filename,
+        ModuleLoadingPolicy::Filesystem,
+        argv,
+        can_block,
+    )
+}
+
+/// Executes a Script under an explicit module-loader capability.
+///
+/// `RejectAll` applies to the root and every context the host session creates,
+/// so dynamic source cannot fall back to Boa's ambient current-directory
+/// loader.
+pub fn execute_script_with_module_loading_policy(
+    source: &str,
+    filename: Option<&str>,
+    module_loading_policy: ModuleLoadingPolicy,
+    argv: &[String],
+    can_block: bool,
+) -> Result<ExecutionOutcome, ExecutionError> {
+    let _host_realms =
+        HostRealmScope::legacy(can_block, module_loading_policy, Arc::new(StdoutHostHooks));
+    let mut context = build_host_context(can_block, module_loading_policy)
         .map_err(|err| ExecutionError::new(err.to_string()))?;
     install_host_globals(&mut context, argv)?;
     context
@@ -509,11 +564,27 @@ pub fn observe_script(
     can_block: bool,
     host_hooks: Arc<dyn HostHooks>,
 ) -> Result<ObservedExecutionOutcome, ExecutionError> {
-    let host_realms = HostRealmScope::observed(can_block, host_hooks);
-    let mut context = Context::builder()
-        .job_executor(Rc::new(SimpleJobExecutor::new()))
-        .can_block(can_block)
-        .build()
+    observe_script_with_module_loading_policy(
+        source,
+        filename,
+        ModuleLoadingPolicy::Filesystem,
+        argv,
+        can_block,
+        host_hooks,
+    )
+}
+
+/// Observes a Script under an explicit module-loader capability.
+pub fn observe_script_with_module_loading_policy(
+    source: &str,
+    filename: Option<&str>,
+    module_loading_policy: ModuleLoadingPolicy,
+    argv: &[String],
+    can_block: bool,
+    host_hooks: Arc<dyn HostHooks>,
+) -> Result<ObservedExecutionOutcome, ExecutionError> {
+    let host_realms = HostRealmScope::observed(can_block, module_loading_policy, host_hooks);
+    let mut context = build_host_context(can_block, module_loading_policy)
         .map_err(|err| ExecutionError::new(err.to_string()))?;
     install_host_globals(&mut context, argv)?;
     let script = Script::parse(source_with_name(source, filename), None, &mut context)
@@ -557,7 +628,16 @@ pub fn execute_module(
     argv: &[String],
     can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let _host_realms = HostRealmScope::legacy(can_block, Arc::new(StdoutHostHooks));
+    if host.module_loading_policy == ModuleLoadingPolicy::RejectAll {
+        return Err(ExecutionError::new(
+            "module loading disabled by host policy",
+        ));
+    }
+    let _host_realms = HostRealmScope::legacy(
+        can_block,
+        host.module_loading_policy,
+        Arc::new(StdoutHostHooks),
+    );
     let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
     let loader = Rc::new(Test262ModuleLoader::new(
         host.module_root.as_deref(),
@@ -611,7 +691,12 @@ pub fn observe_module(
     can_block: bool,
     host_hooks: Arc<dyn HostHooks>,
 ) -> Result<ObservedExecutionOutcome, ExecutionError> {
-    let host_realms = HostRealmScope::observed(can_block, host_hooks);
+    if host.module_loading_policy == ModuleLoadingPolicy::RejectAll {
+        return Err(ExecutionError::new(
+            "module loading disabled by host policy",
+        ));
+    }
+    let host_realms = HostRealmScope::observed(can_block, host.module_loading_policy, host_hooks);
     let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
     let loader = Rc::new(Test262ModuleLoader::new(
         host.module_root.as_deref(),
@@ -2619,17 +2704,8 @@ fn host_eval_script(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
 }
 
 fn create_host_realm() -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
-    let can_block = CURRENT_HOST_SESSION.with(|session| {
-        session
-            .borrow()
-            .as_ref()
-            .map(|session| session.can_block)
-            .unwrap_or(false)
-    });
-    let mut context = Context::builder()
-        .job_executor(Rc::new(SimpleJobExecutor::new()))
-        .can_block(can_block)
-        .build()?;
+    let session = current_host_session()?;
+    let mut context = build_host_context(session.can_block, session.module_loading_policy)?;
     install_host_globals(&mut context, &[])
         .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
     let global = context.global_object();
@@ -3113,6 +3189,16 @@ mod tests {
             &[],
         )
         .expect("typed array sort should tolerate compare-time detachment");
+    }
+
+    #[test]
+    fn create_realm_requires_an_active_host_session() {
+        let Err(error) = create_host_realm() else {
+            panic!("a realm without a host session must not regain default authority");
+        };
+        assert!(error
+            .to_string()
+            .contains("host session is not initialized"));
     }
 
     #[test]
@@ -4235,6 +4321,7 @@ mod tests {
             ModuleHostConfig {
                 module_root: Some(root.clone()),
                 test_path: Some(test_path),
+                module_loading_policy: ModuleLoadingPolicy::Filesystem,
             },
             &[],
         )

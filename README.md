@@ -187,8 +187,9 @@ module state is never shared between executions.
 Compiled-code storage is Lila-owned and capped at 2 GiB total: 1 GiB for
 Cranelift function stencils and a 1 GiB whole-program budget split evenly
 between emitted program Wasm and Wasmtime native modules. Each tier prunes to
-70% after crossing its limit. Program entries are keyed by source, parse goal,
-compiler options, architecture, and a build-time SHA-256 of the compiler inputs;
+70% after crossing its limit. Program entries are keyed by a versioned,
+presence/length-framed tuple of source, parse goal, compiler options and
+architecture, plus a build-time SHA-256 of the compiler inputs;
 Cranelift supplies its stencil/version/target/flags key for function entries.
 Writes are atomic and corrupt program/native entries are treated as misses.
 Test262 agent roots and the complete `agent prelude + worker source` use the
@@ -267,7 +268,15 @@ primitive completion plus the exact ordered root `PrintLine` transcript. It has
 a distinct green verdict; unavailable output, Symbol, Object and backend
 failures remain red, while mismatches receive a length-delimited stable
 signature. Every match still reports semantic equivalence as `not_established`.
-See the
+All three schemas are dependency-sealed: Module goals and actual or
+conservatively possible outer Script dynamic imports are rejected because the
+wire carries no graph. Replay fixes AOT root and agent-worker graph discovery,
+plus spec-exec root, created-realm and agent contexts, to a mandatory reject-all
+loader. Imports executed through spec-exec dynamic source reject without
+ambient IO; AOT dynamic-source compilation remains unsupported. Existing valid
+Script bytes and fingerprints are unchanged. See the
+[source-closure contract](docs/rust-rewrite/contracts/differential-source-closure.md)
+and
 [schema-v3 observation contract](docs/rust-rewrite/contracts/differential-primitive-print-transcript.md).
 
 The same builds also expose a deterministic bounded campaign:

@@ -127,6 +127,39 @@ pub trait HostModuleLoader: Send + Sync {
     }
 }
 
+/// A host loader that proves an execution cannot consult module state.
+///
+/// Differential protocols without an embedded graph use this rather than a
+/// filesystem loader. Both operations fail before path normalization or IO.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RejectAllModuleLoader;
+
+impl HostModuleLoader for RejectAllModuleLoader {
+    fn resolve(
+        &self,
+        referrer: Option<&ModuleKey>,
+        request: &ModuleRequestKeyIr,
+    ) -> Result<ModuleKey, ModuleLoadError> {
+        Err(ModuleLoadError::Denied {
+            specifier: request.specifier().to_string(),
+            reason: match referrer {
+                Some(referrer) => format!(
+                    "module loading disabled by host policy for referrer {}",
+                    referrer.as_str()
+                ),
+                None => "module loading disabled by host policy".to_string(),
+            },
+        })
+    }
+
+    fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError> {
+        Err(ModuleLoadError::Denied {
+            specifier: key.as_str().to_string(),
+            reason: "module loading disabled by host policy".to_string(),
+        })
+    }
+}
+
 /// The entry point of a module graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleEntry {
@@ -474,6 +507,21 @@ mod tests {
             key: path.to_string_lossy().into_owned(),
             source_override: None,
         }
+    }
+
+    #[test]
+    fn reject_all_loader_never_resolves_or_loads() {
+        let loader = RejectAllModuleLoader;
+        let referrer = ModuleKey::from_host("entry.js");
+        let request = ModuleRequestKeyIr::plain("./ambient.js");
+        assert!(matches!(
+            loader.resolve(Some(&referrer), &request),
+            Err(ModuleLoadError::Denied { .. })
+        ));
+        assert!(matches!(
+            loader.load(&ModuleKey::from_host("ambient.js")),
+            Err(ModuleLoadError::Denied { .. })
+        ));
     }
 
     #[test]

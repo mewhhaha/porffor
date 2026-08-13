@@ -116,15 +116,16 @@ pub use lowering::{
 };
 pub(crate) use lowering_helpers::*;
 pub use modules::{
-    evaluation_components, parse_module_record, scan_module_requests, scan_script_module_requests,
-    source_writes_dynamic_import, DuplicateImportAttributeKeyIr, DynamicComponentIr,
-    DynamicImportAttributesIr, DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr,
-    ImportPhaseIr, IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
+    classify_outer_script_module_dependency, evaluation_components, parse_module_record,
+    scan_module_requests, scan_script_module_requests, source_writes_dynamic_import,
+    DuplicateImportAttributeKeyIr, DynamicComponentIr, DynamicImportAttributesIr,
+    DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr, ImportPhaseIr,
+    IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
     ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr, ModuleGraphIr,
     ModuleGraphSources, ModuleKey, ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr,
     ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,
-    ModuleUnitIr, ResolvedBindingIr, SourceTextModuleRecordIr, StarExportEntryIr,
-    ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
+    ModuleUnitIr, OuterScriptModuleDependency, ResolvedBindingIr, SourceTextModuleRecordIr,
+    StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use operations::{
     completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,

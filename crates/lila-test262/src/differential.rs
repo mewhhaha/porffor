@@ -7,7 +7,10 @@
 //! and value while rejecting Symbol, Object and output as outside its bounded
 //! contract. Schema v3 compares that same primitive completion together with
 //! the captured ordered `PrintLine` transcript. No protocol promotes its
-//! declared match to whole-program semantic equivalence.
+//! declared match to whole-program semantic equivalence. All three schemas
+//! admit only dependency-sealed Scripts until a future protocol embeds a
+//! module graph: outer requests are rejected and runtime-created requests meet
+//! a reject-all loader.
 
 use std::fmt;
 use std::fs;
@@ -16,13 +19,14 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "spec-exec-oracle")]
 use std::sync::{Arc, Mutex};
 
-use lila_engine::{CompileOptions, ObservedCompletion, ObservedJsValue};
+use lila_engine::{CompileOptions, ModuleLoadingPolicy, ObservedCompletion, ObservedJsValue};
 #[cfg(feature = "spec-exec-oracle")]
 use lila_engine::{
     Engine, EngineError, ExecutionBackend, HostOutputEvent, RealmBuilder, RunOptions,
 };
 #[cfg(feature = "spec-exec-oracle")]
 use lila_ir::IrDiagnosticPhase;
+use lila_ir::{classify_outer_script_module_dependency, OuterScriptModuleDependency};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -196,18 +200,64 @@ enum OutputComparisonPolicy {
     CompareCapturedPrintTranscript,
 }
 
+/// The complete program admitted by the current corpus protocols.
+///
+/// Goal and source are coupled so an in-memory case cannot acquire a module
+/// loader dependency after the constructor has established outer-source
+/// closure and replay has fixed reject-all loading.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DifferentialProgram {
+    DependencySealedScript(String),
+}
+
+impl DifferentialProgram {
+    fn new(goal: DifferentialGoal, source: String) -> Result<Self, DifferentialError> {
+        match goal {
+            DifferentialGoal::Module => Err(DifferentialError::InvalidCorpus(
+                "differential corpus schemas v1-v3 admit only dependency-sealed Scripts; Module replay requires an embedded module graph"
+                    .to_string(),
+            )),
+            DifferentialGoal::Script => match classify_outer_script_module_dependency(&source) {
+                OuterScriptModuleDependency::None => Ok(Self::DependencySealedScript(source)),
+                OuterScriptModuleDependency::RequiresModuleGraph => {
+                    Err(DifferentialError::InvalidCorpus(
+                        "differential corpus schemas v1-v3 admit only dependency-sealed Scripts; outer dynamic import requires an embedded module graph"
+                            .to_string(),
+                    ))
+                }
+                OuterScriptModuleDependency::Indeterminate => Err(DifferentialError::InvalidCorpus(
+                    "differential corpus schemas v1-v3 require outer Script source closure to be provable"
+                        .to_string(),
+                )),
+            },
+        }
+    }
+
+    const fn goal(&self) -> DifferentialGoal {
+        match self {
+            Self::DependencySealedScript(_) => DifferentialGoal::Script,
+        }
+    }
+
+    fn source(&self) -> &str {
+        match self {
+            Self::DependencySealedScript(source) => source,
+        }
+    }
+}
+
 /// One deterministic input to differential replay.
 ///
 /// Fields are private so callers cannot manufacture an unsupported schema
-/// version, zero timeout, unstable filename, or malformed case key.
+/// version, ambient module dependency, zero timeout, unstable filename, or
+/// malformed case key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DifferentialCase {
     protocol: DifferentialProtocol,
     id: DifferentialCaseId,
-    goal: DifferentialGoal,
+    program: DifferentialProgram,
     filename: String,
     timeout_ms: NonZeroU64,
-    source: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -256,13 +306,15 @@ impl DifferentialCase {
                 "source must not be empty".to_string(),
             ));
         }
+        let protocol = protocol.into();
+        let id = DifferentialCaseId::new(id)?;
+        let program = DifferentialProgram::new(goal, source)?;
         Ok(Self {
-            protocol: protocol.into(),
-            id: DifferentialCaseId::new(id)?,
-            goal,
+            protocol,
+            id,
+            program,
             filename,
             timeout_ms,
-            source,
         })
     }
 
@@ -298,7 +350,7 @@ impl DifferentialCase {
     }
 
     pub const fn goal(&self) -> DifferentialGoal {
-        self.goal
+        self.program.goal()
     }
 
     pub const fn protocol(&self) -> DifferentialProtocol {
@@ -318,7 +370,7 @@ impl DifferentialCase {
     }
 
     pub fn source(&self) -> &str {
-        &self.source
+        self.program.source()
     }
 
     pub fn to_pretty_json(&self) -> Result<String, DifferentialError> {
@@ -337,14 +389,14 @@ impl Serialize for DifferentialCase {
         let mut case = serializer.serialize_struct("DifferentialCase", 7)?;
         case.serialize_field("schema_version", &self.protocol.schema_version())?;
         case.serialize_field("id", &self.id)?;
-        case.serialize_field("goal", &self.goal)?;
+        case.serialize_field("goal", &self.goal())?;
         case.serialize_field(
             "observation_contract",
             &self.protocol.observation_contract(),
         )?;
         case.serialize_field("filename", &self.filename)?;
         case.serialize_field("timeout_ms", &self.timeout_ms)?;
-        case.serialize_field("source", &self.source)?;
+        case.serialize_field("source", self.source())?;
         case.end()
     }
 }
@@ -993,9 +1045,10 @@ fn execute_case(case: &DifferentialCase, backend: DifferentialBackend) -> Backen
         },
         ..RunOptions::default()
     };
-    let outcome = match case.goal {
-        DifferentialGoal::Script => engine.observe_script(&case.source, compile, run),
-        DifferentialGoal::Module => engine.observe_module(&case.source, compile, run),
+    let outcome = match &case.program {
+        DifferentialProgram::DependencySealedScript(source) => {
+            engine.observe_script(source, compile, run)
+        }
     };
     let (result, output_events) = match outcome {
         Ok(outcome) if outcome.backend_used == backend.execution_backend() => {
@@ -1070,6 +1123,7 @@ const fn execution_failure_phase(backend: DifferentialBackend) -> FailurePhase {
 fn compile_options_for_case(case: &DifferentialCase) -> CompileOptions {
     CompileOptions {
         filename: Some(case.filename.clone()),
+        module_loading_policy: ModuleLoadingPolicy::RejectAll,
         ..CompileOptions::default()
     }
 }
@@ -1136,7 +1190,7 @@ fn compare_executions(
                 "lila-diff-v1:self-check-disposition:{}:{}:{}:wasm-aot={}:spec-exec={}",
                 case.id.as_str(),
                 case_fingerprint.as_str(),
-                case.goal.as_str(),
+                case.goal().as_str(),
                 wasm_disposition.as_str(),
                 spec_disposition.as_str(),
             )),
@@ -1144,7 +1198,7 @@ fn compare_executions(
                 "lila-diff-v2:primitive-completion:{}:{}:{}:wasm-aot={}:spec-exec={}",
                 case.id.as_str(),
                 case_fingerprint.as_str(),
-                case.goal.as_str(),
+                case.goal().as_str(),
                 v2_execution_signature(&wasm_aot.execution),
                 v2_execution_signature(&spec_exec.execution),
             )),
@@ -1439,7 +1493,7 @@ fn v3_mismatch_signature(
     for field in [
         case.id.as_str(),
         case_fingerprint.as_str(),
-        case.goal.as_str(),
+        case.goal().as_str(),
         DifferentialBackend::WasmAot.as_str(),
         wasm_signature.as_str(),
         DifferentialBackend::SpecExec.as_str(),
@@ -1550,11 +1604,11 @@ fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
         DifferentialProtocol::V3PrimitiveCompletionPrintTranscript => b"lila-differential-case-v3",
     };
     let mut hash = fnv_update(FNV_OFFSET_BASIS, domain);
-    hash = fnv_field(hash, case.goal.as_str().as_bytes());
+    hash = fnv_field(hash, case.goal().as_str().as_bytes());
     hash = fnv_field(hash, case.observation_contract().as_str().as_bytes());
     hash = fnv_field(hash, case.filename.as_bytes());
     hash = fnv_field(hash, &case.timeout_ms.get().to_le_bytes());
-    hash = fnv_field(hash, case.source.as_bytes());
+    hash = fnv_field(hash, case.source().as_bytes());
     CaseFingerprint(format!("fnv1a64:{hash:016x}"))
 }
 
@@ -1581,6 +1635,113 @@ mod tests {
 
     fn case_v3() -> DifferentialCase {
         DifferentialCase::from_json(FOUNDATION_CASE_V3).expect("v3 foundation case should decode")
+    }
+
+    fn foundation_cases() -> [&'static str; 3] {
+        [FOUNDATION_CASE_V1, FOUNDATION_CASE_V2, FOUNDATION_CASE_V3]
+    }
+
+    fn foundation_case_with_program(foundation: &str, goal: &str, source: &str) -> String {
+        let mut case: serde_json::Value =
+            serde_json::from_str(foundation).expect("foundation case should be JSON");
+        case["goal"] = serde_json::Value::String(goal.to_string());
+        case["source"] = serde_json::Value::String(source.to_string());
+        serde_json::to_string(&case).expect("modified foundation case should encode")
+    }
+
+    fn runtime_created_import_sources(specifier: &str) -> Vec<(&'static str, String)> {
+        let specifier =
+            serde_json::to_string(specifier).expect("module specifier should encode as JSON");
+        let import = format!(
+            "import({specifier}).then(() => print('ambient-loaded'), () => print('module-rejected'))"
+        );
+        let import_source =
+            serde_json::to_string(&import).expect("dynamic import source should encode as JSON");
+        let function_body = serde_json::to_string(&format!("return {import}"))
+            .expect("Function body should encode as JSON");
+        let agent_import = format!(
+            "import({specifier}).then(() => {{ print('ambient-loaded'); $262.agent.leaving(); }}, () => {{ print('module-rejected'); $262.agent.leaving(); }});"
+        );
+        let agent_import = serde_json::to_string(&agent_import)
+            .expect("agent import source should encode as JSON");
+        vec![
+            ("direct-eval", format!("eval({import_source});")),
+            ("indirect-eval", format!("(0, eval)({import_source});")),
+            (
+                "function-constructor",
+                format!("Function({function_body})();"),
+            ),
+            (
+                "created-realm",
+                format!("$262.createRealm().evalScript({import_source});"),
+            ),
+            ("agent", format!("$262.agent.start({agent_import});")),
+        ]
+    }
+
+    fn module_loader_context_sources(specifier: &str) -> Vec<(&'static str, String)> {
+        let mut runtime_sources = runtime_created_import_sources(specifier);
+        let encoded_specifier =
+            serde_json::to_string(specifier).expect("module specifier should encode as JSON");
+        let mut sources = vec![(
+            "root",
+            format!(
+                "import({encoded_specifier}).then(() => print('ambient-loaded'), () => print('module-rejected'));"
+            ),
+        )];
+        sources.append(&mut runtime_sources);
+        sources
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    fn observe_spec_exec_script_with_module_policy(
+        source: &str,
+        filename: &str,
+        module_loading_policy: ModuleLoadingPolicy,
+    ) -> BackendExecution {
+        let engine = Engine::new(RealmBuilder::new().build());
+        let outcome = engine.observe_script(
+            source,
+            CompileOptions {
+                filename: Some(filename.to_string()),
+                module_loading_policy,
+                ..CompileOptions::default()
+            },
+            RunOptions {
+                backend: ExecutionBackend::SpecExec,
+                test_path: Some(filename.to_string()),
+                can_block: false,
+                ..RunOptions::default()
+            },
+        );
+        let (result, output_events) = match outcome {
+            Ok(outcome) if outcome.backend_used == ExecutionBackend::SpecExec => (
+                BackendExecutionResult::Completion {
+                    completion: outcome.completion,
+                    backend_note: outcome.note,
+                },
+                captured_output_events(outcome.output_events),
+            ),
+            Ok(outcome) => (
+                BackendExecutionResult::EngineFailure {
+                    phase: FailurePhase::RunnerInvariant,
+                    message: format!(
+                        "requested backend spec-exec reported backend {}",
+                        outcome.backend_used.as_str()
+                    ),
+                },
+                captured_output_events(outcome.output_events),
+            ),
+            Err(error) => (
+                observe_engine_error(DifferentialBackend::SpecExec, &error),
+                OutputEventsObservation::Captured { events: Vec::new() },
+            ),
+        };
+        BackendExecution {
+            backend: DifferentialBackend::SpecExec,
+            output_events,
+            result,
+        }
     }
 
     fn execution(backend: DifferentialBackend, result: BackendExecutionResult) -> BackendExecution {
@@ -1685,11 +1846,83 @@ mod tests {
     }
 
     #[test]
+    fn every_protocol_rejects_module_goal_without_an_embedded_graph() {
+        for foundation in foundation_cases() {
+            let module =
+                foundation_case_with_program(foundation, "module", "print(import.meta.url);");
+            assert_eq!(
+                DifferentialCase::from_json(&module)
+                    .expect_err("a module case without its graph must fail")
+                    .to_string(),
+                "differential corpus schemas v1-v3 admit only dependency-sealed Scripts; Module replay requires an embedded module graph"
+            );
+        }
+    }
+
+    #[test]
+    fn every_protocol_rejects_script_dynamic_import_without_an_embedded_graph() {
+        for foundation in foundation_cases() {
+            let dynamic_import =
+                foundation_case_with_program(foundation, "script", "import('./ambient.mjs');");
+            assert_eq!(
+                DifferentialCase::from_json(&dynamic_import)
+                    .expect_err("a dynamic import case without its graph must fail")
+                    .to_string(),
+                "differential corpus schemas v1-v3 admit only dependency-sealed Scripts; outer dynamic import requires an embedded module graph"
+            );
+        }
+    }
+
+    #[test]
+    fn every_protocol_rejects_script_source_whose_closure_is_indeterminate() {
+        for foundation in foundation_cases() {
+            let possible_import = foundation_case_with_program(foundation, "script", "import(");
+            assert_eq!(
+                DifferentialCase::from_json(&possible_import)
+                    .expect_err("an unparseable possible import must fail conservatively")
+                    .to_string(),
+                "differential corpus schemas v1-v3 require outer Script source closure to be provable"
+            );
+        }
+    }
+
+    #[test]
+    fn every_protocol_accepts_a_script_method_named_import() {
+        let source = "const object = { import(value) { return value; } }; object.import(1);";
+        for foundation in foundation_cases() {
+            let method = foundation_case_with_program(foundation, "script", source);
+            let case = DifferentialCase::from_json(&method)
+                .expect("a method named import is not a module dependency");
+            assert_eq!(case.goal(), DifferentialGoal::Script);
+            assert_eq!(case.source(), source);
+        }
+    }
+
+    #[test]
+    fn every_protocol_seals_imports_created_by_dynamic_source() {
+        for foundation in foundation_cases() {
+            for (kind, source) in runtime_created_import_sources("ambient-dependency.mjs") {
+                let dynamic_source = foundation_case_with_program(foundation, "script", &source);
+                let case = DifferentialCase::from_json(&dynamic_source).unwrap_or_else(|error| {
+                    panic!("{kind} outer Script should be admitted: {error}")
+                });
+                assert_eq!(
+                    compile_options_for_case(&case).module_loading_policy,
+                    ModuleLoadingPolicy::RejectAll,
+                    "{kind} must not recover the ambient filesystem loader"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_protocol_replays_with_the_product_host_surface() {
         for case in [case_v1(), case_v2(), case_v3()] {
+            let options = compile_options_for_case(&case);
+            assert_eq!(options.host_surface_policy, HostSurfacePolicy::Product);
             assert_eq!(
-                compile_options_for_case(&case).host_surface_policy,
-                HostSurfacePolicy::Product
+                options.module_loading_policy,
+                ModuleLoadingPolicy::RejectAll
             );
         }
     }
@@ -2423,6 +2656,113 @@ mod tests {
         let error = replay_case(&case_v1(), SpecExecOracle::explicitly_enabled())
             .expect_err("default build must not link spec-exec");
         assert!(matches!(error, DifferentialError::OracleNotLinked));
+    }
+
+    #[cfg(feature = "spec-exec-oracle")]
+    #[test]
+    fn filesystem_control_and_reject_all_cover_every_spec_exec_host_context() {
+        let directory = std::env::current_dir()
+            .expect("workspace directory should exist")
+            .join("target")
+            .join(format!(
+                "lila-differential-module-policy-{}",
+                std::process::id()
+            ));
+        let ambient_path = directory.join("ambient.mjs");
+        let entry_path = directory.join("entry.js");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("ambient witness directory should exist");
+        std::fs::write(
+            &ambient_path,
+            "print('ambient-module-body'); export const value = 1;\n",
+        )
+        .expect("ambient witness module should exist");
+        let ambient_path = ambient_path.to_string_lossy().into_owned();
+        let entry_path = entry_path.to_string_lossy().into_owned();
+        let contexts = module_loader_context_sources(&ambient_path);
+        assert_eq!(
+            CompileOptions::default().module_loading_policy,
+            ModuleLoadingPolicy::Filesystem,
+            "ordinary engine callers must retain filesystem loading by default"
+        );
+
+        for (kind, source) in &contexts {
+            let execution = observe_spec_exec_script_with_module_policy(
+                source,
+                &entry_path,
+                ModuleLoadingPolicy::Filesystem,
+            );
+            assert!(
+                matches!(&execution.result, BackendExecutionResult::Completion { .. }),
+                "Filesystem {kind} control should complete: {execution:?}"
+            );
+            assert_eq!(
+                &execution.output_events,
+                &OutputEventsObservation::Captured {
+                    events: vec![
+                        "ambient-module-body".to_string(),
+                        "ambient-loaded".to_string(),
+                    ]
+                },
+                "Filesystem {kind} control did not execute the exact on-disk module: {execution:?}"
+            );
+        }
+
+        let (root, runtime_contexts) = contexts
+            .split_first()
+            .expect("the root module-loader context should exist");
+        let (root_kind, root_source) = root;
+        let root_rejection = observe_spec_exec_script_with_module_policy(
+            root_source,
+            &entry_path,
+            ModuleLoadingPolicy::RejectAll,
+        );
+        assert!(
+            matches!(
+                &root_rejection.result,
+                BackendExecutionResult::Completion { .. }
+            ),
+            "RejectAll {root_kind} import should settle through rejection: {root_rejection:?}"
+        );
+        assert_eq!(
+            &root_rejection.output_events,
+            &OutputEventsObservation::Captured {
+                events: vec!["module-rejected".to_string()]
+            },
+            "RejectAll {root_kind} import consulted the ambient module: {root_rejection:?}"
+        );
+
+        for protocol in [
+            DifferentialProtocol::V1SelfCheckingNoOutput,
+            DifferentialProtocol::V2PrimitiveCompletionNoOutput,
+            DifferentialProtocol::V3PrimitiveCompletionPrintTranscript,
+        ] {
+            for (kind, source) in runtime_contexts {
+                let case = DifferentialCase::new(
+                    "t25/source-closure/runtime-created-import",
+                    DifferentialGoal::Script,
+                    protocol,
+                    entry_path.clone(),
+                    5_000,
+                    source.clone(),
+                )
+                .unwrap_or_else(|error| panic!("{kind} case should be admitted: {error}"));
+                let execution = execute_case(&case, DifferentialBackend::SpecExec);
+                assert!(
+                    matches!(&execution.result, BackendExecutionResult::Completion { .. }),
+                    "{protocol:?} {kind} should handle the rejected import promise: {execution:?}"
+                );
+                assert_eq!(
+                    &execution.output_events,
+                    &OutputEventsObservation::Captured {
+                        events: vec!["module-rejected".to_string()]
+                    },
+                    "{protocol:?} {kind} consulted the ambient module instead of rejecting it: {execution:?}"
+                );
+            }
+        }
+
+        std::fs::remove_dir_all(&directory).expect("ambient witness directory should be removed");
     }
 
     #[cfg(feature = "spec-exec-oracle")]

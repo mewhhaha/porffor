@@ -37,6 +37,15 @@ comparison, fingerprinting and the schema-v1 arithmetic campaign.
 Schemas v1 and v2 keep their existing JSON field order, bytes, fingerprints,
 mismatch signatures, verdicts and fixtures. Schema v3 is strictly additive.
 
+All three schemas currently admit only Scripts with an outer source closed over
+module requests. Module goals and actual or conservatively possible outer
+Script dynamic imports are rejected because the wire carries no dependency
+graph. Imports synthesized by eval or Function construction in spec-exec meet
+the mandatory reject-all loader rather than ambient files; Wasm-AOT retains its
+dynamic-source diagnostic. The independent admission/runtime invariant and
+future graph requirements are normative in
+[`differential-source-closure.md`](differential-source-closure.md).
+
 ## Primitive completion observation
 
 V3 reuses v2's primitive domain and canonicalization:
@@ -122,4 +131,6 @@ Wasm-AOT and spec-exec.
 This slice does not change either engine, runtime output capture, the product
 host surface, v1 generation/reduction, Test262, snapshots, fuzzing, object or
 Symbol comparison, external-engine support, panic isolation, performance
-budgets or CI scheduling.
+budgets or CI scheduling. It does not provide module replay; current corpus
+protocols reject outer module requests and deterministically reject requests
+created at runtime until an embedded-graph protocol exists.

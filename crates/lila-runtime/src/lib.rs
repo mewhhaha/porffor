@@ -5,6 +5,22 @@ use std::sync::{
 
 static NEXT_REALM_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Which host module-loading capability one compilation/execution may use.
+///
+/// This is shared by the AOT host and the spec-exec oracle so a caller cannot
+/// request a closed replay from one backend while leaving the other on an
+/// ambient filesystem default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModuleLoadingPolicy {
+    /// Resolve and load modules through the backend's configured filesystem
+    /// host loader.
+    #[default]
+    Filesystem,
+    /// Reject every module resolution/load request without reading the host
+    /// filesystem.
+    RejectAll,
+}
+
 macro_rules! agent_host_operations {
     ($($variant:ident = $wire:literal;)+) => {
         /// The closed operation domain carried by the Wasm `agent_call` host import.
