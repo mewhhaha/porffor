@@ -32,9 +32,18 @@ internal numeric/string composite consumes that token in its exact guarded
 continuation; the runtime-helper generator reaches only a dedicated wrapper
 that emits all four ABI result slots. `unused_must_use` is denied in the module,
 so a new internal raw call that omits its continuation fails to build. Array
-element stringification selects active-handler routing before
-primitive-to-string conversion, so an abrupt user coercion cannot be consumed
-as an ordinary primitive payload.
+element stringification selects active-handler routing before coercion.
+
+Primitive ToString now has the same closed ownership rule. Its sole emitter
+requires a `PrimitiveToStringAbruptRoute`: active handler, current-function
+return, or iterator-close-and-return with a complete local witness. The former
+raw `_to_local_without_throw_return` copy is gone. Every consumer names its
+policy, and adding a policy requires an exhaustive match update. This fixes the
+shared `SpecOperationIr::ToString`, `String(object)` and array-element paths:
+when an object's coercion hook returns a Symbol, the resulting TypeError now
+reaches an enclosing catch just like a value thrown by the hook, instead of
+unconditionally returning the whole function. Object.fromEntries and
+Object.groupBy retain their iterator-close-before-return discipline.
 
 This migration also fixes the Temporal month-code coercion path: a user value
 thrown by `toString` now escapes unchanged instead of being overwritten by the

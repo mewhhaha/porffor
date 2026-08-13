@@ -15,6 +15,37 @@
 
 use crate::*;
 
+/// Primitive ToString has one abrupt case: a Symbol input. Each of these
+/// expressions first reaches a different value/object conversion path, but the
+/// resulting TypeError belongs to the same active-handler route. A hard return
+/// in any primitive-string helper skips the catch and prevents the final
+/// `"ok"` completion.
+#[test]
+fn run_wasm_backend_routes_primitive_to_string_throws_to_the_active_handler() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_primitive_to_string_abrupt_routes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("backend_used: WasmAot"),
+        "the fixture must actually run on the Wasm-AOT backend: {stdout}"
+    );
+    assert!(
+        stdout.contains("string(ok)"),
+        "all three primitive ToString throws must reach their enclosing catches: {stdout}"
+    );
+}
+
 /// The loop case: the throw must reach the `catch`, not the loop's back edge.
 ///
 /// The `iteration` count is the assertion that matters. Before the label-depth

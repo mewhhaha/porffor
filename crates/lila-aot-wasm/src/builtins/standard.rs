@@ -15,6 +15,7 @@ use super::symbol::SymbolBuiltin as SymbolFn;
 use super::temporal::ZonedDateTimeField;
 use super::uri::UriBuiltin;
 use crate::functions::FunctionRealmRevokedRoute;
+use crate::operations::PrimitiveToStringAbruptRoute;
 use lila_ir::NativeErrorKind;
 use lila_runtime::AgentHostOperation;
 
@@ -30997,6 +30998,7 @@ impl<'a> FunctionBuilder<'a> {
                         self.emit_primitive_to_string_payload(
                             string_arg_primitive_payload_local,
                             string_arg_primitive_tag_local,
+                            PrimitiveToStringAbruptRoute::ActiveHandler,
                             function,
                         )?;
                         self.release_temp_local(string_arg_primitive_tag_local);

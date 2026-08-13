@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::operations::PrimitiveToStringAbruptRoute;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum JsonBuiltin {
@@ -322,6 +323,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_primitive_to_string_payload(
                     space_payload_local,
                     space_tag_local,
+                    PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(space_payload_local));
@@ -2797,7 +2799,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
-        self.emit_primitive_to_string_payload(value_payload_local, value_tag_local, function)?;
+        self.emit_primitive_to_string_payload(
+            value_payload_local,
+            value_tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
@@ -3441,7 +3448,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_primitive_to_string_payload(element_payload_local, element_tag_local, function)?;
+        self.emit_primitive_to_string_payload(
+            element_payload_local,
+            element_tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(element_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(element_tag_local));
@@ -3594,7 +3606,12 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        self.emit_primitive_to_string_payload(value_payload_local, value_tag_local, function)?;
+        self.emit_primitive_to_string_payload(
+            value_payload_local,
+            value_tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
@@ -4747,7 +4764,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_primitive_to_string_payload(key_payload_local, key_tag_local, function)?;
+        self.emit_primitive_to_string_payload(
+            key_payload_local,
+            key_tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(key_payload_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -4877,6 +4899,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_primitive_to_string_payload(
             previous_key_payload_local,
             previous_key_tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
             function,
         )?;
         function.instruction(&Instruction::LocalSet(previous_key_payload_local));

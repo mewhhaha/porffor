@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::operations::PrimitiveToStringAbruptRoute;
 use crate::runtime_helpers::{
     RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,
 };
@@ -6525,17 +6526,13 @@ impl<'a> FunctionBuilder<'a> {
             ToPrimitiveAbruptRoute::ActiveHandler,
             function,
         )?;
-        self.emit_primitive_to_string_payload_to_local_without_throw_return(
+        self.emit_primitive_to_string_payload(
             primitive_payload_local,
             primitive_tag_local,
-            pattern_payload_local,
+            PrimitiveToStringAbruptRoute::ActiveHandler,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
+        function.instruction(&Instruction::LocalSet(pattern_payload_local));
         function.instruction(&Instruction::Else);
         self.emit_value_to_string_payload(arg_payload_local, arg_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(pattern_payload_local));
@@ -18092,6 +18089,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_primitive_to_string_payload(
             primitive_payload_local,
             primitive_tag_local,
+            PrimitiveToStringAbruptRoute::ActiveHandler,
             function,
         )?;
         self.release_temp_local(primitive_tag_local);

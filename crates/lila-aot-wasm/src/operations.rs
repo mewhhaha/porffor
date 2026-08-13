@@ -62,6 +62,23 @@ pub(crate) enum ToPrimitiveAbruptRoute {
     IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
 }
 
+/// Where the Symbol throw admitted by primitive `ToString` must go.
+///
+/// The route is required by the sole primitive-string emitter. A new consumer
+/// cannot accidentally inherit a function return when it sits beneath an
+/// in-function handler, and a new routing discipline must update the
+/// exhaustive match in `finish_primitive_to_string_throw`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PrimitiveToStringAbruptRoute {
+    /// Route the freshly-created TypeError to the active handler, or return it
+    /// when no handler exists.
+    ActiveHandler,
+    /// Return the current function's completion tuple on throw.
+    ReturnCurrentFunction,
+    /// Close the named iterator while preserving the TypeError, then return.
+    IteratorCloseAndReturn(IteratorCloseOnThrowLocals),
+}
+
 /// A tagged `ToPrimitive` result whose possible throw still needs an owner.
 ///
 /// The fields are private and every exit consumes the token. The raw emission
@@ -205,7 +222,12 @@ impl PendingToPrimitiveCompletion {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::Else);
-        builder.emit_primitive_to_string_payload(payload_local, tag_local, function)?;
+        builder.emit_primitive_to_string_payload(
+            payload_local,
+            tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -346,6 +368,30 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_iterator_close_preserving_current_throw(close, function)?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                Ok(())
+            }
+        }
+    }
+
+    fn finish_primitive_to_string_throw(
+        &mut self,
+        route: PrimitiveToStringAbruptRoute,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match route {
+            PrimitiveToStringAbruptRoute::ActiveHandler => self
+                .emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                ),
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction => {
+                self.emit_return_current_completion(function);
+                Ok(())
+            }
+            PrimitiveToStringAbruptRoute::IteratorCloseAndReturn(close) => {
+                self.emit_iterator_close_preserving_current_throw(close, function)?;
+                self.emit_return_current_completion(function);
                 Ok(())
             }
         }
@@ -915,6 +961,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_primitive_to_string_payload(
                     primitive_payload_local,
                     primitive_tag_local,
+                    PrimitiveToStringAbruptRoute::ActiveHandler,
                     function,
                 )?;
                 self.release_temp_local(primitive_tag_local);
@@ -1335,6 +1382,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_primitive_to_string_payload(
                     primitive_payload_local,
                     primitive_tag_local,
+                    PrimitiveToStringAbruptRoute::ActiveHandler,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalSet(payload_local));
@@ -5184,6 +5232,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_primitive_to_string_payload(
             primitive_payload_local,
             primitive_tag_local,
+            PrimitiveToStringAbruptRoute::ActiveHandler,
             function,
         )?;
         function.instruction(&Instruction::LocalSet(payload_local));
@@ -8296,6 +8345,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         payload_local: u32,
         tag_local: u32,
+        abrupt_route: PrimitiveToStringAbruptRoute,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -8349,96 +8399,10 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.finish_primitive_to_string_throw(abrupt_route, function)?;
         function.instruction(&Instruction::I64Const(self.strings.payload("")));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(crate) fn emit_primitive_to_string_payload_to_local_without_throw_return(
-        &mut self,
-        payload_local: u32,
-        tag_local: u32,
-        output_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(output_local));
-
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("undefined")));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("null")));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("false")));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload("true")));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        self.emit_is_bigint_tag_i32(tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_bigint_value_to_string_payload(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_to_string_payload(payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Cannot convert a Symbol value to a string",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);

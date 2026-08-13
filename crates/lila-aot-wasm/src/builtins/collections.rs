@@ -1,5 +1,6 @@
 use super::super::*;
 use super::errors::NewTargetPrototypeFallback;
+use crate::operations::PrimitiveToStringAbruptRoute;
 
 macro_rules! collection_wire_domain {
     ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
@@ -1359,6 +1360,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_primitive_to_string_payload(
             primitive_key_payload_local,
             primitive_key_tag_local,
+            PrimitiveToStringAbruptRoute::IteratorCloseAndReturn(iterator_close),
             function,
         )?;
         function.instruction(&Instruction::LocalSet(property_key_local));
@@ -1870,6 +1872,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_primitive_to_string_payload(
                 primitive_key_payload_local,
                 primitive_key_tag_local,
+                PrimitiveToStringAbruptRoute::IteratorCloseAndReturn(iterator_close),
                 function,
             )?;
             function.instruction(&Instruction::LocalSet(group_key_payload_local));
