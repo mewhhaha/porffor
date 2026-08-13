@@ -33,8 +33,8 @@ This is a foundation, not the complete design:
   yet reach the program compiler;
 - the parser and program lowerer recurse on the Rust stack for nested groups;
 - legal constructs such as general lookahead, `v`-mode string properties and
-  several nullable or astral quantifier forms still return
-  `UnsupportedFeature`;
+  several nullable or astral forms outside the direct legacy term seam still
+  return `UnsupportedFeature`;
 - expanded programs are capped at 4096 instructions and range pools at 65536
   entries, but those limits are not yet one typed resource policy;
 - the matcher has checked scratch-address calculations and one closed status
@@ -51,6 +51,12 @@ The pattern parser no longer asks `regress` to classify named-group identifier
 characters. A closed start/continue domain now selects the pinned ICU
 `ID_Start` or `ID_Continue` property directly. This is the first code invariant
 landed from the architecture below.
+
+Legacy direct astral source now has its own closed parsed-term case. It stores a
+validated UTF-16 surrogate pair, emits the lead once, and applies any following
+quantifier only to the trail, as required by the non-Unicode grammar's code-unit
+atom boundary. See the focused
+[legacy direct-astral quantifier contract](contracts/regexp-legacy-direct-astral-quantifier.md).
 
 ## Decision and rejected alternatives
 

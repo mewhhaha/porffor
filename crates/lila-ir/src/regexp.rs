@@ -799,15 +799,56 @@ struct ParsedPattern {
     ranges: Vec<(u32, u32)>,
 }
 
-struct ParsedTerm {
-    atom: ParsedAtom,
-    quantifier: Quantifier,
-    quantifier_offset: usize,
+enum ParsedTerm {
+    Quantified {
+        atom: ParsedAtom,
+        quantifier: Quantifier,
+        quantifier_offset: usize,
+    },
+    LegacyUtf16Pair {
+        pair: LegacyUtf16Pair,
+        trail_quantifier: Quantifier,
+        quantifier_offset: usize,
+    },
+}
+
+mod legacy_utf16_pair {
+    use super::RegExpInstruction;
+
+    #[derive(Clone, Copy)]
+    pub(super) struct LegacyUtf16Pair {
+        lead: u32,
+        trail: u32,
+    }
+
+    impl LegacyUtf16Pair {
+        pub(super) fn from_scalar(scalar: char) -> Option<Self> {
+            let supplementary = u32::from(scalar).checked_sub(0x1_0000)?;
+            Some(Self {
+                lead: 0xD800 + (supplementary >> 10),
+                trail: 0xDC00 + (supplementary & 0x3ff),
+            })
+        }
+
+        pub(super) fn lead_instruction(self) -> RegExpInstruction {
+            RegExpInstruction::literal_code_point(self.lead)
+        }
+
+        pub(super) fn trail_instruction(self) -> RegExpInstruction {
+            RegExpInstruction::literal_code_point(self.trail)
+        }
+    }
+}
+
+use legacy_utf16_pair::LegacyUtf16Pair;
+
+enum ParsedTermAtom {
+    Ordinary(ParsedAtom),
+    LegacyUtf16Pair(LegacyUtf16Pair),
 }
 
 enum ParsedAtom {
     Instruction(RegExpInstruction),
-    InstructionSequence(Vec<RegExpInstruction>),
     Capture {
         id: u32,
         body: Vec<Vec<ParsedTerm>>,
@@ -970,11 +1011,11 @@ impl PatternParser<'_> {
             let negative = self.bytes[self.offset + 2] == b'!';
             let code_unit = self.bytes[self.offset + 3];
             self.offset += 5;
-            ParsedAtom::Instruction(if negative {
+            ParsedTermAtom::Ordinary(ParsedAtom::Instruction(if negative {
                 RegExpInstruction::negative_ascii_lookahead(code_unit)
             } else {
                 RegExpInstruction::positive_ascii_lookahead(code_unit)
-            })
+            }))
         } else if self.bytes[self.offset] == b'(' {
             if self.bytes.get(self.offset + 1) == Some(&b'?') {
                 match self.bytes.get(self.offset + 2).copied() {
@@ -982,11 +1023,11 @@ impl PatternParser<'_> {
                         self.offset += 3;
                         let subtree_start = self.capture_count + 1;
                         let body = self.alternatives(Some(atom_offset))?;
-                        ParsedAtom::NonCapture {
+                        ParsedTermAtom::Ordinary(ParsedAtom::NonCapture {
                             body,
                             subtree_start,
                             subtree_end: self.capture_count + 1,
-                        }
+                        })
                     }
                     Some(b'<') => {
                         if matches!(self.bytes.get(self.offset + 3), Some(b'=') | Some(b'!')) {
@@ -999,7 +1040,7 @@ impl PatternParser<'_> {
                                     "lookbehind body uses an unsupported matcher atom",
                                 ));
                             }
-                            ParsedAtom::Lookbehind { negative, body }
+                            ParsedTermAtom::Ordinary(ParsedAtom::Lookbehind { negative, body })
                         } else {
                             let name = self.parse_group_name()?;
                             self.capture_count =
@@ -1022,11 +1063,11 @@ impl PatternParser<'_> {
                                 body.iter()
                                     .any(|sequence| sequence.iter().all(term_nullable)),
                             );
-                            ParsedAtom::Capture {
+                            ParsedTermAtom::Ordinary(ParsedAtom::Capture {
                                 id,
                                 body,
                                 subtree_end: self.capture_count + 1,
-                            }
+                            })
                         }
                     }
                     Some(b'i' | b'm' | b's' | b'-') => {
@@ -1036,11 +1077,11 @@ impl PatternParser<'_> {
                         let subtree_start = self.capture_count + 1;
                         let body = self.alternatives(Some(atom_offset));
                         self.modifiers = outer;
-                        ParsedAtom::NonCapture {
+                        ParsedTermAtom::Ordinary(ParsedAtom::NonCapture {
                             body: body?,
                             subtree_start,
                             subtree_end: self.capture_count + 1,
-                        }
+                        })
                     }
                     _ => {
                         return Err(RegExpCompileError::unsupported_feature(
@@ -1064,11 +1105,11 @@ impl PatternParser<'_> {
                     body.iter()
                         .any(|sequence| sequence.iter().all(term_nullable)),
                 );
-                ParsedAtom::Capture {
+                ParsedTermAtom::Ordinary(ParsedAtom::Capture {
                     id,
                     body,
                     subtree_end: self.capture_count + 1,
-                }
+                })
             }
         } else {
             let atom = parse_instruction_atom(
@@ -1081,20 +1122,20 @@ impl PatternParser<'_> {
                 self.has_named_capture_syntax,
             )?;
             match atom {
-                ParsedAtom::NumberedBackreference {
+                ParsedTermAtom::Ordinary(ParsedAtom::NumberedBackreference {
                     capture_id,
                     nullable: _,
-                } => ParsedAtom::NumberedBackreference {
+                }) => ParsedTermAtom::Ordinary(ParsedAtom::NumberedBackreference {
                     capture_id,
                     nullable: self
                         .capture_nullability
                         .get(&capture_id)
                         .copied()
                         .unwrap_or(true),
-                },
-                ParsedAtom::Instruction(mut instruction) => {
+                }),
+                ParsedTermAtom::Ordinary(ParsedAtom::Instruction(mut instruction)) => {
                     apply_modifiers(&mut instruction, self.modifiers);
-                    ParsedAtom::Instruction(instruction)
+                    ParsedTermAtom::Ordinary(ParsedAtom::Instruction(instruction))
                 }
                 atom => atom,
             }
@@ -1103,13 +1144,13 @@ impl PatternParser<'_> {
         let mut quantifier = parse_postfix_quantifier(self.bytes, &mut self.offset)?;
         if matches!(
             atom,
-            ParsedAtom::Instruction(RegExpInstruction {
+            ParsedTermAtom::Ordinary(ParsedAtom::Instruction(RegExpInstruction {
                 opcode: REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD
                     | REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD
                     | REGEXP_OPCODE_ASSERT_START
                     | REGEXP_OPCODE_ASSERT_END,
                 ..
-            })
+            }))
         ) {
             quantifier = if quantifier.min == 0 {
                 Quantifier {
@@ -1125,22 +1166,25 @@ impl PatternParser<'_> {
                 }
             };
         }
-        if matches!(atom, ParsedAtom::InstructionSequence(_)) && self.offset != quantifier_offset {
-            return Err(RegExpCompileError::unsupported_feature(
-                quantifier_offset,
-                "postfix quantifiers on direct astral source are unsupported in non-Unicode mode",
-            ));
-        }
-        if quantifier.max.is_none() && atom_nullable(&atom) {
+        if quantifier.max.is_none()
+            && matches!(&atom, ParsedTermAtom::Ordinary(atom) if atom_nullable(atom))
+        {
             return Err(RegExpCompileError::unsupported_feature(
                 quantifier_offset,
                 "unbounded quantifier over a nullable atom is unsupported by this matcher-program grammar",
             ));
         }
-        Ok(ParsedTerm {
-            atom,
-            quantifier,
-            quantifier_offset,
+        Ok(match atom {
+            ParsedTermAtom::Ordinary(atom) => ParsedTerm::Quantified {
+                atom,
+                quantifier,
+                quantifier_offset,
+            },
+            ParsedTermAtom::LegacyUtf16Pair(pair) => ParsedTerm::LegacyUtf16Pair {
+                pair,
+                trail_quantifier: quantifier,
+                quantifier_offset,
+            },
         })
     }
 
@@ -1272,15 +1316,15 @@ fn parse_instruction_atom(
     pool: &mut RegExpRangePool,
     total_capture_count: u32,
     has_named_capture_syntax: bool,
-) -> Result<ParsedAtom, RegExpCompileError> {
+) -> Result<ParsedTermAtom, RegExpCompileError> {
     let atom_offset = *offset;
     let byte = bytes[atom_offset];
     let unicode = unicode_mode.is_unicode_mode();
     if bytes.get(atom_offset..atom_offset + 2) == Some(b"\\k") {
         if !unicode && !has_named_capture_syntax {
             *offset += 2;
-            return Ok(ParsedAtom::Instruction(RegExpInstruction::literal_ascii(
-                b'k',
+            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
+                RegExpInstruction::literal_ascii(b'k'),
             )));
         }
         if bytes.get(atom_offset + 2) != Some(&b'<') {
@@ -1293,20 +1337,22 @@ fn parse_instruction_atom(
         let (name, end) =
             parse_regexp_identifier_name(bytes, atom_offset + 3, "named backreference")?;
         *offset = end;
-        return Ok(ParsedAtom::NamedBackreference {
+        return Ok(ParsedTermAtom::Ordinary(ParsedAtom::NamedBackreference {
             name,
             offset: atom_offset,
-        });
+        }));
     }
     if byte == b'\\' {
         if let Some(digit @ b'1'..=b'9') = bytes.get(atom_offset + 1).copied() {
             let capture_id = u32::from(digit - b'0');
             if capture_id <= total_capture_count {
                 *offset += 2;
-                return Ok(ParsedAtom::NumberedBackreference {
-                    capture_id,
-                    nullable: true,
-                });
+                return Ok(ParsedTermAtom::Ordinary(
+                    ParsedAtom::NumberedBackreference {
+                        capture_id,
+                        nullable: true,
+                    },
+                ));
             }
         }
     }
@@ -1317,9 +1363,9 @@ fn parse_instruction_atom(
             })?;
             let ch = source.chars().next().expect("non-empty source");
             *offset += ch.len_utf8();
-            return Ok(ParsedAtom::Instruction(
+            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
                 RegExpInstruction::literal_code_point(ch as u32),
-            ));
+            )));
         }
         let source = std::str::from_utf8(&bytes[atom_offset..]).map_err(|_| {
             RegExpCompileError::unsupported_feature(atom_offset, NON_BOUNDARY_SOURCE)
@@ -1328,15 +1374,13 @@ fn parse_instruction_atom(
         *offset += ch.len_utf8();
         let code_point = ch as u32;
         if code_point <= 0xffff {
-            return Ok(ParsedAtom::Instruction(
+            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
                 RegExpInstruction::literal_code_point(code_point),
-            ));
+            )));
         }
-        let supplementary = code_point - 0x1_0000;
-        return Ok(ParsedAtom::InstructionSequence(vec![
-            RegExpInstruction::literal_code_point(0xD800 + (supplementary >> 10)),
-            RegExpInstruction::literal_code_point(0xDC00 + (supplementary & 0x3ff)),
-        ]));
+        let pair = LegacyUtf16Pair::from_scalar(ch)
+            .expect("an astral Unicode scalar has one UTF-16 surrogate pair");
+        return Ok(ParsedTermAtom::LegacyUtf16Pair(pair));
     }
     let instruction = match byte {
         b'^' => {
@@ -1415,7 +1459,9 @@ fn parse_instruction_atom(
             RegExpInstruction::literal_ascii(byte)
         }
     };
-    Ok(ParsedAtom::Instruction(instruction))
+    Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
+        instruction,
+    )))
 }
 
 fn regexp_capture_syntax(bytes: &[u8]) -> (u32, bool) {
@@ -1465,7 +1511,6 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
                 | REGEXP_OPCODE_ASSERT_START
                 | REGEXP_OPCODE_ASSERT_END
         ),
-        ParsedAtom::InstructionSequence(_) => false,
         ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => body
             .iter()
             .any(|sequence| sequence.iter().all(|term| term_nullable(term))),
@@ -1476,25 +1521,32 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
 }
 
 fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
-    alternatives.iter().flatten().all(|term| match &term.atom {
-        ParsedAtom::Instruction(instruction) => matches!(
-            instruction.opcode,
-            REGEXP_OPCODE_LITERAL_ASCII
-                | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
-                | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
-                | REGEXP_OPCODE_DOT
-        ),
-        ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
-            lookbehind_body_supported(body)
-        }
-        ParsedAtom::InstructionSequence(_)
-        | ParsedAtom::NamedBackreference { .. }
-        | ParsedAtom::NumberedBackreference { .. }
-        | ParsedAtom::Lookbehind { .. } => false,
+    alternatives.iter().flatten().all(|term| match term {
+        ParsedTerm::Quantified { atom, .. } => match atom {
+            ParsedAtom::Instruction(instruction) => matches!(
+                instruction.opcode,
+                REGEXP_OPCODE_LITERAL_ASCII
+                    | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
+                    | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
+                    | REGEXP_OPCODE_DOT
+            ),
+            ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
+                lookbehind_body_supported(body)
+            }
+            ParsedAtom::NamedBackreference { .. }
+            | ParsedAtom::NumberedBackreference { .. }
+            | ParsedAtom::Lookbehind { .. } => false,
+        },
+        ParsedTerm::LegacyUtf16Pair { .. } => false,
     })
 }
 fn term_nullable(term: &ParsedTerm) -> bool {
-    term.quantifier.min == 0 || atom_nullable(&term.atom)
+    match term {
+        ParsedTerm::Quantified {
+            atom, quantifier, ..
+        } => quantifier.min == 0 || atom_nullable(atom),
+        ParsedTerm::LegacyUtf16Pair { .. } => false,
+    }
 }
 
 fn named_groups(captures: &[NamedCapture]) -> Result<Vec<RegExpNamedGroup>, RegExpCompileError> {
@@ -3326,7 +3378,26 @@ impl<'a> ProgramLowerer<'a> {
 
     fn sequence(&mut self, terms: &[ParsedTerm]) -> Result<(), RegExpCompileError> {
         for term in terms {
-            self.quantified(&term.atom, term.quantifier, term.quantifier_offset)?;
+            match term {
+                ParsedTerm::Quantified {
+                    atom,
+                    quantifier,
+                    quantifier_offset,
+                } => self.quantified(atom, *quantifier, *quantifier_offset)?,
+                ParsedTerm::LegacyUtf16Pair {
+                    pair,
+                    trail_quantifier,
+                    quantifier_offset,
+                } => {
+                    self.error_offset = *quantifier_offset;
+                    self.push(pair.lead_instruction())?;
+                    self.quantified(
+                        &ParsedAtom::Instruction(pair.trail_instruction()),
+                        *trail_quantifier,
+                        *quantifier_offset,
+                    )?;
+                }
+            }
         }
         Ok(())
     }
@@ -3384,12 +3455,6 @@ impl<'a> ProgramLowerer<'a> {
     fn atom(&mut self, atom: &ParsedAtom) -> Result<(), RegExpCompileError> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
-            ParsedAtom::InstructionSequence(instructions) => {
-                for instruction in instructions {
-                    self.push(*instruction)?;
-                }
-                Ok(())
-            }
             ParsedAtom::Capture {
                 id,
                 body,
@@ -3485,7 +3550,25 @@ impl<'a> ProgramLowerer<'a> {
 
     fn reverse_sequence(&mut self, terms: &[ParsedTerm]) -> Result<(), RegExpCompileError> {
         for term in terms.iter().rev() {
-            self.reverse_quantified(&term.atom, term.quantifier, term.quantifier_offset)?;
+            match term {
+                ParsedTerm::Quantified {
+                    atom,
+                    quantifier,
+                    quantifier_offset,
+                } => self.reverse_quantified(atom, *quantifier, *quantifier_offset)?,
+                ParsedTerm::LegacyUtf16Pair {
+                    pair,
+                    trail_quantifier,
+                    quantifier_offset,
+                } => {
+                    self.reverse_quantified(
+                        &ParsedAtom::Instruction(pair.trail_instruction()),
+                        *trail_quantifier,
+                        *quantifier_offset,
+                    )?;
+                    self.push(pair.lead_instruction())?;
+                }
+            }
         }
         Ok(())
     }
@@ -4506,23 +4589,53 @@ mod tests {
     }
 
     #[test]
-    fn direct_non_unicode_source_uses_utf16_code_units() {
+    fn direct_non_unicode_source_quantifies_only_its_utf16_trail_unit() {
+        let lead = RegExpInstruction::literal_code_point(0xD842);
+        let trail = RegExpInstruction::literal_code_point(0xDFB7);
         assert_eq!(
             RegExpProgram::compile("é𠮷", "").unwrap().instructions,
             vec![
                 RegExpInstruction::literal_code_point(0xE9),
-                RegExpInstruction::literal_code_point(0xD842),
-                RegExpInstruction::literal_code_point(0xDFB7),
+                lead,
+                trail,
                 RegExpInstruction::accept(),
             ]
         );
-        for pattern in ["𠮷?", "𠮷{1}", "𠮷+"] {
-            assert_eq!(
-                RegExpProgram::compile(pattern, "").unwrap_err().kind,
-                RegExpCompileErrorKind::UnsupportedFeature,
-                "{pattern}"
-            );
-        }
+        assert_eq!(
+            RegExpProgram::compile("𠮷?", "").unwrap().instructions,
+            vec![
+                lead,
+                RegExpInstruction::split(2, 3),
+                trail,
+                RegExpInstruction::accept(),
+            ]
+        );
+        assert_eq!(
+            RegExpProgram::compile("𠮷??", "").unwrap().instructions,
+            vec![
+                lead,
+                RegExpInstruction::split(3, 2),
+                trail,
+                RegExpInstruction::accept(),
+            ]
+        );
+        assert_eq!(
+            RegExpProgram::compile("𠮷{0}", "").unwrap().instructions,
+            vec![lead, RegExpInstruction::accept()]
+        );
+        assert_eq!(
+            RegExpProgram::compile("𠮷{2}", "").unwrap().instructions,
+            vec![lead, trail, trail, RegExpInstruction::accept()]
+        );
+        assert_eq!(
+            RegExpProgram::compile("𠮷?", "u").unwrap().instructions,
+            vec![
+                RegExpInstruction::split(1, 2),
+                RegExpInstruction::literal_code_point(0x20BB7),
+                RegExpInstruction::accept(),
+            ],
+            "Unicode mode quantifies the whole scalar"
+        );
     }
 
     #[test]

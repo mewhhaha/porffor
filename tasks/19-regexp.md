@@ -45,6 +45,16 @@ rule. That dependency remains in a separate shape-limited static generator fold
 whose accepted results can influence emitted IR; it must be proven against the
 Lila engine or removed.
 
+Legacy direct astral source now has a typed term boundary. A validated UTF-16
+surrogate pair cannot flow through the ordinary one-atom quantifier path: the
+exhaustive term domain makes the lead mandatory and applies a following
+quantifier only to the trail. The focused
+[contract](../docs/rust-rewrite/contracts/regexp-legacy-direct-astral-quantifier.md)
+and IR/Wasm witnesses distinguish that code-unit behavior from the whole-scalar
+`u`/`v` rule. This does not close escaped-surrogate combinations, supplementary
+case folding, the restricted lookbehind subset, or arbitrary runtime pattern
+compilation.
+
 ## Objective
 
 Implement the ECMAScript regular-expression grammar, matching model and observable object protocol for every feature in the pinned suite. Treat the current Rust regex dependency as an implementation component only where its behavior exactly matches ECMAScript; do not expose host-regex semantics as JavaScript semantics.
