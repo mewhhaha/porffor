@@ -1,5 +1,6 @@
 use super::super::*;
 use crate::data::REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION;
+use crate::runtime_helpers::{RegExpMatcherFailure, RegExpMatcherStatus};
 use lila_ir::{
     REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
     REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
@@ -31,7 +32,9 @@ impl<'a> FunctionBuilder<'a> {
     /// static-data end,
     /// 6=choice-frame scratch (fallback pc, byte cursor, UTF-16 cursor,
     /// low-surrogate state). Results are found, match start, match end, and
-    /// status (1 for a corrupt program, 2 for matcher resource exhaustion).
+    /// [`RegExpMatcherStatus`] in the final slot. The helper can only write a
+    /// status through `emit_regexp_match_result`, whose typed argument prevents
+    /// a new exit from inventing or reusing a raw ABI word.
     pub(crate) fn compile_regexp_matcher_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::RegExpMatcher);
         let input_offset = self.reserve_temp_local();
@@ -185,7 +188,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
 
@@ -218,7 +227,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         for (offset, local) in [
@@ -260,7 +275,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
@@ -311,7 +332,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(named_record_ptr));
@@ -351,7 +378,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(named_aggregate_count));
@@ -361,7 +394,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(named_candidate_count));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
@@ -387,7 +426,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(named_candidate_id));
@@ -408,7 +453,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(named_candidate_total));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -417,7 +468,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(5));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
 
@@ -429,7 +486,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
 
@@ -443,7 +506,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
 
@@ -466,7 +535,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(repeatable_split_count));
@@ -482,7 +557,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(choice_limit));
@@ -492,7 +573,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(choice_limit));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, 3, 3, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            3,
+            3,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         for local in [candidate_byte, candidate_utf16, candidate_on_low_surrogate] {
@@ -581,7 +668,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
 
@@ -636,7 +729,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(instruction_count));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         /* Capture instructions are dispatched below, after their three words
@@ -688,7 +787,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
@@ -719,7 +824,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
 
@@ -730,7 +841,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(lookbehind_frame_depth));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(lookbehind_frame_depth));
@@ -837,7 +954,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
@@ -883,7 +1006,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(reverse_mode));
@@ -953,7 +1082,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(operand0));
@@ -1020,7 +1155,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(6));
@@ -1065,7 +1206,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(named_records_ptr));
@@ -1138,7 +1285,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(named_selected_count));
@@ -1148,7 +1301,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -1188,7 +1347,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(input_len));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         self.emit_load_string_byte(input_offset, capture_byte, byte, &mut function);
@@ -1404,7 +1569,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
@@ -1596,7 +1767,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(opcode));
@@ -1686,7 +1863,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(reverse_mode));
@@ -1724,7 +1907,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(capture_address));
@@ -1781,7 +1970,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(capture_index));
@@ -1791,7 +1986,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_regexp_match_result(1, candidate_utf16, match_utf16, 0, &mut function);
+        self.emit_regexp_match_result(
+            1,
+            candidate_utf16,
+            match_utf16,
+            RegExpMatcherStatus::Complete,
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         // `Split` records the fallback before taking the primary arm. Both
@@ -1809,14 +2010,26 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(choice_depth));
         function.instruction(&Instruction::LocalGet(choice_limit));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::ResourceExhausted),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(6));
@@ -1897,7 +2110,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(instruction_count));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(operand0));
@@ -1928,7 +2147,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(match_utf16));
@@ -1994,7 +2219,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(previous_byte));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(previous_byte));
@@ -2193,7 +2424,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         // Canonical operands are part of program validation, even when the
@@ -2218,7 +2455,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2236,7 +2479,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2259,7 +2508,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(5));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 1, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -2826,7 +3081,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(input_len));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 0, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Complete,
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         self.emit_load_string_byte(input_offset, candidate_byte, byte, &mut function);
@@ -2873,12 +3134,24 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_increment_by_local(candidate_utf16, utf16_advance, &mut function);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 0, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Complete,
+            &mut function,
+        );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.emit_regexp_match_result(0, candidate_utf16, candidate_utf16, 0, &mut function);
+        self.emit_regexp_match_result(
+            0,
+            candidate_utf16,
+            candidate_utf16,
+            RegExpMatcherStatus::Complete,
+            &mut function,
+        );
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -3052,12 +3325,12 @@ impl<'a> FunctionBuilder<'a> {
         found: i64,
         start_local: u32,
         end_local: u32,
-        status: i64,
+        status: RegExpMatcherStatus,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(found));
         function.instruction(&Instruction::LocalGet(start_local));
         function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64Const(status));
+        function.instruction(&Instruction::I64Const(status.abi_word()));
     }
 }

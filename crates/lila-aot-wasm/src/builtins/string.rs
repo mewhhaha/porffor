@@ -1,4 +1,7 @@
 use super::super::*;
+use crate::runtime_helpers::{
+    RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UriCodecKind {
@@ -15720,6 +15723,89 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Turn one typed matcher failure into its promised JavaScript completion.
+    ///
+    /// Callers use this only before allocating the scratch arena or after
+    /// restoring `HEAP_PTR`, and every route hard-returns the current function.
+    /// The closed route match is the consumer of the constructor choice stored
+    /// beside each ABI word in `runtime_helpers.rs`.
+    fn emit_regexp_matcher_failure_and_return(
+        &mut self,
+        failure: RegExpMatcherFailure,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match failure.route() {
+            RegExpMatcherFailureRoute::GenericError => self.emit_throw_runtime_error(
+                ERROR_NAME,
+                failure.message(),
+                payload_local,
+                tag_local,
+                function,
+            )?,
+            RegExpMatcherFailureRoute::CurrentFunctionRealmRangeError => self
+                .emit_throw_current_function_realm_range_error(
+                    failure.message(),
+                    payload_local,
+                    tag_local,
+                    function,
+                )?,
+        }
+        self.emit_return_current_completion(function);
+        Ok(())
+    }
+
+    /// Route the helper's dynamic status only after transient matcher storage
+    /// has been rewound. `ALL` is generated from the same rows as the writer's
+    /// ABI words, so adding a failure automatically emits its comparison while
+    /// the route match above requires its error policy to remain understood.
+    fn emit_route_regexp_matcher_status_or_return(
+        &mut self,
+        status_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        for status in RegExpMatcherStatus::ALL.iter().copied() {
+            match status {
+                RegExpMatcherStatus::Complete => {}
+                RegExpMatcherStatus::Failed(failure) => {
+                    function.instruction(&Instruction::LocalGet(status_local));
+                    function.instruction(&Instruction::I64Const(status.abi_word()));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_regexp_matcher_failure_and_return(
+                        failure,
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::End);
+                }
+            }
+        }
+        // The emitted helper cannot produce another word: every one of its 45
+        // exits calls the private typed result writer. Keep the ABI boundary
+        // defensive anyway. If helper generation or call wiring is ever
+        // corrupted, an unknown nonzero word is an internal corrupt-program
+        // failure, never an implicit normal completion.
+        function.instruction(&Instruction::LocalGet(status_local));
+        function.instruction(&Instruction::I64Const(
+            RegExpMatcherStatus::Complete.abi_word(),
+        ));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::CorruptProgram,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn emit_regexp_exec_program_from_locals(
         &mut self,
@@ -16002,28 +16088,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::ResourceExhausted,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(capture_count_local));
         function.instruction(&Instruction::I64Const((u32::MAX as u64 / 16) as i64));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::ResourceExhausted,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
         // Derive and validate the full transient arena before allocating a
@@ -16052,14 +16134,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::ResourceExhausted,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(repeatable_split_count_local));
         function.instruction(&Instruction::LocalGet(scratch_len_local));
@@ -16074,14 +16154,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::ResourceExhausted,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(scratch_len_local));
         function.instruction(&Instruction::I64Const(1));
@@ -16090,14 +16168,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(scratch_len_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::ResourceExhausted,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(scratch_len_local));
         function.instruction(&Instruction::I64Const(u32::MAX as i64));
@@ -16107,14 +16183,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp matcher scratch arena exceeds the engine addressable resource limit",
+        self.emit_regexp_matcher_failure_and_return(
+            RegExpMatcherFailure::ResourceExhausted,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(scratch_len_local));
         function.instruction(&Instruction::LocalGet(frame_width_local));
@@ -16232,7 +16306,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(
+            RegExpMatcherStatus::Complete.abi_word(),
+        ));
         function.instruction(&Instruction::LocalSet(status_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -16243,7 +16319,10 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::Else);
             function.instruction(&Instruction::LocalGet(status_local));
-            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I64Const(
+                RegExpMatcherStatus::Complete.abi_word(),
+            ));
+            function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::LocalGet(found_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
@@ -16346,7 +16425,10 @@ impl<'a> FunctionBuilder<'a> {
         // range first: a later bump allocation may not initialize every byte.
         if !return_boolean {
             function.instruction(&Instruction::LocalGet(status_local));
-            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I64Const(
+                RegExpMatcherStatus::Complete.abi_word(),
+            ));
+            function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::LocalGet(found_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
@@ -16375,10 +16457,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         // Preserve a materialized result carrier only on a successful match.
-        // No-match and corrupt-program exits must also discard it.
+        // No-match and either failed-matcher exit must also discard it.
         if !return_boolean {
             function.instruction(&Instruction::LocalGet(status_local));
-            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I64Const(
+                RegExpMatcherStatus::Complete.abi_word(),
+            ));
+            function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::LocalGet(found_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
@@ -16392,19 +16477,12 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
         }
         function.instruction(&Instruction::GlobalSet(HEAP_PTR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalGet(status_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            ERROR_NAME,
-            "RegExp compiled program matcher failed",
+        self.emit_route_regexp_matcher_status_or_return(
+            status_local,
             payload_local,
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(global_local));
         function.instruction(&Instruction::LocalGet(sticky_local));

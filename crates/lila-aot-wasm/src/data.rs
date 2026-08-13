@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime_helpers::RegExpMatcherFailure;
 use icu_normalizer::{
     properties::{CanonicalCombiningClassMapBorrowed, CanonicalCompositionBorrowed},
     properties::{CanonicalDecompositionBorrowed, Decomposed},
@@ -41,8 +42,8 @@ pub(crate) const REALM_EVAL_SCRIPT_ESCAPE_MESSAGE: &str =
 /// points (`emit_throw_runtime_error`, `_to_active_handler`,
 /// `_with_prototype_local` and the four `emit_throw_current_function_realm_*`
 /// wrappers) was walked transitively through the `&str` parameters they forward
-/// through, giving 903 reachable message literals; the 125 below are the ones
-/// absent from both this file and
+/// through, giving 903 reachable message literals; the 126 below plus the two
+/// typed RegExp matcher failures are the ones absent from both this file and
 /// `builtins::intl_date_time_format_pool_strings()`.
 ///
 /// It over-approximates on purpose. A string interned twice costs nothing --
@@ -58,6 +59,10 @@ pub(crate) const REALM_EVAL_SCRIPT_ESCAPE_MESSAGE: &str =
 /// missing, the pool says so loudly at run time by name. That is the correct
 /// failure mode and it is deliberately not softened -- see the standing
 /// instruction on `emit_runtime_error_object` never to fall back to the name.
+///
+/// RegExp matcher failures are excluded from this list. Their messages are
+/// derived from [`RegExpMatcherFailure::ALL`] below, so their ABI word, error
+/// route and interned text cannot become parallel tables.
 ///
 /// The right long-term shape is one `RUNTIME_ERROR_MESSAGES` domain that the
 /// emitters index into, so "add a message" is one edit and "forgot to intern"
@@ -137,8 +142,6 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Proxy ownKeys trap result contains an extra key for a non-extensible target",
     "Proxy ownKeys trap result does not match non-extensible target",
     "Proxy ownKeys trap result must be an object",
-    "RegExp compiled program matcher failed",
-    "RegExp matcher scratch arena exceeds the engine addressable resource limit",
     "RegExp.prototype[Symbol.matchAll] receiver is not object",
     "RegExp.prototype[Symbol.replace] exec result is not an object or null",
     "RegExp.prototype[Symbol.replace] receiver is not an object",
@@ -2078,6 +2081,9 @@ impl StringPool {
         // panic this table exists to prevent.
         for value in RUNTIME_ERROR_MESSAGE_LITERALS {
             pool.intern_string(value);
+        }
+        for failure in RegExpMatcherFailure::ALL {
+            pool.intern_string(failure.message());
         }
         // Every `TemporalCalendarId` spelling and canonical form, plus every
         // `Era` code, derived from the tables the emitters read rather than
@@ -4829,6 +4835,16 @@ mod runtime_error_message_pool_tests {
                 len,
                 StringPool::runtime_bytes_for_string(value).len(),
                 "`{value}` interned with the wrong byte length"
+            );
+        }
+        for failure in RegExpMatcherFailure::ALL {
+            let message = failure.message();
+            let payload = pool.payload(message);
+            let len = (payload as u64 & 0xFFFF_FFFF) as usize;
+            assert_eq!(
+                len,
+                StringPool::runtime_bytes_for_string(message).len(),
+                "typed RegExp matcher failure message `{message}` interned with the wrong byte length"
             );
         }
     }

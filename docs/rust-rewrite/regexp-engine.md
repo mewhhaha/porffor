@@ -37,9 +37,11 @@ This is a foundation, not the complete design:
   `UnsupportedFeature`;
 - expanded programs are capped at 4096 instructions and range pools at 65536
   entries, but those limits are not yet one typed resource policy;
-- the matcher has checked scratch-address calculations, but raw numeric status
-  values are collapsed into one generic runtime error and there is no
-  deterministic execution-step budget; and
+- the matcher has checked scratch-address calculations and one closed status
+  ABI: normal completion, corrupt-program failure and scratch-resource
+  exhaustion are distinct, every result writer takes that domain, and the
+  wrapper routes the two failures only after rewinding transient storage;
+  however, there is still no deterministic execution-step budget; and
 - the `regress` crate still decides membership inside one shape-limited static
   generator-fold optimization, so an accepted result can influence emitted IR.
   That fold must eventually prove equivalence with the Lila engine or decline;
@@ -202,10 +204,49 @@ The wrapper performs no success/failure `lastIndex` write after a matcher
 resource error. Reads and coercions already required before matching remain
 observable in specification order.
 
+### Landed matcher-status slice
+
+The current helper ABI closes the first, deliberately bounded part of that
+target. `RegExpMatcherStatus` has exactly `Complete` and
+`Failed(RegExpMatcherFailure)`; the failure domain has exactly
+`CorruptProgram` and `ResourceExhausted`. One macro row source owns each
+failure's ABI word, error route and stable message, and derives both `ALL`
+views. The helper result writer accepts the typed status rather than an `i64`,
+so a new exit cannot invent or silently reuse a status word.
+
+All 45 current result writers are classified: four complete, forty corrupt
+program and one resource-exhausted. The resource row is the ordered-choice
+capacity guard. Earlier metadata/arithmetic failures remain corrupt-program
+outcomes because the wrapper has already validated and allocated the matching
+arena; reaching one means the helper and its trusted caller disagree. The six
+wrapper preflight exits use the same typed `ResourceExhausted` route rather
+than spelling their own error identity.
+
+The wrapper rewinds the scratch arena and any speculative result carrier
+before examining the returned status. `CorruptProgram` preserves the existing
+generic `Error`; `ResourceExhausted` becomes a catchable current-function-realm
+`RangeError`. Either route returns before the global/sticky `lastIndex` write.
+The two messages are interned by walking the failure domain, not repeated in a
+parallel string list.
+
+All helper writers are private and typed, so the emitted helper cannot produce
+an unknown status word. The dynamic ABI consumer nevertheless treats every
+nonzero word left after the known-failure comparisons as `CorruptProgram`.
+This final guard is deliberate defense at the Wasm boundary: a future helper
+generation or call-wiring defect cannot fall through as a normal result.
+
+This slice does **not** implement `RegExpMatchOutcome`, a step counter, the
+versioned `RegExpResourceLimits` record, iterative parsing, arbitrary runtime
+pattern compilation or a product-only reachability hook. With the present
+validated program limits and exactly sized arena, the resource status is not
+expected to be reachable from a valid program; the deterministic step-policy
+work is what must supply an honest end-to-end resource-exhaustion fixture.
+
 ## Completion sequence
 
-1. Close and validate the opcode/program/status/resource domains; replace raw
-   matcher status words and unchecked metadata tuples.
+1. Close and validate the opcode/program/status/resource domains. The matcher
+   status words and current scratch-failure routing are closed; unchecked
+   metadata tuples and the complete resource policy remain.
 2. Make the Rust parser/lowerer iterative and accept UTF-16 pattern code units.
 3. Complete grammar and bytecode semantics, including general assertions,
    UnicodeSets string members and all capture restoration.

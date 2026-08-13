@@ -13,10 +13,25 @@ growing syntax/behavior subset, plus String symbol-dispatch integration. The
 selected engine, bytecode, Unicode, backtracking and deterministic resource
 contracts are recorded in
 [`docs/rust-rewrite/regexp-engine.md`](../docs/rust-rewrite/regexp-engine.md).
-Arbitrary runtime pattern compilation, broad grammar coverage, the typed
-resource outcome and complete zero-timeout RegExp/String-regexp trees are not
-yet present. The README explicitly records broader syntax combinations as
+Arbitrary runtime pattern compilation, broad grammar coverage, the complete
+typed resource policy and complete zero-timeout RegExp/String-regexp trees are
+not yet present. The README explicitly records broader syntax combinations as
 unsupported, and focused Test262 rewrites remain.
+
+The emitted matcher now has a closed result-status ABI. All 45 result writers
+must choose normal completion, corrupt-program failure or resource exhaustion;
+the ordered-choice capacity guard is the sole current resource producer. The
+wrapper uses the same typed resource route for its six scratch-arena preflight
+failures, rewinds transient storage before routing a returned failure, and
+returns a realm-correct `RangeError` before any post-match `lastIndex` write.
+Corrupt artifacts retain their existing generic `Error`. One row source owns
+the status words, constructors and messages, including string-pool interning.
+
+This closes the raw status/current scratch-failure seam only. There is still no
+deterministic execution-step budget or unified `RegExpResourceLimits`, and the
+resource status is not expected to be reachable from a valid current program
+under the exactly sized arena. No product hook or end-to-end exhaustion claim
+is added ahead of that follow-up.
 
 The IR carries the mutually exclusive legacy, `u` and `v` grammar modes as one
 closed `RegExpUnicodeMode` from flag parsing through atom and character-class
